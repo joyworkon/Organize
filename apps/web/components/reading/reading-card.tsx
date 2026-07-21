@@ -2,27 +2,65 @@
 
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "./status-badge";
-import type { ReadingItem, ReadingStatus } from "@organize/shared";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { cn } from "@/lib/utils";
+import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2 } from "lucide-react";
+import type { MouseEvent } from "react";
 
 interface ReadingCardProps {
   item: ReadingItem;
   onStatusChange?: (id: string, status: ReadingStatus) => void;
   onDelete?: (id: string) => void;
+  /** 是否选中（批量模式下） */
+  selected?: boolean;
+  /** 选中状态变化回调；传入即启用批量模式（显示 checkbox） */
+  onSelectChange?: (id: string, selected: boolean) => void;
+  /** 是否处于批量选择模式（显式控制 checkbox 常驻显示） */
+  selectionMode?: boolean;
 }
 
-export function ReadingCard({ item, onStatusChange, onDelete }: ReadingCardProps) {
+export function ReadingCard({
+  item,
+  onStatusChange,
+  onDelete,
+  selected = false,
+  onSelectChange,
+  selectionMode = false,
+}: ReadingCardProps) {
   const cycleStatus = (current: ReadingStatus): ReadingStatus => {
     const order: ReadingStatus[] = ["unread", "reading", "read"];
     const idx = order.indexOf(current);
     return order[(idx + 1) % order.length];
   };
 
+  const showCheckbox = Boolean(onSelectChange);
+  const tags: Tag[] = item.tags || [];
+
+  // 阻止卡片内交互点击冒泡到外层 Link
+  const stop = (e: MouseEvent) => e.stopPropagation();
+
   return (
-    <Card className="group hover:shadow-md transition-all duration-200">
+    <Card
+      className={cn(
+        "group hover:shadow-md transition-all duration-200",
+        selected && "ring-2 ring-primary"
+      )}
+    >
       <CardContent className="p-4">
-        <div className="flex gap-4">
+        <div className="flex gap-3">
+          {showCheckbox && (
+            <div className="flex items-start pt-1" onClick={stop}>
+              <Checkbox
+                checked={selected}
+                onCheckedChange={(checked) => onSelectChange!(item.id, checked === true)}
+                className={cn(!selectionMode && "opacity-0 group-hover:opacity-100")}
+              />
+            </div>
+          )}
+
           {item.cover_image && (
             <div className="relative w-20 h-20 rounded-md overflow-hidden shrink-0 hidden sm:block">
               <Image
@@ -41,7 +79,13 @@ export function ReadingCard({ item, onStatusChange, onDelete }: ReadingCardProps
               <h3 className="font-medium leading-tight line-clamp-2">
                 {item.title || item.url}
               </h3>
-              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div
+                className={cn(
+                  "flex items-center gap-1 shrink-0 transition-opacity",
+                  selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                )}
+                onClick={stop}
+              >
                 <a
                   href={item.url}
                   target="_blank"
@@ -69,7 +113,7 @@ export function ReadingCard({ item, onStatusChange, onDelete }: ReadingCardProps
               </p>
             )}
 
-            <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
               <StatusBadge
                 status={item.reading_status}
                 onClick={
@@ -97,6 +141,19 @@ export function ReadingCard({ item, onStatusChange, onDelete }: ReadingCardProps
                 {new Date(item.created_at).toLocaleDateString("zh-CN")}
               </span>
             </div>
+
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2" onClick={stop}>
+                {tags.slice(0, 4).map((t) => (
+                  <TagBadge key={t.id} tag={t} />
+                ))}
+                {tags.length > 4 && (
+                  <span className="text-xs text-muted-foreground self-center">
+                    +{tags.length - 4}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
