@@ -90,3 +90,17 @@ export interface NoteTag {
   note_id: string;
   tag_id: string;
 }
+
+// ---- 分享功能（006 迁移后新增）----
+export type ShareResourceType = "note" | "reading_item";
+
+export interface Share {
+  id: string;
+  owner_id: string;
+  resource_type: ShareResourceType;
+  resource_id: string;
+  token: string;
+  is_public: boolean;
+  expires_at: string | null;
+  created_at: string;
+}

@@ -36,7 +36,8 @@ export async function middleware(request: NextRequest) {
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
+    !request.nextUrl.pathname.startsWith("/auth") &&
+    !request.nextUrl.pathname.startsWith("/s/") // 公开分享页：/s/[token]
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "./status-badge";
 import { TagBadge } from "@/components/tags/tag-badge";
+import { ShareDialog } from "@/components/share/share-dialog";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2 } from "lucide-react";
@@ -95,6 +96,11 @@ export function ReadingCard({
                 >
                   <ExternalLink className="h-4 w-4 text-muted-foreground" />
                 </a>
+                <ShareDialog
+                  resourceType="reading_item"
+                  resourceId={item.id}
+                  triggerSize="icon"
+                />
                 {onDelete && (
                   <button
                     onClick={() => onDelete(item.id)}

@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Note } from "@organize/shared";
 import { Plus, Search, FileText, Trash2, ArrowUpDown, Link2 } from "lucide-react";
+import { ShareDialog } from "@/components/share/share-dialog";
 import Link from "next/link";
 
 type SortField = "updated_at" | "created_at" | "title";
@@ -174,12 +175,18 @@ export default function NotesPage() {
                     <h3 className="font-medium line-clamp-1">
                       {note.title || "无标题"}
                     </h3>
-                    <button
-                      onClick={(e) => deleteNote(note.id, e)}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent"
+                    <div
+                      className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                    </button>
+                      <ShareDialog resourceType="note" resourceId={note.id} triggerSize="sm" />
+                      <button
+                        onClick={(e) => deleteNote(note.id, e)}
+                        className="p-1 rounded hover:bg-accent"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                      </button>
+                    </div>
                   </div>
                   {/* 关联阅读条目 */}
                   {note.reading_item && (
