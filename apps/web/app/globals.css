@@ -1,0 +1,193 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ------------------------- 编辑器 Notion 风格 ------------------------- */
+
+/* 待办列表（TaskList）样式 */
+.organize-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.5rem 0;
+}
+.organize-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+.organize-editor ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+  user-select: none;
+}
+.organize-editor ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+.organize-editor ul[data-type="taskList"] input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: hsl(var(--primary));
+}
+.organize-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+}
+
+/* 占位符（空文档提示） */
+.organize-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+/* 选中块的高亮反馈 */
+.organize-editor .ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--primary) / 0.4);
+  border-radius: 4px;
+}
+
+/* ------------------------- 折叠列表（Details） ------------------------- */
+.organize-editor details {
+  margin: 0.5rem 0;
+  border-radius: 6px;
+}
+.organize-editor details summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.25rem 0;
+  list-style: none;
+  user-select: none;
+}
+.organize-editor details summary::-webkit-details-marker {
+  display: none;
+}
+.organize-editor details summary::before {
+  content: "▶";
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 0.7em;
+  color: hsl(var(--muted-foreground));
+  transition: transform 0.15s ease;
+}
+.organize-editor details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.organize-editor details > [data-details-content] {
+  padding-left: 1.25rem;
+  margin-top: 0.25rem;
+}
+
+/* ------------------------- 标注（Callout） ------------------------- */
+.organize-editor div[data-callout] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  background: hsl(var(--muted));
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  margin: 0.75rem 0;
+}
+.organize-editor div[data-callout] .callout-emoji {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.organize-editor div[data-callout] .callout-content {
+  flex: 1;
+  min-width: 0;
+}
+.organize-editor div[data-callout] .callout-content > p {
+  margin: 0;
+}
+
+/* ------------------------- 公式（KaTeX） ------------------------- */
+.organize-editor .math-inline {
+  display: inline-block;
+  padding: 0 0.125rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.organize-editor .math-block {
+  display: block;
+  text-align: center;
+  padding: 0.75rem 0.5rem;
+  margin: 0.75rem 0;
+  cursor: pointer;
+  overflow-x: auto;
+  border-radius: 6px;
+}
+.organize-editor .math-inline:hover,
+.organize-editor .math-block:hover {
+  background: hsl(var(--accent));
+}
+
+/* ------------------------- 列布局（Columns） ------------------------- */
+.organize-editor div[data-columns] {
+  margin: 0.75rem 0;
+}
+.organize-editor div[data-columns] > div[data-column] {
+  min-width: 0;
+}
+.organize-editor div[data-columns] > div[data-column] > * {
+  margin-top: 0;
+}

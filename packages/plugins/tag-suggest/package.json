@@ -1,0 +1,23 @@
+{
+  "name": "@organize/plugin-tag-suggest",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf node_modules"
+  },
+  "dependencies": {
+    "@organize/plugin-sdk": "workspace:*",
+    "@organize/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "react": "^18.3.1",
+    "typescript": "^5.5.4"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  }
+}
