@@ -69,3 +69,24 @@ export const READING_STATUS_CONFIG: Record<
   reading: { label: "在读", color: "bg-blue-100 text-blue-800" },
   read: { label: "已读", color: "bg-green-100 text-green-800" },
 };
+
+// ---- 标签系统扩展（005 迁移后新增）----
+// 可被打标签的资源类型
+export type TaggableResource = "note" | "reading_item";
+
+// 带标签的笔记（扩展 Note，不修改原接口避免和其它分支冲突）
+export interface NoteWithTags extends Note {
+  tags?: Tag[];
+}
+
+// 带使用计数的标签（用于标签管理/筛选 UI）
+export interface TagWithCount extends Tag {
+  note_count?: number;
+  reading_item_count?: number;
+}
+
+// 笔记-标签关联记录
+export interface NoteTag {
+  note_id: string;
+  tag_id: string;
+}
