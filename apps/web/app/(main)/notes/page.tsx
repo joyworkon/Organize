@@ -11,6 +11,7 @@ import { Plus, Search, FileText, Trash2, ArrowUpDown, Link2, Pin } from "lucide-
 import { ShareDialog } from "@/components/share/share-dialog";
 import { ExportButton } from "@/components/share/export-button";
 import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
+import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import Link from "next/link";
 
 type SortField = "updated_at" | "created_at" | "title";
@@ -217,6 +218,12 @@ export default function NotesPage() {
                         />
                       </button>
                       <ExportButton noteId={note.id} title={note.title || undefined} size="sm" />
+                      <AutoTagDialog
+                        resourceType="note"
+                        resourceId={note.id}
+                        triggerSize="sm"
+                        onApplied={() => fetchNotes()}
+                      />
                       <NoteHistoryDialog noteId={note.id} triggerSize="sm" />
                       <ShareDialog resourceType="note" resourceId={note.id} triggerSize="sm" />
                       <button

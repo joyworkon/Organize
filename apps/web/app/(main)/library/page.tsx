@@ -236,6 +236,24 @@ export default function LibraryPage() {
     }
   };
 
+  // ---------- AI 标签应用后刷新本地 ----------
+  const handleTagsApplied = (id: string, tagNames: string[]) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const existingNames = new Set((it.tags || []).map((t) => t.name));
+        const newTags = [
+          ...(it.tags || []),
+          ...tagNames
+            .filter((n) => !existingNames.has(n))
+            .map((n) => ({ id: `temp:${n}`, user_id: it.user_id, name: n })),
+        ];
+        return { ...it, tags: newTags };
+      })
+    );
+    refreshTags();
+  };
+
   // ---------- 批量选择 ----------
   const toggleSelect = (id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -504,6 +522,7 @@ export default function LibraryPage() {
                 onSelectChange={selectionModeActive ? toggleSelect : undefined}
                 selectionMode={selectionMode}
                 onTogglePin={togglePin}
+                onTagsApplied={handleTagsApplied}
               />
             </Link>
           )}

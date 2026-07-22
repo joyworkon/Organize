@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "./status-badge";
 import { TagBadge } from "@/components/tags/tag-badge";
+import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
@@ -23,6 +24,8 @@ interface ReadingCardProps {
   selectionMode?: boolean;
   /** 置顶状态切换回调 */
   onTogglePin?: (id: string, pinned: boolean) => void;
+  /** AI 自动打标签后回调（父组件刷新标签展示） */
+  onTagsApplied?: (id: string, tagNames: string[]) => void;
 }
 
 export function ReadingCard({
@@ -33,6 +36,7 @@ export function ReadingCard({
   onSelectChange,
   selectionMode = false,
   onTogglePin,
+  onTagsApplied,
 }: ReadingCardProps) {
   const cycleStatus = (current: ReadingStatus): ReadingStatus => {
     const order: ReadingStatus[] = ["unread", "reading", "read"];
@@ -116,6 +120,12 @@ export function ReadingCard({
                 >
                   <ExternalLink className="h-4 w-4 text-muted-foreground" />
                 </a>
+                <AutoTagDialog
+                  resourceType="reading_item"
+                  resourceId={item.id}
+                  triggerSize="icon"
+                  onApplied={(names) => onTagsApplied?.(item.id, names)}
+                />
                 <ShareDialog
                   resourceType="reading_item"
                   resourceId={item.id}

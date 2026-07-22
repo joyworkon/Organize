@@ -24,6 +24,7 @@ export default function TagsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // 重命名对话框
   const [renameTarget, setRenameTarget] = useState<TagWithCount | null>(null);
@@ -58,17 +59,22 @@ export default function TagsPage() {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const res = await fetch("/api/tags", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      if (res.ok) {
-        setNewName("");
-        setCreateOpen(false);
-        await fetchTags();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `创建失败（${res.status}）`);
       }
+      setNewName("");
+      setCreateOpen(false);
+      await fetchTags();
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "创建失败");
     } finally {
       setCreating(false);
     }
@@ -129,11 +135,17 @@ export default function TagsPage() {
             <Input
               placeholder="标签名（最长 32 字符）"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                setNewName(e.target.value);
+                setCreateError(null);
+              }}
               maxLength={32}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               autoFocus
             />
+            {createError && (
+              <p className="text-sm text-destructive">{createError}</p>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>
                 取消
