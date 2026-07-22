@@ -4,14 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Note } from "@organize/shared";
-import { Plus, Search, FileText, Trash2, ArrowUpDown, Link2, Pin } from "lucide-react";
-import { ShareDialog } from "@/components/share/share-dialog";
-import { ExportButton } from "@/components/share/export-button";
-import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
-import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
+import { Plus, Search, FileText, ArrowUpDown } from "lucide-react";
+import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { LayoutGrid, List as ListIcon, CheckSquare, X, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 type SortField = "updated_at" | "created_at" | "title";
@@ -25,6 +23,11 @@ export default function NotesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // 视图：卡片 / 列表
+  const [view, setView] = useState<NoteViewMode>("card");
+  // 批量选择
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const supabase = createClient();
 
   const fetchNotes = useCallback(async () => {
@@ -92,13 +95,50 @@ export default function NotesPage() {
     }
   };
 
-  const deleteNote = async (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const deleteNote = async (id: string) => {
+    if (!confirm("确定删除这篇笔记？此操作不可撤销。")) return;
     const { error } = await supabase.from("notes").delete().eq("id", id);
     if (!error) {
       setNotes((prev) => prev.filter((n) => n.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
+  };
+
+  // ---------- 批量删除 ----------
+  const batchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
+    const ids = Array.from(selectedIds);
+    const { error } = await supabase.from("notes").delete().in("id", ids);
+    if (!error) {
+      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+    }
+  };
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const selectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      notes.forEach((n) => next.add(n.id));
+      return next;
+    });
+  };
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
@@ -163,8 +203,71 @@ export default function NotesPage() {
           >
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
+
+          {/* 视图切换 */}
+          <div className="flex items-center rounded-md border overflow-hidden">
+            <button
+              onClick={() => setView("card")}
+              className={cn(
+                "p-1.5 transition-colors",
+                view === "card" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+              )}
+              title="卡片视图"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={cn(
+                "p-1.5 transition-colors",
+                view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+              )}
+              title="列表视图"
+            >
+              <ListIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* 批量按钮 */}
+          <Button
+            variant={selectionMode ? "default" : "outline"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              setSelectionMode(!selectionMode);
+              if (selectionMode) setSelectedIds(new Set());
+            }}
+          >
+            <CheckSquare className="h-3.5 w-3.5" />
+            批量
+          </Button>
         </div>
       </div>
+
+      {/* 批量操作浮动条 */}
+      {(selectionMode || selectedIds.size > 0) && (
+        <div className="sticky top-0 z-30 -mx-4 px-4 py-2 bg-background/95 backdrop-blur border-b flex items-center gap-2">
+          <Checkbox
+            checked={notes.length > 0 && notes.every((n) => selectedIds.has(n.id))}
+            onCheckedChange={(c) => (c ? selectAllVisible() : clearSelection())}
+          />
+          <span className="text-sm font-medium">已选 {selectedIds.size} 项</span>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="destructive"
+            className="gap-1.5"
+            onClick={batchDelete}
+            disabled={selectedIds.size === 0}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            删除
+          </Button>
+          <Button size="sm" variant="ghost" onClick={clearSelection}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* 笔记列表 */}
       {loading ? (
@@ -179,74 +282,36 @@ export default function NotesPage() {
             </Button>
           )}
         </div>
+      ) : view === "list" ? (
+        <div className="grid gap-2">
+          {notes.map((note) => (
+            <NoteCard
+              key={note.id}
+              note={note}
+              view="list"
+              selected={selectedIds.has(note.id)}
+              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
+              selectionMode={selectionMode}
+              onTogglePin={togglePin}
+              onDelete={deleteNote}
+              onTagsApplied={() => fetchNotes()}
+            />
+          ))}
+        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
-            <Link key={note.id} href={`/notes/${note.id}`}>
-              <Card
-                className={cn(
-                  "group hover:shadow-md transition-shadow h-full",
-                  note.is_pinned && "border-primary/40 bg-primary/5"
-                )}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <h3 className="font-medium line-clamp-1">
-                      {note.title || "无标题"}
-                    </h3>
-                    <div
-                      className={cn(
-                        "flex items-center gap-0.5 transition-opacity",
-                        note.is_pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                      )}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          togglePin(note.id, !note.is_pinned);
-                        }}
-                        className={cn(
-                          "p-1 rounded hover:bg-accent",
-                          note.is_pinned ? "text-primary" : "text-muted-foreground"
-                        )}
-                        title={note.is_pinned ? "取消置顶" : "置顶"}
-                      >
-                        <Pin
-                          className={cn("h-3.5 w-3.5", note.is_pinned && "fill-primary")}
-                        />
-                      </button>
-                      <ExportButton noteId={note.id} title={note.title || undefined} size="sm" />
-                      <AutoTagDialog
-                        resourceType="note"
-                        resourceId={note.id}
-                        triggerSize="sm"
-                        onApplied={() => fetchNotes()}
-                      />
-                      <NoteHistoryDialog noteId={note.id} triggerSize="sm" />
-                      <ShareDialog resourceType="note" resourceId={note.id} triggerSize="sm" />
-                      <button
-                        onClick={(e) => deleteNote(note.id, e)}
-                        className="p-1 rounded hover:bg-accent"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                      </button>
-                    </div>
-                  </div>
-                  {/* 关联阅读条目 */}
-                  {note.reading_item && (
-                    <p className="text-xs text-primary/70 mt-1.5 flex items-center gap-1 line-clamp-1">
-                      <Link2 className="h-3 w-3 shrink-0" />
-                      {(note.reading_item as any).title || (note.reading_item as any).url}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {new Date(note.updated_at).toLocaleString("zh-CN")}
-                  </p>
-                </CardContent>
-              </Card>
-            </Link>
+            <NoteCard
+              key={note.id}
+              note={note}
+              view="card"
+              selected={selectedIds.has(note.id)}
+              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
+              selectionMode={selectionMode}
+              onTogglePin={togglePin}
+              onDelete={deleteNote}
+              onTagsApplied={() => fetchNotes()}
+            />
           ))}
         </div>
       )}

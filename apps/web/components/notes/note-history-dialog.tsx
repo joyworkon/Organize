@@ -24,14 +24,24 @@ interface NoteHistoryDialogProps {
   noteId: string;
   triggerSize?: "icon" | "sm";
   iconOnly?: boolean;
+  /** 受控状态（可选） */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function NoteHistoryDialog({
   noteId,
   triggerSize = "icon",
   iconOnly = true,
+  open: openProp,
+  onOpenChange,
 }: NoteHistoryDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    setInternalOpen(v);
+    onOpenChange?.(v);
+  };
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -76,20 +86,22 @@ export function NoteHistoryDialog({
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size={triggerSize}
-        className="gap-1.5"
-        title="历史版本"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpen(true);
-        }}
-      >
-        <History className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
-        {!iconOnly && "历史"}
-      </Button>
+      {openProp === undefined && (
+        <Button
+          variant="ghost"
+          size={triggerSize}
+          className="gap-1.5"
+          title="历史版本"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(true);
+          }}
+        >
+          <History className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
+          {!iconOnly && "历史"}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">

@@ -28,6 +28,9 @@ interface AutoTagDialogProps {
   triggerSize?: "icon" | "sm";
   triggerVariant?: "ghost" | "outline";
   iconOnly?: boolean;
+  /** 受控状态（可选） */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function AutoTagDialog({
@@ -37,8 +40,15 @@ export function AutoTagDialog({
   triggerSize = "icon",
   triggerVariant = "ghost",
   iconOnly = true,
+  open: openProp,
+  onOpenChange,
 }: AutoTagDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    setInternalOpen(v);
+    onOpenChange?.(v);
+  };
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -126,20 +136,22 @@ export function AutoTagDialog({
 
   return (
     <>
-      <Button
-        variant={triggerVariant}
-        size={triggerSize}
-        className="gap-1.5"
-        title="AI 自动打标签"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenChange(true);
-        }}
-      >
-        <Sparkles className={cn(iconOnly ? "h-4 w-4" : "h-3.5 w-3.5", "text-purple-500")} />
-        {!iconOnly && "AI 标签"}
-      </Button>
+      {openProp === undefined && (
+        <Button
+          variant={triggerVariant}
+          size={triggerSize}
+          className="gap-1.5"
+          title="AI 自动打标签"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleOpenChange(true);
+          }}
+        >
+          <Sparkles className={cn(iconOnly ? "h-4 w-4" : "h-3.5 w-3.5", "text-purple-500")} />
+          {!iconOnly && "AI 标签"}
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-md">

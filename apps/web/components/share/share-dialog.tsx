@@ -22,6 +22,9 @@ interface ShareDialogProps {
   triggerLabel?: string;
   /** 只显示图标不显示文字 */
   iconOnly?: boolean;
+  /** 受控打开状态（可选）。不传则内部自管理 */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 interface ShareInfo {
@@ -37,8 +40,15 @@ export function ShareDialog({
   triggerSize = "icon",
   triggerLabel,
   iconOnly = true,
+  open: openProp,
+  onOpenChange,
 }: ShareDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    setInternalOpen(v);
+    onOpenChange?.(v);
+  };
   const [share, setShare] = useState<ShareInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -120,22 +130,23 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button
-        variant={triggerVariant}
-        size={triggerSize}
-        className="gap-1.5"
-        title="分享"
-        onClick={(e) => {
-          // 阻止事件冒泡/默认行为，避免触发外层 <Link> 的导航
-          e.preventDefault();
-          e.stopPropagation();
-          // 手动打开对话框（不能用 DialogTrigger，因为 Radix 在 defaultPrevented 时不会开）
-          setOpen(true);
-        }}
+      {/* 受控模式下不渲染触发器（由父组件控制开关） */}
+      {openProp === undefined && (
+        <Button
+          variant={triggerVariant}
+          size={triggerSize}
+          className="gap-1.5"
+          title="分享"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(true);
+          }}
         >
           <Share2 className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
           {!iconOnly && (triggerLabel || "分享")}
         </Button>
+      )}
       <DialogContent onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>分享</DialogTitle>

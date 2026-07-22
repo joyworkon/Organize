@@ -1,0 +1,286 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import type { Note } from "@organize/shared";
+import {
+  Pin,
+  MoreVertical,
+  Download,
+  Sparkles,
+  History,
+  Share2,
+  Trash2,
+  Link2,
+} from "lucide-react";
+import { ShareDialog } from "@/components/share/share-dialog";
+import { exportNoteToMarkdown } from "@/components/share/export-button";
+import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
+import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
+
+export type NoteViewMode = "card" | "list";
+
+type DialogKind = "export" | "autotag" | "history" | "share" | null;
+
+interface NoteCardProps {
+  note: Note;
+  view: NoteViewMode;
+  selected?: boolean;
+  onSelectChange?: (id: string, checked: boolean) => void;
+  selectionMode?: boolean;
+  onTogglePin?: (id: string, pinned: boolean) => void;
+  onDelete?: (id: string) => void;
+  onTagsApplied?: (id: string, names: string[]) => void;
+}
+
+/**
+ * 笔记卡片/列表项。
+ *
+ * 设计：常驻图标只保留 Pin（置顶时显示）+ 更多菜单（⋯）。
+ * 导出/AI标签/历史/分享/删除收进更多菜单。
+ * 对话框统一用受控状态管理（避免 Radix DropdownMenu 自动关闭导致 Dialog 打不开）。
+ */
+export function NoteCard({
+  note,
+  view,
+  selected = false,
+  onSelectChange,
+  selectionMode = false,
+  onTogglePin,
+  onDelete,
+  onTagsApplied,
+}: NoteCardProps) {
+  const showCheckbox = Boolean(onSelectChange);
+  const [dialog, setDialog] = useState<DialogKind>(null);
+
+  const stop = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const Title = (
+    <h3
+      className={cn(
+        "font-medium leading-snug",
+        view === "card" ? "line-clamp-2" : "line-clamp-1 flex-1 min-w-0"
+      )}
+    >
+      {note.title || "无标题"}
+    </h3>
+  );
+
+  // 受控的对话框组：菜单点击时设状态，对应 Dialog 打开
+  const Dialogs = (
+    <>
+      <AutoTagDialog
+        resourceType="note"
+        resourceId={note.id}
+        triggerSize="sm"
+        onApplied={(names) => {
+          onTagsApplied?.(note.id, names);
+          setDialog(null);
+        }}
+        open={dialog === "autotag"}
+        onOpenChange={(o) => setDialog(o ? "autotag" : null)}
+      />
+
+      <NoteHistoryDialog
+        noteId={note.id}
+        triggerSize="sm"
+        open={dialog === "history"}
+        onOpenChange={(o) => setDialog(o ? "history" : null)}
+      />
+
+      <ShareDialog
+        resourceType="note"
+        resourceId={note.id}
+        triggerSize="sm"
+        open={dialog === "share"}
+        onOpenChange={(o) => setDialog(o ? "share" : null)}
+      />
+    </>
+  );
+
+  const MoreMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          onClick={stop}
+          className={cn(
+            "p-1 rounded hover:bg-accent text-muted-foreground shrink-0",
+            !selectionMode && "opacity-0 group-hover:opacity-100"
+          )}
+          title="更多操作"
+        >
+          <MoreVertical className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" onClick={stop}>
+        {onTogglePin && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin(note.id, !note.is_pinned);
+            }}
+          >
+            <Pin className="h-3.5 w-3.5 mr-2" />
+            {note.is_pinned ? "取消置顶" : "置顶"}
+          </DropdownMenuItem>
+        )}
+
+        {/* 导出：直接调 exportNoteToMarkdown（内部拉数据+下载） */}
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            exportNoteToMarkdown(note.id, note.title || undefined);
+          }}
+        >
+          <Download className="h-3.5 w-3.5 mr-2" />
+          导出 Markdown
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            setDialog("autotag");
+          }}
+        >
+          <Sparkles className="h-3.5 w-3.5 mr-2 text-purple-500" />
+          AI 自动打标签
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            setDialog("history");
+          }}
+        >
+          <History className="h-3.5 w-3.5 mr-2" />
+          历史版本
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            setDialog("share");
+          }}
+        >
+          <Share2 className="h-3.5 w-3.5 mr-2" />
+          分享
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.(note.id);
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-2" />
+          删除
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const CheckboxEl = showCheckbox && (
+    <div onClick={stop} className="flex items-center">
+      <Checkbox
+        checked={selected}
+        onCheckedChange={(c) => onSelectChange!(note.id, c === true)}
+        className={cn(!selectionMode && "opacity-0 group-hover:opacity-100")}
+      />
+    </div>
+  );
+
+  // ---- 列表视图：一行紧凑 ----
+  if (view === "list") {
+    return (
+      <>
+        <Card
+          className={cn(
+            "group hover:shadow-sm transition-shadow",
+            selected && "ring-2 ring-primary",
+            note.is_pinned && "border-primary/30 bg-primary/5"
+          )}
+        >
+          <CardContent className="p-3 flex items-center gap-3">
+            {CheckboxEl}
+            {note.is_pinned && (
+              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
+            )}
+            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0 flex items-center gap-2">
+              {Title}
+              {note.reading_item && (
+                <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0 max-w-[30%]">
+                  <Link2 className="h-3 w-3" />
+                  <span className="truncate">
+                    {(note.reading_item as any).title || (note.reading_item as any).url}
+                  </span>
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground shrink-0">
+                {new Date(note.updated_at).toLocaleDateString("zh-CN")}
+              </span>
+            </Link>
+            <div className="flex items-center gap-0.5 shrink-0">
+              {MoreMenu}
+            </div>
+          </CardContent>
+        </Card>
+        {Dialogs}
+      </>
+    );
+  }
+
+  // ---- 卡片视图（默认）----
+  return (
+    <>
+      <Card
+        className={cn(
+          "group hover:shadow-md transition-shadow h-full flex flex-col",
+          selected && "ring-2 ring-primary",
+          note.is_pinned && "border-primary/30 bg-primary/5"
+        )}
+      >
+        <CardContent className="p-4 flex-1">
+          <div className="flex items-center gap-2">
+            {CheckboxEl}
+            {note.is_pinned && (
+              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
+            )}
+            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0">
+              {Title}
+            </Link>
+            {MoreMenu}
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+            {note.reading_item && (
+              <span className="flex items-center gap-1 line-clamp-1">
+                <Link2 className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {(note.reading_item as any).title || (note.reading_item as any).url}
+                </span>
+              </span>
+            )}
+            <span className="shrink-0">{new Date(note.updated_at).toLocaleDateString("zh-CN")}</span>
+          </div>
+        </CardContent>
+      </Card>
+      {Dialogs}
+      {Dialogs}
+    </>
+  );
+}

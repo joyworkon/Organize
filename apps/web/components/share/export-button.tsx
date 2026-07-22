@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { tiptapJsonToMarkdown, downloadMarkdown } from "@/lib/export/tiptap-to-md";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { Note } from "@organize/shared";
 
 interface ExportButtonProps {
   noteId: string;
@@ -18,8 +17,30 @@ interface ExportButtonProps {
 }
 
 /**
- * 导出笔记为 Markdown 文件。
- * 因为列表页只拿得到 noteId，这里自己拉一次完整 content。
+ * 导出单篇笔记为 Markdown。内部封装：拉数据 → 转 MD → 触发下载。
+ * 可直接调用，不需要渲染按钮（供菜单项复用）。
+ */
+export async function exportNoteToMarkdown(noteId: string, fallbackTitle?: string) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("notes")
+    .select("title, content")
+    .eq("id", noteId)
+    .maybeSingle();
+  if (error || !data) {
+    console.error("导出失败", error);
+    throw new Error("导出失败");
+  }
+  const md = tiptapJsonToMarkdown(
+    data.content as Record<string, unknown> | null,
+    data.title || fallbackTitle || "无标题"
+  );
+  const filename = (data.title || fallbackTitle || "note").replace(/[\\/:*?"<>|]/g, "_");
+  downloadMarkdown(filename, md);
+}
+
+/**
+ * 导出按钮（卡片直接渲染场景）。
  */
 export function ExportButton({
   noteId,
@@ -29,28 +50,13 @@ export function ExportButton({
   triggerVariant = "ghost",
 }: ExportButtonProps) {
   const [loading, setLoading] = useState(false);
-  const supabase = createClient();
 
   const handleExport = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("notes")
-        .select("title, content")
-        .eq("id", noteId)
-        .maybeSingle();
-      if (error || !data) {
-        console.error("导出失败", error);
-        return;
-      }
-      const md = tiptapJsonToMarkdown(
-        data.content as Record<string, unknown> | null,
-        data.title || title || "无标题"
-      );
-      const filename = (data.title || title || "note").replace(/[\\/:*?"<>|]/g, "_");
-      downloadMarkdown(filename, md);
+      await exportNoteToMarkdown(noteId, title);
     } finally {
       setLoading(false);
     }
