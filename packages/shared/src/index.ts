@@ -15,6 +15,7 @@ export interface ReadingItem {
   created_at: string;
   updated_at: string;
   tags?: Tag[];
+  is_pinned?: boolean;
 }
 
 // 笔记
@@ -27,6 +28,7 @@ export interface Note {
   created_at: string;
   updated_at: string;
   reading_item?: ReadingItem;
+  is_pinned?: boolean;
 }
 
 // 笔记编辑器块上下文

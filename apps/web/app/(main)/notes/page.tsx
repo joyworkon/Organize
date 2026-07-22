@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Note } from "@organize/shared";
-import { Plus, Search, FileText, Trash2, ArrowUpDown, Link2 } from "lucide-react";
+import { Plus, Search, FileText, Trash2, ArrowUpDown, Link2, Pin } from "lucide-react";
 import { ShareDialog } from "@/components/share/share-dialog";
+import { ExportButton } from "@/components/share/export-button";
 import Link from "next/link";
 
 type SortField = "updated_at" | "created_at" | "title";
@@ -36,6 +37,8 @@ export default function NotesPage() {
       .from("notes")
       .select("*, reading_item:reading_items(id, title, url)")
       .eq("user_id", user.id)
+      // 置顶项在前，再按用户选择的字段排序
+      .order("is_pinned", { ascending: false })
       .order(sortBy, { ascending: sortOrder === "asc" });
 
     if (search.trim()) {
@@ -93,6 +96,15 @@ export default function NotesPage() {
     const { error } = await supabase.from("notes").delete().eq("id", id);
     if (!error) {
       setNotes((prev) => prev.filter((n) => n.id !== id));
+    }
+  };
+
+  const togglePin = async (id: string, pinned: boolean) => {
+    // 乐观更新
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: pinned } : n)));
+    const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
+    if (error) {
+      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: !pinned } : n)));
     }
   };
 
@@ -169,16 +181,41 @@ export default function NotesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
             <Link key={note.id} href={`/notes/${note.id}`}>
-              <Card className="group hover:shadow-md transition-shadow h-full">
+              <Card
+                className={cn(
+                  "group hover:shadow-md transition-shadow h-full",
+                  note.is_pinned && "border-primary/40 bg-primary/5"
+                )}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <h3 className="font-medium line-clamp-1">
                       {note.title || "无标题"}
                     </h3>
                     <div
-                      className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className={cn(
+                        "flex items-center gap-0.5 transition-opacity",
+                        note.is_pinned ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePin(note.id, !note.is_pinned);
+                        }}
+                        className={cn(
+                          "p-1 rounded hover:bg-accent",
+                          note.is_pinned ? "text-primary" : "text-muted-foreground"
+                        )}
+                        title={note.is_pinned ? "取消置顶" : "置顶"}
+                      >
+                        <Pin
+                          className={cn("h-3.5 w-3.5", note.is_pinned && "fill-primary")}
+                        />
+                      </button>
+                      <ExportButton noteId={note.id} title={note.title || undefined} size="sm" />
                       <ShareDialog resourceType="note" resourceId={note.id} triggerSize="sm" />
                       <button
                         onClick={(e) => deleteNote(note.id, e)}

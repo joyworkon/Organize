@@ -116,10 +116,21 @@ export default function LibraryPage() {
         .eq("user_id", user.id);
 
       if (filter !== "all") query = query.eq("reading_status", filter);
-      if (search.trim()) query = query.ilike("title", `%${search.trim()}%`);
+      // 全文搜索：同时匹配标题、摘要、正文
+      const q = search.trim();
+      if (q) {
+        // 转义用户输入里的特殊字符，避免破坏 or 语法
+        const safeQ = q.replace(/[,()\\]/g, " ");
+        query = query.or(
+          `title.ilike.%${safeQ}%,excerpt.ilike.%${safeQ}%,content.ilike.%${safeQ}%`
+        );
+      }
       if (scopedIds) query = query.in("id", scopedIds);
 
-      query = query.order(sortBy, { ascending: sortOrder === "asc" });
+      // 置顶项永远在前，再按用户选择的字段排序
+      query = query
+        .order("is_pinned", { ascending: false })
+        .order(sortBy, { ascending: sortOrder === "asc" });
 
       const offset = append ? itemsLenRef.current : 0;
       query = query.range(offset, offset + PAGE_SIZE - 1);
@@ -204,6 +215,24 @@ export default function LibraryPage() {
         return next;
       });
       fetchStats();
+    }
+  };
+
+  // ---------- 置顶 ----------
+  const togglePin = async (id: string, pinned: boolean) => {
+    // 乐观更新
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, is_pinned: pinned } : it))
+    );
+    const { error } = await supabase
+      .from("reading_items")
+      .update({ is_pinned: pinned })
+      .eq("id", id);
+    if (error) {
+      // 回滚
+      setItems((prev) =>
+        prev.map((it) => (it.id === id ? { ...it, is_pinned: !pinned } : it))
+      );
     }
   };
 
@@ -474,6 +503,7 @@ export default function LibraryPage() {
                 selected={selectedIds.has(item.id)}
                 onSelectChange={selectionModeActive ? toggleSelect : undefined}
                 selectionMode={selectionMode}
+                onTogglePin={togglePin}
               />
             </Link>
           )}
@@ -489,6 +519,7 @@ export default function LibraryPage() {
                 selected={selectedIds.has(item.id)}
                 onSelectChange={selectionModeActive ? toggleSelect : undefined}
                 selectionMode={selectionMode}
+                onTogglePin={togglePin}
               />
             </Link>
           ))}

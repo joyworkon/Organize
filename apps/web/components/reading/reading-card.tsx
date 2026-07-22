@@ -8,7 +8,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
-import { ExternalLink, Trash2 } from "lucide-react";
+import { ExternalLink, Trash2, Pin } from "lucide-react";
 import type { MouseEvent } from "react";
 
 interface ReadingCardProps {
@@ -21,6 +21,8 @@ interface ReadingCardProps {
   onSelectChange?: (id: string, selected: boolean) => void;
   /** 是否处于批量选择模式（显式控制 checkbox 常驻显示） */
   selectionMode?: boolean;
+  /** 置顶状态切换回调 */
+  onTogglePin?: (id: string, pinned: boolean) => void;
 }
 
 export function ReadingCard({
@@ -30,6 +32,7 @@ export function ReadingCard({
   selected = false,
   onSelectChange,
   selectionMode = false,
+  onTogglePin,
 }: ReadingCardProps) {
   const cycleStatus = (current: ReadingStatus): ReadingStatus => {
     const order: ReadingStatus[] = ["unread", "reading", "read"];
@@ -47,7 +50,8 @@ export function ReadingCard({
     <Card
       className={cn(
         "group hover:shadow-md transition-all duration-200",
-        selected && "ring-2 ring-primary"
+        selected && "ring-2 ring-primary",
+        item.is_pinned && "border-primary/40 bg-primary/5"
       )}
     >
       <CardContent className="p-4">
@@ -83,10 +87,26 @@ export function ReadingCard({
               <div
                 className={cn(
                   "flex items-center gap-1 shrink-0 transition-opacity",
-                  selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  selectionMode
+                    ? "opacity-100"
+                    : item.is_pinned
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100"
                 )}
                 onClick={stop}
               >
+                {onTogglePin && (
+                  <button
+                    onClick={() => onTogglePin(item.id, !item.is_pinned)}
+                    className={cn(
+                      "p-1.5 rounded hover:bg-accent",
+                      item.is_pinned ? "text-primary" : "text-muted-foreground"
+                    )}
+                    title={item.is_pinned ? "取消置顶" : "置顶"}
+                  >
+                    <Pin className={cn("h-4 w-4", item.is_pinned && "fill-primary")} />
+                  </button>
+                )}
                 <a
                   href={item.url}
                   target="_blank"

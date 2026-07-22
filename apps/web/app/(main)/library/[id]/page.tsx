@@ -40,6 +40,33 @@ export default function ReadingDetailPage() {
             .eq("id", itemId);
           setItem((prev) => prev ? { ...prev, reading_status: "reading" } : null);
         }
+
+        // 恢复阅读进度：等 DOM 渲染完再滚动
+        if (data.reading_progress && data.reading_progress > 0.01) {
+          // 让浏览器先布局（rAF）+ 延时等图片占位
+          const restoreScroll = () => {
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            if (docHeight > 0) {
+              const targetY = docHeight * data.reading_progress;
+              window.scrollTo({ top: targetY, behavior: "auto" });
+            }
+          };
+          requestAnimationFrame(() => requestAnimationFrame(restoreScroll));
+          // 图片加载完会改变文档高度，再滚一次补偿
+          const earlyTimer = setTimeout(restoreScroll, 600);
+          // 仅恢复一次：用标记避免和滚动监听冲突
+          const cleanup = () => {
+            clearTimeout(earlyTimer);
+            window.removeEventListener("load", onLoad);
+          };
+          const onLoad = () => {
+            restoreScroll();
+            cleanup();
+          };
+          window.addEventListener("load", onLoad);
+          // 安全兜底：5 秒后无论如何清理
+          setTimeout(cleanup, 5000);
+        }
       }
       setLoading(false);
     }
