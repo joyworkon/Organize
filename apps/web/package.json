@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next node_modules"
@@ -23,11 +25,15 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "@tiptap/core": "2.27.2",
+    "@tiptap/extension-color": "2.27.2",
     "@tiptap/extension-details": "2.27.2",
     "@tiptap/extension-details-content": "2.27.2",
     "@tiptap/extension-details-summary": "2.27.2",
+    "@tiptap/extension-drag-handle": "2.27.2",
+    "@tiptap/extension-highlight": "2.27.2",
     "@tiptap/extension-image": "^2.6.6",
     "@tiptap/extension-link": "^2.6.6",
+    "@tiptap/extension-node-range": "2.27.2",
     "@tiptap/extension-placeholder": "^2.6.6",
     "@tiptap/extension-table": "^2.6.6",
     "@tiptap/extension-table-cell": "^2.6.6",
@@ -35,10 +41,13 @@
     "@tiptap/extension-table-row": "^2.6.6",
     "@tiptap/extension-task-item": "^2.6.6",
     "@tiptap/extension-task-list": "^2.6.6",
+    "@tiptap/extension-text-style": "2.27.2",
     "@tiptap/extension-underline": "^2.6.6",
+    "@tiptap/extension-unique-id": "2.27.2",
     "@tiptap/pm": "^2.6.6",
     "@tiptap/react": "^2.6.6",
     "@tiptap/starter-kit": "^2.6.6",
+    "@tiptap/suggestion": "2.27.2",
     "@types/katex": "^0.16.8",
     "cheerio": "^1.0.0",
     "class-variance-authority": "^0.7.0",
@@ -60,11 +69,13 @@
     "@types/node": "^20.16.5",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "6.0.3",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.11",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vitest": "4.1.10"
   }
 }

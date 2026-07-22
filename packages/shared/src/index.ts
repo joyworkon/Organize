@@ -29,6 +29,63 @@ export interface Note {
   reading_item?: ReadingItem;
 }
 
+// 笔记编辑器块上下文
+export interface EditorBlockContext {
+  noteId: string;
+  blockId: string;
+  nodeType: string;
+  text: string;
+  json: Record<string, unknown>;
+  selection?: { from: number; to: number; text: string };
+}
+
+export interface BlockCommand {
+  id: string;
+  label: string;
+  category: "suggested" | "basic" | "layout" | "media";
+  keywords: string[];
+  shortcut?: string;
+}
+
+export interface CommentThread {
+  id: string;
+  note_id: string;
+  block_id: string;
+  user_id: string;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  comments?: BlockComment[];
+}
+
+export interface BlockComment {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EditSuggestion {
+  id: string;
+  note_id: string;
+  block_id: string;
+  user_id: string;
+  original_block: Record<string, unknown>;
+  proposed_block: Record<string, unknown>;
+  status: "pending" | "accepted" | "rejected";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIBlockResult {
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  transcript?: string;
+}
+
 // 标签
 export interface Tag {
   id: string;

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,19 +11,23 @@ import Link from "next/link";
 
 export default function NoteEditorPage() {
   const params = useParams();
-  const router = useRouter();
   const noteId = params.id as string;
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const draftRef = useRef<{ title: string; content: Record<string, unknown> | null }>({ title: "", content: null });
+  const dirtyRef = useRef(false);
+  const savingPromiseRef = useRef<Promise<void> | null>(null);
 
   // 加载笔记
   useEffect(() => {
+    let active = true;
     async function loadNote() {
       const { data, error } = await supabase
         .from("notes")
@@ -31,56 +35,74 @@ export default function NoteEditorPage() {
         .eq("id", noteId)
         .single();
 
+      if (!active) return;
       if (!error && data) {
-        setTitle(data.title || "");
-        setContent(data.content || { type: "doc", content: [{ type: "paragraph" }] });
+        const loadedTitle = data.title || "";
+        const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
+        setTitle(loadedTitle);
+        setContent(loadedContent);
+        draftRef.current = { title: loadedTitle, content: loadedContent };
       }
       setLoading(false);
     }
-    loadNote();
+    void loadNote();
+    return () => { active = false; };
   }, [noteId, supabase]);
 
-  // 保存笔记
-  const saveNote = useCallback(
-    async (newTitle?: string, newContent?: Record<string, unknown>) => {
+  // 保存始终写入同一时刻的完整快照，并串行排空后续改动。
+  const flushSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (savingPromiseRef.current) return savingPromiseRef.current;
+    const promise = (async () => {
       setSaving(true);
-      const { error } = await supabase
-        .from("notes")
-        .update({
-          title: newTitle ?? title,
-          content: newContent ?? content,
-        })
-        .eq("id", noteId);
-
-      if (!error) {
+      setSaveError("");
+      while (dirtyRef.current) {
+        dirtyRef.current = false;
+        const snapshot = { ...draftRef.current };
+        const { error } = await supabase.from("notes").update(snapshot).eq("id", noteId);
+        if (error) {
+          dirtyRef.current = true;
+          setSaveError("保存失败，请检查网络后继续编辑");
+          break;
+        }
         setLastSaved(new Date());
       }
+    })().finally(() => {
       setSaving(false);
-    },
-    [noteId, title, content, supabase]
-  );
+      savingPromiseRef.current = null;
+    });
+    savingPromiseRef.current = promise;
+    return promise;
+  }, [noteId, supabase]);
 
-  // 防抖自动保存
-  const debouncedSave = useCallback(
-    (newTitle?: string, newContent?: Record<string, unknown>) => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-      saveTimerRef.current = setTimeout(() => {
-        saveNote(newTitle, newContent);
-      }, 1500);
-    },
-    [saveNote]
-  );
+  const queueSave = useCallback(() => {
+    dirtyRef.current = true;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => void flushSave(), 900);
+  }, [flushSave]);
+
+  useEffect(() => {
+    const handlePageHide = () => void flushSave();
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      void flushSave();
+    };
+  }, [flushSave]);
 
   const handleTitleChange = (newTitle: string) => {
     setTitle(newTitle);
-    debouncedSave(newTitle, undefined);
+    draftRef.current.title = newTitle;
+    queueSave();
   };
 
   const handleContentUpdate = (newContent: Record<string, unknown>) => {
     setContent(newContent);
-    debouncedSave(undefined, newContent);
+    draftRef.current.content = newContent;
+    queueSave();
   };
 
   if (loading) {
@@ -114,7 +136,9 @@ export default function NoteEditorPage() {
           </Button>
         </Link>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {saving ? (
+          {saveError ? (
+            <span className="text-destructive">{saveError}</span>
+          ) : saving ? (
             <>
               <Loader2 className="h-3 w-3 animate-spin" />
               保存中...
@@ -137,7 +161,7 @@ export default function NoteEditorPage() {
       />
 
       {/* 编辑器 */}
-      <TipTapEditor content={content} onUpdate={handleContentUpdate} />
+      <TipTapEditor noteId={noteId} noteTitle={title} content={content} onUpdate={handleContentUpdate} />
     </div>
   );
 }
