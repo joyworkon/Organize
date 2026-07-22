@@ -3,6 +3,11 @@
 import "katex/dist/katex.min.css";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import DragHandle from "@tiptap/extension-drag-handle";
+import UniqueID from "@tiptap/extension-unique-id";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
@@ -19,8 +24,20 @@ import DetailsSummary from "@tiptap/extension-details-summary";
 import { Callout } from "./extensions/callout";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { BlockStyle } from "./extensions/block-style";
+import { HtmlEmbed } from "./extensions/html-embed";
+import { SlashCommand } from "./extensions/slash-command";
+import { BlockDeepLink } from "./extensions/deep-link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { BLOCK_ID_TYPES, isSameNodeSnapshot, nodeText } from "./block-utils";
+import { BlockCommandMenu } from "./block-command-menu";
+import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
+import { EditorDialogs } from "./editor-dialogs";
+import { PresentationMode } from "./presentation-mode";
+import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
+import { usePluginStore } from "@/lib/plugin/store";
+import type { AIActionExtension, PluginContext, ToolbarActionExtension } from "@organize/plugin-sdk";
 import {
   Bold,
   Italic,
@@ -60,6 +77,8 @@ import {
 } from "lucide-react";
 
 interface EditorProps {
+  noteId: string;
+  noteTitle?: string;
   content: Record<string, unknown>;
   onUpdate: (content: Record<string, unknown>) => void;
 }
@@ -576,30 +595,135 @@ function BubbleToolbar({
 
 /* ------------------------------- 编辑器 ------------------------------- */
 
-export function TipTapEditor({ content, onUpdate }: EditorProps) {
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] },
-      }),
+interface OpenMenuState {
+  pos: number;
+  point: EditorMenuPoint;
+}
+
+interface OpenActionState extends OpenMenuState {
+  target: EditorBlockTarget;
+}
+
+function replaceAt(editor: Editor, pos: number, content: Record<string, unknown>) {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) return;
+  editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, content).run();
+}
+
+export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: EditorProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const initialContentRef = useRef(content);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+  const editorInstanceRef = useRef<Editor | null>(null);
+  const hoveredRef = useRef<{ editor: Editor; node: any; pos: number } | null>(null);
+  const [commandMenu, setCommandMenu] = useState<OpenMenuState | null>(null);
+  const [actionMenu, setActionMenu] = useState<OpenActionState | null>(null);
+  const [dialog, setDialog] = useState<EditorDialog>(null);
+  const [presentationStart, setPresentationStart] = useState<string | null>(null);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const activePlugins = usePluginStore((state) => Array.from(state.activePlugins.entries()));
+  const pluginContexts = usePluginStore((state) => state.contexts);
+
+  const extensions = useMemo(() => {
+    const dragHandle = DragHandle.configure({
+      render: () => {
+        const handle = document.createElement("div");
+        handle.className = "organize-block-handle";
+        handle.setAttribute("aria-label", "区块操作");
+
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "organize-block-add";
+        add.textContent = "+";
+        add.setAttribute("aria-label", "在下方添加区块");
+        add.draggable = false;
+        add.addEventListener("mousedown", (event) => event.stopPropagation());
+        add.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          let current = hoveredRef.current;
+          if (!current) {
+            const instance = editorInstanceRef.current;
+            const rect = add.getBoundingClientRect();
+            const hit = instance?.view.posAtCoords({ left: rect.right + 12, top: rect.top + rect.height / 2 });
+            if (instance && hit) {
+              const $pos = instance.state.doc.resolve(hit.pos);
+              const pos = $pos.depth > 0 ? $pos.before(1) : 0;
+              const node = instance.state.doc.nodeAt(pos);
+              if (node) current = { editor: instance, node, pos };
+            }
+          }
+          if (!current || current.pos < 0) return;
+          const insertPos = current.pos + current.node.nodeSize;
+          current.editor.chain().focus().insertContentAt(insertPos, { type: "paragraph" }).setTextSelection(insertPos + 1).run();
+          const rect = add.getBoundingClientRect();
+          current.editor.commands.lockDragHandle();
+          setActionMenu(null);
+          setCommandMenu({ pos: insertPos, point: { left: rect.left, top: rect.bottom + 8 } });
+        });
+
+        const grip = document.createElement("button");
+        grip.type = "button";
+        grip.className = "organize-block-grip";
+        grip.textContent = "⠿";
+        grip.setAttribute("aria-label", "拖动区块或打开菜单");
+        grip.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          let current = hoveredRef.current;
+          if (!current) {
+            const instance = editorInstanceRef.current;
+            const rect = grip.getBoundingClientRect();
+            const hit = instance?.view.posAtCoords({ left: rect.right + 12, top: rect.top + rect.height / 2 });
+            if (instance && hit) {
+              const $pos = instance.state.doc.resolve(hit.pos);
+              const pos = $pos.depth > 0 ? $pos.before(1) : 0;
+              const node = instance.state.doc.nodeAt(pos);
+              if (node) current = { editor: instance, node, pos };
+            }
+          }
+          if (!current || current.pos < 0) return;
+          const id = String(current.node.attrs?.id || "");
+          if (!id) return;
+          const rect = grip.getBoundingClientRect();
+          const target: EditorBlockTarget = {
+            pos: current.pos,
+            id,
+            type: current.node.type.name,
+            text: nodeText(current.node),
+            json: current.node.toJSON(),
+          };
+          current.editor.commands.lockDragHandle();
+          setCommandMenu(null);
+          setActionMenu({ pos: current.pos, target, point: { left: rect.left, top: rect.bottom + 8 } });
+        });
+
+        handle.append(add, grip);
+        return handle;
+      },
+      tippyOptions: { placement: "left-start", offset: [0, 8], zIndex: 40 },
+      onNodeChange: (payload: any) => {
+        // 鼠标从正文移到交互式手柄时，DragHandle 会短暂发出 null。
+        // 保留最后一个有效块，避免按钮 click 阶段丢失目标。
+        if (payload.node && payload.pos >= 0) {
+          hoveredRef.current = { editor: payload.editor, node: payload.node, pos: payload.pos };
+        }
+      },
+    });
+
+    return [
+      StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+      TextStyle,
+      Color,
+      Highlight.configure({ multicolor: true }),
       Underline,
-      Image.configure({
-        inline: false,
-        allowBase64: true,
-      }),
-      Link.configure({
-        openOnClick: false,
-      }),
-      Placeholder.configure({
-        placeholder: "开始写作，选中文字即可格式化...",
-      }),
+      Image.configure({ inline: false, allowBase64: true }),
+      Link.configure({ openOnClick: false }),
+      Placeholder.configure({ placeholder: "输入内容，或按 ⌘/ 打开区块菜单…" }),
       TaskList,
-      TaskItem.configure({
-        nested: true,
-      }),
-      Table.configure({
-        resizable: true,
-      }),
+      TaskItem.configure({ nested: true }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableCell,
       TableHeader,
@@ -612,111 +736,229 @@ export function TipTapEditor({ content, onUpdate }: EditorProps) {
       MathCommands,
       Columns,
       Column,
-    ],
+      HtmlEmbed,
+      SlashCommand,
+      BlockDeepLink,
+      BlockStyle,
+      UniqueID.configure({ types: BLOCK_ID_TYPES }),
+      dragHandle,
+    ];
+  }, []);
+
+  const editor = useEditor({
+    extensions,
     content,
-    onUpdate: ({ editor }) => {
-      onUpdate(editor.getJSON());
-    },
+    immediatelyRender: false,
+    onUpdate: ({ editor }) => onUpdateRef.current(editor.getJSON()),
     editorProps: {
       attributes: {
-        class:
-          "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
+        class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
+      },
+      handleKeyDown: (view, event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+          event.preventDefault();
+          const { $from } = view.state.selection;
+          const pos = $from.depth > 0 ? $from.before(1) : 0;
+          const coords = view.coordsAtPos($from.pos);
+          view.dispatch(view.state.tr.setSelection(view.state.selection));
+          setActionMenu(null);
+          setCommandMenu({ pos, point: { left: Math.max(12, coords.left), top: coords.bottom + 8 } });
+          return true;
+        }
+        return false;
       },
     },
   });
 
-  const addImageUrl = useCallback(() => {
+  const closeMenus = useCallback(() => {
+    setCommandMenu(null);
+    setActionMenu(null);
+    editor?.commands.unlockDragHandle();
+    editor?.commands.focus();
+  }, [editor]);
+
+  useEffect(() => {
+    editorInstanceRef.current = editor;
+    return () => { editorInstanceRef.current = null; };
+  }, [editor]);
+
+  // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
+  useEffect(() => {
     if (!editor) return;
-    const url = window.prompt("输入图片 URL");
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+    let transaction = editor.state.tr;
+    editor.state.doc.descendants((node, pos) => {
+      if (BLOCK_ID_TYPES.includes(node.type.name) && !node.attrs.id) {
+        const id = typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        transaction = transaction.setNodeMarkup(pos, undefined, { ...node.attrs, id });
+      }
+    });
+    if (transaction.docChanged) {
+      editor.view.dispatch(transaction);
+      onUpdateRef.current(editor.getJSON());
+      return;
+    }
+    const upgraded = editor.getJSON();
+    if (!isSameNodeSnapshot(upgraded, initialContentRef.current)) {
+      onUpdateRef.current(upgraded);
     }
   }, [editor]);
 
-  const uploadImage = useCallback(() => {
+  const insertImage = useCallback((url: string, pos?: number) => {
+    if (!editor) return;
+    if (pos === undefined) editor.chain().focus().setImage({ src: url }).run();
+    else replaceAt(editor, pos, { type: "image", attrs: { src: url } });
+  }, [editor]);
+
+  const uploadImage = useCallback((pos?: number) => {
     if (!editor) return;
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/jpeg,image/png,image/gif,image/webp,image/svg+xml";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-
       const formData = new FormData();
       formData.append("file", file);
-
       try {
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.url) {
-          editor.chain().focus().setImage({ src: data.url }).run();
-        }
+        const response = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "上传失败");
+        insertImage(data.url, pos);
       } catch {
-        // 上传失败时回退到 base64
         const reader = new FileReader();
-        reader.onload = () => {
-          editor.chain().focus().setImage({ src: reader.result as string }).run();
-        };
+        reader.onload = () => insertImage(String(reader.result), pos);
         reader.readAsDataURL(file);
       }
     };
     input.click();
-  }, [editor]);
+  }, [editor, insertImage]);
 
-  const addReadingReference = useCallback(() => {
+  const addImageUrl = useCallback(() => {
+    const url = window.prompt("输入图片 URL");
+    if (url) insertImage(url);
+  }, [insertImage]);
+
+  const addReadingReference = useCallback((pos?: number) => {
     if (!editor) return;
-    const url = window.prompt("输入要引用的阅读条目 URL（可在阅读库中复制链接）");
-    if (url) {
-      editor
-        .chain()
-        .focus()
-        .insertContent({
-          type: "paragraph",
-          content: [
-            { type: "text", text: "📖 参考: " },
-            {
-              type: "text",
-              marks: [{ type: "link", attrs: { href: url } }],
-              text: url,
-            },
-          ],
-        })
-        .run();
-    }
+    const url = window.prompt("输入要引用的阅读条目 URL");
+    if (!url) return;
+    const paragraph = {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "📖 参考: " },
+        { type: "text", marks: [{ type: "link", attrs: { href: url } }], text: url },
+      ],
+    };
+    pos === undefined ? editor.chain().focus().insertContent(paragraph).run() : replaceAt(editor, pos, paragraph);
   }, [editor]);
 
   const addTable = useCallback(() => {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-      .run();
+    editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const root = rootRef.current;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint };
+      if (typeof detail.pos === "number") {
+        if (detail.type === "slash-menu" && detail.point) {
+          editor.commands.lockDragHandle();
+          setActionMenu(null);
+          setCommandMenu({ pos: detail.pos, point: detail.point });
+        } else if (detail.type === "html") replaceAt(editor, detail.pos, { type: "htmlEmbed" });
+        else if (detail.type === "ai-notes") setDialog({ type: "ai-notes", pos: detail.pos });
+        else if (detail.type === "image") uploadImage(detail.pos);
+        else if (detail.type === "math") {
+          const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
+          if (latex) replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
+        } else if (detail.type === "reference") addReadingReference(detail.pos);
+      } else if (detail.target) {
+        if (detail.type === "move") setDialog({ type: "move", target: detail.target });
+        if (detail.type === "comment") setDialog({ type: "comment", target: detail.target });
+        if (detail.type === "suggestion") setDialog({ type: "suggestion", target: detail.target });
+        if (detail.type === "ask-ai") setDialog({ type: "ask-ai", target: detail.target });
+      }
+    };
+    root?.addEventListener("organize-editor-action", handler);
+    return () => root?.removeEventListener("organize-editor-action", handler);
+  }, [addReadingReference, editor, uploadImage]);
+
+  useEffect(() => {
+    fetch(`/api/notes/${noteId}/comments`)
+      .then((response) => response.ok ? response.json() : [])
+      .then((threads) => {
+        const counts: Record<string, number> = {};
+        for (const thread of threads) if (!thread.resolved_at) counts[thread.block_id] = (counts[thread.block_id] || 0) + 1;
+        setCommentCounts(counts);
+      })
+      .catch(() => {});
+  }, [dialog, noteId]);
+
+  const skills = useMemo<EditorSkillAction[]>(() => {
+    const actions: EditorSkillAction[] = [];
+    for (const [pluginId, plugin] of activePlugins) {
+      for (const extension of plugin.extensions) {
+        const supports = "supports" in extension ? extension.supports : undefined;
+        if (!supports?.includes("note-block")) continue;
+        if (extension.type !== "ai-action" && extension.type !== "toolbar-action") continue;
+        actions.push({
+          id: `${plugin.id}:${extension.id}`,
+          label: extension.label,
+          icon: extension.icon,
+          run: async (target) => {
+            const baseContext = pluginContexts.get(pluginId);
+            const context: PluginContext = {
+              userId: baseContext?.userId || "current",
+              getCurrentItem: baseContext?.getCurrentItem || (() => null),
+              getCurrentNote: () => ({ id: noteId, title: noteTitle, content: editor?.getJSON() || null }),
+              getCurrentBlock: () => {
+                const selection = editor?.state.selection;
+                return {
+                  noteId,
+                  blockId: target.id,
+                  nodeType: target.type,
+                  text: target.text,
+                  json: target.json as Record<string, unknown>,
+                  selection: selection ? {
+                    from: selection.from,
+                    to: selection.to,
+                    text: editor.state.doc.textBetween(selection.from, selection.to, " "),
+                  } : undefined,
+                };
+              },
+              getConfig: baseContext?.getConfig || (<T = Record<string, unknown>>() => ({} as T)),
+              setConfig: baseContext?.setConfig || (async () => {}),
+              notify: baseContext?.notify || ((message) => window.alert(message)),
+            };
+            if (extension.type === "ai-action") {
+              const result = await (extension as AIActionExtension).handler(target.text, context);
+              if (typeof result === "string" && result && result !== target.text) {
+                const node = editor?.state.doc.nodeAt(target.pos);
+                if (node) editor?.chain().focus().insertContentAt(target.pos + node.nodeSize, { type: "paragraph", content: [{ type: "text", text: result }] }).run();
+              }
+            } else await (extension as ToolbarActionExtension).handler(context);
+          },
+        });
+      }
+    }
+    return actions;
+  }, [activePlugins, editor, noteId, noteTitle, pluginContexts]);
 
   if (!editor) return null;
 
   return (
-    <div className="relative">
-      {/* 选中文字后弹出的浮动工具栏 */}
-      <BubbleMenu
-        editor={editor}
-        tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}
-      >
-        <BubbleToolbar
-          editor={editor}
-          onUploadImage={uploadImage}
-          onAddImageUrl={addImageUrl}
-          onAddTable={addTable}
-          onAddReference={addReadingReference}
-        />
+    <div className="relative organize-editor-shell" ref={rootRef}>
+      <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
+        <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
-
-      {/* 编辑区（无边框，Notion 风格） */}
       <EditorContent editor={editor} />
+      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} onClose={closeMenus} />}
+      {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
+      <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />
+      {presentationStart && <PresentationMode doc={editor.getJSON()} startBlockId={presentationStart} onClose={() => setPresentationStart(null)} />}
     </div>
   );
 }

@@ -1,41 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState } from "react";
 import { usePluginStore } from "@/lib/plugin/store";
-import { PluginLoader } from "@/lib/plugin/loader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Puzzle, Power, PowerOff, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function PluginsPage() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const { plugins, activePlugins, activatePlugin, deactivatePlugin } = usePluginStore();
-  const supabase = createClient();
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [pluginError, setPluginError] = useState("");
+  const { plugins, activePlugins } = usePluginStore();
 
-  useEffect(() => {
-    async function getUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) setUserId(user.id);
+  const togglePlugin = async (pluginId: string, enabled: boolean) => {
+    setToggling(pluginId);
+    setPluginError("");
+    try {
+      const recordsResponse = await fetch("/api/plugins", { cache: "no-store" });
+      const records = await recordsResponse.json();
+      const record = records.find((candidate: { package_name: string }) => candidate.package_name === pluginId);
+      if (!record) throw new Error("插件配置不存在，请刷新后重试");
+      const response = await fetch(`/api/plugins/${record.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!response.ok) throw new Error("插件状态保存失败");
+      window.location.reload();
+    } catch (error) {
+      setPluginError(error instanceof Error ? error.message : "插件状态保存失败");
+    } finally {
+      setToggling(null);
     }
-    getUser();
-  }, [supabase]);
-
-  if (!userId) return null;
+  };
 
   return (
     <div className="space-y-6">
-      <PluginLoader userId={userId} />
-
       <div>
         <h1 className="text-2xl font-bold">插件管理</h1>
         <p className="text-muted-foreground mt-1">
           管理已安装的插件，启用或禁用功能扩展
         </p>
       </div>
+
+      {pluginError && <p className="text-sm text-destructive">{pluginError}</p>}
 
       {plugins.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
@@ -63,19 +71,8 @@ export default function PluginsPage() {
                     <Button
                       variant={isActive ? "default" : "outline"}
                       size="sm"
-                      onClick={() => {
-                        if (isActive) {
-                          deactivatePlugin(plugin.id);
-                        } else {
-                          activatePlugin(plugin.id, {
-                            userId,
-                            getCurrentItem: () => null,
-                            getConfig: () => ({}) as any,
-                            setConfig: async () => {},
-                            notify: (msg, type) => console.log(`[${type}] ${msg}`),
-                          });
-                        }
-                      }}
+                      disabled={toggling === plugin.id}
+                      onClick={() => void togglePlugin(plugin.id, !isActive)}
                     >
                       {isActive ? (
                         <Power className="h-3.5 w-3.5 mr-1" />

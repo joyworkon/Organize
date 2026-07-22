@@ -1,5 +1,6 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
+import { PluginBootstrap } from "@/components/plugin/plugin-bootstrap";
 
 export default function MainLayout({
   children,
@@ -8,6 +9,7 @@ export default function MainLayout({
 }) {
   return (
     <div className="min-h-screen bg-background">
+      <PluginBootstrap />
       <Sidebar />
       <MobileTabBar />
       <main className="md:pl-60 pt-14 md:pt-0 pb-16 md:pb-0">

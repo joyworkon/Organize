@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { ReadingItem, ScrapeResult } from "@organize/shared";
+import type { EditorBlockContext, Note, ReadingItem, ScrapeResult } from "@organize/shared";
 
 // ============ 插件上下文 ============
 
@@ -14,6 +14,10 @@ export interface PluginContext {
   setConfig: (config: Record<string, unknown>) => Promise<void>;
   /** 显示通知 */
   notify: (message: string, type?: "info" | "success" | "error") => void;
+  /** 当前笔记，仅在 note-block 场景可用 */
+  getCurrentNote?: () => Pick<Note, "id" | "title" | "content"> | null;
+  /** 当前编辑器块，仅在 note-block 场景可用 */
+  getCurrentBlock?: () => EditorBlockContext | null;
 }
 
 // ============ 插件配置 ============
@@ -41,6 +45,7 @@ export interface ToolbarActionExtension {
   label: string;
   icon: string;
   handler: (ctx: PluginContext) => void | Promise<void>;
+  supports?: ("reading" | "note-block")[];
 }
 
 /** 侧边栏面板 */
@@ -70,6 +75,7 @@ export interface AIActionExtension {
   label: string;
   icon: string;
   handler: (text: string, ctx: PluginContext) => string | Promise<string>;
+  supports?: ("reading" | "note-block")[];
 }
 
 export type PluginExtension =

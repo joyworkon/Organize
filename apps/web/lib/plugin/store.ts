@@ -4,16 +4,19 @@ import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
 interface PluginState {
   plugins: OrganizePlugin[];
   activePlugins: Map<string, OrganizePlugin>;
+  contexts: Map<string, PluginContext>;
   registerPlugin: (plugin: OrganizePlugin) => void;
   activatePlugin: (id: string, ctx: PluginContext) => void;
   deactivatePlugin: (id: string) => void;
   getExtensionsByType: <T extends string>(type: T) => any[];
   isPluginActive: (id: string) => boolean;
+  getContext: (id: string) => PluginContext | undefined;
 }
 
 export const usePluginStore = create<PluginState>((set, get) => ({
   plugins: [],
   activePlugins: new Map(),
+  contexts: new Map(),
 
   registerPlugin: (plugin) => {
     set((state) => {
@@ -33,7 +36,9 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     set((state) => {
       const newMap = new Map(state.activePlugins);
       newMap.set(id, plugin);
-      return { activePlugins: newMap };
+      const contexts = new Map(state.contexts);
+      contexts.set(id, ctx);
+      return { activePlugins: newMap, contexts };
     });
   },
 
@@ -47,7 +52,9 @@ export const usePluginStore = create<PluginState>((set, get) => ({
     set((state) => {
       const newMap = new Map(state.activePlugins);
       newMap.delete(id);
-      return { activePlugins: newMap };
+      const contexts = new Map(state.contexts);
+      contexts.delete(id);
+      return { activePlugins: newMap, contexts };
     });
   },
 
@@ -65,4 +72,5 @@ export const usePluginStore = create<PluginState>((set, get) => ({
   isPluginActive: (id) => {
     return get().activePlugins.has(id);
   },
+  getContext: (id) => get().contexts.get(id),
 }));
