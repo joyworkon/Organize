@@ -212,22 +212,34 @@
   border-radius: 6px;
 }
 .organize-block-handle {
+  position: absolute;
+  left: -3.5rem;
+  z-index: 40;
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   height: 28px;
   color: hsl(var(--muted-foreground));
-  pointer-events: auto;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
   user-select: none;
+  transition: opacity 80ms ease, visibility 80ms ease;
+}
+.organize-block-handle[data-visible="true"],
+.organize-block-handle[data-dragging="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 .organize-block-handle button {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 25px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -238,17 +250,55 @@
   color: hsl(var(--foreground));
 }
 .organize-block-add {
-  font-size: 25px !important;
-  font-weight: 300 !important;
-  line-height: 1 !important;
+  cursor: pointer !important;
+}
+.organize-block-add svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
 }
 .organize-block-grip {
   cursor: grab !important;
-  font-size: 22px !important;
-  line-height: 1 !important;
+  touch-action: none;
 }
 .organize-block-grip:active {
   cursor: grabbing !important;
+}
+.organize-block-handle[data-dragging="true"] .organize-block-grip {
+  cursor: grabbing !important;
+}
+.organize-grip-dots {
+  display: grid;
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+  gap: 2px 3px;
+  pointer-events: none;
+}
+.organize-grip-dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.organize-block-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 39;
+  height: 2px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  pointer-events: none;
+}
+.organize-block-drop-indicator::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: inherit;
 }
 
 /* ------------------------- 编辑器弹出菜单 ------------------------- */
@@ -670,6 +720,7 @@
 
 @media (max-width: 640px) {
   .organize-editor { padding-left: 2rem !important; margin-left: -2rem; }
+  .organize-block-handle { left: -2rem; }
   .organize-block-add { display: none !important; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }
   .editor-dialog-backdrop { align-items: end; padding: 0; }

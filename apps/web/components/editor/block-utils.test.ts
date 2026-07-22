@@ -1,8 +1,12 @@
+import { getSchema } from "@tiptap/core";
+import { EditorState } from "@tiptap/pm/state";
+import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 import {
   buildPresentationSlides,
   isAllowedAIContent,
   isSameNodeSnapshot,
+  moveBlockTransaction,
   stripBlockIds,
 } from "./block-utils";
 
@@ -55,5 +59,50 @@ describe("block utilities", () => {
   it("rejects AI nodes outside the editor whitelist", () => {
     expect(isAllowedAIContent([{ type: "paragraph", content: [{ type: "text", text: "安全文本" }] }])).toBe(true);
     expect(isAllowedAIContent([{ type: "image", attrs: { src: "https://example.com/a.png" } }])).toBe(false);
+  });
+
+  it("moves complete top-level blocks and nested list items without merging content", () => {
+    const schema = getSchema([StarterKit]);
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "一" }] },
+        { type: "paragraph", content: [{ type: "text", text: "二" }] },
+        { type: "paragraph", content: [{ type: "text", text: "三" }] },
+        {
+          type: "bulletList",
+          content: [
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] },
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "乙" }] }] },
+          ],
+        },
+      ],
+    });
+    const initial = EditorState.create({ doc });
+    const secondPos = doc.child(0).nodeSize;
+    const thirdPos = secondPos + doc.child(1).nodeSize;
+    const afterThird = thirdPos + doc.child(2).nodeSize;
+    const topLevelMove = moveBlockTransaction(initial, secondPos, afterThird);
+
+    expect(topLevelMove).not.toBeNull();
+    const movedDoc = topLevelMove!.doc;
+    expect([0, 1, 2].map((index) => movedDoc.child(index).textContent)).toEqual(["一", "三", "二"]);
+    expect(movedDoc.child(3).type.name).toBe("bulletList");
+
+    const listPos = movedDoc.child(0).nodeSize + movedDoc.child(1).nodeSize + movedDoc.child(2).nodeSize;
+    const list = movedDoc.child(3);
+    const firstItemPos = listPos + 1;
+    const secondItemPos = firstItemPos + list.child(0).nodeSize;
+    const afterSecondItem = secondItemPos + list.child(1).nodeSize;
+    const listMove = moveBlockTransaction(
+      EditorState.create({ doc: movedDoc }),
+      firstItemPos,
+      afterSecondItem
+    );
+
+    expect(listMove).not.toBeNull();
+    const movedList = listMove!.doc.child(3);
+    expect([0, 1].map((index) => movedList.child(index).textContent)).toEqual(["乙", "甲"]);
+    expect(moveBlockTransaction(EditorState.create({ doc: movedDoc }), firstItemPos, firstItemPos)).toBeNull();
   });
 });

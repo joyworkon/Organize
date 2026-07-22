@@ -3,8 +3,9 @@
 import "katex/dist/katex.min.css";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import DragHandle from "@tiptap/extension-drag-handle";
 import UniqueID from "@tiptap/extension-unique-id";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
@@ -30,7 +31,7 @@ import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { BLOCK_ID_TYPES, isSameNodeSnapshot, nodeText } from "./block-utils";
+import { BLOCK_ID_TYPES, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
 import { EditorDialogs } from "./editor-dialogs";
@@ -604,10 +605,46 @@ interface OpenActionState extends OpenMenuState {
   target: EditorBlockTarget;
 }
 
+interface HoveredBlock {
+  editor: Editor;
+  node: ProseMirrorNode;
+  pos: number;
+  top: number;
+  element: HTMLElement;
+}
+
+interface BlockDropTarget {
+  insertPos: number;
+  top: number;
+}
+
+interface BlockPointerDrag {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  source: HoveredBlock;
+  active: boolean;
+}
+
 function replaceAt(editor: Editor, pos: number, content: Record<string, unknown>) {
   const node = editor.state.doc.nodeAt(pos);
   if (!node) return;
   editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, content).run();
+}
+
+function nodePosForElement(editor: Editor, element: HTMLElement) {
+  const domPos = editor.view.posAtDOM(element, 0);
+  const $pos = editor.state.doc.resolve(domPos);
+  return $pos.depth > 0 ? $pos.before($pos.depth) : domPos;
+}
+
+function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement) {
+  const listItem = target.closest("li");
+  if (listItem instanceof HTMLElement && editorDom.contains(listItem)) return listItem;
+
+  let block: HTMLElement | null = target;
+  while (block?.parentElement && block.parentElement !== editorDom) block = block.parentElement;
+  return block?.parentElement === editorDom ? block : null;
 }
 
 export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: EditorProps) {
@@ -615,8 +652,13 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
   const initialContentRef = useRef(content);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
-  const editorInstanceRef = useRef<Editor | null>(null);
-  const hoveredRef = useRef<{ editor: Editor; node: any; pos: number } | null>(null);
+  const hoveredRef = useRef<HoveredBlock | null>(null);
+  const pointerDragRef = useRef<BlockPointerDrag | null>(null);
+  const dropTargetRef = useRef<BlockDropTarget | null>(null);
+  const suppressGripClickRef = useRef(false);
+  const [hoveredBlock, setHoveredBlock] = useState<HoveredBlock | null>(null);
+  const [isDraggingBlock, setIsDraggingBlock] = useState(false);
+  const [dropTarget, setDropTarget] = useState<BlockDropTarget | null>(null);
   const [commandMenu, setCommandMenu] = useState<OpenMenuState | null>(null);
   const [actionMenu, setActionMenu] = useState<OpenActionState | null>(null);
   const [dialog, setDialog] = useState<EditorDialog>(null);
@@ -626,92 +668,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
   const pluginContexts = usePluginStore((state) => state.contexts);
 
   const extensions = useMemo(() => {
-    const dragHandle = DragHandle.configure({
-      render: () => {
-        const handle = document.createElement("div");
-        handle.className = "organize-block-handle";
-        handle.setAttribute("aria-label", "区块操作");
-
-        const add = document.createElement("button");
-        add.type = "button";
-        add.className = "organize-block-add";
-        add.textContent = "+";
-        add.setAttribute("aria-label", "在下方添加区块");
-        add.draggable = false;
-        add.addEventListener("mousedown", (event) => event.stopPropagation());
-        add.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          let current = hoveredRef.current;
-          if (!current) {
-            const instance = editorInstanceRef.current;
-            const rect = add.getBoundingClientRect();
-            const hit = instance?.view.posAtCoords({ left: rect.right + 12, top: rect.top + rect.height / 2 });
-            if (instance && hit) {
-              const $pos = instance.state.doc.resolve(hit.pos);
-              const pos = $pos.depth > 0 ? $pos.before(1) : 0;
-              const node = instance.state.doc.nodeAt(pos);
-              if (node) current = { editor: instance, node, pos };
-            }
-          }
-          if (!current || current.pos < 0) return;
-          const insertPos = current.pos + current.node.nodeSize;
-          current.editor.chain().focus().insertContentAt(insertPos, { type: "paragraph" }).setTextSelection(insertPos + 1).run();
-          const rect = add.getBoundingClientRect();
-          current.editor.commands.lockDragHandle();
-          setActionMenu(null);
-          setCommandMenu({ pos: insertPos, point: { left: rect.left, top: rect.bottom + 8 } });
-        });
-
-        const grip = document.createElement("button");
-        grip.type = "button";
-        grip.className = "organize-block-grip";
-        grip.textContent = "⠿";
-        grip.setAttribute("aria-label", "拖动区块或打开菜单");
-        grip.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          let current = hoveredRef.current;
-          if (!current) {
-            const instance = editorInstanceRef.current;
-            const rect = grip.getBoundingClientRect();
-            const hit = instance?.view.posAtCoords({ left: rect.right + 12, top: rect.top + rect.height / 2 });
-            if (instance && hit) {
-              const $pos = instance.state.doc.resolve(hit.pos);
-              const pos = $pos.depth > 0 ? $pos.before(1) : 0;
-              const node = instance.state.doc.nodeAt(pos);
-              if (node) current = { editor: instance, node, pos };
-            }
-          }
-          if (!current || current.pos < 0) return;
-          const id = String(current.node.attrs?.id || "");
-          if (!id) return;
-          const rect = grip.getBoundingClientRect();
-          const target: EditorBlockTarget = {
-            pos: current.pos,
-            id,
-            type: current.node.type.name,
-            text: nodeText(current.node),
-            json: current.node.toJSON(),
-          };
-          current.editor.commands.lockDragHandle();
-          setCommandMenu(null);
-          setActionMenu({ pos: current.pos, target, point: { left: rect.left, top: rect.bottom + 8 } });
-        });
-
-        handle.append(add, grip);
-        return handle;
-      },
-      tippyOptions: { placement: "left-start", offset: [0, 8], zIndex: 40 },
-      onNodeChange: (payload: any) => {
-        // 鼠标从正文移到交互式手柄时，DragHandle 会短暂发出 null。
-        // 保留最后一个有效块，避免按钮 click 阶段丢失目标。
-        if (payload.node && payload.pos >= 0) {
-          hoveredRef.current = { editor: payload.editor, node: payload.node, pos: payload.pos };
-        }
-      },
-    });
-
     return [
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
       TextStyle,
@@ -741,7 +697,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       BlockDeepLink,
       BlockStyle,
       UniqueID.configure({ types: BLOCK_ID_TYPES }),
-      dragHandle,
     ];
   }, []);
 
@@ -773,13 +728,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
   const closeMenus = useCallback(() => {
     setCommandMenu(null);
     setActionMenu(null);
-    editor?.commands.unlockDragHandle();
     editor?.commands.focus();
-  }, [editor]);
-
-  useEffect(() => {
-    editorInstanceRef.current = editor;
-    return () => { editorInstanceRef.current = null; };
   }, [editor]);
 
   // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
@@ -865,7 +814,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint };
       if (typeof detail.pos === "number") {
         if (detail.type === "slash-menu" && detail.point) {
-          editor.commands.lockDragHandle();
           setActionMenu(null);
           setCommandMenu({ pos: detail.pos, point: detail.point });
         } else if (detail.type === "html") replaceAt(editor, detail.pos, { type: "htmlEmbed" });
@@ -947,14 +895,262 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
     return actions;
   }, [activePlugins, editor, noteId, noteTitle, pluginContexts]);
 
+  const updateHoveredBlock = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor || isDraggingBlock) return;
+    const editorDom = editor.view.dom;
+    const target = event.target as HTMLElement | null;
+
+    if (!target || !editorDom.contains(target)) return;
+    const block = blockElementAtTarget(editorDom, target);
+    if (!block) return;
+
+    const pos = nodePosForElement(editor, block);
+    const node = editor.state.doc.nodeAt(pos);
+    const shell = rootRef.current;
+    if (!node || !shell) return;
+
+    const blockRect = block.getBoundingClientRect();
+    const shellRect = shell.getBoundingClientRect();
+    const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
+    const firstLineHeight = Number.isFinite(parsedLineHeight)
+      ? Math.min(parsedLineHeight, blockRect.height)
+      : Math.min(28, blockRect.height);
+    const top = blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
+    const next = { editor, node, pos, top, element: block };
+
+    hoveredRef.current = next;
+    setHoveredBlock((previous) => (
+      previous?.pos === pos && Math.abs(previous.top - top) < 0.5 ? previous : next
+    ));
+  }, [editor, isDraggingBlock]);
+
+  const hideHoveredBlock = useCallback(() => {
+    if (commandMenu || actionMenu || isDraggingBlock) return;
+    hoveredRef.current = null;
+    setHoveredBlock(null);
+  }, [actionMenu, commandMenu, isDraggingBlock]);
+
+  useEffect(() => {
+    const hideWhenPointerLeavesEditor = (event: MouseEvent) => {
+      const shell = rootRef.current;
+      if (shell && event.target instanceof Node && !shell.contains(event.target)) {
+        hideHoveredBlock();
+      }
+    };
+    document.addEventListener("mousemove", hideWhenPointerLeavesEditor, true);
+    return () => document.removeEventListener("mousemove", hideWhenPointerLeavesEditor, true);
+  }, [hideHoveredBlock]);
+
+  const insertBlockBelow = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const current = hoveredRef.current;
+    if (!current || current.pos < 0) return;
+
+    const insertPos = current.pos + current.node.nodeSize;
+    const isListItem = current.node.type.name === "listItem" || current.node.type.name === "taskItem";
+    const emptyBlock = isListItem
+      ? {
+          type: current.node.type.name,
+          ...(current.node.type.name === "taskItem" ? { attrs: { checked: false } } : {}),
+          content: [{ type: "paragraph" }],
+        }
+      : { type: "paragraph" };
+    const textSelectionPos = insertPos + (isListItem ? 2 : 1);
+    current.editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPos, emptyBlock)
+      .setTextSelection(textSelectionPos)
+      .run();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setActionMenu(null);
+    setCommandMenu({ pos: insertPos, point: { left: rect.left, top: rect.bottom + 8 } });
+  }, []);
+
+  const openBlockActions = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (suppressGripClickRef.current) {
+      suppressGripClickRef.current = false;
+      return;
+    }
+    const current = hoveredRef.current;
+    if (!current || current.pos < 0) return;
+    const id = String(current.node.attrs?.id || "");
+    if (!id) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const target: EditorBlockTarget = {
+      pos: current.pos,
+      id,
+      type: current.node.type.name,
+      text: nodeText(current.node),
+      json: current.node.toJSON(),
+    };
+    setCommandMenu(null);
+    setActionMenu({ pos: current.pos, target, point: { left: rect.left, top: rect.bottom + 8 } });
+  }, []);
+
+  const beginBlockPointerDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const current = hoveredRef.current;
+    if (!current || event.button !== 0) return;
+    suppressGripClickRef.current = false;
+    pointerDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      source: current,
+      active: false,
+    };
+  }, []);
+
+  const moveBlockPointerDrag = useCallback((event: PointerEvent) => {
+    const drag = pointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (!drag.active) {
+      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (distance < 5) return;
+      drag.active = true;
+      suppressGripClickRef.current = true;
+      const selection = NodeSelection.create(drag.source.editor.state.doc, drag.source.pos);
+      drag.source.editor.view.dispatch(drag.source.editor.state.tr.setSelection(selection));
+      setIsDraggingBlock(true);
+    }
+
+    event.preventDefault();
+    const editorDom = drag.source.editor.view.dom;
+    const sourceParent = drag.source.element.parentElement;
+    const sourceIsListItem = drag.source.element.matches("li") && sourceParent?.matches("ul, ol");
+    const blocks = sourceIsListItem && sourceParent
+      ? Array.from(sourceParent.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches("li"))
+      : Array.from(editorDom.children) as HTMLElement[];
+    const shell = rootRef.current;
+    if (!blocks.length || !shell) return;
+
+    let targetElement = blocks[blocks.length - 1];
+    let placeBefore = false;
+    for (const block of blocks) {
+      const rect = block.getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) {
+        targetElement = block;
+        placeBefore = true;
+        break;
+      }
+    }
+
+    const targetPos = nodePosForElement(drag.source.editor, targetElement);
+    const targetNode = drag.source.editor.state.doc.nodeAt(targetPos);
+    if (!targetNode) return;
+    const insertPos = placeBefore ? targetPos : targetPos + targetNode.nodeSize;
+    const indicatorY = placeBefore
+      ? targetElement.getBoundingClientRect().top
+      : targetElement.getBoundingClientRect().bottom;
+    const nextTarget = {
+      insertPos,
+      top: indicatorY - shell.getBoundingClientRect().top,
+    };
+    dropTargetRef.current = nextTarget;
+    setDropTarget(nextTarget);
+  }, []);
+
+  const finishBlockPointerDrag = useCallback((event: PointerEvent) => {
+    const drag = pointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.active) {
+      pointerDragRef.current = null;
+      return;
+    }
+
+    event.preventDefault();
+    const target = dropTargetRef.current;
+    const { editor: currentEditor, pos: sourcePos } = drag.source;
+    const transaction = target
+      ? moveBlockTransaction(currentEditor.state, sourcePos, target.insertPos)
+      : null;
+    if (transaction) {
+      currentEditor.view.dispatch(transaction);
+      currentEditor.commands.focus();
+    }
+
+    pointerDragRef.current = null;
+    dropTargetRef.current = null;
+    setIsDraggingBlock(false);
+    setDropTarget(null);
+    hoveredRef.current = null;
+    setHoveredBlock(null);
+  }, []);
+
+  const cancelBlockPointerDrag = useCallback((event: PointerEvent) => {
+    if (pointerDragRef.current?.pointerId !== event.pointerId) return;
+    pointerDragRef.current = null;
+    dropTargetRef.current = null;
+    suppressGripClickRef.current = false;
+    setIsDraggingBlock(false);
+    setDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("pointermove", moveBlockPointerDrag, { capture: true, passive: false });
+    window.addEventListener("pointerup", finishBlockPointerDrag, true);
+    window.addEventListener("pointercancel", cancelBlockPointerDrag, true);
+    return () => {
+      window.removeEventListener("pointermove", moveBlockPointerDrag, true);
+      window.removeEventListener("pointerup", finishBlockPointerDrag, true);
+      window.removeEventListener("pointercancel", cancelBlockPointerDrag, true);
+    };
+  }, [cancelBlockPointerDrag, finishBlockPointerDrag, moveBlockPointerDrag]);
+
   if (!editor) return null;
 
   return (
-    <div className="relative organize-editor-shell" ref={rootRef}>
+    <div
+      className="relative organize-editor-shell"
+      ref={rootRef}
+      onMouseMove={updateHoveredBlock}
+      onMouseLeave={hideHoveredBlock}
+    >
       <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
         <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
       <EditorContent editor={editor} />
+      <div
+        className="organize-block-handle"
+        data-visible={hoveredBlock ? "true" : "false"}
+        data-dragging={isDraggingBlock ? "true" : "false"}
+        style={{ top: hoveredBlock?.top ?? 0 }}
+        aria-hidden={!hoveredBlock}
+      >
+        <button
+          type="button"
+          className="organize-block-add"
+          aria-label="在下方添加区块"
+          title="点击在下方添加区块"
+          tabIndex={hoveredBlock ? 0 : -1}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={insertBlockBelow}
+        >
+          <Plus aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="organize-block-grip"
+          aria-label="拖动区块或打开菜单"
+          title="拖动以移动；点击打开菜单"
+          tabIndex={hoveredBlock ? 0 : -1}
+          draggable={false}
+          onClick={openBlockActions}
+          onPointerDown={beginBlockPointerDrag}
+        >
+          <span className="organize-grip-dots" aria-hidden="true">
+            {Array.from({ length: 6 }, (_, index) => <span key={index} />)}
+          </span>
+        </button>
+      </div>
+      {dropTarget && (
+        <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
+      )}
       {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />
