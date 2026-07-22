@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 
 export const BLOCK_ID_TYPES = [
   "paragraph",
@@ -64,6 +65,26 @@ export function findBlockById(
     return !found;
   });
   return found;
+}
+
+/** Build a transaction that moves one complete sibling block without changing its content. */
+export function moveBlockTransaction(
+  state: EditorState,
+  sourcePos: number,
+  targetInsertPos: number
+): Transaction | null {
+  const sourceNode = state.doc.nodeAt(sourcePos);
+  if (!sourceNode) return null;
+  const sourceEnd = sourcePos + sourceNode.nodeSize;
+  if (targetInsertPos === sourcePos || targetInsertPos === sourceEnd) return null;
+
+  const insertPos = targetInsertPos > sourceEnd
+    ? targetInsertPos - sourceNode.nodeSize
+    : targetInsertPos;
+  return state.tr
+    .delete(sourcePos, sourceEnd)
+    .insert(insertPos, sourceNode)
+    .scrollIntoView();
 }
 
 function canonicalizeJSON(value: unknown): unknown {
