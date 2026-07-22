@@ -10,6 +10,7 @@ import {
   FileText,
   Puzzle,
   Tag as TagIcon,
+  BarChart3,
   LogOut,
   Menu,
   X,
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/library", label: "阅读库", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tags", label: "标签", icon: TagIcon },
+  { href: "/stats", label: "统计", icon: BarChart3 },
   { href: "/plugins", label: "插件", icon: Puzzle },
 ];
 
