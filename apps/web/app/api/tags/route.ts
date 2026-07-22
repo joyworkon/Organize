@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
 
 // GET /api/tags - 列出当前用户的所有标签（带使用计数）
 export async function GET() {
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   return NextResponse.json(data, { status: 201 });

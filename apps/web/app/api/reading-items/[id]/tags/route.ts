@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
 
 // GET /api/reading-items/[id]/tags - 列出某条阅读条目的标签
 export async function GET(
@@ -23,7 +24,7 @@ export async function GET(
     .eq("item_id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   const rows = (data || []) as Array<{
@@ -86,7 +87,7 @@ export async function POST(
     if (error.code === "23505") {
       return NextResponse.json({ success: true, tag_id: resolvedTagId });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   return NextResponse.json({ success: true, tag_id: resolvedTagId }, { status: 201 });
@@ -121,7 +122,7 @@ export async function DELETE(
     .eq("tag_id", tagId);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   return NextResponse.json({ success: true });

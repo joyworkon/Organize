@@ -7,7 +7,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,18 +120,22 @@ export function ShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant={triggerVariant}
-          size={triggerSize}
-          className="gap-1.5"
-          title="分享"
-          onClick={(e) => e.stopPropagation()}
+      <Button
+        variant={triggerVariant}
+        size={triggerSize}
+        className="gap-1.5"
+        title="分享"
+        onClick={(e) => {
+          // 阻止事件冒泡/默认行为，避免触发外层 <Link> 的导航
+          e.preventDefault();
+          e.stopPropagation();
+          // 手动打开对话框（不能用 DialogTrigger，因为 Radix 在 defaultPrevented 时不会开）
+          setOpen(true);
+        }}
         >
           <Share2 className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
           {!iconOnly && (triggerLabel || "分享")}
         </Button>
-      </DialogTrigger>
       <DialogContent onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>分享</DialogTitle>

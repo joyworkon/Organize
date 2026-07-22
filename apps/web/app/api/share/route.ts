@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
 import type { ShareResourceType } from "@organize/shared";
 
 // 生成一个足够随机的 token（22 字符 url-safe，约 128 bit 熵）
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   return NextResponse.json({ ...data, url: `/s/${data.token}` }, { status: 201 });
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
 
   if (!data) return NextResponse.json(null);
@@ -151,7 +152,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   return NextResponse.json({ success: true });
 }

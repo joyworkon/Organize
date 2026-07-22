@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import * as cheerio from "cheerio";
 import { JSDOM } from "jsdom";
+import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import type { ScrapeResult } from "@organize/shared";
 
 const FETCH_TIMEOUT = 15000;
@@ -77,7 +78,9 @@ export async function scrapeUrl(
 
   // 解析内容
   try {
-    return { data: parseHtml(html, parsedUrl) };
+    const result = parseHtml(html, parsedUrl);
+    // 入库前清洗 HTML：移除脚本/事件处理器等，防止存储型 XSS
+    return { data: { ...result, content: sanitizeContent(result.content) } };
   } catch {
     return { error: { code: "PARSE_FAILED", message: "无法解析页面内容" } };
   }
@@ -155,12 +158,42 @@ function parseWechat(html: string, url: URL): ScrapeResult | null {
 
   if (!contentEl.length) return null;
 
-  // 1. 修复图片：data-src -> src，并移除懒加载相关属性
+  // 1. 修复图片：微信用 data-src 懒加载，src 常是透明占位 gif
+  //    兼容多种懒加载字段：微信原生 data-src、秀米/135编辑器 data-original 等
   contentEl.find("img").each((_, el) => {
-    const dataSrc = $(el).attr("data-src");
-    if (dataSrc && !$(el).attr("src")) {
-      $(el).attr("src", dataSrc);
+    const $el = $(el);
+    // 优先级：data-original > data-lazy-src > data-img-src > data-src > src
+    const realSrc =
+      $el.attr("data-original") ||
+      $el.attr("data-lazy-src") ||
+      $el.attr("data-img-src") ||
+      $el.attr("data-src") ||
+      $el.attr("src") ||
+      "";
+
+    let normalized = realSrc.trim();
+    // 修复协议相对 URL：//mmbiz.qpic.cn/... → https://mmbiz.qpic.cn/...
+    if (normalized.startsWith("//")) {
+      normalized = `https:${normalized}`;
     }
+    // 修复绝对路径相对 URL
+    else if (normalized.startsWith("/")) {
+      normalized = `${url.origin}${normalized}`;
+    }
+    // 兜底：无协议的裸域名（少见但存在）
+    else if (normalized && !normalized.startsWith("http") && !normalized.startsWith("data:")) {
+      normalized = `https://${normalized}`;
+    }
+
+    if (normalized) {
+      $el.attr("src", normalized);
+    }
+    // 移除懒加载相关属性，避免前端 JS 再次处理
+    $el.removeAttr("data-src data-original data-lazy-src data-img-src");
+    $el.removeAttr("data-type data-ratio data-w data-s");
+    // 确保图片可见（微信有时用 width/height 0 占位），用 max-width 保证响应式
+    $el.removeAttr("width height");
+    $el.css("max-width", "100%").css("height", "auto");
   });
 
   // 2. 移除脚本/样式/嵌入等噪音节点

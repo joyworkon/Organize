@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
+import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import type { Metadata } from "next";
@@ -82,7 +83,9 @@ export default async function SharePage({ params }: PageProps) {
       );
     }
 
-    const html = tiptapJsonToHtml(note.content as Record<string, unknown> | null);
+    const html = sanitizeContent(
+      tiptapJsonToHtml(note.content as Record<string, unknown> | null)
+    );
     return (
       <Shell>
         <article className="organize-editor max-w-3xl mx-auto">
@@ -128,7 +131,7 @@ export default async function SharePage({ params }: PageProps) {
         {item.excerpt && <p className="text-lg text-muted-foreground mb-6">{item.excerpt}</p>}
         <div
           className="prose prose-zinc dark:prose-invert max-w-none"
-          dangerouslySetInnerHTML={{ __html: item.content || "" }}
+          dangerouslySetInnerHTML={{ __html: sanitizeContent(item.content || "") }}
         />
         <div className="mt-8 pt-4 border-t text-sm text-muted-foreground">
           <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:underline">

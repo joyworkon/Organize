@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
 import type { ReadingStatus } from "@organize/shared";
 
 // PATCH /api/reading-items/batch
@@ -34,7 +35,7 @@ export async function PATCH(request: NextRequest) {
       .delete()
       .in("id", ids)
       .eq("user_id", user.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return serverError(error);
     return NextResponse.json({ success: true, affected: ids.length });
   }
 
@@ -49,7 +50,7 @@ export async function PATCH(request: NextRequest) {
       .update({ reading_status: readingStatus })
       .in("id", ids)
       .eq("user_id", user.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return serverError(error);
     return NextResponse.json({ success: true, affected: ids.length });
   }
 
@@ -99,6 +100,6 @@ export async function POST(request: NextRequest) {
     .from("item_tags")
     .upsert(rows, { onConflict: "item_id,tag_id", ignoreDuplicates: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json({ success: true, affected: ids.length });
 }

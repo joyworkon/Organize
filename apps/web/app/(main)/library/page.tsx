@@ -72,9 +72,13 @@ export default function LibraryPage() {
   const itemsLenRef = useRef(0);
   itemsLenRef.current = items.length;
 
+  // 用 ref 跟踪最新请求序号，丢弃过期响应（避免竞态：旧请求覆盖新结果）
+  const reqIdRef = useRef(0);
+
   // ---------- 拉取主列表 ----------
   const fetchItems = useCallback(
     async (append: boolean) => {
+      const myReqId = ++reqIdRef.current;
       if (!append) setLoading(true);
       else setLoadingMore(true);
 
@@ -95,6 +99,7 @@ export default function LibraryPage() {
           .select("item_id")
           .in("tag_id", selectedTagIds);
         if (!tagRows || tagRows.length === 0) {
+          if (reqIdRef.current !== myReqId) return; // 已被新请求取代
           setItems([]);
           setTotal(0);
           setHasMore(false);
@@ -120,6 +125,8 @@ export default function LibraryPage() {
       query = query.range(offset, offset + PAGE_SIZE - 1);
 
       const { data, count, error } = await query;
+      // 丢弃过期响应（切换搜索词/筛选时旧请求后返回）
+      if (reqIdRef.current !== myReqId) return;
       if (error) {
         setLoading(false);
         setLoadingMore(false);
@@ -284,7 +291,14 @@ export default function LibraryPage() {
       setItems((prev) =>
         prev.map((it) =>
           selectedIds.has(it.id)
-            ? { ...it, tags: [...(it.tags || []), { id: tagId!, name: tag.name } as Tag] }
+            ? {
+                ...it,
+                // 判重：已存在该标签就不重复加
+                tags:
+                  it.tags?.some((t) => t.id === tagId)
+                    ? it.tags
+                    : [...(it.tags || []), { id: tagId!, name: tag.name } as Tag],
+              }
             : it
         )
       );
