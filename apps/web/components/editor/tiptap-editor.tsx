@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
+import { BlockSidePanel } from "./block-side-panel";
 import { EditorDialogs } from "./editor-dialogs";
 import { PresentationMode } from "./presentation-mode";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
@@ -980,6 +981,15 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
     const id = String(current.node.attrs?.id || "");
     if (!id) return;
 
+    // 让块进入 NodeSelection 选中态 → 触发 .ProseMirror-selectednode 样式（淡粉红背景）
+    try {
+      editor?.view.dispatch(
+        editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, current.pos))
+      );
+    } catch {
+      // 忽略：某些节点类型不支持 NodeSelection
+    }
+
     const rect = event.currentTarget.getBoundingClientRect();
     const target: EditorBlockTarget = {
       pos: current.pos,
@@ -990,7 +1000,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
     };
     setCommandMenu(null);
     setActionMenu({ pos: current.pos, target, point: { left: rect.left, top: rect.bottom + 8 } });
-  }, []);
+  }, [editor]);
 
   const beginBlockPointerDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const current = hoveredRef.current;
@@ -1151,6 +1161,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       {dropTarget && (
         <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
       )}
+      <BlockSidePanel editor={editor} />
       {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />

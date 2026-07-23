@@ -100,10 +100,58 @@
   height: 0;
 }
 
-/* 选中块的高亮反馈 */
+/* 选中块的高亮反馈（Notion 风格：淡粉红背景，后续换色改这一个变量即可） */
+:root {
+  --organize-selected-bg: hsl(350 80% 95% / 0.7);       /* 亮色：淡粉红 */
+  --organize-selected-bg-dark: hsl(350 40% 25% / 0.35); /* 暗色：深粉红 */
+  --organize-selected-border: hsl(350 70% 70% / 0.5);
+}
+.dark {
+  --organize-selected-bg: var(--organize-selected-bg-dark);
+}
 .organize-editor .ProseMirror-selectednode {
-  outline: 2px solid hsl(var(--primary) / 0.4);
+  background-color: var(--organize-selected-bg);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--organize-selected-border);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* Notion 风格的块右侧浮层面板 */
+.organize-block-side-panel {
+  position: absolute;
+  right: calc(100% + 4px);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  box-shadow: 0 1px 6px hsl(var(--foreground) / 0.08);
+  z-index: 20;
+  opacity: 0;
+  animation: organize-side-panel-in 120ms ease forwards;
+}
+.organize-block-side-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.organize-block-side-panel button:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+@keyframes organize-side-panel-in {
+  from { opacity: 0; transform: translateX(4px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 /* ------------------------- 折叠列表（Details） ------------------------- */
