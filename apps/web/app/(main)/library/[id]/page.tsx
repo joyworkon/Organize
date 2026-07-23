@@ -80,17 +80,46 @@ export default function ReadingDetailPage() {
     progressTimerRef.current = setTimeout(() => {
       progressTimerRef.current = null;
 
-      // 使用整个文档高度计算窗口滚动进度，更准确
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (docHeight <= 0) return;
+      const scrollY = window.scrollY;
+      const visibleHeight = window.innerHeight;
+      const fullHeight = document.documentElement.scrollHeight;
+      // 底部 fixed 操作栏占用的视口高度（约 64px），算进"有效可视区"
+      const bottomBarHeight = 80;
+      // 可滚动的最大距离
+      const maxScroll = fullHeight - visibleHeight;
+      if (maxScroll <= 0) {
+        // 内容不足以滚动，直接视为已读
+        if (progressRef.current < 1) {
+          progressRef.current = 1;
+          setItem((prev) =>
+            prev ? { ...prev, reading_progress: 1, reading_status: "read" } : null
+          );
+          supabase
+            .from("reading_items")
+            .update({ reading_progress: 1, reading_status: "read" })
+            .eq("id", itemId);
+        }
+        return;
+      }
 
-      const progress = Math.min(Math.max(window.scrollY / docHeight, 0), 1);
+      // 进度比例（clamp 到 0-1）
+      let progress = Math.min(Math.max(scrollY / maxScroll, 0), 1);
+
+      // 关键修复：当距离底部很近时（≤ 底部栏高度 + 60px 缓冲），直接判定为已读完
+      // 这样底部 fixed 操作栏的留白不会阻止触发"已读"
+      const distanceToBottom = fullHeight - (scrollY + visibleHeight);
+      const reachedBottom = distanceToBottom <= bottomBarHeight + 60;
+      if (reachedBottom) {
+        progress = 1;
+      }
 
       // 只有进度增加时才更新，避免重复写入
       if (progress <= progressRef.current) return;
       progressRef.current = progress;
 
-      const newStatus: ReadingStatus = progress >= 0.95 ? "read" : "reading";
+      // 已读完：到底 或者 进度 ≥ 85%（降低阈值，配合到底判断双保险）
+      const newStatus: ReadingStatus =
+        reachedBottom || progress >= 0.85 ? "read" : "reading";
 
       // 先更新本地状态
       setItem((prev) =>
