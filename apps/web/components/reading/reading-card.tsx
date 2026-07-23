@@ -53,9 +53,10 @@ export function ReadingCard({
   return (
     <Card
       className={cn(
-        "group hover:shadow-md transition-all duration-200",
+        "group hover:shadow-md transition-all duration-200 relative overflow-hidden",
         selected && "ring-2 ring-primary",
-        item.is_pinned && "border-primary/40 bg-primary/5"
+        // 置顶：左侧细彩条（视觉统一）
+        item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
     >
       <CardContent className="p-4">

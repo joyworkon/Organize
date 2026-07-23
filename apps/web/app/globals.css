@@ -104,54 +104,19 @@
 :root {
   --organize-selected-bg: hsl(350 80% 95% / 0.7);       /* 亮色：淡粉红 */
   --organize-selected-bg-dark: hsl(350 40% 25% / 0.35); /* 暗色：深粉红 */
-  --organize-selected-border: hsl(350 70% 70% / 0.5);
 }
 .dark {
   --organize-selected-bg: var(--organize-selected-bg-dark);
 }
 .organize-editor .ProseMirror-selectednode {
+  /* 只保留淡粉红背景，不要外框 */
   background-color: var(--organize-selected-bg);
   border-radius: 6px;
-  box-shadow: inset 0 0 0 1px var(--organize-selected-border);
-  transition: background-color 120ms ease, box-shadow 120ms ease;
-}
-
-/* Notion 风格的块右侧浮层面板 */
-.organize-block-side-panel {
-  position: absolute;
-  right: calc(100% + 4px);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  box-shadow: 0 1px 6px hsl(var(--foreground) / 0.08);
-  z-index: 20;
-  opacity: 0;
-  animation: organize-side-panel-in 120ms ease forwards;
-}
-.organize-block-side-panel button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  color: hsl(var(--muted-foreground));
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-.organize-block-side-panel button:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
-}
-@keyframes organize-side-panel-in {
-  from { opacity: 0; transform: translateX(4px); }
-  to { opacity: 1; transform: translateX(0); }
+  /* 撑开左右边距（用负 margin 扩大背景范围，padding 保持内容到背景的距离），
+     让粉色底不紧贴文字，和上下一样有视觉留白 */
+  margin-inline: -8px;
+  padding-inline: 8px;
+  transition: background-color 120ms ease;
 }
 
 /* ------------------------- 折叠列表（Details） ------------------------- */
@@ -355,11 +320,15 @@
   z-index: 100;
   width: min(330px, calc(100vw - 24px));
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
+  /* 边框调淡：用 border 色加 50% 透明度，视觉上更轻 */
+  border: 1px solid hsl(var(--border) / 0.5);
   border-radius: 12px;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
+  /* 阴影也调淡一点 */
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
+  /* 文字默认小一点 */
+  font-size: 13px;
   animation: editor-popover-in 110ms ease-out;
 }
 @keyframes editor-popover-in {

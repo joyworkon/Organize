@@ -34,7 +34,6 @@ import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
-import { BlockSidePanel } from "./block-side-panel";
 import { EditorDialogs } from "./editor-dialogs";
 import { PresentationMode } from "./presentation-mode";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
@@ -1161,7 +1160,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       {dropTarget && (
         <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
       )}
-      <BlockSidePanel editor={editor} />
       {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />

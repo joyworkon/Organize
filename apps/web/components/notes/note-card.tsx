@@ -211,9 +211,10 @@ export function NoteCard({
       <>
         <Card
           className={cn(
-            "group hover:shadow-sm transition-shadow",
+            "group hover:shadow-sm transition-shadow relative overflow-hidden",
             selected && "ring-2 ring-primary",
-            note.is_pinned && "border-primary/30 bg-primary/5"
+            // 置顶：左侧细彩条（不抢眼但能识别），不用背景色避免和选中态混淆
+            note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
         >
           <CardContent className="p-3 flex items-center gap-3">
@@ -250,9 +251,10 @@ export function NoteCard({
     <>
       <Card
         className={cn(
-          "group hover:shadow-md transition-shadow h-full flex flex-col",
+          "group hover:shadow-md transition-shadow h-full flex flex-col relative overflow-hidden",
           selected && "ring-2 ring-primary",
-          note.is_pinned && "border-primary/30 bg-primary/5"
+          // 置顶：左侧细彩条（视觉统一）
+          note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}
       >
         <CardContent className="p-4 flex-1">
