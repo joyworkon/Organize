@@ -34,6 +34,7 @@ import type {
   TagWithCount,
 } from "@organize/shared";
 import { TASK_STATUS_CONFIG, TASK_CATEGORY_CONFIG } from "@organize/shared";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
@@ -328,19 +329,19 @@ export default function TasksPage() {
           加载中...
         </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="text-center py-12">
-            <ListChecks className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-            <p className="text-muted-foreground mb-4">
-              {search || statusFilter !== "all" || categoryFilter !== "all" || selectedTagIds.length > 0
-                ? "没有匹配的任务"
-                : "还没有任务"}
-            </p>
-            {!search && statusFilter === "all" && categoryFilter === "all" && selectedTagIds.length === 0 && (
-              <Button onClick={openCreate}>创建第一个任务</Button>
-            )}
-          </CardContent>
-        </Card>
+        (() => {
+          const hasFilter = search.trim() !== "" || statusFilter !== "all" || categoryFilter !== "all" || selectedTagIds.length > 0;
+          return (
+            <EmptyState
+              icon={ListChecks}
+              title={hasFilter ? "没有匹配的任务" : "还没有任务"}
+              description="添加你的第一个任务开始规划"
+              action={!hasFilter ? (
+                <Button onClick={openCreate}>创建任务</Button>
+              ) : undefined}
+            />
+          );
+        })()
       ) : viewMode === "list" ? (
         <div className="space-y-2">
           {filtered.map((task) => (

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -16,6 +16,7 @@ import {
 import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags } from "@organize/shared";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
@@ -413,10 +414,10 @@ export default function TagsPage() {
               (showNotes && detailItems.notes.length === 0) &&
               (showTasks && detailItems.tasks.length === 0) &&
               (showLessons && detailItems.lessons.length === 0)) && (
-              <div className="text-center py-12 text-muted-foreground">
-                <TagIcon className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                <p>该分类下暂无内容</p>
-              </div>
+              <EmptyState
+                icon={TagIcon}
+                title="该分类下暂无内容"
+              />
             )}
           </div>
         )}
@@ -481,15 +482,14 @@ export default function TagsPage() {
           加载中...
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <TagIcon className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p>{search ? "没有匹配的标签" : "还没有标签"}</p>
-          {!search && (
-            <Button variant="link" onClick={() => setCreateOpen(true)} className="mt-2">
-              创建第一个标签
-            </Button>
-          )}
-        </div>
+        <EmptyState
+          icon={TagIcon}
+          title={search.trim() ? "没有匹配的标签" : "还没有标签"}
+          description="创建标签来整理你的内容"
+          action={!search.trim() ? (
+            <Button onClick={() => setCreateOpen(true)}>创建标签</Button>
+          ) : undefined}
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((tag) => (

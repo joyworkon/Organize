@@ -16,6 +16,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2 } from "lucide-react";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
@@ -271,17 +279,40 @@ export default function LessonEditorPage() {
     );
   }
 
+  const getCurrentPageText = () => {
+    if (isNew) return "新建经验";
+    if (editing) return "编辑";
+    return title || "经验";
+  };
+
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       <div className="flex items-center gap-2">
         <Link href="/lessons">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" className="h-9 w-9">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <h1 className="text-xl sm:text-2xl font-bold flex-1 truncate">
-          {isNew ? "记录经验" : (editing ? "编辑经验" : title || "经验")}
-        </h1>
+        <Breadcrumb className="flex-1 min-w-0">
+          <BreadcrumbList>
+            <BreadcrumbItem className="hidden sm:inline-flex">
+              <BreadcrumbLink href="/">首页</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="hidden sm:block" />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/lessons">经验总结</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbPage
+                className="max-w-[20ch] sm:max-w-[30ch]"
+                title={getCurrentPageText()}
+              >
+                {getCurrentPageText()}
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         {!editing && !isNew && (
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="h-4 w-4 mr-1" />

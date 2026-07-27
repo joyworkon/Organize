@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LayoutGrid, List as ListIcon, CheckSquare, X, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type SortField = "updated_at" | "created_at" | "title";
 type SortOrder = "asc" | "desc";
@@ -25,14 +27,15 @@ export default function NotesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
-  // 视图：卡片 / 列表
-  const [view, setView] = useState<NoteViewMode>("card");
+  // 视图：卡片 / 列表（默认列表）
+  const [view, setView] = useState<NoteViewMode>("list");
   // 批量选择
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 标签筛选
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const supabase = createClient();
+  const router = useRouter();
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
   const reqIdRef = useRef(0);
@@ -115,7 +118,9 @@ export default function NotesPage() {
       if (error) throw error;
 
       if (data) {
-        window.location.href = `/notes/${data.id}`;
+        // 用软导航而非 window.location 硬跳转：mock 后端的数据是模块级内存单例，
+        // 硬跳转会整页重载、把刚插入的新笔记连同内存一起清空，导致详情页读不到。
+        router.push(`/notes/${data.id}`);
       }
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "创建失败");
@@ -311,15 +316,11 @@ export default function NotesPage() {
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
       ) : notes.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <FileText className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p>{search ? "没有找到匹配的笔记" : "还没有笔记"}</p>
-          {!search && (
-            <Button variant="link" onClick={createNote} className="mt-2">
-              创建第一篇笔记
-            </Button>
-          )}
-        </div>
+        <EmptyState
+          icon={FileText}
+          title={search.trim() || selectedTagIds.length > 0 ? "没有找到匹配的笔记" : "还没有笔记"}
+          description="开始记录你的想法和灵感"
+        />
       ) : view === "list" ? (
         <div className="grid gap-2">
           {notes.map((note) => (

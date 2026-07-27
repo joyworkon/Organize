@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
+  Home,
   Inbox,
   Library,
   FileText,
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 
 const navItems = [
+  { href: "/", label: "今日", icon: Home },
   { href: "/inbox", label: "收集箱", icon: Inbox },
   { href: "/library", label: "阅读库", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
@@ -111,7 +113,9 @@ export function Sidebar() {
 
       <nav className={cn("flex-1 space-y-1", compact ? "px-2 py-3" : "p-3")}>
         {navItems.map((item) => {
-          const isActive = pathname.startsWith(item.href);
+          const isActive = item.href === "/"
+            ? pathname === "/"
+            : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}

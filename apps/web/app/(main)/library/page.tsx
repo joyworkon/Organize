@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ReadingCard } from "@/components/reading/reading-card";
 import { VirtualList } from "@/components/ui/virtual-list";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TagFilter } from "@/components/tags/tag-filter";
@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type FilterStatus = "all" | ReadingStatus;
 type SortField = "created_at" | "updated_at" | "title";
@@ -499,13 +500,21 @@ export default function LibraryPage() {
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p>{search || selectedTagIds.length ? "没有找到匹配的内容" : "暂无内容"}</p>
-          <Link href="/inbox" className="text-primary underline text-sm mt-2 inline-block">
-            去收集箱添加链接
-          </Link>
-        </div>
+        (() => {
+          const hasFilter = search.trim() !== "" || selectedTagIds.length > 0 || filter !== "all";
+          return (
+            <EmptyState
+              icon={BookOpen}
+              title={hasFilter ? "没有找到匹配的内容" : "还没有文章"}
+              description={hasFilter ? "试试调整筛选条件" : "去收集箱添加一些文章开始阅读吧"}
+              action={!hasFilter ? (
+                <Link href="/inbox" className={cn(buttonVariants({ variant: "default" }))}>
+                  去收集箱添加文章
+                </Link>
+              ) : undefined}
+            />
+          );
+        })()
       ) : items.length > 50 ? (
         <VirtualList
           items={items}

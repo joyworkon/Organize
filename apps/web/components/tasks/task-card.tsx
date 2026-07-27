@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Pin,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   Trash2,
   Pencil,
   Check,
+  CheckSquare,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,9 +50,13 @@ export function TaskCard({
   onTogglePin,
   onComplete,
 }: TaskCardProps) {
+  const router = useRouter();
   const statusConfig = TASK_STATUS_CONFIG[task.status];
   const priorityConfig = TASK_PRIORITY_CONFIG[task.priority];
   const categoryConfig = TASK_CATEGORY_CONFIG[task.category];
+
+  const checklistCompleted = task.checklists?.filter(c => c.is_completed).length || 0;
+  const checklistTotal = task.checklists?.length || 0;
 
   const isOverdue =
     task.due_date && task.status !== "done" && task.status !== "cancelled" && new Date(task.due_date) < new Date();
@@ -69,6 +75,7 @@ export function TaskCard({
   };
 
   const handleToggleComplete = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     if (task.status === "done") {
       onToggleStatus?.(task.id, "todo");
@@ -77,10 +84,20 @@ export function TaskCard({
     }
   };
 
+  const handleCardClick = () => {
+    router.push(`/tasks/${task.id}`);
+  };
+
+  const handleButtonClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
     <Card
+      onClick={handleCardClick}
       className={cn(
-        "group transition-colors duration-150 border-l-4 hover:bg-accent",
+        "group cursor-pointer transition-colors duration-150 border-l-4 hover:bg-accent",
         task.is_pinned && "ring-1 ring-primary/20",
         isOverdue && "border-l-red-500",
         !isOverdue && task.status === "done" && "border-l-green-500",
@@ -161,6 +178,13 @@ export function TaskCard({
                   </p>
                 )}
 
+                {checklistTotal > 0 && (
+                  <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
+                    <CheckSquare className="h-3 w-3" />
+                    <span>{checklistCompleted}/{checklistTotal}</span>
+                  </div>
+                )}
+
                 {(task.tags?.length || 0) > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {(task.tags || []).map((tag) => (
@@ -210,32 +234,32 @@ export function TaskCard({
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={handleButtonClick}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
                   {onComplete && task.status !== "done" && (
-                    <DropdownMenuItem onClick={() => onComplete(task)}>
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onComplete(task); }}>
                       <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
                       标记完成
                     </DropdownMenuItem>
                   )}
                   {task.status === "done" && onToggleStatus && (
-                    <DropdownMenuItem onClick={() => onToggleStatus(task.id, "todo")}>
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleStatus(task.id, "todo"); }}>
                       <CheckCircle2 className="h-4 w-4 mr-2" />
                       标记未完成
                     </DropdownMenuItem>
                   )}
                   {onTogglePin && (
-                    <DropdownMenuItem onClick={() => onTogglePin(task.id, !task.is_pinned)}>
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(task.id, !task.is_pinned); }}>
                       <Pin className={cn("h-4 w-4 mr-2", task.is_pinned && "fill-current")} />
                       {task.is_pinned ? "取消置顶" : "置顶"}
                     </DropdownMenuItem>
                   )}
                   {onEdit && (
-                    <DropdownMenuItem onClick={() => onEdit(task)}>
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(task); }}>
                       <Pencil className="h-4 w-4 mr-2" />
                       编辑
                     </DropdownMenuItem>
@@ -244,7 +268,7 @@ export function TaskCard({
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        onClick={() => onDelete(task.id)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(task.id); }}
                         className="text-destructive focus:text-destructive"
                       >
                         <Trash2 className="h-4 w-4 mr-2" />

@@ -10,12 +10,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Dialog as DialogRoot } from "@/components/ui/dialog";
 
 const SHORTCUTS = [
+  { keys: "⌘K", desc: "打开命令面板" },
+  { keys: "g h", desc: "跳转到首页" },
   { keys: "g i", desc: "跳转到收集箱" },
   { keys: "g l", desc: "跳转到阅读库" },
   { keys: "g n", desc: "跳转到笔记" },
+  { keys: "g d", desc: "跳转到待办" },
+  { keys: "g e", desc: "跳转到经验" },
   { keys: "g t", desc: "跳转到标签" },
   { keys: "g s", desc: "跳转到统计" },
   { keys: "g p", desc: "跳转到插件" },
@@ -26,44 +29,60 @@ const SHORTCUTS = [
 export function GlobalHotkeys() {
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [gotoMode, setGotoMode] = useState(false);
 
   const go = useCallback(
     (path: string) => {
-      // 保留当前 query/hash
       router.push(path);
+      setGotoMode(false);
     },
     [router]
   );
 
-  // g + 字母 跳转
-  useHotkeySequence([
-    { sequence: ["g", "i"], handler: () => go("/inbox") },
-    { sequence: ["g", "l"], handler: () => go("/library") },
-    { sequence: ["g", "n"], handler: () => go("/notes") },
-    { sequence: ["g", "t"], handler: () => go("/tags") },
-    { sequence: ["g", "s"], handler: () => go("/stats") },
-    { sequence: ["g", "p"], handler: () => go("/plugins") },
-  ]);
+  useHotkeySequence(
+    [
+      { sequence: ["g", "h"], handler: () => go("/") },
+      { sequence: ["g", "i"], handler: () => go("/inbox") },
+      { sequence: ["g", "l"], handler: () => go("/library") },
+      { sequence: ["g", "n"], handler: () => go("/notes") },
+      { sequence: ["g", "d"], handler: () => go("/tasks") },
+      { sequence: ["g", "e"], handler: () => go("/lessons") },
+      { sequence: ["g", "t"], handler: () => go("/tags") },
+      { sequence: ["g", "s"], handler: () => go("/stats") },
+      { sequence: ["g", "p"], handler: () => go("/plugins") },
+    ],
+    {
+      onBufferChange: (buffer) => {
+        setGotoMode(buffer.length === 1 && buffer[0] === "g");
+      },
+    }
+  );
 
-  // ? 显示帮助（用单键 hook 也行，这里复用 sequence）
   useHotkeySequence([{ sequence: ["?"], handler: () => setHelpOpen(true) }]);
 
   return (
-    <DialogRoot open={helpOpen} onOpenChange={setHelpOpen}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>键盘快捷键</DialogTitle>
-          <DialogDescription>在 1.5 秒内按完整个序列触发</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          {SHORTCUTS.map((s) => (
-            <div key={s.keys} className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{s.desc}</span>
-              <kbd className="font-mono text-xs bg-muted px-2 py-1 rounded border">{s.keys}</kbd>
-            </div>
-          ))}
+    <>
+      {gotoMode && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-popover text-popover-foreground border rounded-md px-3 py-1.5 text-sm">
+          按 g 后，按 h/i/l/n/d/e/t/s/p 跳转...
         </div>
-      </DialogContent>
-    </DialogRoot>
+      )}
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>键盘快捷键</DialogTitle>
+            <DialogDescription>在 1.5 秒内按完整个序列触发</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {SHORTCUTS.map((s) => (
+              <div key={s.keys} className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{s.desc}</span>
+                <kbd className="font-mono text-xs bg-muted px-2 py-1 rounded border">{s.keys}</kbd>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

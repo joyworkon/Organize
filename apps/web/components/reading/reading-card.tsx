@@ -9,7 +9,8 @@ import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
-import { ExternalLink, Trash2, Pin, Globe } from "lucide-react";
+import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
+import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import type { MouseEvent } from "react";
 
 interface ReadingCardProps {
@@ -50,6 +51,7 @@ export function ReadingCard({
   const showCheckbox = Boolean(onSelectChange);
   const tags: Tag[] = item.tags || [];
   const hostname = getHostname(item.url);
+  const readingMinutes = item.content ? estimateReadingTime(item.content) : null;
 
   const stop = (e: MouseEvent) => e.stopPropagation();
 
@@ -187,6 +189,13 @@ export function ReadingCard({
                 <span className="flex items-center gap-1 line-clamp-1">
                   <Globe className="h-3 w-3 shrink-0" />
                   <span className="truncate max-w-[6rem]">{hostname}</span>
+                </span>
+              )}
+
+              {readingMinutes && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span>{formatReadingTime(readingMinutes)}</span>
                 </span>
               )}
 

@@ -3,6 +3,7 @@
 import { mockDb, MOCK_USER } from "./mock-data";
 
 type Filter = { method: string; column: string; value: unknown };
+type OrderBy = { column: string; ascending: boolean };
 
 function genId(table: string) {
   return `${table}-${Math.random().toString(36).slice(2, 10)}`;
@@ -13,6 +14,7 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   private table: string;
   private op: "select" | "insert" | "update" | "delete" = "select";
   private filters: Filter[] = [];
+  private orderBy: OrderBy | null = null;
   private payload: any = null;
   private wantCount = false;
   private rangeFrom: number | null = null;
@@ -103,7 +105,8 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   contains() {
     return this;
   }
-  order() {
+  order(column: string, opts?: { ascending?: boolean }) {
+    this.orderBy = { column, ascending: opts?.ascending !== false };
     return this;
   }
   limit(n: number) {
@@ -158,6 +161,16 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
 
     // select
     let result = this.applyFilters(rows);
+    if (this.orderBy) {
+      const { column, ascending } = this.orderBy;
+      result = [...result].sort((a, b) => {
+        const aVal = a[column];
+        const bVal = b[column];
+        if (aVal < bVal) return ascending ? -1 : 1;
+        if (aVal > bVal) return ascending ? 1 : -1;
+        return 0;
+      });
+    }
     const count = result.length;
     if (this.rangeFrom !== null && this.rangeTo !== null) {
       result = result.slice(this.rangeFrom, this.rangeTo + 1);

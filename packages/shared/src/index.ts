@@ -177,6 +177,17 @@ export interface Task {
   tags?: Tag[];
   reading_item?: ReadingItem;
   note?: Note;
+  checklists?: TaskChecklist[];
+}
+
+export interface TaskChecklist {
+  id: string;
+  task_id: string;
+  content: string;
+  is_completed: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskWithTags extends Task {

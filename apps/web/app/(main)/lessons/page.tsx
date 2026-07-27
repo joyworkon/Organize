@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { LessonCard } from "@/components/lessons/lesson-card";
@@ -23,6 +24,8 @@ import {
 } from "lucide-react";
 import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
+import { EmptyState } from "@/components/ui/empty-state";
+import { cn } from "@/lib/utils";
 
 type TypeFilter = "all" | LessonType;
 
@@ -180,19 +183,21 @@ export default function LessonsPage() {
           加载中...
         </div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Lightbulb className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-            <p className="text-muted-foreground mb-4">
-              {search || typeFilter !== "all" || selectedTagIds.length > 0
-                ? "没有匹配的经验"
-                : "还没有记录经验"}
-            </p>
-            {!search && typeFilter === "all" && selectedTagIds.length === 0 && (
-              <Button onClick={handleCreate}>记录第一条经验</Button>
-            )}
-          </CardContent>
-        </Card>
+        (() => {
+          const hasFilter = search.trim() !== "" || typeFilter !== "all" || selectedTagIds.length > 0;
+          return (
+            <EmptyState
+              icon={Lightbulb}
+              title={hasFilter ? "没有匹配的经验" : "还没有记录经验"}
+              description="记录你的经验和复盘，持续成长"
+              action={!hasFilter ? (
+                <Link href="/lessons/new" className={cn(buttonVariants({ variant: "default" }))}>
+                  记录经验
+                </Link>
+              ) : undefined}
+            />
+          );
+        })()
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((lesson) => (

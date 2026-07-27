@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { cn } from "@/lib/utils";
-import { Link2, Loader2, Check, AlertCircle } from "lucide-react";
+import { Link2, Loader2, Check, AlertCircle, Inbox } from "lucide-react";
 import type { ScrapeResult } from "@organize/shared";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Mode = "single" | "batch";
 
@@ -202,11 +203,11 @@ export default function InboxPage() {
           )}
 
           {!result && !loading && !error && (
-            <div className="text-center py-12 text-muted-foreground">
-              <Link2 className="h-12 w-12 mx-auto mb-4 opacity-30" />
-              <p>粘贴任意文章链接，自动提取标题、正文和封面</p>
-              <p className="text-sm mt-2">支持大多数新闻、博客、技术文章网站</p>
-            </div>
+            <EmptyState
+              icon={Inbox}
+              title="收集箱是空的"
+              description="粘贴链接或使用 Cmd+K 快速添加文章"
+            />
           )}
         </>
       ) : (

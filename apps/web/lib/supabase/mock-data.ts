@@ -285,6 +285,55 @@ const taskTags = tasks.flatMap((t) =>
   (t.tags || []).map((tag) => ({ task_id: t.id, tag_id: tag.id }))
 );
 
+// ---- 任务子任务 ----
+const taskChecklists = [
+  {
+    id: "checklist-1",
+    task_id: "task-1",
+    content: "实现任务列表页",
+    is_completed: true,
+    sort_order: 0,
+    created_at: iso(1),
+    updated_at: iso(0),
+  },
+  {
+    id: "checklist-2",
+    task_id: "task-1",
+    content: "实现任务创建/编辑对话框",
+    is_completed: true,
+    sort_order: 1,
+    created_at: iso(1),
+    updated_at: iso(0),
+  },
+  {
+    id: "checklist-3",
+    task_id: "task-1",
+    content: "实现任务详情页和子任务功能",
+    is_completed: false,
+    sort_order: 2,
+    created_at: iso(1),
+    updated_at: iso(0),
+  },
+  {
+    id: "checklist-4",
+    task_id: "task-2",
+    content: "通读文章并标记重点",
+    is_completed: false,
+    sort_order: 0,
+    created_at: iso(2),
+    updated_at: iso(2),
+  },
+  {
+    id: "checklist-5",
+    task_id: "task-2",
+    content: "整理关键知识点",
+    is_completed: false,
+    sort_order: 1,
+    created_at: iso(2),
+    updated_at: iso(2),
+  },
+];
+
 // ---- 经验总结 ----
 const lessonDoc = (text: string) => ({
   type: "doc",
@@ -348,6 +397,7 @@ export const mockDb: Record<string, any[]> = {
   note_tags: noteTags,
   tasks,
   task_tags: taskTags,
+  task_checklists: taskChecklists,
   lessons,
   lesson_tags: lessonTags,
   plugins: [],
