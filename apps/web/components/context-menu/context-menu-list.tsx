@@ -62,7 +62,8 @@ export function ListItemContextMenu({
     let successMessage = "链接已复制";
 
     if (type === "reading") {
-      url = (item as ReadingItem).url;
+      url = `${window.location.origin}/library/${item.id}`;
+      successMessage = "文章链接已复制";
     } else if (type === "note") {
       url = `${window.location.origin}/notes/${item.id}`;
       successMessage = "笔记链接已复制";
@@ -200,6 +201,12 @@ export function ListItemContextMenu({
               <ExternalLink className="h-4 w-4" />
             </ContextMenuIcon>
             打开详情
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={handleCopyLink}>
+            <ContextMenuIcon>
+              <Link className="h-4 w-4" />
+            </ContextMenuIcon>
+            复制链接
           </ContextMenuItem>
           {onToggleStatus && (
             <ContextMenuItem onSelect={onToggleStatus}>

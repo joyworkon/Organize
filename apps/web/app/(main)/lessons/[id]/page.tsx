@@ -84,7 +84,7 @@ export default function LessonEditorPage() {
   const [lessonType, setLessonType] = useState<LessonType>("reflection");
 
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [selectedTags, setSelectedTags] = useState<Pick<Tag, "id" | "name">[]>([]);
+  const [selectedTags, setSelectedTags] = useState<Pick<Tag, "id" | "name" | "color">[]>([]);
 
   const [linkTaskId, setLinkTaskId] = useState<string>("");
   const [linkReadingId, setLinkReadingId] = useState<string>("");
@@ -108,7 +108,7 @@ export default function LessonEditorPage() {
       if (!user) return;
 
       const [{ data: tagsData }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
-        supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
+        supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
         supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("notes").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(50),
@@ -150,7 +150,7 @@ export default function LessonEditorPage() {
         const { data: tagLinks } = await supabase.from("lesson_tags").select("tag_id").eq("lesson_id", lessonId);
         const tagIds = (tagLinks || []).map(l => l.tag_id);
         const lessonTags = (tagsData || []).filter(t => tagIds.includes(t.id)) as Tag[];
-        setSelectedTags(lessonTags.map(t => ({ id: t.id, name: t.name })));
+        setSelectedTags(lessonTags.map(t => ({ id: t.id, name: t.name, color: t.color })));
         setLoadedTags(lessonTags);
       }
     } finally {
@@ -168,7 +168,7 @@ export default function LessonEditorPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         const [{ data: tagsData }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
-          supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
+          supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
           supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
           supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
           supabase.from("notes").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(50),
@@ -187,8 +187,8 @@ export default function LessonEditorPage() {
     if (!user) return null;
     const { data, error } = await supabase
       .from("tags")
-      .upsert({ user_id: user.id, name }, { onConflict: "user_id,name" })
-      .select("id, name")
+      .upsert({ user_id: user.id, name, color: "blue" }, { onConflict: "user_id,name" })
+      .select("id, name, color")
       .single();
     if (error || !data) return null;
     setAllTags(prev => {
@@ -198,12 +198,15 @@ export default function LessonEditorPage() {
     return data.id;
   };
 
-  const handleTagChange = async (next: Pick<Tag, "id" | "name">[]) => {
-    const resolved: Pick<Tag, "id" | "name">[] = [];
+  const handleTagChange = async (next: Pick<Tag, "id" | "name" | "color">[]) => {
+    const resolved: Pick<Tag, "id" | "name" | "color">[] = [];
     for (const t of next) {
       if (t.id.startsWith("new:")) {
         const realId = await handleCreateTag(t.name);
-        if (realId) resolved.push({ id: realId, name: t.name });
+        if (realId) {
+          const createdTag = allTags.find(tag => tag.id === realId);
+          resolved.push({ id: realId, name: t.name, color: createdTag?.color || "blue" });
+        }
       } else {
         resolved.push(t);
       }
@@ -378,8 +381,8 @@ export default function LessonEditorPage() {
               <Label>标签</Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {selectedTags.length > 0 && selectedTags.map((t) => (
-                  <TagBadge key={t.id} tag={{ id: t.id, name: t.name }} onRemove={(id) => {
-                    setSelectedTags(prev => prev.filter(x => x.id !== id));
+                  <TagBadge key={t.id} tag={{ id: t.id, name: t.name, color: t.color }} onRemove={() => {
+                    setSelectedTags(prev => prev.filter(x => x.id !== t.id));
                   }} />
                 ))}
                 <TagSelector

@@ -16,10 +16,10 @@ const iso = (offsetDays: number) =>
 
 // ---- 标签 ----
 const tags = [
-  { id: "tag-1", user_id: MOCK_USER.id, name: "技术" },
-  { id: "tag-2", user_id: MOCK_USER.id, name: "产品" },
-  { id: "tag-3", user_id: MOCK_USER.id, name: "阅读" },
-  { id: "tag-4", user_id: MOCK_USER.id, name: "灵感" },
+  { id: "tag-1", user_id: MOCK_USER.id, name: "技术", color: "blue" },
+  { id: "tag-2", user_id: MOCK_USER.id, name: "产品", color: "orange" },
+  { id: "tag-3", user_id: MOCK_USER.id, name: "阅读", color: "green" },
+  { id: "tag-4", user_id: MOCK_USER.id, name: "灵感", color: "purple" },
 ];
 
 // ---- 阅读条目 ----

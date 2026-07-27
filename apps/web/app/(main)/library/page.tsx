@@ -456,33 +456,33 @@ export default function LibraryPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">阅读库</h1>
-          <p className="text-muted-foreground mt-1">管理你保存的所有文章和链接</p>
+          <h1 className="text-xl sm:text-2xl font-bold">阅读库</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">管理你保存的所有文章和链接</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-lg border p-3 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <div className="rounded-lg border p-2 sm:p-3 text-center">
           <BarChart3 className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-          <p className="text-xl font-bold">{stats.total}</p>
+          <p className="text-lg sm:text-xl font-bold">{stats.total}</p>
           <p className="text-xs text-muted-foreground">总计</p>
         </div>
-        <div className="rounded-lg border p-3 text-center">
+        <div className="rounded-lg border p-2 sm:p-3 text-center">
           <Clock className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-          <p className="text-xl font-bold">{stats.unread}</p>
+          <p className="text-lg sm:text-xl font-bold">{stats.unread}</p>
           <p className="text-xs text-muted-foreground">未读</p>
         </div>
-        <div className="rounded-lg border p-3 text-center">
+        <div className="rounded-lg border p-2 sm:p-3 text-center">
           <BookOpen className="h-4 w-4 mx-auto mb-1 text-primary" />
-          <p className="text-xl font-bold">{stats.reading}</p>
+          <p className="text-lg sm:text-xl font-bold">{stats.reading}</p>
           <p className="text-xs text-muted-foreground">在读</p>
         </div>
-        <div className="rounded-lg border p-3 text-center">
+        <div className="rounded-lg border p-2 sm:p-3 text-center">
           <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-primary" />
-          <p className="text-xl font-bold">{stats.read}</p>
+          <p className="text-lg sm:text-xl font-bold">{stats.read}</p>
           <p className="text-xs text-muted-foreground">已读</p>
         </div>
       </div>
@@ -499,9 +499,9 @@ export default function LibraryPage() {
         </div>
         <div className="flex items-center gap-2">
           <Select value={smartSort} onValueChange={handleSortChange}>
-            <SelectTrigger className="w-[140px] h-9 gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" />
-              <SelectValue />
+            <SelectTrigger className="w-auto sm:w-[140px] h-9 gap-1.5 sm:gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <SelectValue className="hidden sm:inline-flex" />
             </SelectTrigger>
             <SelectContent>
               {sortOptions.map((opt) => (
@@ -524,7 +524,7 @@ export default function LibraryPage() {
             }}
           >
             <ListChecks className="h-3.5 w-3.5" />
-            多选
+            <span className="hidden sm:inline">多选</span>
           </Button>
         </div>
       </div>
@@ -563,15 +563,17 @@ export default function LibraryPage() {
           typeLabel="篇文章"
           actions={
             <>
-              <Button size="sm" variant="ghost" onClick={() => batchUpdateStatus("read", "已读")}>
-                标为已读
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchUpdateStatus("read", "已读")} title="标为已读">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">标为已读</span>
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => batchUpdateStatus("unread", "未读")}>
-                标为未读
+              <Button size="sm" variant="ghost" onClick={() => batchUpdateStatus("unread", "未读")} title="标为未读">
+                <Clock className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">标为未读</span>
               </Button>
-              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)}>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)} title="置顶">
                 <Pin className="h-3.5 w-3.5" />
-                置顶
+                <span className="hidden sm:inline">置顶</span>
               </Button>
               <TagSelector
                 selected={[]}
@@ -580,11 +582,11 @@ export default function LibraryPage() {
                   const last = next[next.length - 1];
                   if (last) batchAddTag(last);
                 }}
-                triggerLabel="打标签"
+                triggerLabel="标签"
               />
-              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete} title="删除">
                 <Trash2 className="h-3.5 w-3.5" />
-                删除
+                <span className="hidden sm:inline">删除</span>
               </Button>
             </>
           }
@@ -619,12 +621,12 @@ export default function LibraryPage() {
             const Wrapper = showCheckbox ? "div" : Link;
             const wrapperProps = showCheckbox
               ? {
-                  className: "block px-1 py-1 cursor-pointer",
+                  className: "block px-0.5 py-0.5 sm:px-1 sm:py-1 cursor-pointer",
                   onClick: (e: React.MouseEvent) => handleCardClick(e, item.id),
                 }
               : {
                   href: `/library/${item.id}`,
-                  className: "block px-1 py-1",
+                  className: "block px-0.5 py-0.5 sm:px-1 sm:py-1",
                 };
             return (
               <Wrapper key={item.id} {...wrapperProps as any}>
@@ -634,7 +636,7 @@ export default function LibraryPage() {
           }}
         />
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-2 sm:gap-3">
           {sortedItems.map((item) => {
             const Wrapper = showCheckbox ? "div" : Link;
             const wrapperProps = showCheckbox

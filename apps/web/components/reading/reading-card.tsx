@@ -13,6 +13,7 @@ import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import type { MouseEvent } from "react";
+import { FavoriteButton } from "@/components/favorite-button";
 
 interface ReadingCardProps {
   item: ReadingItem;
@@ -85,7 +86,7 @@ export function ReadingCard({
         item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         <div className="flex gap-3">
           {showCheckbox && (
             <div className="flex items-start pt-1" onClick={stop}>
@@ -141,6 +142,7 @@ export function ReadingCard({
                     <Pin className={cn("h-3.5 w-3.5", item.is_pinned && "fill-primary")} />
                   </button>
                 )}
+                <FavoriteButton targetType="reading" targetId={item.id} className="h-7 w-7" />
                 <a
                   href={item.url}
                   target="_blank"
@@ -223,11 +225,11 @@ export function ReadingCard({
 
               {tags.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap" onClick={stop}>
-                  {tags.slice(0, 2).map((t) => (
-                    <TagBadge key={t.id} tag={t} className="text-[10px] px-1.5 py-0" />
+                  {tags.slice(0, 3).map((t) => (
+                    <TagBadge key={t.id} tag={t} size="sm" />
                   ))}
-                  {tags.length > 2 && (
-                    <span className="text-[10px] text-muted-foreground">+{tags.length - 2}</span>
+                  {tags.length > 3 && (
+                    <span className="text-[10px] text-muted-foreground">+{tags.length - 3}</span>
                   )}
                 </div>
               )}

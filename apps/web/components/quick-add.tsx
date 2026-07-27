@@ -196,10 +196,14 @@ export function QuickAdd() {
       <Button
         size="icon"
         className={cn(
-          "fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full",
+          "fixed right-4 sm:right-6 z-40 w-12 h-12 rounded-full",
           "shadow-sm border-2 border-primary/20",
-          "hover:scale-105 transition-transform duration-200"
+          "hover:scale-105 transition-transform duration-200",
+          "bottom-24 sm:bottom-6"
         )}
+        style={{
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 6rem)"
+        }}
         onClick={open ? closePanel : openPanel}
       >
         <Plus className={cn("h-6 w-6 transition-transform duration-200", open && "rotate-45")} />
@@ -209,11 +213,14 @@ export function QuickAdd() {
         <div
           ref={panelRef}
           className={cn(
-            "fixed bottom-24 right-6 z-40 w-80",
+            "fixed right-4 sm:right-6 z-40 w-[calc(100vw-2rem)] sm:w-80",
             "bg-card border rounded-lg p-2",
             "origin-bottom-right transition-all duration-150",
             isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
           )}
+          style={{
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 9.5rem)"
+          }}
         >
           {mode === "menu" && (
             <div className="space-y-1">

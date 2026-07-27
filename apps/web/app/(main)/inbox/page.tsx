@@ -88,10 +88,10 @@ export default function InboxPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-0">
       <div>
-        <h1 className="text-2xl font-bold">收集箱</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-xl sm:text-2xl font-bold">收集箱</h1>
+        <p className="text-muted-foreground mt-1 text-sm sm:text-base">
           粘贴链接，自动抓取内容并保存到你的阅读库
         </p>
       </div>

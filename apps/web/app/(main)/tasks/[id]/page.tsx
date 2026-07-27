@@ -46,6 +46,7 @@ import {
   CheckSquare,
   Clock,
   Calendar,
+  Share2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -63,6 +64,7 @@ import {
   TASK_CATEGORY_CONFIG,
 } from "@organize/shared";
 import { FavoriteButton } from "@/components/favorite-button";
+import { TagBadge } from "@/components/tags/tag-badge";
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -214,6 +216,15 @@ export default function TaskDetailPage() {
     await saveTask({ is_pinned: !task.is_pinned });
   }
 
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast({ title: "任务链接已复制" });
+    } catch {
+      toast({ title: "复制失败", variant: "destructive" });
+    }
+  }
+
   async function handleDelete() {
     if (!task) return;
     try {
@@ -349,6 +360,14 @@ export default function TaskDetailPage() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={handleCopyLink}
+            title="复制链接"
+          >
+            <Share2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={togglePin}
             disabled={saving}
           >
@@ -479,12 +498,7 @@ export default function TaskDetailPage() {
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
-                >
-                  {tag.name}
-                </span>
+                <TagBadge key={tag.id} tag={tag} />
               ))}
             </div>
           )}

@@ -29,6 +29,9 @@ import {
   Bell,
   CheckCircle2,
   Trash2,
+  Filter,
+  Tag as TagIcon,
+  ArrowUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -440,12 +443,13 @@ export default function TasksPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {permission === "default" && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <Bell className="h-3.5 w-3.5" />
-            <span>开启浏览器通知以接收任务到期提醒</span>
+            <span className="hidden sm:inline">开启浏览器通知以接收任务到期提醒</span>
+            <span className="sm:hidden">开启任务提醒</span>
           </div>
           <button
             onClick={() => requestPermission()}
@@ -458,22 +462,22 @@ export default function TasksPage() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">待办任务</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold">待办任务</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             {stats.todo} 个待办，{stats.inProgress} 个进行中，{stats.done} 个已完成
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建任务
+        <Button onClick={openCreate} className="shrink-0">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline ml-2">新建任务</span>
         </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 min-w-[150px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索任务..."
+            placeholder="搜索..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -481,8 +485,9 @@ export default function TasksPage() {
         </div>
 
         <Select value={statusFilter} onValueChange={(v: StatusFilter) => setStatusFilter(v)}>
-          <SelectTrigger className="w-32">
-            <SelectValue placeholder="状态" />
+          <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
+            <Filter className="h-3.5 w-3.5" />
+            <SelectValue placeholder="状态" className="hidden sm:inline-flex" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部状态</SelectItem>
@@ -493,8 +498,9 @@ export default function TasksPage() {
         </Select>
 
         <Select value={categoryFilter} onValueChange={(v: CategoryFilter) => setCategoryFilter(v)}>
-          <SelectTrigger className="w-32">
-            <SelectValue placeholder="分类" />
+          <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
+            <TagIcon className="h-3.5 w-3.5" />
+            <SelectValue placeholder="分类" className="hidden sm:inline-flex" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部分类</SelectItem>
@@ -506,8 +512,9 @@ export default function TasksPage() {
 
         {canManualSort && (
           <Select value={sortOrder} onValueChange={(v: SortOrder) => setSortOrder(v)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="排序" />
+            <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              <SelectValue placeholder="排序" className="hidden sm:inline-flex" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="default">默认排序</SelectItem>
@@ -522,7 +529,7 @@ export default function TasksPage() {
           onChange={setSelectedTagIds}
         />
 
-        <div className="flex items-center gap-0.5 rounded-md border p-0.5 ml-auto">
+        <div className="hidden sm:flex items-center gap-0.5 rounded-md border p-0.5 ml-auto">
           <button
             onClick={() => setViewMode("list")}
             className={cn(
@@ -548,7 +555,7 @@ export default function TasksPage() {
         <Button
           variant={showCheckbox ? "default" : "ghost"}
           size="sm"
-          className="gap-1.5"
+          className="gap-1.5 ml-auto sm:ml-0"
           onClick={() => {
             if (selectionMode) {
               exitSelection();
@@ -560,7 +567,7 @@ export default function TasksPage() {
           title={viewMode !== "list" ? "请切换到列表视图使用多选" : "多选"}
         >
           <ListChecks className="h-3.5 w-3.5" />
-          多选
+          <span className="hidden sm:inline">多选</span>
         </Button>
       </div>
 
@@ -573,13 +580,13 @@ export default function TasksPage() {
           typeLabel="个任务"
           actions={
             <>
-              <Button size="sm" variant="ghost" className="gap-1" onClick={batchMarkComplete}>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={batchMarkComplete} title="标记完成">
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                标记完成
+                <span className="hidden sm:inline">标记完成</span>
               </Button>
-              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete} title="删除">
                 <Trash2 className="h-3.5 w-3.5" />
-                删除
+                <span className="hidden sm:inline">删除</span>
               </Button>
             </>
           }
@@ -606,7 +613,7 @@ export default function TasksPage() {
           );
         })()
       ) : viewMode === "list" ? (
-        <div className="space-y-2">
+        <div className="space-y-2 sm:space-y-3">
           {filtered.map((task) => (
             <TaskCard key={task.id} {...taskCardProps(task)} />
           ))}

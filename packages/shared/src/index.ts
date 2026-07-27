@@ -88,11 +88,15 @@ export interface AIBlockResult {
   transcript?: string;
 }
 
+// 标签颜色类型
+export type TagColor = 'gray' | 'red' | 'orange' | 'amber' | 'yellow' | 'green' | 'emerald' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'purple' | 'fuchsia' | 'pink' | 'rose';
+
 // 标签
 export interface Tag {
   id: string;
   user_id: string;
   name: string;
+  color?: TagColor;
 }
 
 // 插件记录

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
   Share2,
   Trash2,
   Link2,
+  Star,
 } from "lucide-react";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
@@ -31,6 +32,8 @@ import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
 import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { nodeText } from "@/components/editor/block-utils";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 export type NoteViewMode = "card" | "list";
 
@@ -65,11 +68,74 @@ export function NoteCard({
   onTagsApplied,
 }: NoteCardProps) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const showCheckbox = Boolean(onSelectChange);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
 
   const excerpt = useMemo(() => extractExcerpt(note.content), [note.content]);
   const tags = note.tags || [];
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkFavorite() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("favorites")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("target_type", "note")
+        .eq("target_id", note.id)
+        .maybeSingle();
+      if (mounted) {
+        setIsFavorited(!!data);
+      }
+    }
+    checkFavorite();
+    return () => { mounted = false; };
+  }, [supabase, note.id]);
+
+  const handleToggleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (isTogglingFavorite) return;
+    setIsTogglingFavorite(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      if (isFavorited) {
+        const { error } = await supabase
+          .from("favorites")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("target_type", "note")
+          .eq("target_id", note.id);
+        if (error) throw error;
+        setIsFavorited(false);
+        toast({ title: "已取消收藏" });
+      } else {
+        const { error } = await supabase
+          .from("favorites")
+          .insert({
+            user_id: user.id,
+            target_type: "note",
+            target_id: note.id,
+          });
+        if (error) throw error;
+        setIsFavorited(true);
+        toast({ title: "已收藏" });
+      }
+    } catch {
+      toast({ title: "操作失败", variant: "destructive" });
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  };
 
   const stop = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -171,6 +237,14 @@ export function NoteCard({
         )}
 
         <DropdownMenuItem
+          onClick={handleToggleFavorite}
+          disabled={isTogglingFavorite}
+        >
+          <Star className={cn("h-3.5 w-3.5 mr-2", isFavorited && "fill-yellow-500 text-yellow-500")} />
+          {isFavorited ? "取消收藏" : "收藏"}
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
             exportNoteToMarkdown(note.id, note.title || undefined);
@@ -269,7 +343,7 @@ export function NoteCard({
             note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
         >
-          <CardContent className="p-3">
+          <CardContent className="p-3 sm:p-4">
             <div className="flex items-center gap-3">
               {CheckboxEl}
               {note.is_pinned && (
@@ -280,7 +354,7 @@ export function NoteCard({
                 {tags.length > 0 && (
                   <span className="hidden md:flex items-center gap-1 shrink-0">
                     {tags.slice(0, 2).map((tag) => (
-                      <TagBadge key={tag.id} tag={tag} className="text-[10px] px-1.5 py-0" />
+                      <TagBadge key={tag.id} tag={tag} size="sm" />
                     ))}
                     {tags.length > 2 && (
                       <span className="text-xs text-muted-foreground">+{tags.length - 2}</span>
@@ -288,9 +362,9 @@ export function NoteCard({
                   </span>
                 )}
                 {note.reading_item && (
-                  <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0 max-w-[25%]">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title={(note.reading_item as any).title || (note.reading_item as any).url}>
                     <Link2 className="h-3 w-3" />
-                    <span className="truncate">
+                    <span className="hidden lg:inline truncate max-w-[12rem]">
                       {(note.reading_item as any).title || (note.reading_item as any).url}
                     </span>
                   </span>
@@ -333,7 +407,7 @@ export function NoteCard({
           note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}
       >
-        <CardContent className="p-4 flex-1 flex flex-col">
+        <CardContent className="p-3 sm:p-4 flex-1 flex flex-col">
           <div className="flex items-start gap-2">
             {CheckboxEl}
             {note.is_pinned && (
@@ -354,7 +428,7 @@ export function NoteCard({
             {tags.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
                 {tags.slice(0, 3).map((tag) => (
-                  <TagBadge key={tag.id} tag={tag} className="text-[10px] px-1.5 py-0" />
+                  <TagBadge key={tag.id} tag={tag} size="sm" />
                 ))}
                 {tags.length > 3 && (
                   <span className="text-xs text-muted-foreground">+{tags.length - 3}</span>

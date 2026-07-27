@@ -12,10 +12,12 @@ import { useSelection } from "@/hooks/use-selection";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { NoteWithTags } from "@organize/shared";
-import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin } from "lucide-react";
+import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
-import { LayoutGrid, List as ListIcon } from "lucide-react";
+import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
+import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
 
 type SortField = "updated_at" | "created_at" | "title";
 type SortOrder = "asc" | "desc";
@@ -32,6 +34,8 @@ export default function NotesPage() {
   const [view, setView] = useState<NoteViewMode>("list");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [mdImportOpen, setMdImportOpen] = useState(false);
 
   const selection = useSelection<NoteWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
@@ -205,19 +209,40 @@ export default function NotesPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">笔记</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold">笔记</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             记录你的想法和阅读笔记
           </p>
         </div>
-        <Button onClick={createNote} disabled={creating}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建笔记
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)} className="hidden sm:flex">
+            <FileDown className="h-4 w-4 mr-2" />
+            从 JoySpace 导入
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setMdImportOpen(true)} className="shrink-0">
+            <Upload className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">导入MD</span>
+          </Button>
+          <Button onClick={createNote} disabled={creating} className="shrink-0">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">新建笔记</span>
+          </Button>
+        </div>
       </div>
+
+      <JoyspaceImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={(id) => router.push(`/notes/${id}`)}
+      />
+      <MarkdownImportDialog
+        open={mdImportOpen}
+        onOpenChange={setMdImportOpen}
+        onImported={(id) => router.push(`/notes/${id}`)}
+      />
 
       {createError && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -229,7 +254,7 @@ export default function NotesPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索笔记..."
+            placeholder="搜索..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -247,17 +272,18 @@ export default function NotesPage() {
             }}
           >
             <ArrowUpDown className="h-3.5 w-3.5" />
-            {sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}
+            <span className="hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+            className="hidden sm:flex"
           >
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
 
-          <div className="flex items-center rounded-md border overflow-hidden">
+          <div className="hidden sm:flex items-center rounded-md border overflow-hidden">
             <button
               onClick={() => setView("card")}
               className={cn(
@@ -293,7 +319,7 @@ export default function NotesPage() {
             }}
           >
             <ListChecks className="h-3.5 w-3.5" />
-            多选
+            <span className="hidden sm:inline">多选</span>
           </Button>
         </div>
       </div>
@@ -315,13 +341,13 @@ export default function NotesPage() {
           typeLabel="篇笔记"
           actions={
             <>
-              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)}>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)} title="置顶">
                 <Pin className="h-3.5 w-3.5" />
-                置顶
+                <span className="hidden sm:inline">置顶</span>
               </Button>
-              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete} title="删除">
                 <Trash2 className="h-3.5 w-3.5" />
-                删除
+                <span className="hidden sm:inline">删除</span>
               </Button>
             </>
           }
@@ -337,13 +363,13 @@ export default function NotesPage() {
           description="开始记录你的想法和灵感"
         />
       ) : view === "list" ? (
-        <div className="grid gap-2">
+        <div className="grid gap-2 sm:gap-3">
           {notes.map((note) => (
             <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
             <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}

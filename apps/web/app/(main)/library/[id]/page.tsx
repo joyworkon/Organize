@@ -17,7 +17,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import type { ReadingItem, ReadingStatus, Highlight, HighlightColor } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2 } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ import { htmlToTextParagraphs } from "@/lib/tiptap-utils";
 import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
 import { FavoriteButton } from "@/components/favorite-button";
+import { ShareDialog } from "@/components/share/share-dialog";
 
 interface RecommendedItem {
   id: string;
@@ -85,11 +86,14 @@ export default function ReadingDetailPage() {
   const supabase = createClient();
   const contentRef = useRef<HTMLDivElement>(null);
   const focusContentRef = useRef<HTMLDivElement>(null);
+  const focusScrollContainerRef = useRef<HTMLDivElement>(null);
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressRef = useRef(0);
   const originalContentRef = useRef<string | null>(null);
   const originalFocusContentRef = useRef<string | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [isConvertingToNote, setIsConvertingToNote] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   const [item, setItem] = useState<ReadingItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +102,7 @@ export default function ReadingDetailPage() {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const headings = useMemo(() => {
@@ -191,71 +196,143 @@ export default function ReadingDetailPage() {
     loadOtherItems();
   }, [itemId, supabase]);
 
-  // 基于滚动位置自动更新阅读进度
-  const handleScroll = useCallback(() => {
-    if (progressTimerRef.current) return;
+  const calculateNormalProgress = useCallback((): number => {
+    const container = contentRef.current;
+    if (!container) return 0;
+
+    const containerRect = container.getBoundingClientRect();
+    const containerTop = containerRect.top + window.scrollY;
+    const containerHeight = container.offsetHeight;
+    const viewportHeight = window.innerHeight;
+    const scrollY = window.scrollY;
+
+    const bottomBarHeight = 80;
+    const effectiveViewportHeight = viewportHeight - bottomBarHeight;
+    const maxScroll = containerHeight - effectiveViewportHeight;
+
+    if (maxScroll <= 0) return 100;
+
+    const scrolled = scrollY - containerTop;
+    let progress = (scrolled / maxScroll) * 100;
+    progress = Math.min(Math.max(progress, 0), 100);
+
+    const distanceToBottom = containerHeight - (scrolled + effectiveViewportHeight);
+    if (distanceToBottom <= 60) {
+      progress = 100;
+    }
+
+    return progress;
+  }, []);
+
+  const calculateFocusProgress = useCallback((): number => {
+    const container = focusScrollContainerRef.current;
+    const content = focusContentRef.current;
+    if (!container || !content) return 0;
+
+    const scrollTop = container.scrollTop;
+    const viewportHeight = container.clientHeight;
+    const contentHeight = content.offsetHeight + 32 * 16;
+    const maxScroll = contentHeight - viewportHeight;
+
+    if (maxScroll <= 0) return 100;
+
+    let progress = (scrollTop / maxScroll) * 100;
+    progress = Math.min(Math.max(progress, 0), 100);
+
+    if (scrollTop + viewportHeight >= container.scrollHeight - 60) {
+      progress = 100;
+    }
+
+    return progress;
+  }, []);
+
+  const updateProgressToDB = useCallback((progressPercent: number) => {
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current);
+    }
 
     progressTimerRef.current = setTimeout(() => {
       progressTimerRef.current = null;
 
-      const scrollY = window.scrollY;
-      const visibleHeight = window.innerHeight;
-      const fullHeight = document.documentElement.scrollHeight;
-      // 底部 fixed 操作栏占用的视口高度（约 64px），算进"有效可视区"
-      const bottomBarHeight = 80;
-      // 可滚动的最大距离
-      const maxScroll = fullHeight - visibleHeight;
-      if (maxScroll <= 0) {
-        // 内容不足以滚动，直接视为已读
-        if (progressRef.current < 1) {
-          progressRef.current = 1;
-          setItem((prev) =>
-            prev ? { ...prev, reading_progress: 1, reading_status: "read" } : null
-          );
-          supabase
-            .from("reading_items")
-            .update({ reading_progress: 1, reading_status: "read" })
-            .eq("id", itemId);
-        }
-        return;
-      }
+      const progress = progressPercent / 100;
 
-      // 进度比例（clamp 到 0-1）
-      let progress = Math.min(Math.max(scrollY / maxScroll, 0), 1);
-
-      // 关键修复：当距离底部很近时（≤ 底部栏高度 + 60px 缓冲），直接判定为已读完
-      // 这样底部 fixed 操作栏的留白不会阻止触发"已读"
-      const distanceToBottom = fullHeight - (scrollY + visibleHeight);
-      const reachedBottom = distanceToBottom <= bottomBarHeight + 60;
-      if (reachedBottom) {
-        progress = 1;
-      }
-
-      // 只有进度增加时才更新，避免重复写入
       if (progress <= progressRef.current) return;
       progressRef.current = progress;
 
-      // 已读完：到底 或者 进度 ≥ 85%（降低阈值，配合到底判断双保险）
-      const newStatus: ReadingStatus =
-        reachedBottom || progress >= 0.85 ? "read" : "reading";
+      const reachedBottom = progressPercent >= 95;
+      const startedReading = progressPercent > 5;
+      let newStatus: ReadingStatus = item?.reading_status || "unread";
 
-      // 先更新本地状态
+      if (reachedBottom) {
+        newStatus = "read";
+      } else if (startedReading && newStatus === "unread") {
+        newStatus = "reading";
+      }
+
       setItem((prev) =>
         prev ? { ...prev, reading_progress: progress, reading_status: newStatus } : null
       );
 
-      // 在 setState 外部执行数据库写入（避免 reducer 副作用）
       supabase
         .from("reading_items")
-        .update({ reading_progress: progress, reading_status: newStatus })
+        .update({ reading_progress: Math.round(progressPercent) / 100, reading_status: newStatus })
         .eq("id", itemId);
-    }, 500);
-  }, [itemId, supabase]);
+    }, 300);
+  }, [itemId, supabase, item?.reading_status]);
+
+  const handleNormalScroll = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
+    rafRef.current = requestAnimationFrame(() => {
+      const progress = calculateNormalProgress();
+      setScrollProgress(progress);
+      updateProgressToDB(progress);
+    });
+  }, [calculateNormalProgress, updateProgressToDB]);
+
+  const handleFocusScroll = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
+    rafRef.current = requestAnimationFrame(() => {
+      const progress = calculateFocusProgress();
+      setScrollProgress(progress);
+      updateProgressToDB(progress);
+    });
+  }, [calculateFocusProgress, updateProgressToDB]);
 
   useEffect(() => {
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
+    if (focusMode) {
+      const focusContainer = focusScrollContainerRef.current;
+      if (focusContainer) {
+        focusContainer.addEventListener("scroll", handleFocusScroll, { passive: true });
+        handleFocusScroll();
+      }
+      return () => {
+        if (focusContainer) {
+          focusContainer.removeEventListener("scroll", handleFocusScroll);
+        }
+      };
+    } else {
+      window.addEventListener("scroll", handleNormalScroll, { passive: true });
+      handleNormalScroll();
+      return () => window.removeEventListener("scroll", handleNormalScroll);
+    }
+  }, [focusMode, handleNormalScroll, handleFocusScroll]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      if (progressTimerRef.current) {
+        clearTimeout(progressTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (focusMode) {
@@ -541,6 +618,10 @@ export default function ReadingDetailPage() {
 
   return (
     <div className="relative xl:max-w-[calc(65rem+16rem)] xl:mx-auto">
+      <div
+        className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-primary transition-[width] duration-100 ease-out"
+        style={{ width: `${scrollProgress}%` }}
+      />
       <Toc headings={headings} containerRef={contentRef} />
       <HighlightsPanel
         isOpen={showHighlightsPanel}
@@ -582,59 +663,78 @@ export default function ReadingDetailPage() {
                 </BreadcrumbList>
               </Breadcrumb>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                className={`gap-1.5 ${bionicMode ? "text-primary bg-primary/10" : ""}`}
+                className={`gap-1 sm:gap-1.5 ${bionicMode ? "text-primary bg-primary/10" : ""}`}
                 onClick={() => setBionicMode(!bionicMode)}
+                title="速读"
               >
                 <Zap className="h-3.5 w-3.5" />
-                速读
+                <span className="hidden sm:inline">速读</span>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className={`gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
+                className={`gap-1 sm:gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
                 onClick={() => setFocusMode(!focusMode)}
+                title="专注"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
-                专注
+                <span className="hidden sm:inline">专注</span>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5"
+                className="gap-1 sm:gap-1.5"
                 onClick={handleConvertToNote}
                 disabled={isConvertingToNote}
+                title="笔记"
               >
                 {isConvertingToNote ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <FileText className="h-3.5 w-3.5" />
                 )}
-                笔记
+                <span className="hidden sm:inline">笔记</span>
               </Button>
               <FavoriteButton targetType="reading" targetId={itemId} />
               <Button
                 variant="ghost"
                 size="sm"
-                className={`gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
+                className="gap-1 sm:gap-1.5"
+                onClick={() => setShareDialogOpen(true)}
+                title="分享"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">分享</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
                 onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
+                title="高亮"
               >
                 <Highlighter className="h-3.5 w-3.5" />
-                高亮
+                <span className="hidden sm:inline">高亮</span>
                 {highlights.length > 0 && (
-                  <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 rounded-full">
+                  <span className="ml-0.5 sm:ml-1 text-xs bg-primary/10 text-primary px-1 sm:px-1.5 rounded-full">
                     {highlights.length}
                   </span>
                 )}
               </Button>
               <StatusBadge status={item.reading_status} />
-              <a href={item.url} target="_blank" rel="noopener noreferrer">
+              <a href={item.url} target="_blank" rel="noopener noreferrer" className="hidden sm:inline">
                 <Button variant="outline" size="sm" className="gap-2">
                   <ExternalLink className="h-3.5 w-3.5" />
                   原文
+                </Button>
+              </a>
+              <a href={item.url} target="_blank" rel="noopener noreferrer" className="sm:hidden">
+                <Button variant="ghost" size="sm" title="原文">
+                  <ExternalLink className="h-4 w-4" />
                 </Button>
               </a>
             </div>
@@ -643,7 +743,7 @@ export default function ReadingDetailPage() {
           <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${Math.round(item.reading_progress * 100)}%` }}
+              style={{ width: `${Math.round(scrollProgress)}%` }}
             />
           </div>
         </div>
@@ -680,7 +780,7 @@ export default function ReadingDetailPage() {
         <HighlightMenu onCreateHighlight={handleCreateHighlight}>
           <div
             ref={contentRef}
-            className="prose prose-sm sm:prose max-w-none px-4 xl:px-0
+            className="prose prose-sm sm:prose max-w-none px-4 sm:px-6 xl:px-0
               prose-headings:font-bold prose-a:text-primary
               prose-img:rounded-lg prose-img:shadow-sm"
             dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
@@ -688,7 +788,7 @@ export default function ReadingDetailPage() {
         </HighlightMenu>
 
         {/* 下一篇推荐 */}
-        <div className="pb-24 px-4 xl:px-0 mt-12">
+        <div className="pb-24 px-4 sm:px-6 xl:px-0 mt-12">
           {recommendedItem ? (
             <Link href={`/library/${recommendedItem.id}`}>
               <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer">
@@ -738,7 +838,7 @@ export default function ReadingDetailPage() {
         <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
           <div className="max-w-3xl mx-auto flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              阅读进度: {Math.round(item.reading_progress * 100)}%
+              阅读进度: {Math.round(scrollProgress)}%
             </span>
             <div className="flex gap-2">
               <Button
@@ -761,7 +861,7 @@ export default function ReadingDetailPage() {
 
       {/* 专注模式全屏覆盖层 */}
       {focusMode && (
-        <div className="fixed inset-0 z-50 bg-background overflow-y-auto animate-in fade-in duration-200">
+        <div ref={focusScrollContainerRef} className="fixed inset-0 z-50 bg-background overflow-y-auto animate-in fade-in duration-200">
           <Button
             variant="ghost"
             size="icon"
@@ -770,7 +870,7 @@ export default function ReadingDetailPage() {
           >
             <X className="h-5 w-5" />
           </Button>
-          <div className="max-w-2xl mx-auto px-6 py-16">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
             <header className="mb-8">
               <h1 className="text-2xl md:text-3xl font-bold leading-tight">
                 {item.title}
@@ -821,6 +921,13 @@ export default function ReadingDetailPage() {
           </div>
         </div>
       )}
+
+      <ShareDialog
+        resourceType="reading_item"
+        resourceId={itemId}
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { PluginBootstrap } from "@/components/plugin/plugin-bootstrap";
 import { CommandPalette } from "@/components/command-palette";
 import { Toaster } from "@/components/ui/toast";
 import { QuickAdd } from "@/components/quick-add";
+import { Onboarding } from "@/components/onboarding";
 
 export default function MainLayout({
   children,
@@ -23,6 +24,7 @@ export default function MainLayout({
         <div className="container mx-auto p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
+      <Onboarding />
     </div>
   );
 }

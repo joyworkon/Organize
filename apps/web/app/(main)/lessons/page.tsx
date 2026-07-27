@@ -131,17 +131,17 @@ export default function LessonsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">经验总结</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold">经验总结</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             共 {stats.total} 条经验 · {stats.reflection} 篇复盘 · {stats.lesson} 条经验 · {stats.insight} 个灵感
           </p>
         </div>
-        <Button onClick={handleCreate}>
-          <Plus className="h-4 w-4 mr-2" />
-          记录经验
+        <Button onClick={handleCreate} className="shrink-0">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline ml-2">记录经验</span>
         </Button>
       </div>
 

@@ -15,8 +15,11 @@ import {
 } from "@/components/ui/dialog";
 import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags } from "@organize/shared";
+import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { TagColorPicker } from "@/components/tags/tag-color-picker";
+import { Label } from "@/components/ui/label";
 
 type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
@@ -28,12 +31,14 @@ export default function TagsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newColor, setNewColor] = useState<TagColor>("blue");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [renameTarget, setRenameTarget] = useState<TagWithCount | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [renaming, setRenaming] = useState(false);
+  const [editTarget, setEditTarget] = useState<TagWithCount | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [editColor, setEditColor] = useState<TagColor>("blue");
+  const [editing, setEditing] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<TagWithCount | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -51,7 +56,7 @@ export default function TagsPage() {
 
       const { data: tagData } = await supabase
         .from("tags")
-        .select("id, name, created_at")
+        .select("id, name, color, created_at")
         .eq("user_id", user.id)
         .order("name", { ascending: true });
 
@@ -88,6 +93,7 @@ export default function TagsPage() {
         id: t.id,
         user_id: user.id,
         name: t.name,
+        color: t.color || "blue",
         ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 }),
       }));
       setTags(result);
@@ -116,7 +122,7 @@ export default function TagsPage() {
           ? supabase.from("reading_items").select("*").in("id", itemIds).order("created_at", { ascending: false })
           : Promise.resolve({ data: [] }),
         noteIds.length > 0
-          ? supabase.from("notes").select("*, tags:tags!note_tags(*)").in("id", noteIds).order("updated_at", { ascending: false })
+          ? supabase.from("notes").select("*, tags:tags!note_tags(id, name, color)").in("id", noteIds).order("updated_at", { ascending: false })
           : Promise.resolve({ data: [] }),
         taskIds.length > 0
           ? supabase.from("tasks").select("*").in("id", taskIds).order("created_at", { ascending: false })
@@ -132,7 +138,7 @@ export default function TagsPage() {
       const lessonTagLinksRes = lessonIds.length > 0
         ? await supabase.from("lesson_tags").select("lesson_id, tag_id").in("lesson_id", lessonIds)
         : { data: [] };
-      const { data: allTagsForUser } = await supabase.from("tags").select("id, name");
+      const { data: allTagsForUser } = await supabase.from("tags").select("id, name, color");
       const tagMap = new Map((allTagsForUser || []).map((t: any) => [t.id, t as Tag]));
 
       const taskTagsByTask = new Map<string, Tag[]>();
@@ -183,6 +189,13 @@ export default function TagsPage() {
   const totalUsage = (t: TagWithCount) =>
     (t.note_count || 0) + (t.reading_item_count || 0) + (t.task_count || 0) + (t.lesson_count || 0);
 
+  const openCreateDialog = () => {
+    setNewName("");
+    setNewColor("blue");
+    setCreateError(null);
+    setCreateOpen(true);
+  };
+
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) return;
@@ -194,8 +207,8 @@ export default function TagsPage() {
 
       const { data, error } = await supabase
         .from("tags")
-        .upsert({ user_id: user.id, name }, { onConflict: "user_id,name" })
-        .select("id, name")
+        .upsert({ user_id: user.id, name, color: newColor }, { onConflict: "user_id,name" })
+        .select("id, name, color")
         .single();
 
       if (error) throw error;
@@ -209,23 +222,29 @@ export default function TagsPage() {
     }
   };
 
-  const handleRename = async () => {
-    if (!renameTarget || !renameValue.trim()) return;
-    setRenaming(true);
+  const openEditDialog = (tag: TagWithCount) => {
+    setEditTarget(tag);
+    setEditValue(tag.name);
+    setEditColor((tag.color as TagColor) || "blue");
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget || !editValue.trim()) return;
+    setEditing(true);
     try {
       const { error } = await supabase
         .from("tags")
-        .update({ name: renameValue.trim() })
-        .eq("id", renameTarget.id);
+        .update({ name: editValue.trim(), color: editColor })
+        .eq("id", editTarget.id);
       if (!error) {
-        setRenameTarget(null);
-        if (selectedTag?.id === renameTarget.id) {
+        setEditTarget(null);
+        if (selectedTag?.id === editTarget.id) {
           setSelectedTag(null);
         }
         await fetchTags();
       }
     } finally {
-      setRenaming(false);
+      setEditing(false);
     }
   };
 
@@ -265,12 +284,9 @@ export default function TagsPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-md bg-accent flex items-center justify-center">
-                <TagIcon className="h-4 w-4 text-accent-foreground" />
-              </div>
-              <h1 className="text-2xl font-bold">{selectedTag.name}</h1>
+              <TagBadge tag={selectedTag} size="md" className="!text-sm" />
             </div>
-            <p className="text-muted-foreground mt-1 ml-10">
+            <p className="text-muted-foreground mt-1 ml-0">
               共 {totalUsage(selectedTag)} 个内容
               {(selectedTag.reading_item_count || 0) > 0 && ` · ${selectedTag.reading_item_count} 篇文章`}
               {(selectedTag.note_count || 0) > 0 && ` · ${selectedTag.note_count} 条笔记`}
@@ -346,11 +362,15 @@ export default function TagsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium leading-tight line-clamp-1">{note.title || "无标题"}</h3>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
                           <span>笔记</span>
                           <span>· 更新于 {formatDate(note.updated_at)}</span>
                           {note.tags && note.tags.length > 0 && (
-                            <span>· {note.tags.length} 个标签</span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {note.tags.slice(0, 2).map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} size="sm" />
+                              ))}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -370,7 +390,7 @@ export default function TagsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className={cn("font-medium leading-tight line-clamp-1", task.status === "done" && "line-through text-muted-foreground")}>{task.title}</h3>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
                           <span>任务</span>
                           <span className={cn(
                             "px-1 rounded text-[10px]",
@@ -380,6 +400,13 @@ export default function TagsPage() {
                             {task.status === "todo" ? "待办" : task.status === "in_progress" ? "进行中" : task.status === "done" ? "已完成" : "已取消"}
                           </span>
                           <span>· {formatDate(task.created_at)}</span>
+                          {task.tags && task.tags.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {task.tags.slice(0, 2).map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} size="sm" />
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -398,10 +425,17 @@ export default function TagsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium leading-tight line-clamp-1">{lesson.title || "未命名经验"}</h3>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
                           <span>经验</span>
                           <span>· {lesson.lesson_type === "reflection" ? "复盘" : lesson.lesson_type === "lesson" ? "经验" : "灵感"}</span>
                           <span>· {formatDate(lesson.created_at)}</span>
+                          {lesson.tags && lesson.tags.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {lesson.tags.slice(0, 2).map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} size="sm" />
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -435,7 +469,7 @@ export default function TagsPage() {
           </p>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />
             新建标签
           </Button>
@@ -443,17 +477,27 @@ export default function TagsPage() {
             <DialogHeader>
               <DialogTitle>新建标签</DialogTitle>
             </DialogHeader>
-            <Input
-              placeholder="标签名（最长 32 字符）"
-              value={newName}
-              onChange={(e) => {
-                setNewName(e.target.value);
-                setCreateError(null);
-              }}
-              maxLength={32}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-              autoFocus
-            />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="tag-name">标签名</Label>
+                <Input
+                  id="tag-name"
+                  placeholder="标签名（最长 32 字符）"
+                  value={newName}
+                  onChange={(e) => {
+                    setNewName(e.target.value);
+                    setCreateError(null);
+                  }}
+                  maxLength={32}
+                  onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>颜色</Label>
+                <TagColorPicker value={newColor} onChange={setNewColor} />
+              </div>
+            </div>
             {createError && <p className="text-sm text-destructive">{createError}</p>}
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateOpen(false)}>取消</Button>
@@ -487,7 +531,7 @@ export default function TagsPage() {
           title={search.trim() ? "没有匹配的标签" : "还没有标签"}
           description="创建标签来整理你的内容"
           action={!search.trim() ? (
-            <Button onClick={() => setCreateOpen(true)}>创建标签</Button>
+            <Button onClick={openCreateDialog}>创建标签</Button>
           ) : undefined}
         />
       ) : (
@@ -500,11 +544,8 @@ export default function TagsPage() {
             >
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center shrink-0 group-hover:bg-primary/10 transition-colors">
-                    <TagIcon className="h-5 w-5 text-accent-foreground group-hover:text-primary transition-colors" />
-                  </div>
+                  <TagBadge tag={tag} />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate text-foreground">{tag.name}</p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
                       <span className="flex items-center gap-0.5">
                         <BookOpen className="h-3 w-3" />
@@ -529,11 +570,10 @@ export default function TagsPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      title="重命名"
+                      title="编辑"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setRenameTarget(tag);
-                        setRenameValue(tag.name);
+                        openEditDialog(tag);
                       }}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -561,22 +601,32 @@ export default function TagsPage() {
         </div>
       )}
 
-      <Dialog open={!!renameTarget} onOpenChange={(o) => !o && setRenameTarget(null)}>
+      <Dialog open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>重命名标签</DialogTitle>
+            <DialogTitle>编辑标签</DialogTitle>
           </DialogHeader>
-          <Input
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            maxLength={32}
-            autoFocus
-            onKeyDown={(e) => e.key === "Enter" && handleRename()}
-          />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-tag-name">标签名</Label>
+              <Input
+                id="edit-tag-name"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                maxLength={32}
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleEdit()}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>颜色</Label>
+              <TagColorPicker value={editColor} onChange={setEditColor} />
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>取消</Button>
-            <Button onClick={handleRename} disabled={renaming || !renameValue.trim()}>
-              {renaming ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button variant="outline" onClick={() => setEditTarget(null)}>取消</Button>
+            <Button onClick={handleEdit} disabled={editing || !editValue.trim()}>
+              {editing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               保存
             </Button>
           </DialogFooter>
@@ -589,7 +639,7 @@ export default function TagsPage() {
             <DialogTitle>删除标签</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            确定删除标签 <span className="font-medium text-foreground">{deleteTarget?.name}</span>？
+            确定删除标签 <TagBadge tag={{ id: deleteTarget?.id || "", name: deleteTarget?.name || "", color: deleteTarget?.color }} size="sm" className="!mx-1" />？
             {deleteTarget && totalUsage(deleteTarget) > 0 && (
               <> 该标签当前用在 {totalUsage(deleteTarget)} 个内容上，删除后会自动从这些内容上移除。</>
             )}

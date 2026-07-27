@@ -1057,6 +1057,14 @@
   .note-presentation main > h1 { margin-bottom: 22px; }
 }
 
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  .bottom-safe { bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .top-safe { top: env(safe-area-inset-top); }
+}
+
 /* ------------------------- 文章高亮（划线） ------------------------- */
 mark.hl-yellow { background-color: rgb(254 240 138 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
 .dark mark.hl-yellow { background-color: rgb(113 63 18 / 0.4); }

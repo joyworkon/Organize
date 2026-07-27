@@ -17,10 +17,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ArrowLeft, Loader2, Check, FileText, Calendar } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
+import { ShareDialog } from "@/components/share/share-dialog";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
@@ -44,6 +45,7 @@ export default function NoteEditorPage() {
   const [fullWidth, setFullWidth] = useState(false);
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -381,6 +383,14 @@ export default function NoteEditorPage() {
             ) : null}
           </div>
           <FavoriteButton targetType="note" targetId={noteId} />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShareDialogOpen(true)}
+            title="分享"
+          >
+            <Share2 className="h-4 w-4" />
+          </Button>
           <NotePageMenu
             fullWidth={fullWidth}
             onToggleFullWidth={toggleFullWidth}
@@ -433,6 +443,13 @@ export default function NoteEditorPage() {
           {toast}
         </div>
       )}
+
+      <ShareDialog
+        resourceType="note"
+        resourceId={noteId}
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+      />
     </div>
   );
 }
