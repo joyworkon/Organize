@@ -7,9 +7,20 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TipTapEditor } from "@/components/editor/tiptap-editor";
 import { NotePageMenu, type NoteFont } from "@/components/notes/note-page-menu";
-import { ArrowLeft, Loader2, Check } from "lucide-react";
+import { Backlinks } from "@/components/notes/backlinks";
+import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { ArrowLeft, Loader2, Check, FileText, Calendar } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { FavoriteButton } from "@/components/favorite-button";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
@@ -24,6 +35,8 @@ export default function NoteEditorPage() {
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<Record<string, unknown> | null>(null);
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [readingItemId, setReadingItemId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -57,6 +70,8 @@ export default function NoteEditorPage() {
         const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
         setTitle(loadedTitle);
         setContent(loadedContent);
+        setCreatedAt(data.created_at || null);
+        setReadingItemId(data.reading_item_id || null);
         draftRef.current = { title: loadedTitle, content: loadedContent };
       }
       setLoading(false);
@@ -293,13 +308,19 @@ export default function NoteEditorPage() {
 
   if (!content) {
     return (
-      <div className="text-center py-20 text-muted-foreground">
-        笔记不存在或已被删除
-        <br />
-        <Link href="/notes" className="text-primary underline text-sm mt-2 inline-block">
-          返回笔记列表
-        </Link>
-      </div>
+      <EmptyState
+        icon={FileText}
+        title="笔记不存在"
+        description="笔记可能已被删除或链接无效"
+        action={
+          <Link href="/notes">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回笔记列表
+            </Button>
+          </Link>
+        }
+      />
     );
   }
 
@@ -313,6 +334,28 @@ export default function NoteEditorPage() {
         smallFont && "note-page-small"
       )}
     >
+      {/* 面包屑 */}
+      <Breadcrumb className="pt-2">
+        <BreadcrumbList>
+          <BreadcrumbItem className="hidden sm:inline-flex">
+            <BreadcrumbLink href="/">首页</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator className="hidden sm:block" />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/notes">笔记</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem className="min-w-0">
+            <BreadcrumbPage
+              className="max-w-[20ch] sm:max-w-[40ch]"
+              title={title || undefined}
+            >
+              {title || "无标题笔记"}
+            </BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       {/* 顶栏 */}
       <div className="flex items-center justify-between">
         <Link href="/notes">
@@ -337,6 +380,7 @@ export default function NoteEditorPage() {
               </>
             ) : null}
           </div>
+          <FavoriteButton targetType="note" targetId={noteId} />
           <NotePageMenu
             fullWidth={fullWidth}
             onToggleFullWidth={toggleFullWidth}
@@ -363,6 +407,14 @@ export default function NoteEditorPage() {
         className="note-title w-full resize-none overflow-hidden break-words bg-transparent px-0 py-2 text-2xl font-bold leading-tight outline-none placeholder:text-muted-foreground"
       />
 
+      {/* 创建时间 */}
+      {createdAt && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
+          <Calendar className="h-3 w-3" />
+          创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
+        </div>
+      )}
+
       {/* 编辑器 */}
       <TipTapEditor
         noteId={noteId}
@@ -371,6 +423,9 @@ export default function NoteEditorPage() {
         onUpdate={handleContentUpdate}
         onEditorReady={(editor) => { editorRef.current = editor; }}
       />
+
+      {/* 反向链接 & 关联阅读 */}
+      <Backlinks noteId={noteId} readingItemId={readingItemId} />
 
       {/* 轻量内联提示 */}
       {toast && (

@@ -14,6 +14,7 @@ import {
   Pencil,
   Check,
   CheckSquare,
+  GripVertical,
 } from "lucide-react";
 import { formatDueDate, getDueDateColorClass } from "@/lib/date-utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
+import { FavoriteButton } from "@/components/favorite-button";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags, TaskStatus } from "@organize/shared";
 import {
@@ -47,6 +49,15 @@ interface TaskCardProps {
   selected?: boolean;
   onSelectChange?: (id: string, checked: boolean) => void;
   selectionMode?: boolean;
+  draggable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => void;
+  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDrop?: (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => void;
+  onDragLeave?: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnter?: (e: React.DragEvent<HTMLDivElement>) => void;
 }
 
 export function TaskCard({
@@ -59,6 +70,15 @@ export function TaskCard({
   selected = false,
   onSelectChange,
   selectionMode = false,
+  draggable = false,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver: onDragOverProp,
+  onDragEnd,
+  onDrop,
+  onDragLeave,
+  onDragEnter,
 }: TaskCardProps) {
   const router = useRouter();
   const statusConfig = TASK_STATUS_CONFIG[task.status];
@@ -128,11 +148,20 @@ export function TaskCard({
     >
     <Card
       onClick={handleCardClick}
+      draggable={draggable}
+      onDragStart={(e) => onDragStart?.(e, task)}
+      onDragOver={onDragOverProp}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => onDrop?.(e, task)}
+      onDragLeave={onDragLeave}
+      onDragEnter={onDragEnter}
       className={cn(
         "group cursor-pointer transition-colors duration-150 border-l-4 relative",
         showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
         selected && "ring-2 ring-primary",
         task.is_pinned && "ring-1 ring-primary/20",
+        isDragging && "opacity-50",
+        isDragOver && "border-t-2 border-t-primary",
         isOverdue && "border-l-red-500",
         !isOverdue && task.status === "done" && "border-l-green-500",
         !isOverdue && task.status !== "done" && task.priority === "high" && "border-l-orange-500",
@@ -142,6 +171,11 @@ export function TaskCard({
     >
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-start gap-3">
+          {draggable && (
+            <div className="flex items-start pt-1 cursor-grab active:cursor-grabbing">
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
           {showCheckbox && (
             <div className="flex items-start pt-1" onClick={stop}>
               <Checkbox
@@ -273,17 +307,19 @@ export function TaskCard({
                 </div>
               </div>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={handleButtonClick}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <FavoriteButton targetType="task" targetId={task.id} className="h-8 w-8" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={handleButtonClick}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
                   {onComplete && task.status !== "done" && (
                     <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onComplete(task); }}>
@@ -322,7 +358,8 @@ export function TaskCard({
                     </>
                   )}
                 </DropdownMenuContent>
-              </DropdownMenu>
+                </DropdownMenu>
+              </div>
             </div>
           </div>
         </div>

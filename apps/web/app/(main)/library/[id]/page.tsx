@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/reading/status-badge";
 import { Toc, extractHeadings } from "@/components/reading/toc";
+import { HighlightMenu } from "@/components/reading/highlight-menu";
+import { HighlightsPanel } from "@/components/reading/highlights-panel";
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -14,10 +16,15 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import type { ReadingItem, ReadingStatus } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox } from "lucide-react";
+import type { ReadingItem, ReadingStatus, Highlight, HighlightColor } from "@organize/shared";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
+import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { htmlToTextParagraphs } from "@/lib/tiptap-utils";
+import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
+import { FavoriteButton } from "@/components/favorite-button";
 
 interface RecommendedItem {
   id: string;
@@ -77,14 +84,20 @@ export default function ReadingDetailPage() {
   const itemId = params.id as string;
   const supabase = createClient();
   const contentRef = useRef<HTMLDivElement>(null);
+  const focusContentRef = useRef<HTMLDivElement>(null);
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressRef = useRef(0);
   const originalContentRef = useRef<string | null>(null);
+  const originalFocusContentRef = useRef<string | null>(null);
+  const [isConvertingToNote, setIsConvertingToNote] = useState(false);
 
   const [item, setItem] = useState<ReadingItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [bionicMode, setBionicMode] = useState(false);
   const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
+  const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const headings = useMemo(() => {
@@ -140,6 +153,22 @@ export default function ReadingDetailPage() {
       setLoading(false);
     }
     loadItem();
+  }, [itemId, supabase]);
+
+  useEffect(() => {
+    async function loadHighlights() {
+      const { data, error } = await supabase
+        .from("highlights")
+        .select("*")
+        .eq("reading_item_id", itemId)
+        .order("created_at", { ascending: false });
+      if (!error && data) {
+        setHighlights(data as Highlight[]);
+      }
+    }
+    if (itemId) {
+      loadHighlights();
+    }
   }, [itemId, supabase]);
 
   useEffect(() => {
@@ -228,6 +257,27 @@ export default function ReadingDetailPage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [handleScroll]);
 
+  useEffect(() => {
+    if (focusMode) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [focusMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && focusMode) {
+        setFocusMode(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [focusMode]);
+
   const bionicWord = useCallback((word: string): string => {
     if (!word) return word;
     const mid = Math.ceil(word.length / 2);
@@ -238,16 +288,9 @@ export default function ReadingDetailPage() {
     return text.replace(/([\u4e00-\u9fa5]+|[a-zA-Z]+)/g, (match) => bionicWord(match));
   }, [bionicWord]);
 
-  const applyBionicReading = useCallback(() => {
-    const contentEl = contentRef.current;
-    if (!contentEl) return;
-
-    if (originalContentRef.current === null) {
-      originalContentRef.current = contentEl.innerHTML;
-    }
-
+  const applyBionicToElement = useCallback((el: HTMLElement) => {
     const walker = document.createTreeWalker(
-      contentEl,
+      el,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
@@ -289,11 +332,35 @@ export default function ReadingDetailPage() {
     });
   }, [bionicProcessText]);
 
+  const applyBionicReading = useCallback(() => {
+    const contentEl = contentRef.current;
+    if (contentEl) {
+      if (originalContentRef.current === null) {
+        originalContentRef.current = contentEl.innerHTML;
+      }
+      applyBionicToElement(contentEl);
+    }
+
+    const focusEl = focusContentRef.current;
+    if (focusEl) {
+      if (originalFocusContentRef.current === null) {
+        originalFocusContentRef.current = focusEl.innerHTML;
+      }
+      applyBionicToElement(focusEl);
+    }
+  }, [applyBionicToElement]);
+
   const restoreOriginalContent = useCallback(() => {
     const contentEl = contentRef.current;
     if (contentEl && originalContentRef.current !== null) {
       contentEl.innerHTML = originalContentRef.current;
       originalContentRef.current = null;
+    }
+
+    const focusEl = focusContentRef.current;
+    if (focusEl && originalFocusContentRef.current !== null) {
+      focusEl.innerHTML = originalFocusContentRef.current;
+      originalFocusContentRef.current = null;
     }
   }, []);
 
@@ -309,11 +376,12 @@ export default function ReadingDetailPage() {
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [bionicMode, loading, item, applyBionicReading, restoreOriginalContent]);
+  }, [bionicMode, loading, item, applyBionicReading, restoreOriginalContent, focusMode]);
 
   useEffect(() => {
     setBionicMode(false);
     originalContentRef.current = null;
+    originalFocusContentRef.current = null;
   }, [itemId]);
 
   const updateStatus = async (status: ReadingStatus) => {
@@ -323,6 +391,133 @@ export default function ReadingDetailPage() {
       .eq("id", itemId);
     setItem((prev) => prev ? { ...prev, reading_status: status } : null);
   };
+
+  const handleConvertToNote = useCallback(async () => {
+    if (!item || isConvertingToNote) return;
+    setIsConvertingToNote(true);
+    try {
+      toast({ title: "正在创建笔记..." });
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+
+      const title = item.title || "无标题笔记";
+      const paragraphs = htmlToTextParagraphs(item.content || "");
+      const limitedParagraphs = paragraphs.slice(0, 50);
+
+      const content: JSONContent = {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: title }]
+          },
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "原文链接：" },
+              {
+                type: "text",
+                text: item.url,
+                marks: [{ type: "link", attrs: { href: item.url, target: "_blank" } }]
+              }
+            ]
+          },
+          { type: "paragraph" },
+          ...limitedParagraphs.map(p => ({
+            type: "paragraph" as const,
+            content: p.trim() ? [{ type: "text" as const, text: p.trim() }] : undefined
+          })).filter(n => n.content)
+        ]
+      };
+
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          title,
+          content,
+          user_id: user.id,
+          reading_item_id: itemId
+        })
+        .select()
+        .single();
+
+      if (error || !data) {
+        toast({ title: "创建笔记失败", variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "笔记创建成功" });
+      router.push(`/notes/${data.id}`);
+    } catch {
+      toast({ title: "创建笔记失败", variant: "destructive" });
+    } finally {
+      setIsConvertingToNote(false);
+    }
+  }, [item, itemId, supabase, router, isConvertingToNote]);
+
+  const handleCreateHighlight = useCallback(async (content: string, color: HighlightColor) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      const { data, error } = await supabase
+        .from("highlights")
+        .insert({
+          user_id: user.id,
+          reading_item_id: itemId,
+          content,
+          color,
+        })
+        .select()
+        .single();
+      if (error) {
+        toast({ title: "高亮保存失败", variant: "destructive" });
+        return;
+      }
+      if (data) {
+        setHighlights((prev) => [data as Highlight, ...prev]);
+        toast({ title: "高亮已添加" });
+      }
+    } catch {
+      toast({ title: "高亮保存失败", variant: "destructive" });
+    }
+  }, [itemId, supabase]);
+
+  const handleDeleteHighlight = useCallback(async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("highlights")
+        .delete()
+        .eq("id", id);
+      if (error) {
+        toast({ title: "删除失败", variant: "destructive" });
+        return;
+      }
+      setHighlights((prev) => prev.filter((h) => h.id !== id));
+      const marks = document.querySelectorAll(`mark.hl-yellow, mark.hl-green, mark.hl-blue, mark.hl-pink, mark.hl-purple`);
+      for (const mark of Array.from(marks)) {
+        const highlight = highlights.find((h) => h.id === id);
+        if (highlight && mark.textContent?.trim() === highlight.content.trim()) {
+          const parent = mark.parentNode;
+          while (mark.firstChild) {
+            parent?.insertBefore(mark.firstChild, mark);
+          }
+          parent?.removeChild(mark);
+          break;
+        }
+      }
+      toast({ title: "高亮已删除" });
+    } catch {
+      toast({ title: "删除失败", variant: "destructive" });
+    }
+  }, [highlights, supabase]);
 
   if (loading) {
     return (
@@ -347,7 +542,16 @@ export default function ReadingDetailPage() {
   return (
     <div className="relative xl:max-w-[calc(65rem+16rem)] xl:mx-auto">
       <Toc headings={headings} containerRef={contentRef} />
-      <div className="max-w-3xl mx-auto xl:mx-0 xl:mr-auto xl:ml-0 xl:pr-72">
+      <HighlightsPanel
+        isOpen={showHighlightsPanel}
+        onClose={() => setShowHighlightsPanel(false)}
+        highlights={highlights}
+        onDelete={handleDeleteHighlight}
+      />
+      <div className={cn(
+        "max-w-3xl mx-auto xl:mx-0 xl:mr-auto xl:ml-0",
+        showHighlightsPanel ? "xl:pr-72" : "xl:pr-72"
+      )}>
         {/* 顶栏 */}
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b py-3 mb-6 -mx-4 px-4 xl:mx-0 xl:rounded-t-lg">
           <div className="flex items-center justify-between">
@@ -387,6 +591,44 @@ export default function ReadingDetailPage() {
               >
                 <Zap className="h-3.5 w-3.5" />
                 速读
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
+                onClick={() => setFocusMode(!focusMode)}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+                专注
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleConvertToNote}
+                disabled={isConvertingToNote}
+              >
+                {isConvertingToNote ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5" />
+                )}
+                笔记
+              </Button>
+              <FavoriteButton targetType="reading" targetId={itemId} />
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
+                onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
+              >
+                <Highlighter className="h-3.5 w-3.5" />
+                高亮
+                {highlights.length > 0 && (
+                  <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 rounded-full">
+                    {highlights.length}
+                  </span>
+                )}
               </Button>
               <StatusBadge status={item.reading_status} />
               <a href={item.url} target="_blank" rel="noopener noreferrer">
@@ -435,13 +677,15 @@ export default function ReadingDetailPage() {
         </header>
 
         {/* 文章内容 */}
-        <div
-          ref={contentRef}
-          className="prose prose-sm sm:prose max-w-none px-4 xl:px-0
-            prose-headings:font-bold prose-a:text-primary
-            prose-img:rounded-lg prose-img:shadow-sm"
-          dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
-        />
+        <HighlightMenu onCreateHighlight={handleCreateHighlight}>
+          <div
+            ref={contentRef}
+            className="prose prose-sm sm:prose max-w-none px-4 xl:px-0
+              prose-headings:font-bold prose-a:text-primary
+              prose-img:rounded-lg prose-img:shadow-sm"
+            dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
+          />
+        </HighlightMenu>
 
         {/* 下一篇推荐 */}
         <div className="pb-24 px-4 xl:px-0 mt-12">
@@ -514,6 +758,69 @@ export default function ReadingDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* 专注模式全屏覆盖层 */}
+      {focusMode && (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto animate-in fade-in duration-200">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="fixed top-4 right-4 z-10 h-10 w-10 rounded-full bg-background/80 backdrop-blur hover:bg-accent"
+            onClick={() => setFocusMode(false)}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+          <div className="max-w-2xl mx-auto px-6 py-16">
+            <header className="mb-8">
+              <h1 className="text-2xl md:text-3xl font-bold leading-tight">
+                {item.title}
+              </h1>
+              <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary transition-colors"
+                >
+                  {new URL(item.url).hostname}
+                </a>
+                <span>·</span>
+                <span>{new Date(item.created_at).toLocaleDateString("zh-CN")}</span>
+                {readingMinutes && (
+                  <>
+                    <span>·</span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      <span>{formatReadingTime(readingMinutes)}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+            </header>
+            <HighlightMenu onCreateHighlight={handleCreateHighlight}>
+              <div
+                ref={focusContentRef}
+                className="prose prose-lg max-w-none
+                  prose-headings:font-bold prose-a:text-primary
+                  prose-img:rounded-lg prose-img:shadow-sm
+                  prose-p:leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
+              />
+            </HighlightMenu>
+            <div className="mt-16 pt-8 border-t text-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2"
+                onClick={() => setFocusMode(false)}
+              >
+                <Minimize2 className="h-4 w-4" />
+                退出专注模式
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

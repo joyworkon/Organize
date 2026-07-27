@@ -406,6 +406,8 @@ export const mockDb: Record<string, any[]> = {
   note_comment_threads: [],
   note_comments: [],
   note_suggestions: [],
+  highlights: [],
+  favorites: [],
 };
 
 export { MOCK_USER };

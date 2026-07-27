@@ -62,6 +62,7 @@ import {
   TASK_PRIORITY_CONFIG,
   TASK_CATEGORY_CONFIG,
 } from "@organize/shared";
+import { FavoriteButton } from "@/components/favorite-button";
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -344,6 +345,7 @@ export default function TaskDetailPage() {
           </Breadcrumb>
         </div>
         <div className="flex items-center gap-2">
+          <FavoriteButton targetType="task" targetId={taskId} />
           <Button
             variant="ghost"
             size="sm"

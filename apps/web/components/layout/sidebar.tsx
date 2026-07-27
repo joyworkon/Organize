@@ -19,6 +19,8 @@ import {
   X,
   ListChecks,
   Lightbulb,
+  History,
+  Star,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,8 @@ const navItems = [
   { href: "/tasks", label: "待办", icon: ListChecks },
   { href: "/lessons", label: "经验", icon: Lightbulb },
   { href: "/tags", label: "标签", icon: TagIcon },
+  { href: "/favorites", label: "收藏夹", icon: Star },
+  { href: "/review", label: "回顾", icon: History },
   { href: "/stats", label: "统计", icon: BarChart3 },
   { href: "/plugins", label: "插件", icon: Puzzle },
 ];

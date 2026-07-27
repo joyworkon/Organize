@@ -171,6 +171,7 @@ export interface Task {
   reading_item_id: string | null;
   note_id: string | null;
   is_pinned: boolean;
+  sort_order: number;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -251,5 +252,33 @@ export interface Share {
   token: string;
   is_public: boolean;
   expires_at: string | null;
+  created_at: string;
+}
+
+// ---- 文章高亮（划线）（014 迁移新增）----
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink' | 'purple';
+
+export interface Highlight {
+  id: string;
+  user_id: string;
+  reading_item_id: string;
+  content: string;
+  note?: string | null;
+  color: HighlightColor;
+  anchor_path?: string | null;
+  anchor_offset?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---- 收藏夹（016 迁移新增）----
+export type FavoriteTargetType = 'reading' | 'note' | 'task';
+
+export interface Favorite {
+  id: string;
+  user_id: string;
+  target_type: FavoriteTargetType;
+  target_id: string;
+  note?: string | null;
   created_at: string;
 }

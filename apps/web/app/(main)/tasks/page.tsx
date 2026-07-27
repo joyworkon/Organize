@@ -45,6 +45,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
 type ViewMode = "list" | "kanban";
+type SortOrder = "default" | "manual";
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
@@ -63,6 +64,9 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("default");
+  const [draggedTask, setDraggedTask] = useState<TaskWithTags | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const selection = useSelection<TaskWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
@@ -77,7 +81,10 @@ export default function TasksPage() {
       let query = supabase
         .from("tasks")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .order("is_pinned", { ascending: false })
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false });
 
       const { data: tasksData } = await query;
       const tasksList = (tasksData || []) as unknown as Task[];
@@ -185,6 +192,98 @@ export default function TasksPage() {
     await fetchTasks();
   };
 
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => {
+    setDraggedTask(task);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", task.id);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => {
+    e.preventDefault();
+    if (draggedTask && draggedTask.id !== task.id) {
+      setDragOverTaskId(task.id);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTaskId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTask(null);
+    setDragOverTaskId(null);
+  };
+
+  const calculateNewSortOrder = (
+    items: TaskWithTags[],
+    fromIndex: number,
+    toIndex: number
+  ): number => {
+    const isPinned = items[fromIndex].is_pinned;
+    const sameGroup = items.filter((t) => t.is_pinned === isPinned);
+    const groupWithoutMoved = sameGroup.filter((t) => t.id !== items[fromIndex].id);
+
+    let insertPos = 0;
+    for (let i = 0; i < toIndex; i++) {
+      if (items[i].is_pinned === isPinned && items[i].id !== items[fromIndex].id) {
+        insertPos++;
+      }
+    }
+
+    if (insertPos === 0) {
+      const firstItem = groupWithoutMoved[0];
+      return firstItem ? firstItem.sort_order - 1000 : 0;
+    } else if (insertPos >= groupWithoutMoved.length) {
+      const lastItem = groupWithoutMoved[groupWithoutMoved.length - 1];
+      return lastItem ? lastItem.sort_order + 1000 : groupWithoutMoved.length * 1000;
+    } else {
+      const prev = groupWithoutMoved[insertPos - 1];
+      const next = groupWithoutMoved[insertPos];
+      return Math.floor((prev.sort_order + next.sort_order) / 2);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetTask: TaskWithTags) => {
+    e.preventDefault();
+    if (!draggedTask || draggedTask.id === targetTask.id) {
+      setDraggedTask(null);
+      setDragOverTaskId(null);
+      return;
+    }
+
+    if (draggedTask.is_pinned !== targetTask.is_pinned) {
+      setDraggedTask(null);
+      setDragOverTaskId(null);
+      return;
+    }
+
+    const filteredForDrag = filtered;
+    const fromIndex = filteredForDrag.findIndex((t) => t.id === draggedTask.id);
+    const toIndex = filteredForDrag.findIndex((t) => t.id === targetTask.id);
+
+    if (fromIndex === -1 || toIndex === -1) {
+      setDraggedTask(null);
+      setDragOverTaskId(null);
+      return;
+    }
+
+    const newSortOrder = calculateNewSortOrder(filteredForDrag, fromIndex, toIndex);
+
+    await supabase
+      .from("tasks")
+      .update({ sort_order: newSortOrder })
+      .eq("id", draggedTask.id);
+
+    setDraggedTask(null);
+    setDragOverTaskId(null);
+    await fetchTasks();
+  };
+
   const handleCompleteClick = (task: Task) => {
     setCompleteTask(task);
   };
@@ -270,6 +369,9 @@ export default function TasksPage() {
     selectAll(filtered.map((t) => t.id));
   };
 
+  const canManualSort = statusFilter === "todo" || statusFilter === "in_progress";
+  const effectiveSortOrder: SortOrder = canManualSort ? sortOrder : "default";
+
   const filtered = tasks
     .filter((t) => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
@@ -290,6 +392,14 @@ export default function TasksPage() {
     .sort((a, b) => {
       if (a.is_pinned && !b.is_pinned) return -1;
       if (!a.is_pinned && b.is_pinned) return 1;
+
+      if (effectiveSortOrder === "manual") {
+        if (a.sort_order !== b.sort_order) {
+          return a.sort_order - b.sort_order;
+        }
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+
       if (a.due_date && b.due_date) {
         return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       }
@@ -306,6 +416,8 @@ export default function TasksPage() {
     pinned: tasks.filter((t) => t.is_pinned).length,
   };
 
+  const isManualSortMode = effectiveSortOrder === "manual" && viewMode === "list" && !showCheckbox;
+
   const taskCardProps = (task: TaskWithTags) => ({
     task,
     onEdit: openEdit,
@@ -316,6 +428,15 @@ export default function TasksPage() {
     selected: isSelected(task.id),
     onSelectChange: showCheckbox ? handleToggleSelect : undefined,
     selectionMode: selectionMode || isSelectMode,
+    draggable: isManualSortMode,
+    isDragging: draggedTask?.id === task.id,
+    isDragOver: dragOverTaskId === task.id,
+    onDragStart: isManualSortMode ? handleDragStart : undefined,
+    onDragOver: isManualSortMode ? handleDragOver : undefined,
+    onDragEnd: isManualSortMode ? handleDragEnd : undefined,
+    onDrop: isManualSortMode ? handleDrop : undefined,
+    onDragLeave: isManualSortMode ? handleDragLeave : undefined,
+    onDragEnter: isManualSortMode ? (e: React.DragEvent<HTMLDivElement>) => handleDragEnter(e, task) : undefined,
   });
 
   return (
@@ -382,6 +503,18 @@ export default function TasksPage() {
             ))}
           </SelectContent>
         </Select>
+
+        {canManualSort && (
+          <Select value={sortOrder} onValueChange={(v: SortOrder) => setSortOrder(v)}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="排序" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">默认排序</SelectItem>
+              <SelectItem value="manual">手动排序</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
 
         <TagFilter
           options={allTags}

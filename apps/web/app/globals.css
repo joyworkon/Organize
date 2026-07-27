@@ -1056,3 +1056,16 @@
   .note-presentation main { width: calc(100vw - 40px); max-height: calc(100vh - 90px); }
   .note-presentation main > h1 { margin-bottom: 22px; }
 }
+
+/* ------------------------- 文章高亮（划线） ------------------------- */
+mark.hl-yellow { background-color: rgb(254 240 138 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-yellow { background-color: rgb(113 63 18 / 0.4); }
+mark.hl-green { background-color: rgb(187 247 208 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-green { background-color: rgb(20 83 45 / 0.4); }
+mark.hl-blue { background-color: rgb(191 219 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-blue { background-color: rgb(30 58 138 / 0.4); }
+mark.hl-pink { background-color: rgb(251 207 232 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-pink { background-color: rgb(131 24 67 / 0.4); }
+mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-purple { background-color: rgb(76 29 149 / 0.4); }
+
