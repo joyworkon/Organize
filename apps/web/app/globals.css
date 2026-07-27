@@ -53,8 +53,21 @@
   * {
     @apply border-border;
   }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: inherit;
   }
 }
 
