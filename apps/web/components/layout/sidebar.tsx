@@ -16,6 +16,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
+  ListChecks,
+  Lightbulb,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,8 @@ const navItems = [
   { href: "/inbox", label: "收集箱", icon: Inbox },
   { href: "/library", label: "阅读库", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
+  { href: "/tasks", label: "待办", icon: ListChecks },
+  { href: "/lessons", label: "经验", icon: Lightbulb },
   { href: "/tags", label: "标签", icon: TagIcon },
   { href: "/stats", label: "统计", icon: BarChart3 },
   { href: "/plugins", label: "插件", icon: Puzzle },

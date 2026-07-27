@@ -33,7 +33,9 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
     return rows.filter((row) =>
       this.filters.every((f) => {
         if (f.method === "eq") return row[f.column] === f.value;
+        if (f.method === "neq") return row[f.column] !== f.value;
         if (f.method === "in") return (f.value as unknown[]).includes(row[f.column]);
+        if (f.method === "is") return row[f.column] == null;
         return true;
       })
     );
