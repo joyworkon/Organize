@@ -124,9 +124,9 @@ export const READING_STATUS_CONFIG: Record<
   ReadingStatus,
   { label: string; color: string }
 > = {
-  unread: { label: "未读", color: "bg-gray-100 text-gray-800" },
-  reading: { label: "在读", color: "bg-blue-100 text-blue-800" },
-  read: { label: "已读", color: "bg-green-100 text-green-800" },
+  unread: { label: "未读", color: "bg-muted text-muted-foreground" },
+  reading: { label: "在读", color: "bg-accent text-accent-foreground" },
+  read: { label: "已读", color: "bg-primary/10 text-primary" },
 };
 
 // ---- 标签系统扩展（005 迁移后新增）----

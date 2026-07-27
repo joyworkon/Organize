@@ -375,17 +375,17 @@ export default function LibraryPage() {
           <p className="text-xs text-muted-foreground">总计</p>
         </div>
         <div className="rounded-lg border p-3 text-center">
-          <Clock className="h-4 w-4 mx-auto mb-1 text-gray-500" />
+          <Clock className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
           <p className="text-xl font-bold">{stats.unread}</p>
           <p className="text-xs text-muted-foreground">未读</p>
         </div>
         <div className="rounded-lg border p-3 text-center">
-          <BookOpen className="h-4 w-4 mx-auto mb-1 text-blue-500" />
+          <BookOpen className="h-4 w-4 mx-auto mb-1 text-primary" />
           <p className="text-xl font-bold">{stats.reading}</p>
           <p className="text-xs text-muted-foreground">在读</p>
         </div>
         <div className="rounded-lg border p-3 text-center">
-          <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-green-500" />
+          <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-primary" />
           <p className="text-xl font-bold">{stats.read}</p>
           <p className="text-xs text-muted-foreground">已读</p>
         </div>

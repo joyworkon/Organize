@@ -5,47 +5,47 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 20 14.3% 9.1%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 20 14.3% 9.1%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --popover-foreground: 20 14.3% 9.1%;
+    --primary: 16 85% 50%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 20 40% 96%;
+    --secondary-foreground: 20 40% 15%;
+    --muted: 20 30% 96%;
+    --muted-foreground: 25 10% 45%;
+    --accent: 16 70% 95%;
+    --accent-foreground: 16 80% 25%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 20 20% 88%;
+    --input: 20 20% 88%;
+    --ring: 16 85% 50%;
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 20 15% 8%;
+    --foreground: 20 10% 95%;
+    --card: 20 15% 10%;
+    --card-foreground: 20 10% 95%;
+    --popover: 20 15% 10%;
+    --popover-foreground: 20 10% 95%;
+    --primary: 16 85% 55%;
+    --primary-foreground: 20 15% 8%;
+    --secondary: 20 10% 18%;
+    --secondary-foreground: 20 10% 95%;
+    --muted: 20 10% 18%;
+    --muted-foreground: 20 8% 65%;
+    --accent: 16 30% 22%;
+    --accent-foreground: 16 70% 85%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 20 10% 22%;
+    --input: 20 10% 22%;
+    --ring: 16 85% 55%;
   }
 }
 
@@ -122,6 +122,32 @@
   border: none;
   border-top: 2px solid hsl(var(--border));
   margin: 1.5rem 0;
+}
+
+/* 列表间距统一：prose 默认给 项目符号/编号列表 的 li 和其内层 <p> 都加了较大外边距，
+   而待办列表 li 用的是本文件下面另设的 0.25rem，导致「两个待办贴得紧、两个编号/圆点离得远」，
+   块间距看起来不平均。这里把三种列表（ul / ol / taskList）的 li 外边距统一为 0.25rem，
+   并清掉列表项内层段落的外边距（否则会与 li 外边距叠加），让所有列表项间距一致。 */
+.organize-editor ul li,
+.organize-editor ol li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.organize-editor li > p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+/* 顶层列表容器与其它块的上下间距也保持一致 */
+.organize-editor ul,
+.organize-editor ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+/* 嵌套列表（列表项里的子列表）用更小的间距，避免层级之间过空 */
+.organize-editor li > ul,
+.organize-editor li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
 }
 
 /* 待办列表（TaskList）样式 */
@@ -374,9 +400,14 @@
 .organize-editor-shell > div:has(> .organize-editor) {
   position: relative;
 }
+/* 编辑器正文左边界必须与标题严格对齐：
+   标题 textarea 和编辑器 shell 都是容器（max-w-*）的直接子级、左边界 = 容器内容左边界。
+   这里把编辑器根节点的左内/外边距都归零，让正文第一个字符落在容器左边界，与标题对齐。
+   （手柄 .organize-block-handle 用绝对定位挂在 shell 上、left:-3.5rem，落在左侧空白区，
+     不依赖这里的内边距，所以去掉内边距不影响手柄。） */
 .organize-editor {
-  padding-left: 2.5rem !important;
-  margin-left: -2.5rem;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
 }
 .organize-editor [data-id] {
   transition: background-color 180ms ease, box-shadow 180ms ease;
@@ -932,7 +963,7 @@
 .presentation-close { position: fixed; top: 22px; right: 22px; z-index: 2; }
 
 @media (max-width: 640px) {
-  .organize-editor { padding-left: 2rem !important; margin-left: -2rem; }
+  .organize-editor { padding-left: 0 !important; margin-left: 0 !important; }
   .organize-block-handle { left: -2rem; }
   .organize-block-add { display: none !important; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }

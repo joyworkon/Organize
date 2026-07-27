@@ -56,12 +56,12 @@ export function ReadingCard({
   return (
     <Card
       className={cn(
-        "group hover:shadow-md transition-all duration-200 relative overflow-hidden h-full flex flex-col cursor-pointer",
+        "group hover:shadow-md transition-all duration-200 relative overflow-hidden",
         selected && "ring-2 ring-primary",
         item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
     >
-      <CardContent className="p-4 flex-1 flex flex-col">
+      <CardContent className="p-4">
         <div className="flex gap-3">
           {showCheckbox && (
             <div className="flex items-start pt-1" onClick={stop}>
@@ -104,7 +104,10 @@ export function ReadingCard({
               >
                 {onTogglePin && (
                   <button
-                    onClick={() => onTogglePin(item.id, !item.is_pinned)}
+                    onClick={(e) => {
+                      stop(e);
+                      onTogglePin(item.id, !item.is_pinned);
+                    }}
                     className={cn(
                       "p-1 rounded hover:bg-accent",
                       item.is_pinned ? "text-primary" : "text-muted-foreground"
@@ -151,12 +154,10 @@ export function ReadingCard({
             </div>
 
             {item.excerpt && (
-              <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3 leading-relaxed">
+              <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
                 {item.excerpt}
               </p>
             )}
-
-            <div className="flex-1" />
 
             <div className="flex items-center gap-2 mt-3 flex-wrap text-xs text-muted-foreground">
               <StatusBadge
@@ -182,8 +183,6 @@ export function ReadingCard({
                 </div>
               )}
 
-              <div className="flex-1" />
-
               {hostname && (
                 <span className="flex items-center gap-1 line-clamp-1">
                   <Globe className="h-3 w-3 shrink-0" />
@@ -202,7 +201,7 @@ export function ReadingCard({
                 </div>
               )}
 
-              <span className="shrink-0">
+              <span className="shrink-0 ml-auto">
                 {new Date(item.created_at).toLocaleDateString("zh-CN")}
               </span>
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,37 +14,66 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
-import type { TagWithCount } from "@organize/shared";
+import type { Tag, TagWithCount } from "@organize/shared";
 
 export default function TagsPage() {
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const supabase = createClient();
 
-  // 新建对话框
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // 重命名对话框
   const [renameTarget, setRenameTarget] = useState<TagWithCount | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
 
-  // 删除对话框
   const [deleteTarget, setDeleteTarget] = useState<TagWithCount | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const fetchTags = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/tags", { cache: "no-store" });
-      if (res.ok) setTags(await res.json());
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: tagData } = await supabase
+        .from("tags")
+        .select("id, name, created_at")
+        .eq("user_id", user.id)
+        .order("name", { ascending: true });
+
+      const [itemTagsRes, noteTagsRes] = await Promise.all([
+        supabase.from("item_tags").select("tag_id"),
+        supabase.from("note_tags").select("tag_id"),
+      ]);
+
+      const countMap = new Map<string, { note_count: number; reading_item_count: number }>();
+      for (const row of itemTagsRes.data || []) {
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+        entry.reading_item_count += 1;
+        countMap.set(row.tag_id, entry);
+      }
+      for (const row of noteTagsRes.data || []) {
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+        entry.note_count += 1;
+        countMap.set(row.tag_id, entry);
+      }
+
+      const result: TagWithCount[] = (tagData || []).map((t) => ({
+        id: t.id,
+        user_id: user.id,
+        name: t.name,
+        ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0 }),
+      }));
+      setTags(result);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     fetchTags();
@@ -61,15 +91,16 @@ export default function TagsPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const res = await fetch("/api/tags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `创建失败（${res.status}）`);
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("未登录");
+
+      const { data, error } = await supabase
+        .from("tags")
+        .upsert({ user_id: user.id, name }, { onConflict: "user_id,name" })
+        .select("id, name")
+        .single();
+
+      if (error) throw error;
       setNewName("");
       setCreateOpen(false);
       await fetchTags();
@@ -84,12 +115,11 @@ export default function TagsPage() {
     if (!renameTarget || !renameValue.trim()) return;
     setRenaming(true);
     try {
-      const res = await fetch(`/api/tags/${renameTarget.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: renameValue.trim() }),
-      });
-      if (res.ok) {
+      const { error } = await supabase
+        .from("tags")
+        .update({ name: renameValue.trim() })
+        .eq("id", renameTarget.id);
+      if (!error) {
         setRenameTarget(null);
         await fetchTags();
       }
@@ -102,8 +132,8 @@ export default function TagsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/tags/${deleteTarget.id}`, { method: "DELETE" });
-      if (res.ok) {
+      const { error } = await supabase.from("tags").delete().eq("id", deleteTarget.id);
+      if (!error) {
         setDeleteTarget(null);
         await fetchTags();
       }
@@ -189,8 +219,8 @@ export default function TagsPage() {
           {filtered.map((tag) => (
             <Card key={tag.id} className="group hover:shadow-sm transition-shadow">
               <CardContent className="p-3 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-                  <TagIcon className="h-4 w-4 text-muted-foreground" />
+                <div className="h-8 w-8 rounded-md bg-accent flex items-center justify-center shrink-0">
+                  <TagIcon className="h-4 w-4 text-accent-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{tag.name}</p>
@@ -231,7 +261,6 @@ export default function TagsPage() {
         </div>
       )}
 
-      {/* 重命名对话框 */}
       <Dialog open={!!renameTarget} onOpenChange={(o) => !o && setRenameTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -256,7 +285,6 @@ export default function TagsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 删除确认对话框 */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
