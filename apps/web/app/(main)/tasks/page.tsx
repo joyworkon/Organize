@@ -11,11 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
 import { TaskCard } from "@/components/tasks/task-card";
 import { TaskDialog } from "@/components/tasks/task-dialog";
 import { CompleteTaskDialog } from "@/components/tasks/complete-task-dialog";
 import { TagFilter } from "@/components/tags/tag-filter";
+import { useNotifications } from "@/hooks/use-notifications";
+import { BatchActionsBar } from "@/components/batch-actions-bar";
+import { useSelection } from "@/hooks/use-selection";
+import { toast } from "@/hooks/use-toast";
 import {
   ListChecks,
   Plus,
@@ -23,6 +26,9 @@ import {
   Loader2,
   List,
   LayoutGrid,
+  Bell,
+  CheckCircle2,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -45,7 +51,9 @@ export default function TasksPage() {
   const [allTags, setAllTags] = useState<TagWithCount[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectionMode, setSelectionMode] = useState(false);
   const supabase = createClient();
+  const { permission, requestPermission, scheduleDueDateReminders } = useNotifications();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -55,6 +63,10 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+
+  const selection = useSelection<TaskWithTags>();
+  const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
+  const showCheckbox = (selectionMode || isSelectMode) && viewMode === "list";
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -105,14 +117,20 @@ export default function TasksPage() {
       }));
 
       setTasks(tasksWithTags);
+      scheduleDueDateReminders(tasksWithTags);
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, scheduleDueDateReminders]);
 
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  const exitSelection = useCallback(() => {
+    clear();
+    setSelectionMode(false);
+  }, [clear]);
 
   const handleSaveTask = async (data: Partial<Task>, tagIds: string[]) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -207,6 +225,51 @@ export default function TasksPage() {
     setDialogOpen(true);
   };
 
+  const handleToggleSelect = useCallback(
+    (id: string, checked: boolean) => {
+      if (checked) {
+        selection.select(id);
+      } else {
+        selection.deselect(id);
+      }
+    },
+    [selection]
+  );
+
+  const batchMarkComplete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "done", completed_at: now })
+      .in("id", ids);
+    if (!error) {
+      await fetchTasks();
+      exitSelection();
+      toast({ title: `已标记 ${count} 个任务为完成` });
+    }
+  };
+
+  const batchDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 个任务？此操作不可撤销。`)) return;
+    const count = ids.length;
+    await supabase.from("task_tags").delete().in("task_id", ids);
+    const { error } = await supabase.from("tasks").delete().in("id", ids);
+    if (!error) {
+      await fetchTasks();
+      exitSelection();
+      toast({ title: `已删除 ${count} 个任务`, variant: "destructive" });
+    }
+  };
+
+  const handleSelectAllVisible = () => {
+    selectAll(filtered.map((t) => t.id));
+  };
+
   const filtered = tasks
     .filter((t) => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
@@ -243,8 +306,35 @@ export default function TasksPage() {
     pinned: tasks.filter((t) => t.is_pinned).length,
   };
 
+  const taskCardProps = (task: TaskWithTags) => ({
+    task,
+    onEdit: openEdit,
+    onDelete: handleDelete,
+    onToggleStatus: handleToggleStatus,
+    onTogglePin: handleTogglePin,
+    onComplete: handleCompleteClick,
+    selected: isSelected(task.id),
+    onSelectChange: showCheckbox ? handleToggleSelect : undefined,
+    selectionMode: selectionMode || isSelectMode,
+  });
+
   return (
     <div className="space-y-6">
+      {permission === "default" && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Bell className="h-3.5 w-3.5" />
+            <span>开启浏览器通知以接收任务到期提醒</span>
+          </div>
+          <button
+            onClick={() => requestPermission()}
+            className="shrink-0 text-muted-foreground hover:text-primary transition-colors font-medium"
+          >
+            开启
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">待办任务</h1>
@@ -321,7 +411,47 @@ export default function TasksPage() {
             <LayoutGrid className="h-4 w-4" />
           </button>
         </div>
+
+        <Button
+          variant={showCheckbox ? "default" : "ghost"}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => {
+            if (selectionMode) {
+              exitSelection();
+            } else {
+              setSelectionMode(true);
+            }
+          }}
+          disabled={viewMode !== "list"}
+          title={viewMode !== "list" ? "请切换到列表视图使用多选" : "多选"}
+        >
+          <ListChecks className="h-3.5 w-3.5" />
+          多选
+        </Button>
       </div>
+
+      {isSelectMode && viewMode === "list" && (
+        <BatchActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={filtered.length}
+          onClear={exitSelection}
+          onSelectAll={handleSelectAllVisible}
+          typeLabel="个任务"
+          actions={
+            <>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={batchMarkComplete}>
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                标记完成
+              </Button>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </Button>
+            </>
+          }
+        />
+      )}
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">
@@ -345,15 +475,7 @@ export default function TasksPage() {
       ) : viewMode === "list" ? (
         <div className="space-y-2">
           {filtered.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onEdit={openEdit}
-              onDelete={handleDelete}
-              onToggleStatus={handleToggleStatus}
-              onTogglePin={handleTogglePin}
-              onComplete={handleCompleteClick}
-            />
+            <TaskCard key={task.id} {...taskCardProps(task)} />
           ))}
         </div>
       ) : (
@@ -370,15 +492,7 @@ export default function TasksPage() {
                 </div>
                 <div className="space-y-2">
                   {colTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onEdit={openEdit}
-                      onDelete={handleDelete}
-                      onToggleStatus={handleToggleStatus}
-                      onTogglePin={handleTogglePin}
-                      onComplete={handleCompleteClick}
-                    />
+                    <TaskCard key={task.id} {...taskCardProps(task)} />
                   ))}
                 </div>
               </div>

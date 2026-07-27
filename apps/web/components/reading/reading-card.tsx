@@ -7,6 +7,7 @@ import { StatusBadge } from "./status-badge";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import { ShareDialog } from "@/components/share/share-dialog";
+import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
@@ -55,10 +56,31 @@ export function ReadingCard({
 
   const stop = (e: MouseEvent) => e.stopPropagation();
 
+  const handleToggleStatus = () => {
+    const nextStatus = cycleStatus(item.reading_status);
+    onStatusChange?.(item.id, nextStatus);
+  };
+
+  const handleDelete = () => {
+    onDelete?.(item.id);
+  };
+
+  const handleTogglePin = () => {
+    onTogglePin?.(item.id, !item.is_pinned);
+  };
+
   return (
+    <ListItemContextMenu
+      type="reading"
+      item={item}
+      onDelete={onDelete ? handleDelete : undefined}
+      onTogglePin={onTogglePin ? handleTogglePin : undefined}
+      onToggleStatus={onStatusChange ? handleToggleStatus : undefined}
+    >
     <Card
       className={cn(
-        "group transition-colors duration-150 relative overflow-hidden hover:bg-accent",
+        "group transition-colors duration-150 relative overflow-hidden",
+        showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
         selected && "ring-2 ring-primary",
         item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
@@ -218,5 +240,6 @@ export function ReadingCard({
         </div>
       </CardContent>
     </Card>
+    </ListItemContextMenu>
   );
 }

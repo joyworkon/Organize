@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
 import type { Note, Tag, NoteWithTags } from "@organize/shared";
 import {
@@ -52,13 +54,6 @@ function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120
   return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
 }
 
-/**
- * 笔记卡片/列表项。
- *
- * 设计：常驻图标只保留 Pin（置顶时显示）+ 更多菜单（⋯）。
- * 导出/AI标签/历史/分享/删除收进更多菜单。
- * 对话框统一用受控状态管理（避免 Radix DropdownMenu 自动关闭导致 Dialog 打不开）。
- */
 export function NoteCard({
   note,
   view,
@@ -69,6 +64,7 @@ export function NoteCard({
   onDelete,
   onTagsApplied,
 }: NoteCardProps) {
+  const router = useRouter();
   const showCheckbox = Boolean(onSelectChange);
   const [dialog, setDialog] = useState<DialogKind>(null);
 
@@ -78,6 +74,31 @@ export function NoteCard({
   const stop = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (showCheckbox) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSelectChange!(note.id, !selected);
+      return;
+    }
+    router.push(`/notes/${note.id}`);
+  };
+
+  const handleLinkClick = (e: React.MouseEvent) => {
+    if (showCheckbox) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handleDelete = () => {
+    onDelete?.(note.id);
+  };
+
+  const handleTogglePin = () => {
+    onTogglePin?.(note.id, !note.is_pinned);
   };
 
   const Title = (
@@ -91,7 +112,6 @@ export function NoteCard({
     </h3>
   );
 
-  // 受控的对话框组：菜单点击时设状态，对应 Dialog 打开
   const Dialogs = (
     <>
       <AutoTagDialog
@@ -130,7 +150,7 @@ export function NoteCard({
           onClick={stop}
           className={cn(
             "p-1 rounded hover:bg-accent text-muted-foreground shrink-0",
-            !selectionMode && "opacity-0 group-hover:opacity-100"
+            !selectionMode && !showCheckbox && "opacity-0 group-hover:opacity-100"
           )}
           title="更多操作"
         >
@@ -150,7 +170,6 @@ export function NoteCard({
           </DropdownMenuItem>
         )}
 
-        {/* 导出：直接调 exportNoteToMarkdown（内部拉数据+下载） */}
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
@@ -217,13 +236,35 @@ export function NoteCard({
     </div>
   );
 
-  // ---- 列表视图：一行紧凑 ----
+  const ContentWrapper = ({ children, className }: { children: React.ReactNode; className?: string }) => {
+    if (showCheckbox) {
+      return (
+        <div className={className} onClick={handleLinkClick}>
+          {children}
+        </div>
+      );
+    }
+    return (
+      <Link href={`/notes/${note.id}`} className={className}>
+        {children}
+      </Link>
+    );
+  };
+
   if (view === "list") {
     return (
       <>
+        <ListItemContextMenu
+          type="note"
+          item={note}
+          onDelete={onDelete ? handleDelete : undefined}
+          onTogglePin={onTogglePin ? handleTogglePin : undefined}
+        >
         <Card
+          onClick={handleCardClick}
           className={cn(
-            "group hover:bg-accent transition-colors duration-150 relative overflow-hidden",
+            "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
+            showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
             selected && "ring-2 ring-primary",
             note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
@@ -234,7 +275,7 @@ export function NoteCard({
               {note.is_pinned && (
                 <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
               )}
-              <Link href={`/notes/${note.id}`} className="flex-1 min-w-0 flex items-center gap-2">
+              <ContentWrapper className="flex-1 min-w-0 flex items-center gap-2">
                 {Title}
                 {tags.length > 0 && (
                   <span className="hidden md:flex items-center gap-1 shrink-0">
@@ -257,29 +298,37 @@ export function NoteCard({
                 <span className="text-xs text-muted-foreground shrink-0">
                   {new Date(note.updated_at).toLocaleDateString("zh-CN")}
                 </span>
-              </Link>
+              </ContentWrapper>
               <div className="flex items-center gap-0.5 shrink-0">
                 {MoreMenu}
               </div>
             </div>
             {excerpt && (
-              <Link href={`/notes/${note.id}`} className="block mt-1.5 ml-8">
+              <ContentWrapper className="block mt-1.5 ml-8">
                 <p className="text-xs text-muted-foreground line-clamp-1">{excerpt}</p>
-              </Link>
+              </ContentWrapper>
             )}
           </CardContent>
         </Card>
+        </ListItemContextMenu>
         {Dialogs}
       </>
     );
   }
 
-  // ---- 卡片视图（默认）----
   return (
     <>
+      <ListItemContextMenu
+        type="note"
+        item={note}
+        onDelete={onDelete ? handleDelete : undefined}
+        onTogglePin={onTogglePin ? handleTogglePin : undefined}
+      >
       <Card
+        onClick={handleCardClick}
         className={cn(
-          "group hover:bg-accent transition-colors duration-150 h-full flex flex-col relative overflow-hidden",
+          "group cursor-pointer transition-colors duration-150 h-full flex flex-col relative overflow-hidden",
+          showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
           selected && "ring-2 ring-primary",
           note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}
@@ -290,15 +339,15 @@ export function NoteCard({
             {note.is_pinned && (
               <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0 mt-0.5" />
             )}
-            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0">
+            <ContentWrapper className="flex-1 min-w-0">
               {Title}
-            </Link>
+            </ContentWrapper>
             {MoreMenu}
           </div>
           {excerpt && (
-            <Link href={`/notes/${note.id}`} className="block mt-2">
+            <ContentWrapper className="block mt-2">
               <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">{excerpt}</p>
-            </Link>
+            </ContentWrapper>
           )}
           <div className="flex-1" />
           <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground flex-wrap">
@@ -325,6 +374,7 @@ export function NoteCard({
           </div>
         </CardContent>
       </Card>
+      </ListItemContextMenu>
       {Dialogs}
     </>
   );

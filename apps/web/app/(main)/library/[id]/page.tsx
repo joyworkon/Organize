@@ -15,9 +15,61 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import type { ReadingItem, ReadingStatus } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import Link from "next/link";
+
+interface RecommendedItem {
+  id: string;
+  title: string | null;
+  url: string;
+  site_name: string | null;
+  content: string | null;
+  reading_status: ReadingStatus;
+  created_at: string;
+  reading_progress: number;
+  is_pinned?: boolean;
+  tags?: { id: string; name: string }[];
+}
+
+function calculateRecommendScore(item: RecommendedItem, currentItem: RecommendedItem, now: number): number {
+  let score = 0;
+  let isSameDomain = false;
+  try {
+    isSameDomain = new URL(item.url).hostname === new URL(currentItem.url).hostname;
+  } catch {}
+  const currentTagNames = new Set((currentItem.tags || []).map((t) => t.name));
+  const hasSameTag = (item.tags || []).some((t) => currentTagNames.has(t.name));
+
+  if (isSameDomain && item.reading_status === "unread") score += 100;
+  if (hasSameTag && item.reading_status === "reading") score += 80;
+  if (item.reading_status === "unread") score += 40;
+  if (item.is_pinned) score += 200;
+  if (item.reading_status === "reading") score += 30;
+  const ageMs = now - new Date(item.created_at).getTime();
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (ageDays < 7) score += 10;
+  const progress = item.reading_progress || 0;
+  if (progress > 0 && progress < 0.3) score += 15;
+  if (item.reading_status === "read") score -= 100;
+  return score;
+}
+
+function getNextRecommendation(
+  items: RecommendedItem[],
+  currentId: string
+): RecommendedItem | null {
+  const others = items.filter((i) => i.id !== currentId);
+  if (others.length === 0) return null;
+  const current = items.find((i) => i.id === currentId);
+  if (!current) return others[0];
+  const now = Date.now();
+  const sorted = [...others].sort(
+    (a, b) =>
+      calculateRecommendScore(b, current, now) - calculateRecommendScore(a, current, now)
+  );
+  return sorted[0];
+}
 
 export default function ReadingDetailPage() {
   const params = useParams();
@@ -32,6 +84,7 @@ export default function ReadingDetailPage() {
   const [item, setItem] = useState<ReadingItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [bionicMode, setBionicMode] = useState(false);
+  const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const headings = useMemo(() => {
@@ -39,18 +92,21 @@ export default function ReadingDetailPage() {
     return extractHeadings(item.content);
   }, [item?.content]);
 
+  const recommendedItem = useMemo(() => {
+    return getNextRecommendation(otherItems, itemId);
+  }, [otherItems, itemId]);
+
   useEffect(() => {
     async function loadItem() {
       const { data, error } = await supabase
         .from("reading_items")
-        .select("*")
+        .select("*, tags:tags!item_tags(id, name)")
         .eq("id", itemId)
         .single();
 
       if (!error && data) {
         setItem(data as ReadingItem);
         progressRef.current = data.reading_progress || 0;
-        // 打开时自动标记为 reading
         if (data.reading_status === "unread") {
           await supabase
             .from("reading_items")
@@ -59,9 +115,7 @@ export default function ReadingDetailPage() {
           setItem((prev) => prev ? { ...prev, reading_status: "reading" } : null);
         }
 
-        // 恢复阅读进度：等 DOM 渲染完再滚动
         if (data.reading_progress && data.reading_progress > 0.01) {
-          // 让浏览器先布局（rAF）+ 延时等图片占位
           const restoreScroll = () => {
             const docHeight = document.documentElement.scrollHeight - window.innerHeight;
             if (docHeight > 0) {
@@ -70,9 +124,7 @@ export default function ReadingDetailPage() {
             }
           };
           requestAnimationFrame(() => requestAnimationFrame(restoreScroll));
-          // 图片加载完会改变文档高度，再滚一次补偿
           const earlyTimer = setTimeout(restoreScroll, 600);
-          // 仅恢复一次：用标记避免和滚动监听冲突
           const cleanup = () => {
             clearTimeout(earlyTimer);
             window.removeEventListener("load", onLoad);
@@ -82,13 +134,32 @@ export default function ReadingDetailPage() {
             cleanup();
           };
           window.addEventListener("load", onLoad);
-          // 安全兜底：5 秒后无论如何清理
           setTimeout(cleanup, 5000);
         }
       }
       setLoading(false);
     }
     loadItem();
+  }, [itemId, supabase]);
+
+  useEffect(() => {
+    async function loadOtherItems() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("reading_items")
+        .select("id, title, url, site_name, content, reading_status, created_at, reading_progress, is_pinned, tags:tags!item_tags(id, name)")
+        .eq("user_id", user.id)
+        .neq("id", itemId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (data) {
+        setOtherItems(data as RecommendedItem[]);
+      }
+    }
+    loadOtherItems();
   }, [itemId, supabase]);
 
   // 基于滚动位置自动更新阅读进度
@@ -366,11 +437,58 @@ export default function ReadingDetailPage() {
         {/* 文章内容 */}
         <div
           ref={contentRef}
-          className="prose prose-sm sm:prose max-w-none pb-20 px-4 xl:px-0
+          className="prose prose-sm sm:prose max-w-none px-4 xl:px-0
             prose-headings:font-bold prose-a:text-primary
             prose-img:rounded-lg prose-img:shadow-sm"
           dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
         />
+
+        {/* 下一篇推荐 */}
+        <div className="pb-24 px-4 xl:px-0 mt-12">
+          {recommendedItem ? (
+            <Link href={`/library/${recommendedItem.id}`}>
+              <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                  <BookOpen className="h-4 w-4" />
+                  <span>📖 继续阅读</span>
+                </div>
+                <h3 className="font-semibold text-lg mb-2">
+                  {recommendedItem.title || "无标题"}
+                </h3>
+                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                  <span>
+                    {recommendedItem.site_name ||
+                      (() => {
+                        try {
+                          return new URL(recommendedItem.url).hostname;
+                        } catch {
+                          return "未知来源";
+                        }
+                      })()}
+                  </span>
+                  {recommendedItem.content && (
+                    <>
+                      <span>·</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatReadingTime(estimateReadingTime(recommendedItem.content))}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </Link>
+          ) : (
+            <Link href="/inbox">
+              <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer text-center">
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Inbox className="h-4 w-4" />
+                  <span>🎉 暂无更多文章，去收集箱看看</span>
+                </div>
+              </div>
+            </Link>
+          )}
+        </div>
 
         {/* 底部操作 */}
         <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">

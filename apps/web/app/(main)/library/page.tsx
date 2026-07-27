@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ReadingCard } from "@/components/reading/reading-card";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { useAllTags } from "@/components/tags/use-tags";
+import { BatchActionsBar } from "@/components/batch-actions-bar";
+import { useSelection } from "@/hooks/use-selection";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import {
@@ -18,17 +20,33 @@ import {
   CheckCircle2,
   BarChart3,
   Search,
-  ArrowUpDown,
-  CheckSquare,
-  X,
+  ListChecks,
   Trash2,
+  Pin,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type FilterStatus = "all" | ReadingStatus;
-type SortField = "created_at" | "updated_at" | "title";
-type SortOrder = "asc" | "desc";
+type SmartSortOption = "smart" | "newest" | "oldest" | "reading" | "progress";
+
+const SORT_STORAGE_KEY = "organize:sort-reading";
+
+const sortOptions: { value: SmartSortOption; label: string }[] = [
+  { value: "smart", label: "智能推荐" },
+  { value: "newest", label: "最新保存" },
+  { value: "oldest", label: "最早保存" },
+  { value: "reading", label: "阅读中优先" },
+  { value: "progress", label: "进度低优先" },
+];
 
 const filterTabs: { value: FilterStatus; label: string }[] = [
   { value: "all", label: "全部" },
@@ -37,14 +55,61 @@ const filterTabs: { value: FilterStatus; label: string }[] = [
   { value: "read", label: "已读" },
 ];
 
-const sortFields: SortField[] = ["created_at", "updated_at", "title"];
-const sortFieldLabel: Record<SortField, string> = {
-  created_at: "创建时间",
-  updated_at: "更新时间",
-  title: "标题",
-};
-
 const PAGE_SIZE = 30;
+
+function calculateSmartScore(item: ReadingItem, now: number): number {
+  let score = 0;
+  if (item.is_pinned) score += 1000;
+  if (item.reading_status === "reading") score += 50;
+  if (item.reading_status === "unread") score += 20;
+  const ageMs = now - new Date(item.created_at).getTime();
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (ageDays < 1) score += 30;
+  else if (ageDays < 3) score += 15;
+  else if (ageDays < 7) score += 5;
+  else if (ageDays < 30) score += 1;
+  const progress = item.reading_progress || 0;
+  if (progress > 0 && progress < 0.3) score += 25;
+  else if (progress < 0.8) score += 10;
+  if (item.reading_status === "read") score -= 500;
+  return score;
+}
+
+function sortItems(items: ReadingItem[], sortOption: SmartSortOption): ReadingItem[] {
+  const now = Date.now();
+  return [...items].sort((a, b) => {
+    if (sortOption === "smart") {
+      const scoreA = calculateSmartScore(a, now);
+      const scoreB = calculateSmartScore(b, now);
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortOption === "newest") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortOption === "oldest") {
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    }
+    if (sortOption === "reading") {
+      const statusOrder: Record<ReadingStatus, number> = { reading: 0, unread: 1, read: 2 };
+      const orderA = statusOrder[a.reading_status];
+      const orderB = statusOrder[b.reading_status];
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (sortOption === "progress") {
+      const statusOrder: Record<ReadingStatus, number> = { unread: 0, reading: 1, read: 2 };
+      const orderA = statusOrder[a.reading_status];
+      const orderB = statusOrder[b.reading_status];
+      if (orderA !== orderB) return orderA - orderB;
+      const progressA = a.reading_progress || 0;
+      const progressB = b.reading_progress || 0;
+      if (progressA !== progressB) return progressA - progressB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    return 0;
+  });
+}
 
 export default function LibraryPage() {
   const [items, setItems] = useState<ReadingItem[]>([]);
@@ -55,28 +120,34 @@ export default function LibraryPage() {
 
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<SortField>("created_at");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [smartSort, setSmartSort] = useState<SmartSortOption>("smart");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
 
-  // 统计：全量计数（不受当前筛选影响）
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SORT_STORAGE_KEY);
+      if (saved && ["smart", "newest", "oldest", "reading", "progress"].includes(saved)) {
+        setSmartSort(saved as SmartSortOption);
+      }
+    } catch {}
+  }, []);
+
   const [stats, setStats] = useState({ total: 0, unread: 0, reading: 0, read: 0 });
 
-  // 批量选择
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selection = useSelection<ReadingItem>();
+  const { selectedIds, isSelectMode, toggle, selectAll, clear, isSelected } = selection;
 
   const supabase = createClient();
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
-  // 用 ref 跟踪当前已加载数量，避免它进入 fetchItems 依赖导致频繁重建
   const itemsLenRef = useRef(0);
   itemsLenRef.current = items.length;
 
-  // 用 ref 跟踪最新请求序号，丢弃过期响应（避免竞态：旧请求覆盖新结果）
   const reqIdRef = useRef(0);
 
-  // ---------- 拉取主列表 ----------
+  const showCheckbox = selectionMode || isSelectMode;
+
   const fetchItems = useCallback(
     async (append: boolean) => {
       const myReqId = ++reqIdRef.current;
@@ -92,7 +163,6 @@ export default function LibraryPage() {
         return;
       }
 
-      // 标签筛选：先从 item_tags 拿到候选 id 集合（多个标签按 OR）
       let scopedIds: string[] | null = null;
       if (selectedTagIds.length > 0) {
         const { data: tagRows } = await supabase
@@ -100,7 +170,7 @@ export default function LibraryPage() {
           .select("item_id")
           .in("tag_id", selectedTagIds);
         if (!tagRows || tagRows.length === 0) {
-          if (reqIdRef.current !== myReqId) return; // 已被新请求取代
+          if (reqIdRef.current !== myReqId) return;
           setItems([]);
           setTotal(0);
           setHasMore(false);
@@ -117,10 +187,8 @@ export default function LibraryPage() {
         .eq("user_id", user.id);
 
       if (filter !== "all") query = query.eq("reading_status", filter);
-      // 全文搜索：同时匹配标题、摘要、正文
       const q = search.trim();
       if (q) {
-        // 转义用户输入里的特殊字符，避免破坏 or 语法
         const safeQ = q.replace(/[,()\\]/g, " ");
         query = query.or(
           `title.ilike.%${safeQ}%,excerpt.ilike.%${safeQ}%,content.ilike.%${safeQ}%`
@@ -128,16 +196,14 @@ export default function LibraryPage() {
       }
       if (scopedIds) query = query.in("id", scopedIds);
 
-      // 置顶项永远在前，再按用户选择的字段排序
       query = query
         .order("is_pinned", { ascending: false })
-        .order(sortBy, { ascending: sortOrder === "asc" });
+        .order("created_at", { ascending: false });
 
       const offset = append ? itemsLenRef.current : 0;
       query = query.range(offset, offset + PAGE_SIZE - 1);
 
       const { data, count, error } = await query;
-      // 丢弃过期响应（切换搜索词/筛选时旧请求后返回）
       if (reqIdRef.current !== myReqId) return;
       if (error) {
         setLoading(false);
@@ -155,10 +221,9 @@ export default function LibraryPage() {
       setLoading(false);
       setLoadingMore(false);
     },
-    [supabase, filter, search, sortBy, sortOrder, selectedTagIds]
+    [supabase, filter, search, selectedTagIds]
   );
 
-  // 拉取统计（不受筛选条件影响）
   const fetchStats = useCallback(async () => {
     const {
       data: { user },
@@ -177,14 +242,24 @@ export default function LibraryPage() {
     });
   }, [supabase]);
 
-  // 筛选条件变化重新加载（带防抖）
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchItems(false);
     }, 300);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search, sortBy, sortOrder, selectedTagIds]);
+  }, [filter, search, selectedTagIds]);
+
+  const sortedItems = useMemo(() => {
+    return sortItems(items, smartSort);
+  }, [items, smartSort]);
+
+  const handleSortChange = (value: SmartSortOption) => {
+    setSmartSort(value);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, value);
+    } catch {}
+  };
 
   useEffect(() => {
     fetchStats();
@@ -192,7 +267,11 @@ export default function LibraryPage() {
 
   const loadMore = () => fetchItems(true);
 
-  // ---------- 单条操作 ----------
+  const exitSelection = useCallback(() => {
+    clear();
+    setSelectionMode(false);
+  }, [clear]);
+
   const updateStatus = async (id: string, status: ReadingStatus) => {
     const { error } = await supabase
       .from("reading_items")
@@ -210,18 +289,11 @@ export default function LibraryPage() {
     const { error } = await supabase.from("reading_items").delete().eq("id", id);
     if (!error) {
       setItems((prev) => prev.filter((it) => it.id !== id));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
       fetchStats();
     }
   };
 
-  // ---------- 置顶 ----------
   const togglePin = async (id: string, pinned: boolean) => {
-    // 乐观更新
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, is_pinned: pinned } : it))
     );
@@ -230,14 +302,12 @@ export default function LibraryPage() {
       .update({ is_pinned: pinned })
       .eq("id", id);
     if (error) {
-      // 回滚
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, is_pinned: !pinned } : it))
       );
     }
   };
 
-  // ---------- AI 标签应用后刷新本地 ----------
   const handleTagsApplied = (id: string, tagNames: string[]) => {
     setItems((prev) =>
       prev.map((it) => {
@@ -255,33 +325,32 @@ export default function LibraryPage() {
     refreshTags();
   };
 
-  // ---------- 批量选择 ----------
-  const toggleSelect = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
+  const handleToggleSelect = useCallback(
+    (id: string, checked: boolean) => {
+      if (checked) {
+        selection.select(id);
+      } else {
+        selection.deselect(id);
+      }
+    },
+    [selection]
+  );
 
-  const selectAllVisible = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      items.forEach((i) => next.add(i.id));
-      return next;
-    });
-  };
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent, id: string) => {
+      if (showCheckbox) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggle(id);
+      }
+    },
+    [showCheckbox, toggle]
+  );
 
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-    setSelectionMode(false);
-  };
-
-  // ---------- 批量操作 ----------
-  const batchUpdateStatus = async (status: ReadingStatus) => {
+  const batchUpdateStatus = async (status: ReadingStatus, label: string) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    const count = ids.length;
     const res = await fetch("/api/reading-items/batch", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -291,8 +360,26 @@ export default function LibraryPage() {
       setItems((prev) =>
         prev.map((it) => (selectedIds.has(it.id) ? { ...it, reading_status: status } : it))
       );
-      clearSelection();
+      exitSelection();
       fetchStats();
+      toast({ title: `已标记 ${count} 篇为${label}` });
+    }
+  };
+
+  const batchTogglePin = async (pinned: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const { error } = await supabase
+      .from("reading_items")
+      .update({ is_pinned: pinned })
+      .in("id", ids);
+    if (!error) {
+      setItems((prev) =>
+        prev.map((it) => (selectedIds.has(it.id) ? { ...it, is_pinned: pinned } : it))
+      );
+      exitSelection();
+      toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇文章` });
     }
   };
 
@@ -300,6 +387,7 @@ export default function LibraryPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     if (!confirm(`确定删除选中的 ${ids.length} 条？此操作不可撤销。`)) return;
+    const count = ids.length;
     const res = await fetch("/api/reading-items/batch", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -307,8 +395,9 @@ export default function LibraryPage() {
     });
     if (res.ok) {
       setItems((prev) => prev.filter((it) => !selectedIds.has(it.id)));
-      clearSelection();
+      exitSelection();
       fetchStats();
+      toast({ title: `已删除 ${count} 篇文章`, variant: "destructive" });
     }
   };
 
@@ -317,7 +406,6 @@ export default function LibraryPage() {
     if (ids.length === 0) return;
 
     let tagId = tag.id;
-    // TagSelector 创建的临时标签以 new: 开头，需先入库
     if (tagId?.startsWith("new:")) {
       const createRes = await fetch("/api/tags", {
         method: "POST",
@@ -330,6 +418,7 @@ export default function LibraryPage() {
     }
     if (!tagId) return;
 
+    const count = ids.length;
     const res = await fetch("/api/reading-items/batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -341,7 +430,6 @@ export default function LibraryPage() {
           selectedIds.has(it.id)
             ? {
                 ...it,
-                // 判重：已存在该标签就不重复加
                 tags:
                   it.tags?.some((t) => t.id === tagId)
                     ? it.tags
@@ -350,14 +438,22 @@ export default function LibraryPage() {
             : it
         )
       );
-      clearSelection();
+      exitSelection();
       refreshTags();
+      toast({ title: `已为 ${count} 篇文章添加标签` });
     }
   };
 
-  const selectedCount = selectedIds.size;
-  const selectionModeActive = selectionMode || selectedCount > 0;
-  const allVisibleSelected = items.length > 0 && items.every((i) => selectedIds.has(i.id));
+  const cardProps = (item: ReadingItem) => ({
+    item,
+    onStatusChange: updateStatus,
+    onDelete: deleteItem,
+    selected: isSelected(item.id),
+    onSelectChange: showCheckbox ? handleToggleSelect : undefined,
+    selectionMode: selectionMode || isSelectMode,
+    onTogglePin: togglePin,
+    onTagsApplied: handleTagsApplied,
+  });
 
   return (
     <div className="space-y-6">
@@ -368,7 +464,6 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      {/* 统计面板 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-lg border p-3 text-center">
           <BarChart3 className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
@@ -392,7 +487,6 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      {/* 工具条：搜索 + 排序 + 批量 */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -403,42 +497,38 @@ export default function LibraryPage() {
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <Select value={smartSort} onValueChange={handleSortChange}>
+            <SelectTrigger className="w-[140px] h-9 gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
-            variant="outline"
+            variant={showCheckbox ? "default" : "ghost"}
             size="sm"
             className="gap-1.5"
             onClick={() => {
-              const idx = sortFields.indexOf(sortBy);
-              setSortBy(sortFields[(idx + 1) % sortFields.length]);
+              if (selectionMode) {
+                exitSelection();
+              } else {
+                setSelectionMode(true);
+              }
             }}
           >
-            <ArrowUpDown className="h-3.5 w-3.5" />
-            {sortFieldLabel[sortBy]}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-          >
-            {sortOrder === "desc" ? "降序" : "升序"}
-          </Button>
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            className="gap-1.5"
-            onClick={() => {
-              setSelectionMode(!selectionMode);
-              if (selectionMode) setSelectedIds(new Set());
-            }}
-          >
-            <CheckSquare className="h-3.5 w-3.5" />
-            批量
+            <ListChecks className="h-3.5 w-3.5" />
+            多选
           </Button>
         </div>
       </div>
 
-      {/* 标签筛选 */}
       {allTags.length > 0 && (
         <TagFilter
           options={allTags}
@@ -447,7 +537,6 @@ export default function LibraryPage() {
         />
       )}
 
-      {/* 状态筛选 tab */}
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
         {filterTabs.map((tab) => (
           <button
@@ -465,38 +554,43 @@ export default function LibraryPage() {
         ))}
       </div>
 
-      {/* 批量操作浮动条 */}
-      {selectionModeActive && (
-        <div className="sticky top-0 z-30 -mx-4 px-4 py-2 bg-background/95 backdrop-blur border-b flex flex-wrap items-center gap-2">
-          <Checkbox checked={allVisibleSelected} onCheckedChange={(c) => (c ? selectAllVisible() : clearSelection())} />
-          <span className="text-sm font-medium">已选 {selectedCount} 项</span>
-          <div className="flex-1" />
-          <Button size="sm" variant="outline" onClick={() => batchUpdateStatus("read")}>
-            标为已读
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => batchUpdateStatus("unread")}>
-            标为未读
-          </Button>
-          <TagSelector
-            selected={[]}
-            options={allTags}
-            onChange={(next) => {
-              const last = next[next.length - 1];
-              if (last) batchAddTag(last);
-            }}
-            triggerLabel="打标签"
-          />
-          <Button size="sm" variant="destructive" className="gap-1.5" onClick={batchDelete}>
-            <Trash2 className="h-3.5 w-3.5" />
-            删除
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearSelection}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+      {isSelectMode && (
+        <BatchActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={sortedItems.length}
+          onClear={exitSelection}
+          onSelectAll={() => selectAll(sortedItems.map((i) => i.id))}
+          typeLabel="篇文章"
+          actions={
+            <>
+              <Button size="sm" variant="ghost" onClick={() => batchUpdateStatus("read", "已读")}>
+                标为已读
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => batchUpdateStatus("unread", "未读")}>
+                标为未读
+              </Button>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)}>
+                <Pin className="h-3.5 w-3.5" />
+                置顶
+              </Button>
+              <TagSelector
+                selected={[]}
+                options={allTags}
+                onChange={(next) => {
+                  const last = next[next.length - 1];
+                  if (last) batchAddTag(last);
+                }}
+                triggerLabel="打标签"
+              />
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </Button>
+            </>
+          }
+        />
       )}
 
-      {/* 列表 */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
       ) : items.length === 0 ? (
@@ -515,46 +609,51 @@ export default function LibraryPage() {
             />
           );
         })()
-      ) : items.length > 50 ? (
+      ) : sortedItems.length > 50 ? (
         <VirtualList
-          items={items}
+          items={sortedItems}
           itemHeight={140}
           overscan={5}
           className="overflow-y-auto h-[calc(100vh-420px)]"
-          renderItem={(item) => (
-            <Link href={`/library/${item.id}`} className="block px-1 py-1">
-              <ReadingCard
-                item={item}
-                onStatusChange={updateStatus}
-                onDelete={deleteItem}
-                selected={selectedIds.has(item.id)}
-                onSelectChange={selectionModeActive ? toggleSelect : undefined}
-                selectionMode={selectionMode}
-                onTogglePin={togglePin}
-                onTagsApplied={handleTagsApplied}
-              />
-            </Link>
-          )}
+          renderItem={(item) => {
+            const Wrapper = showCheckbox ? "div" : Link;
+            const wrapperProps = showCheckbox
+              ? {
+                  className: "block px-1 py-1 cursor-pointer",
+                  onClick: (e: React.MouseEvent) => handleCardClick(e, item.id),
+                }
+              : {
+                  href: `/library/${item.id}`,
+                  className: "block px-1 py-1",
+                };
+            return (
+              <Wrapper key={item.id} {...wrapperProps as any}>
+                <ReadingCard {...cardProps(item)} />
+              </Wrapper>
+            );
+          }}
         />
       ) : (
         <div className="grid gap-4">
-          {items.map((item) => (
-            <Link key={item.id} href={`/library/${item.id}`}>
-              <ReadingCard
-                item={item}
-                onStatusChange={updateStatus}
-                onDelete={deleteItem}
-                selected={selectedIds.has(item.id)}
-                onSelectChange={selectionModeActive ? toggleSelect : undefined}
-                selectionMode={selectionMode}
-                onTogglePin={togglePin}
-              />
-            </Link>
-          ))}
+          {sortedItems.map((item) => {
+            const Wrapper = showCheckbox ? "div" : Link;
+            const wrapperProps = showCheckbox
+              ? {
+                  className: "cursor-pointer",
+                  onClick: (e: React.MouseEvent) => handleCardClick(e, item.id),
+                }
+              : {
+                  href: `/library/${item.id}`,
+                };
+            return (
+              <Wrapper key={item.id} {...wrapperProps as any}>
+                <ReadingCard {...cardProps(item)} />
+              </Wrapper>
+            );
+          })}
         </div>
       )}
 
-      {/* 加载更多 */}
       {hasMore && !loading && (
         <div className="text-center py-4">
           <Button variant="outline" onClick={loadMore} disabled={loadingMore}>

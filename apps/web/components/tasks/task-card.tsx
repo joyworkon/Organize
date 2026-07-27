@@ -9,13 +9,16 @@ import {
   BookOpen,
   FileText,
   Clock,
+  Calendar,
   Trash2,
   Pencil,
   Check,
   CheckSquare,
 } from "lucide-react";
+import { formatDueDate, getDueDateColorClass } from "@/lib/date-utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { TagBadge } from "@/components/tags/tag-badge";
+import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags, TaskStatus } from "@organize/shared";
 import {
@@ -40,6 +44,9 @@ interface TaskCardProps {
   onToggleStatus?: (id: string, status: TaskStatus) => void;
   onTogglePin?: (id: string, isPinned: boolean) => void;
   onComplete?: (task: TaskWithTags) => void;
+  selected?: boolean;
+  onSelectChange?: (id: string, checked: boolean) => void;
+  selectionMode?: boolean;
 }
 
 export function TaskCard({
@@ -49,30 +56,21 @@ export function TaskCard({
   onToggleStatus,
   onTogglePin,
   onComplete,
+  selected = false,
+  onSelectChange,
+  selectionMode = false,
 }: TaskCardProps) {
   const router = useRouter();
   const statusConfig = TASK_STATUS_CONFIG[task.status];
   const priorityConfig = TASK_PRIORITY_CONFIG[task.priority];
   const categoryConfig = TASK_CATEGORY_CONFIG[task.category];
+  const showCheckbox = Boolean(onSelectChange);
 
   const checklistCompleted = task.checklists?.filter(c => c.is_completed).length || 0;
   const checklistTotal = task.checklists?.length || 0;
 
   const isOverdue =
     task.due_date && task.status !== "done" && task.status !== "cancelled" && new Date(task.due_date) < new Date();
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = date.getTime() - now.getTime();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    if (days === 0) return "今天到期";
-    if (days === 1) return "明天到期";
-    if (days === -1) return "昨天到期";
-    if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
-    if (days <= 7) return `${days} 天后到期`;
-    return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
-  };
 
   const handleToggleComplete = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -84,7 +82,13 @@ export function TaskCard({
     }
   };
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (showCheckbox) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSelectChange!(task.id, !selected);
+      return;
+    }
     router.push(`/tasks/${task.id}`);
   };
 
@@ -93,11 +97,41 @@ export function TaskCard({
     e.stopPropagation();
   };
 
+  const stop = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDelete = () => {
+    onDelete?.(task.id);
+  };
+
+  const handleTogglePin = () => {
+    onTogglePin?.(task.id, !task.is_pinned);
+  };
+
+  const handleToggleStatus = () => {
+    if (task.status === "done") {
+      onToggleStatus?.(task.id, "todo");
+    } else if (onComplete) {
+      onComplete(task);
+    }
+  };
+
   return (
+    <ListItemContextMenu
+      type="task"
+      item={task}
+      onDelete={onDelete ? handleDelete : undefined}
+      onTogglePin={onTogglePin ? handleTogglePin : undefined}
+      onToggleStatus={(onToggleStatus || onComplete) ? handleToggleStatus : undefined}
+    >
     <Card
       onClick={handleCardClick}
       className={cn(
-        "group cursor-pointer transition-colors duration-150 border-l-4 hover:bg-accent",
+        "group cursor-pointer transition-colors duration-150 border-l-4 relative",
+        showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
+        selected && "ring-2 ring-primary",
         task.is_pinned && "ring-1 ring-primary/20",
         isOverdue && "border-l-red-500",
         !isOverdue && task.status === "done" && "border-l-green-500",
@@ -108,17 +142,28 @@ export function TaskCard({
     >
       <CardContent className="p-3 sm:p-4">
         <div className="flex items-start gap-3">
-          <button
-            onClick={handleToggleComplete}
-            className={cn(
-              "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-              task.status === "done"
-                ? "border-green-500 bg-green-500 text-white"
-                : "border-muted-foreground/30 hover:border-primary"
-            )}
-          >
-            {task.status === "done" && <Check className="h-3 w-3" />}
-          </button>
+          {showCheckbox && (
+            <div className="flex items-start pt-1" onClick={stop}>
+              <Checkbox
+                checked={selected}
+                onCheckedChange={(checked) => onSelectChange!(task.id, checked === true)}
+                className={cn(!selectionMode && "opacity-0 group-hover:opacity-100")}
+              />
+            </div>
+          )}
+          {!showCheckbox && (
+            <button
+              onClick={handleToggleComplete}
+              className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                task.status === "done"
+                  ? "border-green-500 bg-green-500 text-white"
+                  : "border-muted-foreground/30 hover:border-primary"
+              )}
+            >
+              {task.status === "done" && <Check className="h-3 w-3" />}
+            </button>
+          )}
 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
@@ -197,12 +242,12 @@ export function TaskCard({
                   {task.due_date && (
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1 text-[11px]",
-                        isOverdue ? "text-red-500 font-medium" : "text-muted-foreground"
+                        "inline-flex items-center gap-1 text-xs",
+                        getDueDateColorClass(task.due_date, task.status)
                       )}
                     >
-                      <Clock className="h-3 w-3" />
-                      {formatDate(task.due_date)}
+                      <Calendar className="h-3 w-3" />
+                      {formatDueDate(task.due_date)}
                     </span>
                   )}
                   {task.reading_item_id && (
@@ -283,5 +328,6 @@ export function TaskCard({
         </div>
       </CardContent>
     </Card>
+    </ListItemContextMenu>
   );
 }

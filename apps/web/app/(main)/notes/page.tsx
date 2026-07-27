@@ -7,19 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { useAllTags } from "@/components/tags/use-tags";
+import { BatchActionsBar } from "@/components/batch-actions-bar";
+import { useSelection } from "@/hooks/use-selection";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { Note, NoteWithTags } from "@organize/shared";
-import { Plus, Search, FileText, ArrowUpDown } from "lucide-react";
+import type { NoteWithTags } from "@organize/shared";
+import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutGrid, List as ListIcon, CheckSquare, X, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { LayoutGrid, List as ListIcon } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type SortField = "updated_at" | "created_at" | "title";
 type SortOrder = "asc" | "desc";
 
 export default function NotesPage() {
+  const router = useRouter();
   const [notes, setNotes] = useState<NoteWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -27,18 +29,18 @@ export default function NotesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
-  // 视图：卡片 / 列表（默认列表）
   const [view, setView] = useState<NoteViewMode>("list");
-  // 批量选择
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  // 标签筛选
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+
+  const selection = useSelection<NoteWithTags>();
+  const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
+
   const supabase = createClient();
-  const router = useRouter();
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
   const reqIdRef = useRef(0);
+  const showCheckbox = selectionMode || isSelectMode;
 
   const fetchNotes = useCallback(async () => {
     const myReqId = ++reqIdRef.current;
@@ -49,7 +51,6 @@ export default function NotesPage() {
 
     if (!user) return;
 
-    // 标签筛选：先从 note_tags 拿到候选 id 集合（多个标签按 OR）
     let scopedIds: string[] | null = null;
     if (selectedTagIds.length > 0) {
       const { data: tagRows } = await supabase
@@ -76,7 +77,6 @@ export default function NotesPage() {
     if (scopedIds) query = query.in("id", scopedIds);
 
     query = query
-      // 置顶项在前，再按用户选择的字段排序
       .order("is_pinned", { ascending: false })
       .order(sortBy, { ascending: sortOrder === "asc" });
 
@@ -94,6 +94,11 @@ export default function NotesPage() {
     const timer = setTimeout(fetchNotes, 300);
     return () => clearTimeout(timer);
   }, [fetchNotes]);
+
+  const exitSelection = useCallback(() => {
+    clear();
+    setSelectionMode(false);
+  }, [clear]);
 
   const createNote = async () => {
     setCreating(true);
@@ -118,8 +123,6 @@ export default function NotesPage() {
       if (error) throw error;
 
       if (data) {
-        // 用软导航而非 window.location 硬跳转：mock 后端的数据是模块级内存单例，
-        // 硬跳转会整页重载、把刚插入的新笔记连同内存一起清空，导致详情页读不到。
         router.push(`/notes/${data.id}`);
       }
     } catch (err) {
@@ -134,55 +137,72 @@ export default function NotesPage() {
     const { error } = await supabase.from("notes").delete().eq("id", id);
     if (!error) {
       setNotes((prev) => prev.filter((n) => n.id !== id));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
     }
-  };
-
-  // ---------- 批量删除 ----------
-  const batchDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
-    const ids = Array.from(selectedIds);
-    const { error } = await supabase.from("notes").delete().in("id", ids);
-    if (!error) {
-      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
-      setSelectedIds(new Set());
-      setSelectionMode(false);
-    }
-  };
-
-  const toggleSelect = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
-  const selectAllVisible = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      notes.forEach((n) => next.add(n.id));
-      return next;
-    });
-  };
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-    setSelectionMode(false);
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
-    // 乐观更新
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: pinned } : n)));
     const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
     if (error) {
       setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: !pinned } : n)));
     }
   };
+
+  const handleToggleSelect = useCallback(
+    (id: string, checked: boolean) => {
+      if (checked) {
+        selection.select(id);
+      } else {
+        selection.deselect(id);
+      }
+    },
+    [selection]
+  );
+
+  const batchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
+    const ids = Array.from(selectedIds);
+    const count = ids.length;
+    const { error } = await supabase.from("notes").delete().in("id", ids);
+    if (!error) {
+      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+      exitSelection();
+      toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
+    }
+  };
+
+  const batchTogglePin = async (pinned: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const { error } = await supabase
+      .from("notes")
+      .update({ is_pinned: pinned })
+      .in("id", ids);
+    if (!error) {
+      setNotes((prev) =>
+        prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_pinned: pinned } : n))
+      );
+      exitSelection();
+      toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
+    }
+  };
+
+  const handleSelectAllVisible = () => {
+    selectAll(notes.map((n) => n.id));
+  };
+
+  const noteCardProps = (note: NoteWithTags) => ({
+    note,
+    view,
+    selected: isSelected(note.id),
+    onSelectChange: showCheckbox ? handleToggleSelect : undefined,
+    selectionMode: selectionMode || isSelectMode,
+    onTogglePin: togglePin,
+    onDelete: deleteNote,
+    onTagsApplied: () => fetchNotes(),
+  });
 
   return (
     <div className="space-y-6">
@@ -205,7 +225,6 @@ export default function NotesPage() {
         </div>
       )}
 
-      {/* 搜索 + 排序 */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -238,7 +257,6 @@ export default function NotesPage() {
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
 
-          {/* 视图切换 */}
           <div className="flex items-center rounded-md border overflow-hidden">
             <button
               onClick={() => setView("card")}
@@ -262,23 +280,24 @@ export default function NotesPage() {
             </button>
           </div>
 
-          {/* 批量按钮 */}
           <Button
-            variant={selectionMode ? "default" : "outline"}
+            variant={showCheckbox ? "default" : "ghost"}
             size="sm"
             className="gap-1.5"
             onClick={() => {
-              setSelectionMode(!selectionMode);
-              if (selectionMode) setSelectedIds(new Set());
+              if (selectionMode) {
+                exitSelection();
+              } else {
+                setSelectionMode(true);
+              }
             }}
           >
-            <CheckSquare className="h-3.5 w-3.5" />
-            批量
+            <ListChecks className="h-3.5 w-3.5" />
+            多选
           </Button>
         </div>
       </div>
 
-      {/* 标签筛选 */}
       <div className="flex items-center">
         <TagFilter
           options={allTags}
@@ -287,32 +306,28 @@ export default function NotesPage() {
         />
       </div>
 
-      {/* 批量操作浮动条 */}
-      {(selectionMode || selectedIds.size > 0) && (
-        <div className="sticky top-0 z-30 -mx-4 px-4 py-2 bg-background/95 backdrop-blur border-b flex items-center gap-2">
-          <Checkbox
-            checked={notes.length > 0 && notes.every((n) => selectedIds.has(n.id))}
-            onCheckedChange={(c) => (c ? selectAllVisible() : clearSelection())}
-          />
-          <span className="text-sm font-medium">已选 {selectedIds.size} 项</span>
-          <div className="flex-1" />
-          <Button
-            size="sm"
-            variant="destructive"
-            className="gap-1.5"
-            onClick={batchDelete}
-            disabled={selectedIds.size === 0}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            删除
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearSelection}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+      {isSelectMode && (
+        <BatchActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={notes.length}
+          onClear={exitSelection}
+          onSelectAll={handleSelectAllVisible}
+          typeLabel="篇笔记"
+          actions={
+            <>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)}>
+                <Pin className="h-3.5 w-3.5" />
+                置顶
+              </Button>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete}>
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </Button>
+            </>
+          }
+        />
       )}
 
-      {/* 笔记列表 */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
       ) : notes.length === 0 ? (
@@ -324,33 +339,13 @@ export default function NotesPage() {
       ) : view === "list" ? (
         <div className="grid gap-2">
           {notes.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              view="list"
-              selected={selectedIds.has(note.id)}
-              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
-              selectionMode={selectionMode}
-              onTogglePin={togglePin}
-              onDelete={deleteNote}
-              onTagsApplied={() => fetchNotes()}
-            />
+            <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              view="card"
-              selected={selectedIds.has(note.id)}
-              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
-              selectionMode={selectionMode}
-              onTogglePin={togglePin}
-              onDelete={deleteNote}
-              onTagsApplied={() => fetchNotes()}
-            />
+            <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
       )}
