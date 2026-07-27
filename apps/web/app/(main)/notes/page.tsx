@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TagFilter } from "@/components/tags/tag-filter";
+import { useAllTags } from "@/components/tags/use-tags";
 import { cn } from "@/lib/utils";
 import type { Note, NoteWithTags } from "@organize/shared";
 import { Plus, Search, FileText, ArrowUpDown } from "lucide-react";
@@ -28,9 +30,15 @@ export default function NotesPage() {
   // 批量选择
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 标签筛选
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const supabase = createClient();
+  const { tags: allTags, refresh: refreshTags } = useAllTags();
+
+  const reqIdRef = useRef(0);
 
   const fetchNotes = useCallback(async () => {
+    const myReqId = ++reqIdRef.current;
     setLoading(true);
     const {
       data: { user },
@@ -38,25 +46,46 @@ export default function NotesPage() {
 
     if (!user) return;
 
+    // 标签筛选：先从 note_tags 拿到候选 id 集合（多个标签按 OR）
+    let scopedIds: string[] | null = null;
+    if (selectedTagIds.length > 0) {
+      const { data: tagRows } = await supabase
+        .from("note_tags")
+        .select("note_id")
+        .in("tag_id", selectedTagIds);
+      if (!tagRows || tagRows.length === 0) {
+        if (reqIdRef.current !== myReqId) return;
+        setNotes([]);
+        setLoading(false);
+        return;
+      }
+      scopedIds = Array.from(new Set(tagRows.map((r) => r.note_id as string)));
+    }
+
     let query = supabase
       .from("notes")
       .select("*, reading_item:reading_items(id, title, url), tags:tags!note_tags(id, name)")
-      .eq("user_id", user.id)
-      // 置顶项在前，再按用户选择的字段排序
-      .order("is_pinned", { ascending: false })
-      .order(sortBy, { ascending: sortOrder === "asc" });
+      .eq("user_id", user.id);
 
     if (search.trim()) {
       query = query.ilike("title", `%${search.trim()}%`);
     }
+    if (scopedIds) query = query.in("id", scopedIds);
+
+    query = query
+      // 置顶项在前，再按用户选择的字段排序
+      .order("is_pinned", { ascending: false })
+      .order(sortBy, { ascending: sortOrder === "asc" });
 
     const { data, error } = await query;
+
+    if (reqIdRef.current !== myReqId) return;
 
     if (!error && data) {
       setNotes(data as NoteWithTags[]);
     }
     setLoading(false);
-  }, [search, sortBy, sortOrder, supabase]);
+  }, [search, sortBy, sortOrder, selectedTagIds, supabase]);
 
   useEffect(() => {
     const timer = setTimeout(fetchNotes, 300);
@@ -182,7 +211,7 @@ export default function NotesPage() {
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -242,6 +271,15 @@ export default function NotesPage() {
             批量
           </Button>
         </div>
+      </div>
+
+      {/* 标签筛选 */}
+      <div className="flex items-center">
+        <TagFilter
+          options={allTags}
+          selectedIds={selectedTagIds}
+          onChange={setSelectedTagIds}
+        />
       </div>
 
       {/* 批量操作浮动条 */}

@@ -60,6 +60,70 @@
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
 
+/* 代码块 */
+.organize-editor pre {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.organize-editor pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+.organize-editor :not(pre) > code {
+  background: hsl(var(--muted));
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 表格 */
+.organize-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+}
+.organize-editor th,
+.organize-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.organize-editor th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+.dark .organize-editor th {
+  background: hsl(var(--muted) / 0.5);
+}
+
+/* 引用块 */
+.organize-editor blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+/* 水平线 */
+.organize-editor hr {
+  border: none;
+  border-top: 2px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}
+
 /* 待办列表（TaskList）样式 */
 .organize-editor ul[data-type="taskList"] {
   list-style: none;
@@ -74,11 +138,24 @@
 }
 .organize-editor ul[data-type="taskList"] li > label {
   flex: 0 0 auto;
-  margin-top: 0.15rem;
+  margin: 0;
+  /* 高度取一行行高，配合 align-items:center 让复选框在首行内垂直居中；
+     用 em 作回退、1lh 精确匹配当前字号的行高，prose / prose-sm 都能对齐 */
+  height: 1.7em;
+  height: 1lh;
+  display: inline-flex;
+  align-items: center;
   user-select: none;
 }
 .organize-editor ul[data-type="taskList"] li > div {
   flex: 1 1 auto;
+}
+/* 待办项正文首/尾段落去掉外边距，保证首行从顶部起始，与左侧复选框行高对齐 */
+.organize-editor ul[data-type="taskList"] li > div > :first-child {
+  margin-top: 0;
+}
+.organize-editor ul[data-type="taskList"] li > div > :last-child {
+  margin-bottom: 0;
 }
 .organize-editor ul[data-type="taskList"] input[type="checkbox"] {
   width: 1rem;
@@ -184,6 +261,55 @@
 .organize-editor details > [data-details-content] {
   padding-left: 1.25rem;
   margin-top: 0.25rem;
+}
+
+/* 折叠列表在编辑器内由 TipTap NodeView 渲染，实际 DOM 是 div 结构（非原生 details）：
+   <div data-type="details" [.is-open]>
+     <button/>                      ← 切换按钮（默认是块级空按钮，会自己占一行）
+     <div>                          ← contentDOM
+       <div data-type="detailsSummary"/>
+       <div data-type="detailsContent"/>
+   上面基于原生 details/summary 的选择器命中不了它，需专门适配。 */
+.organize-editor div[data-type="details"] {
+  position: relative;
+  margin: 0.5rem 0;
+  padding-left: 1.5rem; /* 给左侧 ▶ 标记留出空间 */
+}
+/* 把空的切换按钮做成 ▶ 标记，绝对定位到左侧首行，避免它块级独占一行 */
+.organize-editor div[data-type="details"] > button {
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 1.25rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+}
+.organize-editor div[data-type="details"] > button::before {
+  content: "▶";
+  font-size: 0.7em;
+  transition: transform 0.15s ease;
+}
+.organize-editor div[data-type="details"].is-open > button::before {
+  transform: rotate(90deg);
+}
+.organize-editor div[data-type="detailsSummary"] {
+  font-weight: 500;
+  padding: 0.1rem 0;
+  outline: none;
+}
+.organize-editor div[data-type="detailsContent"] {
+  margin-top: 0.25rem;
+}
+/* 折叠（未展开）时隐藏内容区 */
+.organize-editor div[data-type="details"]:not(.is-open) div[data-type="detailsContent"] {
+  display: none;
 }
 
 /* ------------------------- 标注（Callout） ------------------------- */
@@ -356,16 +482,16 @@
   z-index: 100;
   width: min(330px, calc(100vw - 24px));
   overflow: hidden;
-  /* 边框调淡：用 border 色加 50% 透明度，视觉上更轻 */
   border: 1px solid hsl(var(--border) / 0.5);
   border-radius: 12px;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  /* 阴影也调淡一点 */
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
-  /* 文字默认小一点 */
+  box-shadow: 0 8px 28px hsl(222 47% 11% / 0.08), 0 1px 4px hsl(222 47% 11% / 0.04);
   font-size: 13px;
   animation: editor-popover-in 110ms ease-out;
+}
+.dark .editor-popover {
+  box-shadow: 0 8px 28px hsl(0 0% 0% / 0.4), 0 1px 4px hsl(0 0% 0% / 0.2);
 }
 @keyframes editor-popover-in {
   from { opacity: 0; transform: translateY(-4px) scale(.985); }
@@ -578,8 +704,11 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(15, 23, 42, .32);
+  background: hsl(222 47% 11% / 0.5);
   backdrop-filter: blur(2px);
+}
+.dark .editor-dialog-backdrop {
+  background: hsl(0 0% 0% / 0.6);
 }
 .editor-dialog {
   width: min(480px, 100%);
@@ -589,7 +718,10 @@
   border-radius: 14px;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 24px 80px rgba(15, 23, 42, .24);
+  box-shadow: 0 24px 80px hsl(222 47% 11% / 0.2);
+}
+.dark .editor-dialog {
+  box-shadow: 0 24px 80px hsl(0 0% 0% / 0.5);
 }
 .editor-dialog.wide { width: min(640px, 100%); }
 .editor-dialog-title {
@@ -751,7 +883,7 @@
 .html-embed-toolbar span,
 .html-embed-toolbar button { display: flex; align-items: center; gap: 5px; }
 .html-embed-toolbar button { border: 0; background: transparent; color: hsl(var(--muted-foreground)); }
-.html-embed iframe { display: block; width: 100%; border: 0; background: white; }
+.html-embed iframe { display: block; width: 100%; border: 0; background: hsl(var(--background)); }
 .html-editor-dialog textarea { min-height: 360px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* AI 录音 */

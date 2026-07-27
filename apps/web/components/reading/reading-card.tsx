@@ -9,23 +9,26 @@ import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
-import { ExternalLink, Trash2, Pin } from "lucide-react";
+import { ExternalLink, Trash2, Pin, Globe } from "lucide-react";
 import type { MouseEvent } from "react";
 
 interface ReadingCardProps {
   item: ReadingItem;
   onStatusChange?: (id: string, status: ReadingStatus) => void;
   onDelete?: (id: string) => void;
-  /** 是否选中（批量模式下） */
   selected?: boolean;
-  /** 选中状态变化回调；传入即启用批量模式（显示 checkbox） */
   onSelectChange?: (id: string, selected: boolean) => void;
-  /** 是否处于批量选择模式（显式控制 checkbox 常驻显示） */
   selectionMode?: boolean;
-  /** 置顶状态切换回调 */
   onTogglePin?: (id: string, pinned: boolean) => void;
-  /** AI 自动打标签后回调（父组件刷新标签展示） */
   onTagsApplied?: (id: string, tagNames: string[]) => void;
+}
+
+function getHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
 }
 
 export function ReadingCard({
@@ -46,20 +49,19 @@ export function ReadingCard({
 
   const showCheckbox = Boolean(onSelectChange);
   const tags: Tag[] = item.tags || [];
+  const hostname = getHostname(item.url);
 
-  // 阻止卡片内交互点击冒泡到外层 Link
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
     <Card
       className={cn(
-        "group hover:shadow-md transition-all duration-200 relative overflow-hidden",
+        "group hover:shadow-md transition-all duration-200 relative overflow-hidden h-full flex flex-col cursor-pointer",
         selected && "ring-2 ring-primary",
-        // 置顶：左侧细彩条（视觉统一）
         item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-4 flex-1 flex flex-col">
         <div className="flex gap-3">
           {showCheckbox && (
             <div className="flex items-start pt-1" onClick={stop}>
@@ -86,12 +88,12 @@ export function ReadingCard({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="font-medium leading-tight line-clamp-2">
+              <h3 className="font-medium leading-tight line-clamp-2 flex-1 min-w-0">
                 {item.title || item.url}
               </h3>
               <div
                 className={cn(
-                  "flex items-center gap-1 shrink-0 transition-opacity",
+                  "flex items-center gap-0.5 shrink-0 transition-opacity",
                   selectionMode
                     ? "opacity-100"
                     : item.is_pinned
@@ -104,22 +106,23 @@ export function ReadingCard({
                   <button
                     onClick={() => onTogglePin(item.id, !item.is_pinned)}
                     className={cn(
-                      "p-1.5 rounded hover:bg-accent",
+                      "p-1 rounded hover:bg-accent",
                       item.is_pinned ? "text-primary" : "text-muted-foreground"
                     )}
                     title={item.is_pinned ? "取消置顶" : "置顶"}
                   >
-                    <Pin className={cn("h-4 w-4", item.is_pinned && "fill-primary")} />
+                    <Pin className={cn("h-3.5 w-3.5", item.is_pinned && "fill-primary")} />
                   </button>
                 )}
                 <a
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1.5 rounded hover:bg-accent"
+                  className="p-1 rounded hover:bg-accent"
                   title="打开原文"
+                  onClick={stop}
                 >
-                  <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
                 </a>
                 <AutoTagDialog
                   resourceType="reading_item"
@@ -134,23 +137,28 @@ export function ReadingCard({
                 />
                 {onDelete && (
                   <button
-                    onClick={() => onDelete(item.id)}
-                    className="p-1.5 rounded hover:bg-accent"
+                    onClick={(e) => {
+                      stop(e);
+                      onDelete(item.id);
+                    }}
+                    className="p-1 rounded hover:bg-accent"
                     title="删除"
                   >
-                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                   </button>
                 )}
               </div>
             </div>
 
             {item.excerpt && (
-              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+              <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3 leading-relaxed">
                 {item.excerpt}
               </p>
             )}
 
-            <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <div className="flex-1" />
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap text-xs text-muted-foreground">
               <StatusBadge
                 status={item.reading_status}
                 onClick={
@@ -161,36 +169,43 @@ export function ReadingCard({
               />
 
               {item.reading_progress > 0 && item.reading_status !== "read" && (
-                <div className="flex items-center gap-1.5">
-                  <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="flex items-center gap-1.5" onClick={stop}>
+                  <div className="w-12 h-1 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary rounded-full transition-all duration-300"
                       style={{ width: `${Math.round(item.reading_progress * 100)}%` }}
                     />
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px]">
                     {Math.round(item.reading_progress * 100)}%
                   </span>
                 </div>
               )}
 
-              <span className="text-xs text-muted-foreground">
+              <div className="flex-1" />
+
+              {hostname && (
+                <span className="flex items-center gap-1 line-clamp-1">
+                  <Globe className="h-3 w-3 shrink-0" />
+                  <span className="truncate max-w-[6rem]">{hostname}</span>
+                </span>
+              )}
+
+              {tags.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap" onClick={stop}>
+                  {tags.slice(0, 2).map((t) => (
+                    <TagBadge key={t.id} tag={t} className="text-[10px] px-1.5 py-0" />
+                  ))}
+                  {tags.length > 2 && (
+                    <span className="text-[10px] text-muted-foreground">+{tags.length - 2}</span>
+                  )}
+                </div>
+              )}
+
+              <span className="shrink-0">
                 {new Date(item.created_at).toLocaleDateString("zh-CN")}
               </span>
             </div>
-
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2" onClick={stop}>
-                {tags.slice(0, 4).map((t) => (
-                  <TagBadge key={t.id} tag={t} />
-                ))}
-                {tags.length > 4 && (
-                  <span className="text-xs text-muted-foreground self-center">
-                    +{tags.length - 4}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </CardContent>
