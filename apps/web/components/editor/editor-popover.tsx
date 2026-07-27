@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EditorMenuPoint } from "./types";
 
@@ -16,6 +16,7 @@ export function EditorPopover({
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState(point);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -35,11 +36,32 @@ export function EditorPopover({
     };
   }, [onClose]);
 
-  const left = Math.min(point.left, Math.max(12, window.innerWidth - 360));
-  const top = Math.min(point.top, Math.max(12, window.innerHeight - 580));
+  useLayoutEffect(() => {
+    const popover = ref.current;
+    if (!popover) return;
+    const updatePosition = () => {
+      const gap = 12;
+      const rect = popover.getBoundingClientRect();
+      const next = {
+        left: Math.max(gap, Math.min(point.left, window.innerWidth - rect.width - gap)),
+        top: Math.max(gap, Math.min(point.top, window.innerHeight - rect.height - gap)),
+      };
+      setPosition((current) => (
+        current.left === next.left && current.top === next.top ? current : next
+      ));
+    };
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    observer.observe(popover);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [point]);
 
   return createPortal(
-    <div ref={ref} className={`editor-popover ${className}`} style={{ left, top }}>
+    <div ref={ref} className={`editor-popover ${className}`} style={position}>
       {children}
     </div>,
     document.body

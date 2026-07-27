@@ -5,7 +5,7 @@ import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react
 import StarterKit from "@tiptap/starter-kit";
 import UniqueID from "@tiptap/extension-unique-id";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { NodeSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
@@ -29,6 +29,7 @@ import { BlockStyle } from "./extensions/block-style";
 import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
+import { TransformedBlockSelection } from "./extensions/block-selection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
@@ -647,6 +648,16 @@ function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement) {
   return block?.parentElement === editorDom ? block : null;
 }
 
+function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number): EditorMenuPoint {
+  const blockDom = editor.view.nodeDOM(pos);
+  if (blockDom instanceof HTMLElement) {
+    const rect = blockDom.getBoundingClientRect();
+    return { left: rect.left, top: rect.bottom + 6 };
+  }
+  const coords = editor.view.coordsAtPos(selectionPos);
+  return { left: coords.left, top: coords.bottom + 6 };
+}
+
 export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const initialContentRef = useRef(content);
@@ -695,6 +706,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       HtmlEmbed,
       SlashCommand,
       BlockDeepLink,
+      TransformedBlockSelection,
       BlockStyle,
       UniqueID.configure({ types: BLOCK_ID_TYPES }),
     ];
@@ -710,9 +722,25 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
         class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
       },
       handleKeyDown: (view, event) => {
+        const { $from, empty } = view.state.selection;
+        if (
+          event.key === "Enter"
+          && empty
+          && $from.parent.type.name === "heading"
+          && $from.parentOffset === $from.parent.content.size
+        ) {
+          event.preventDefault();
+          const insertPos = $from.after($from.depth);
+          const paragraph = view.state.schema.nodes.paragraph.create();
+          const transaction = view.state.tr.insert(insertPos, paragraph);
+          transaction.setSelection(
+            TextSelection.near(transaction.doc.resolve(insertPos + 1), 1)
+          );
+          view.dispatch(transaction.scrollIntoView());
+          return true;
+        }
         if ((event.metaKey || event.ctrlKey) && event.key === "/") {
           event.preventDefault();
-          const { $from } = view.state.selection;
           const pos = $from.depth > 0 ? $from.before(1) : 0;
           const coords = view.coordsAtPos($from.pos);
           view.dispatch(view.state.tr.setSelection(view.state.selection));
@@ -963,9 +991,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       .insertContentAt(insertPos, emptyBlock)
       .setTextSelection(textSelectionPos)
       .run();
-    const rect = event.currentTarget.getBoundingClientRect();
     setActionMenu(null);
-    setCommandMenu({ pos: insertPos, point: { left: rect.left, top: rect.bottom + 8 } });
+    setCommandMenu({
+      pos: insertPos,
+      point: menuPointBelowBlock(current.editor, insertPos, textSelectionPos),
+    });
   }, []);
 
   const openBlockActions = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
@@ -998,7 +1028,14 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       json: current.node.toJSON(),
     };
     setCommandMenu(null);
-    setActionMenu({ pos: current.pos, target, point: { left: rect.left, top: rect.bottom + 8 } });
+    setActionMenu({
+      pos: current.pos,
+      target,
+      point: {
+        left: rect.left - 338,
+        top: rect.top,
+      },
+    });
   }, [editor]);
 
   const beginBlockPointerDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {

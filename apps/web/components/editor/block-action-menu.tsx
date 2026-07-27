@@ -23,6 +23,7 @@ import {
 import { useMemo, useState } from "react";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { stripBlockIds } from "./block-utils";
+import { focusAndHighlightBlock } from "./extensions/block-selection";
 import { EditorPopover } from "./editor-popover";
 import type { EditorBlockTarget, EditorMenuPoint } from "./types";
 
@@ -159,7 +160,10 @@ export function BlockActionMenu({
           {!canTransformTarget && <div className="editor-menu-empty">{target.type} 是结构化区块，不能直接转换；请先复制其中的文本。</div>}
           {canTransformTarget && transformCommands.map((command) => {
             const Icon = command.icon;
-            return <button key={command.id} type="button" onClick={() => finish(() => command.run(editor, target.pos))}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
+            return <button key={command.id} type="button" onClick={() => finish(() => {
+              command.run(editor, target.pos);
+              focusAndHighlightBlock(editor, target.id);
+            })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
           })}
         </div>
       </EditorPopover>

@@ -1,4 +1,5 @@
 import type { Editor, JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   Bookmark,
   Code2,
@@ -24,11 +25,46 @@ import {
   Text,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
+import { BLOCK_ID_TYPES } from "./block-utils";
 
-function replaceBlock(editor: Editor, pos: number, content: JSONContent) {
-  const node = editor.state.doc.nodeAt(pos);
-  if (!node) return;
+export function preserveBlockId(content: JSONContent, blockId: string): JSONContent {
+  const visit = (candidate: JSONContent): { node: JSONContent; preserved: boolean } => {
+    if (candidate.type && BLOCK_ID_TYPES.includes(candidate.type)) {
+      return {
+        node: {
+          ...candidate,
+          attrs: {
+            ...(candidate.attrs || {}),
+            id: blockId,
+          },
+        },
+        preserved: true,
+      };
+    }
+
+    if (!candidate.content) return { node: candidate, preserved: false };
+    let preserved = false;
+    const children = candidate.content.map((child) => {
+      if (preserved) return child;
+      const result = visit(child);
+      preserved = result.preserved;
+      return result.node;
+    });
+    return {
+      node: preserved ? { ...candidate, content: children } : candidate,
+      preserved,
+    };
+  };
+
+  return visit(content).node;
+}
+
+export function buildBlockReplacement(
+  node: ProseMirrorNode,
+  content: JSONContent
+): JSONContent {
   const text = node.textContent;
+  const blockId = String(node.attrs?.id || "");
   const addTextToFirstTextContainer = (candidate: JSONContent): JSONContent => {
     if (!text) return candidate;
     if (["paragraph", "heading", "codeBlock", "callout", "detailsSummary"].includes(candidate.type || "")) {
@@ -45,10 +81,21 @@ function replaceBlock(editor: Editor, pos: number, content: JSONContent) {
       }),
     };
   };
-  editor.chain().focus().insertContentAt(
-    { from: pos, to: pos + node.nodeSize },
-    addTextToFirstTextContainer(content)
-  ).run();
+  return blockId
+    ? preserveBlockId(addTextToFirstTextContainer(content), blockId)
+    : addTextToFirstTextContainer(content);
+}
+
+export function replaceBlock(editor: Editor, pos: number, content: JSONContent) {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) return;
+  const replacement = buildBlockReplacement(node, content);
+  const replacementNode = editor.schema.nodeFromJSON(replacement);
+  editor.view.dispatch(
+    editor.state.tr
+      .replaceWith(pos, pos + node.nodeSize, replacementNode)
+      .scrollIntoView()
+  );
 }
 
 function textBlock(type: "paragraph" | "heading", attrs?: Record<string, unknown>): JSONContent {

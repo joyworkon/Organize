@@ -226,7 +226,7 @@ export default function ReadingDetailPage() {
       />
 
       {/* 底部操作 */}
-      <div className="fixed bottom-0 left-0 right-0 md:left-60 border-t bg-background/95 backdrop-blur p-3">
+      <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
             阅读进度: {Math.round(item.reading_progress * 100)}%

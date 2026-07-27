@@ -34,7 +34,7 @@ export const BlockStyle = Extension.create({
               attributes.backgroundColor
                 ? {
                     "data-block-background": attributes.backgroundColor,
-                    style: `background-color:${attributes.backgroundColor};border-radius:6px;`,
+                    style: `background-color:${attributes.backgroundColor};`,
                   }
                 : {},
           },

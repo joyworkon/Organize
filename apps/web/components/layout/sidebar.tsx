@@ -13,9 +13,11 @@ import {
   BarChart3,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -32,7 +34,24 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const supabase = createClient();
+
+  useEffect(() => {
+    const stored = localStorage.getItem("organize-sidebar-collapsed") === "true";
+    setCollapsed(stored);
+    document.documentElement.dataset.sidebarCollapsed = String(stored);
+    return () => {
+      delete document.documentElement.dataset.sidebarCollapsed;
+    };
+  }, []);
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem("organize-sidebar-collapsed", String(next));
+    document.documentElement.dataset.sidebarCollapsed = String(next);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -40,19 +59,53 @@ export function Sidebar() {
     router.refresh();
   };
 
-  const NavContent = () => (
+  const NavContent = ({
+    compact = false,
+    collapsible = false,
+  }: {
+    compact?: boolean;
+    collapsible?: boolean;
+  }) => (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center justify-between border-b px-4">
-        <Link href="/inbox" className="flex items-center gap-2 font-bold text-lg">
+      <div
+        className={cn(
+          "flex h-14 items-center border-b",
+          compact ? "justify-center gap-0 px-0.5" : "justify-between px-4"
+        )}
+      >
+        <Link
+          href="/inbox"
+          className={cn("flex items-center font-bold text-lg", compact ? "gap-0" : "gap-2")}
+          title={compact ? "Organize" : undefined}
+          aria-label={compact ? "Organize 首页" : undefined}
+        >
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm">
             O
           </span>
-          Organize
+          {!compact && "Organize"}
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center">
+          {!compact && <ThemeToggle />}
+          {collapsible && (
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              className={cn(
+                "rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+                compact ? "p-1.5" : "p-2"
+              )}
+              title={compact ? "展开侧边栏" : "收起侧边栏"}
+              aria-label={compact ? "展开侧边栏" : "收起侧边栏"}
+            >
+              {compact
+                ? <PanelLeftOpen className="h-4 w-4" />
+                : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
+      <nav className={cn("flex-1 space-y-1", compact ? "px-2 py-3" : "p-3")}>
         {navItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           return (
@@ -60,28 +113,42 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               onClick={() => setMobileOpen(false)}
+              title={compact ? item.label : undefined}
+              aria-label={compact ? item.label : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center rounded-md py-2 text-sm font-medium transition-colors",
+                compact ? "justify-center px-2" : "gap-3 px-3",
                 isActive
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!compact && item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t p-3">
+      <div className={cn("border-t", compact ? "p-2" : "p-3")}>
+        {compact && (
+          <div className="mb-1 flex justify-center">
+            <ThemeToggle />
+          </div>
+        )}
         <Button
           variant="ghost"
-          className="w-full justify-start gap-3 text-muted-foreground"
+          size={compact ? "icon" : "default"}
+          className={cn(
+            "text-muted-foreground",
+            compact ? "w-full justify-center" : "w-full justify-start gap-3"
+          )}
           onClick={handleLogout}
+          title={compact ? "退出登录" : undefined}
+          aria-label={compact ? "退出登录" : undefined}
         >
           <LogOut className="h-4 w-4" />
-          退出登录
+          {!compact && "退出登录"}
         </Button>
       </div>
     </div>
@@ -90,8 +157,8 @@ export function Sidebar() {
   return (
     <>
       {/* 桌面端侧边栏 */}
-      <aside className="hidden md:flex md:w-60 md:flex-col md:border-r md:bg-card md:fixed md:inset-y-0">
-        <NavContent />
+      <aside className="organize-sidebar-desktop hidden transition-[width] duration-200 md:fixed md:inset-y-0 md:flex md:flex-col md:border-r md:bg-card">
+        <NavContent compact={collapsed} collapsible />
       </aside>
 
       {/* 移动端顶栏 */}

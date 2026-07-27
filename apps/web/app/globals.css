@@ -108,7 +108,8 @@
 .dark {
   --organize-selected-bg: var(--organize-selected-bg-dark);
 }
-.organize-editor .ProseMirror-selectednode {
+.organize-editor .ProseMirror-selectednode,
+.organize-editor .organize-transformed-block {
   /* 只保留淡粉红背景，不要外框 */
   background-color: var(--organize-selected-bg);
   border-radius: 6px;
@@ -117,6 +118,41 @@
   margin-inline: -8px;
   padding-inline: 8px;
   transition: background-color 120ms ease;
+}
+.organize-editor [data-block-background] {
+  margin-block: 4px;
+  margin-inline: -8px;
+  padding-block: 4px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+.organize-editor [data-block-background] > :first-child,
+.organize-editor [data-block-background] > div > :first-child {
+  margin-top: 0;
+}
+.organize-editor [data-block-background] > :last-child,
+.organize-editor [data-block-background] > div > :last-child {
+  margin-bottom: 0;
+}
+
+/* ------------------------- 可折叠桌面侧边栏 ------------------------- */
+:root {
+  --organize-sidebar-width: 15rem;
+}
+:root[data-sidebar-collapsed="true"] {
+  --organize-sidebar-width: 4rem;
+}
+@media (min-width: 768px) {
+  .organize-sidebar-desktop {
+    width: var(--organize-sidebar-width);
+  }
+  .organize-sidebar-offset {
+    padding-left: var(--organize-sidebar-width);
+  }
+  .organize-sidebar-fixed-left {
+    left: var(--organize-sidebar-width);
+  }
 }
 
 /* ------------------------- 折叠列表（Details） ------------------------- */
@@ -432,6 +468,34 @@
   margin-top: 2px;
   color: hsl(var(--muted-foreground));
   font-size: 11px;
+}
+.block-action-popover .editor-menu-search {
+  height: 34px;
+  margin: 7px;
+}
+.block-action-popover .editor-menu-search input {
+  font-size: 14px;
+}
+.block-action-popover .editor-menu-scroll {
+  padding: 1px 6px 6px;
+}
+.block-action-popover .editor-menu-scroll button {
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 7px;
+  font-size: 14px;
+}
+.block-action-popover .editor-menu-label {
+  padding: 6px 7px 3px;
+}
+.block-action-popover .editor-menu-group + .editor-menu-group,
+.block-action-popover .editor-menu-separator {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.block-action-popover .editor-menu-meta {
+  min-height: 32px;
+  padding: 6px 12px;
 }
 .editor-popover kbd {
   margin-left: auto;

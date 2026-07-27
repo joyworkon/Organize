@@ -1,5 +1,6 @@
 import { getSchema } from "@tiptap/core";
 import { EditorState } from "@tiptap/pm/state";
+import UniqueID from "@tiptap/extension-unique-id";
 import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 import {
@@ -9,6 +10,7 @@ import {
   moveBlockTransaction,
   stripBlockIds,
 } from "./block-utils";
+import { buildBlockReplacement, preserveBlockId } from "./block-commands";
 
 describe("block utilities", () => {
   it("clears every nested block id before duplication", () => {
@@ -23,6 +25,66 @@ describe("block utilities", () => {
 
     expect(copy.content?.[0].attrs?.id).toBeNull();
     expect(copy.content?.[0].content?.[0].attrs?.id).toBeNull();
+  });
+
+  it("preserves the logical block id when transforming text into a list", () => {
+    const transformed = preserveBlockId({
+      type: "orderedList",
+      content: [{
+        type: "listItem",
+        content: [{ type: "paragraph" }],
+      }],
+    }, "block-1");
+
+    expect(transformed.attrs?.id).toBeUndefined();
+    expect(transformed.content?.[0].attrs?.id).toBe("block-1");
+    expect(transformed.content?.[0].content?.[0].attrs?.id).toBeUndefined();
+  });
+
+  it("preserves the id on a direct text-block conversion", () => {
+    const transformed = preserveBlockId({ type: "heading", attrs: { level: 2 } }, "block-2");
+    expect(transformed.attrs).toMatchObject({ id: "block-2", level: 2 });
+  });
+
+  it("replaces a paragraph with exactly one list at the same document position", () => {
+    const schema = getSchema([
+      StarterKit,
+      UniqueID.configure({ types: ["paragraph", "heading", "listItem"] }),
+    ]);
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "block-list" },
+          content: [{ type: "text", text: "第一项" }],
+        },
+        {
+          type: "paragraph",
+          attrs: { id: "block-next" },
+          content: [{ type: "text", text: "下一块" }],
+        },
+      ],
+    });
+    const source = doc.child(0);
+    const replacement = buildBlockReplacement(source, {
+      type: "orderedList",
+      content: [{
+        type: "listItem",
+        content: [{ type: "paragraph" }],
+      }],
+    });
+    const transaction = EditorState.create({ doc }).tr.replaceWith(
+      0,
+      source.nodeSize,
+      schema.nodeFromJSON(replacement)
+    );
+
+    expect(transaction.doc.childCount).toBe(2);
+    expect(transaction.doc.child(0).type.name).toBe("orderedList");
+    expect(transaction.doc.child(0).child(0).attrs.id).toBe("block-list");
+    expect(transaction.doc.child(0).textContent).toBe("第一项");
+    expect(transaction.doc.child(1).textContent).toBe("下一块");
   });
 
   it("compares JSONB snapshots without depending on object key order", () => {
