@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { Note } from "@organize/shared";
+import type { Note, Tag, NoteWithTags } from "@organize/shared";
 import {
   Pin,
   MoreVertical,
@@ -27,13 +27,15 @@ import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
 import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
 import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { nodeText } from "@/components/editor/block-utils";
 
 export type NoteViewMode = "card" | "list";
 
 type DialogKind = "export" | "autotag" | "history" | "share" | null;
 
 interface NoteCardProps {
-  note: Note;
+  note: NoteWithTags;
   view: NoteViewMode;
   selected?: boolean;
   onSelectChange?: (id: string, checked: boolean) => void;
@@ -41,6 +43,13 @@ interface NoteCardProps {
   onTogglePin?: (id: string, pinned: boolean) => void;
   onDelete?: (id: string) => void;
   onTagsApplied?: (id: string, names: string[]) => void;
+}
+
+function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120): string {
+  if (!content) return "";
+  const text = nodeText(content as any);
+  if (!text) return "";
+  return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
 }
 
 /**
@@ -62,6 +71,9 @@ export function NoteCard({
 }: NoteCardProps) {
   const showCheckbox = Boolean(onSelectChange);
   const [dialog, setDialog] = useState<DialogKind>(null);
+
+  const excerpt = useMemo(() => extractExcerpt(note.content), [note.content]);
+  const tags = note.tags || [];
 
   const stop = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -213,32 +225,48 @@ export function NoteCard({
           className={cn(
             "group hover:shadow-sm transition-shadow relative overflow-hidden",
             selected && "ring-2 ring-primary",
-            // 置顶：左侧细彩条（不抢眼但能识别），不用背景色避免和选中态混淆
             note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
         >
-          <CardContent className="p-3 flex items-center gap-3">
-            {CheckboxEl}
-            {note.is_pinned && (
-              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
-            )}
-            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0 flex items-center gap-2">
-              {Title}
-              {note.reading_item && (
-                <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0 max-w-[30%]">
-                  <Link2 className="h-3 w-3" />
-                  <span className="truncate">
-                    {(note.reading_item as any).title || (note.reading_item as any).url}
-                  </span>
-                </span>
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3">
+              {CheckboxEl}
+              {note.is_pinned && (
+                <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
               )}
-              <span className="text-xs text-muted-foreground shrink-0">
-                {new Date(note.updated_at).toLocaleDateString("zh-CN")}
-              </span>
-            </Link>
-            <div className="flex items-center gap-0.5 shrink-0">
-              {MoreMenu}
+              <Link href={`/notes/${note.id}`} className="flex-1 min-w-0 flex items-center gap-2">
+                {Title}
+                {tags.length > 0 && (
+                  <span className="hidden md:flex items-center gap-1 shrink-0">
+                    {tags.slice(0, 2).map((tag) => (
+                      <TagBadge key={tag.id} tag={tag} className="text-[10px] px-1.5 py-0" />
+                    ))}
+                    {tags.length > 2 && (
+                      <span className="text-xs text-muted-foreground">+{tags.length - 2}</span>
+                    )}
+                  </span>
+                )}
+                {note.reading_item && (
+                  <span className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground shrink-0 max-w-[25%]">
+                    <Link2 className="h-3 w-3" />
+                    <span className="truncate">
+                      {(note.reading_item as any).title || (note.reading_item as any).url}
+                    </span>
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {new Date(note.updated_at).toLocaleDateString("zh-CN")}
+                </span>
+              </Link>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {MoreMenu}
+              </div>
             </div>
+            {excerpt && (
+              <Link href={`/notes/${note.id}`} className="block mt-1.5 ml-8">
+                <p className="text-xs text-muted-foreground line-clamp-1">{excerpt}</p>
+              </Link>
+            )}
           </CardContent>
         </Card>
         {Dialogs}
@@ -253,26 +281,42 @@ export function NoteCard({
         className={cn(
           "group hover:shadow-md transition-shadow h-full flex flex-col relative overflow-hidden",
           selected && "ring-2 ring-primary",
-          // 置顶：左侧细彩条（视觉统一）
           note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}
       >
-        <CardContent className="p-4 flex-1">
-          <div className="flex items-center gap-2">
+        <CardContent className="p-4 flex-1 flex flex-col">
+          <div className="flex items-start gap-2">
             {CheckboxEl}
             {note.is_pinned && (
-              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
+              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0 mt-0.5" />
             )}
             <Link href={`/notes/${note.id}`} className="flex-1 min-w-0">
               {Title}
             </Link>
             {MoreMenu}
           </div>
-          <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+          {excerpt && (
+            <Link href={`/notes/${note.id}`} className="block mt-2">
+              <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">{excerpt}</p>
+            </Link>
+          )}
+          <div className="flex-1" />
+          <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground flex-wrap">
+            {tags.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                {tags.slice(0, 3).map((tag) => (
+                  <TagBadge key={tag.id} tag={tag} className="text-[10px] px-1.5 py-0" />
+                ))}
+                {tags.length > 3 && (
+                  <span className="text-xs text-muted-foreground">+{tags.length - 3}</span>
+                )}
+              </div>
+            )}
+            <div className="flex-1" />
             {note.reading_item && (
               <span className="flex items-center gap-1 line-clamp-1">
                 <Link2 className="h-3 w-3 shrink-0" />
-                <span className="truncate">
+                <span className="truncate max-w-[8rem]">
                   {(note.reading_item as any).title || (note.reading_item as any).url}
                 </span>
               </span>
@@ -281,7 +325,6 @@ export function NoteCard({
           </div>
         </CardContent>
       </Card>
-      {Dialogs}
       {Dialogs}
     </>
   );

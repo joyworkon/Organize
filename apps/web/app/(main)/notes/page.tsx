@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Note } from "@organize/shared";
+import type { Note, NoteWithTags } from "@organize/shared";
 import { Plus, Search, FileText, ArrowUpDown } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,7 +16,7 @@ type SortField = "updated_at" | "created_at" | "title";
 type SortOrder = "asc" | "desc";
 
 export default function NotesPage() {
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<NoteWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -40,7 +40,7 @@ export default function NotesPage() {
 
     let query = supabase
       .from("notes")
-      .select("*, reading_item:reading_items(id, title, url)")
+      .select("*, reading_item:reading_items(id, title, url), tags:tags!note_tags(id, name)")
       .eq("user_id", user.id)
       // 置顶项在前，再按用户选择的字段排序
       .order("is_pinned", { ascending: false })
@@ -53,7 +53,7 @@ export default function NotesPage() {
     const { data, error } = await query;
 
     if (!error && data) {
-      setNotes(data as Note[]);
+      setNotes(data as NoteWithTags[]);
     }
     setLoading(false);
   }, [search, sortBy, sortOrder, supabase]);
