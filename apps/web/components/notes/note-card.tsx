@@ -223,7 +223,7 @@ export function NoteCard({
       <>
         <Card
           className={cn(
-            "group hover:shadow-sm transition-shadow relative overflow-hidden",
+            "group hover:bg-accent transition-colors duration-150 relative overflow-hidden",
             selected && "ring-2 ring-primary",
             note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
@@ -279,7 +279,7 @@ export function NoteCard({
     <>
       <Card
         className={cn(
-          "group hover:shadow-md transition-shadow h-full flex flex-col relative overflow-hidden",
+          "group hover:bg-accent transition-colors duration-150 h-full flex flex-col relative overflow-hidden",
           selected && "ring-2 ring-primary",
           note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}

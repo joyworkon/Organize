@@ -13,11 +13,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList } from "lucide-react";
+import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Tag, TagWithCount, NoteWithTags, ReadingItem } from "@organize/shared";
+import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags } from "@organize/shared";
 
-type DetailFilter = "all" | "reading" | "notes";
+type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
 export default function TagsPage() {
   const [tags, setTags] = useState<TagWithCount[]>([]);
@@ -39,7 +39,7 @@ export default function TagsPage() {
 
   const [selectedTag, setSelectedTag] = useState<TagWithCount | null>(null);
   const [detailFilter, setDetailFilter] = useState<DetailFilter>("all");
-  const [detailItems, setDetailItems] = useState<{ readings: ReadingItem[]; notes: NoteWithTags[] }>({ readings: [], notes: [] });
+  const [detailItems, setDetailItems] = useState<{ readings: ReadingItem[]; notes: NoteWithTags[]; tasks: TaskWithTags[]; lessons: LessonWithTags[] }>({ readings: [], notes: [], tasks: [], lessons: [] });
   const [detailLoading, setDetailLoading] = useState(false);
 
   const fetchTags = useCallback(async () => {
@@ -54,20 +54,32 @@ export default function TagsPage() {
         .eq("user_id", user.id)
         .order("name", { ascending: true });
 
-      const [itemTagsRes, noteTagsRes] = await Promise.all([
+      const [itemTagsRes, noteTagsRes, taskTagsRes, lessonTagsRes] = await Promise.all([
         supabase.from("item_tags").select("tag_id"),
         supabase.from("note_tags").select("tag_id"),
+        supabase.from("task_tags").select("tag_id"),
+        supabase.from("lesson_tags").select("tag_id"),
       ]);
 
-      const countMap = new Map<string, { note_count: number; reading_item_count: number }>();
+      const countMap = new Map<string, { note_count: number; reading_item_count: number; task_count: number; lesson_count: number }>();
       for (const row of itemTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
         entry.reading_item_count += 1;
         countMap.set(row.tag_id, entry);
       }
       for (const row of noteTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
         entry.note_count += 1;
+        countMap.set(row.tag_id, entry);
+      }
+      for (const row of taskTagsRes.data || []) {
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
+        entry.task_count += 1;
+        countMap.set(row.tag_id, entry);
+      }
+      for (const row of lessonTagsRes.data || []) {
+        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
+        entry.lesson_count += 1;
         countMap.set(row.tag_id, entry);
       }
 
@@ -75,7 +87,7 @@ export default function TagsPage() {
         id: t.id,
         user_id: user.id,
         name: t.name,
-        ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0 }),
+        ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 }),
       }));
       setTags(result);
     } finally {
@@ -86,26 +98,67 @@ export default function TagsPage() {
   const fetchTagDetail = useCallback(async (tagId: string) => {
     setDetailLoading(true);
     try {
-      const [{ data: itemLinks }, { data: noteLinks }] = await Promise.all([
+      const [{ data: itemLinks }, { data: noteLinks }, { data: taskLinks }, { data: lessonLinks }] = await Promise.all([
         supabase.from("item_tags").select("item_id").eq("tag_id", tagId),
         supabase.from("note_tags").select("note_id").eq("tag_id", tagId),
+        supabase.from("task_tags").select("task_id").eq("tag_id", tagId),
+        supabase.from("lesson_tags").select("lesson_id").eq("tag_id", tagId),
       ]);
 
       const itemIds = (itemLinks || []).map((l) => l.item_id);
       const noteIds = (noteLinks || []).map((l) => l.note_id);
+      const taskIds = (taskLinks || []).map((l) => l.task_id);
+      const lessonIds = (lessonLinks || []).map((l) => l.lesson_id);
 
-      const [readingsRes, notesRes] = await Promise.all([
+      const [readingsRes, notesRes, tasksRes, lessonsRes] = await Promise.all([
         itemIds.length > 0
           ? supabase.from("reading_items").select("*").in("id", itemIds).order("created_at", { ascending: false })
           : Promise.resolve({ data: [] }),
         noteIds.length > 0
           ? supabase.from("notes").select("*, tags:tags!note_tags(*)").in("id", noteIds).order("updated_at", { ascending: false })
           : Promise.resolve({ data: [] }),
+        taskIds.length > 0
+          ? supabase.from("tasks").select("*").in("id", taskIds).order("created_at", { ascending: false })
+          : Promise.resolve({ data: [] }),
+        lessonIds.length > 0
+          ? supabase.from("lessons").select("*").in("id", lessonIds).order("created_at", { ascending: false })
+          : Promise.resolve({ data: [] }),
       ]);
+
+      const taskTagLinksRes = taskIds.length > 0
+        ? await supabase.from("task_tags").select("task_id, tag_id").in("task_id", taskIds)
+        : { data: [] };
+      const lessonTagLinksRes = lessonIds.length > 0
+        ? await supabase.from("lesson_tags").select("lesson_id, tag_id").in("lesson_id", lessonIds)
+        : { data: [] };
+      const { data: allTagsForUser } = await supabase.from("tags").select("id, name");
+      const tagMap = new Map((allTagsForUser || []).map((t: any) => [t.id, t as Tag]));
+
+      const taskTagsByTask = new Map<string, Tag[]>();
+      for (const link of taskTagLinksRes.data || []) {
+        const tag = tagMap.get(link.tag_id);
+        if (tag) {
+          const existing = taskTagsByTask.get(link.task_id) || [];
+          existing.push(tag);
+          taskTagsByTask.set(link.task_id, existing);
+        }
+      }
+
+      const lessonTagsByLesson = new Map<string, Tag[]>();
+      for (const link of lessonTagLinksRes.data || []) {
+        const tag = tagMap.get(link.tag_id);
+        if (tag) {
+          const existing = lessonTagsByLesson.get(link.lesson_id) || [];
+          existing.push(tag);
+          lessonTagsByLesson.set(link.lesson_id, existing);
+        }
+      }
 
       setDetailItems({
         readings: (readingsRes.data || []) as unknown as ReadingItem[],
         notes: (notesRes.data || []) as unknown as NoteWithTags[],
+        tasks: ((tasksRes.data || []) as any[]).map((t) => ({ ...t, tags: taskTagsByTask.get(t.id) || [] })) as TaskWithTags[],
+        lessons: ((lessonsRes.data || []) as any[]).map((l) => ({ ...l, tags: lessonTagsByLesson.get(l.id) || [] })) as LessonWithTags[],
       });
     } finally {
       setDetailLoading(false);
@@ -126,7 +179,8 @@ export default function TagsPage() {
     !search.trim() ? true : t.name.toLowerCase().includes(search.trim().toLowerCase())
   );
 
-  const totalUsage = (t: TagWithCount) => (t.note_count || 0) + (t.reading_item_count || 0);
+  const totalUsage = (t: TagWithCount) =>
+    (t.note_count || 0) + (t.reading_item_count || 0) + (t.task_count || 0) + (t.lesson_count || 0);
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -199,6 +253,8 @@ export default function TagsPage() {
   if (selectedTag) {
     const showReadings = detailFilter === "all" || detailFilter === "reading";
     const showNotes = detailFilter === "all" || detailFilter === "notes";
+    const showTasks = detailFilter === "all" || detailFilter === "tasks";
+    const showLessons = detailFilter === "all" || detailFilter === "lessons";
 
     return (
       <div className="space-y-6">
@@ -217,15 +273,19 @@ export default function TagsPage() {
               共 {totalUsage(selectedTag)} 个内容
               {(selectedTag.reading_item_count || 0) > 0 && ` · ${selectedTag.reading_item_count} 篇文章`}
               {(selectedTag.note_count || 0) > 0 && ` · ${selectedTag.note_count} 条笔记`}
+              {(selectedTag.task_count || 0) > 0 && ` · ${selectedTag.task_count} 个任务`}
+              {(selectedTag.lesson_count || 0) > 0 && ` · ${selectedTag.lesson_count} 条经验`}
             </p>
           </div>
         </div>
 
-        <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+        <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit flex-wrap">
           {([
             { key: "all" as const, label: "全部", icon: LayoutList },
             { key: "reading" as const, label: "阅读文章", icon: BookOpen },
             { key: "notes" as const, label: "笔记", icon: FileText },
+            { key: "tasks" as const, label: "任务", icon: ListChecks },
+            { key: "lessons" as const, label: "经验", icon: Lightbulb },
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -252,7 +312,7 @@ export default function TagsPage() {
           <div className="space-y-2">
             {showReadings && detailItems.readings.map((item) => (
               <Link key={item.id} href={`/library/${item.id}`}>
-                <Card className="hover:shadow-sm transition-shadow cursor-pointer">
+                <Card className="hover:bg-accent transition-colors duration-150 cursor-pointer">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
                       <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
@@ -277,7 +337,7 @@ export default function TagsPage() {
 
             {showNotes && detailItems.notes.map((note) => (
               <Link key={note.id} href={`/notes/${note.id}`}>
-                <Card className="hover:shadow-sm transition-shadow cursor-pointer">
+                <Card className="hover:bg-accent transition-colors duration-150 cursor-pointer">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
                       <div className="h-8 w-8 rounded-md bg-accent flex items-center justify-center shrink-0 mt-0.5">
@@ -299,7 +359,60 @@ export default function TagsPage() {
               </Link>
             ))}
 
-            {((showReadings && detailItems.readings.length === 0) && (showNotes && detailItems.notes.length === 0)) && (
+            {showTasks && detailItems.tasks.map((task) => (
+              <div key={task.id} className="cursor-pointer">
+                <Card className="hover:bg-accent transition-colors duration-150">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="h-8 w-8 rounded-md bg-green-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <ListChecks className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className={cn("font-medium leading-tight line-clamp-1", task.status === "done" && "line-through text-muted-foreground")}>{task.title}</h3>
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                          <span>任务</span>
+                          <span className={cn(
+                            "px-1 rounded text-[10px]",
+                            task.status === "done" ? "bg-green-500/10 text-green-600 dark:text-green-400" :
+                            task.status === "in_progress" ? "bg-primary/10 text-primary" : "bg-muted"
+                          )}>
+                            {task.status === "todo" ? "待办" : task.status === "in_progress" ? "进行中" : task.status === "done" ? "已完成" : "已取消"}
+                          </span>
+                          <span>· {formatDate(task.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ))}
+
+            {showLessons && detailItems.lessons.map((lesson) => (
+              <Link key={lesson.id} href={`/lessons/${lesson.id}`}>
+                <Card className="hover:bg-accent transition-colors duration-150 cursor-pointer">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="h-8 w-8 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium leading-tight line-clamp-1">{lesson.title || "未命名经验"}</h3>
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                          <span>经验</span>
+                          <span>· {lesson.lesson_type === "reflection" ? "复盘" : lesson.lesson_type === "lesson" ? "经验" : "灵感"}</span>
+                          <span>· {formatDate(lesson.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+
+            {((showReadings && detailItems.readings.length === 0) &&
+              (showNotes && detailItems.notes.length === 0) &&
+              (showTasks && detailItems.tasks.length === 0) &&
+              (showLessons && detailItems.lessons.length === 0)) && (
               <div className="text-center py-12 text-muted-foreground">
                 <TagIcon className="h-12 w-12 mx-auto mb-4 opacity-30" />
                 <p>该分类下暂无内容</p>
@@ -382,7 +495,7 @@ export default function TagsPage() {
           {filtered.map((tag) => (
             <Card
               key={tag.id}
-              className="group hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
+              className="group hover:bg-accent transition-colors duration-150 cursor-pointer"
               onClick={() => setSelectedTag(tag)}
             >
               <CardContent className="p-4">
@@ -392,14 +505,22 @@ export default function TagsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate text-foreground">{tag.name}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
+                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
+                      <span className="flex items-center gap-0.5">
                         <BookOpen className="h-3 w-3" />
                         {tag.reading_item_count || 0}
                       </span>
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-0.5">
                         <FileText className="h-3 w-3" />
                         {tag.note_count || 0}
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        <ListChecks className="h-3 w-3" />
+                        {tag.task_count || 0}
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        <Lightbulb className="h-3 w-3" />
+                        {tag.lesson_count || 0}
                       </span>
                     </div>
                   </div>

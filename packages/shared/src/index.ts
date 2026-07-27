@@ -196,10 +196,10 @@ export const TASK_PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: 
   low: { label: "低", color: "text-muted-foreground", dot: "bg-muted-foreground/40" },
 };
 
-export const TASK_CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string }> = {
-  work: { label: "工作", color: "text-primary", bg: "bg-primary/10" },
-  study: { label: "学习", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10" },
-  life: { label: "生活", color: "text-accent-foreground", bg: "bg-accent" },
+export const TASK_CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string; icon: string }> = {
+  work: { label: "工作", color: "text-primary", bg: "bg-primary/10", icon: "💼" },
+  study: { label: "学习", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", icon: "📚" },
+  life: { label: "生活", color: "text-accent-foreground", bg: "bg-accent", icon: "🏠" },
 };
 
 // ---- 经验总结（012 迁移新增）----
@@ -223,10 +223,10 @@ export interface LessonWithTags extends Lesson {
   tags?: Tag[];
 }
 
-export const LESSON_TYPE_CONFIG: Record<LessonType, { label: string; icon: string }> = {
-  reflection: { label: "复盘", icon: "📝" },
-  lesson: { label: "经验", icon: "💡" },
-  insight: { label: "灵感", icon: "✨" },
+export const LESSON_TYPE_CONFIG: Record<LessonType, { label: string; icon: string; color: string; description: string }> = {
+  reflection: { label: "复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
+  lesson: { label: "经验", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
+  insight: { label: "灵感", icon: "✨", color: "text-purple-500", description: "突发的灵感和想法" },
 };
 
 // ---- 分享功能（006 迁移后新增）----

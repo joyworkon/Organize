@@ -139,8 +139,8 @@ export function AutoTagDialog({
       {openProp === undefined && (
         <Button
           variant={triggerVariant}
-          size={triggerSize}
-          className="gap-1.5"
+          size={iconOnly ? "sm" : triggerSize}
+          className={cn(iconOnly && "h-7 w-7 p-0 gap-0", !iconOnly && "gap-1.5")}
           title="AI 自动打标签"
           onClick={(e) => {
             e.preventDefault();
@@ -148,7 +148,7 @@ export function AutoTagDialog({
             handleOpenChange(true);
           }}
         >
-          <Sparkles className={cn(iconOnly ? "h-4 w-4" : "h-3.5 w-3.5", "text-purple-500")} />
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
           {!iconOnly && "AI 标签"}
         </Button>
       )}

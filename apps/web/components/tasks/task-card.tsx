@@ -1,63 +1,43 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import {
+  Pin,
+  CheckCircle2,
+  MoreHorizontal,
+  BookOpen,
+  FileText,
+  Clock,
+  Trash2,
+  Pencil,
+  Check,
+} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { TagBadge } from "@/components/tags/tag-badge";
 import { cn } from "@/lib/utils";
+import type { TaskWithTags, TaskStatus } from "@organize/shared";
 import {
   TASK_STATUS_CONFIG,
   TASK_PRIORITY_CONFIG,
   TASK_CATEGORY_CONFIG,
-  type TaskWithTags,
 } from "@organize/shared";
-import {
-  Pin,
-  Pencil,
-  Trash2,
-  Check,
-  Clock,
-  Link as LinkIcon,
-  FileText,
-  Calendar,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { TagBadge } from "@/components/tags/tag-badge";
 
 interface TaskCardProps {
   task: TaskWithTags;
-  onEdit: (task: TaskWithTags) => void;
-  onDelete: (taskId: string) => void;
-  onToggleStatus: (taskId: string, status: "todo" | "in_progress" | "done" | "cancelled") => void;
-  onTogglePin: (taskId: string, pinned: boolean) => void;
-  onComplete: (task: TaskWithTags) => void;
-}
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return null;
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  const formatted = date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
-  if (diffDays < 0) return { text: `${formatted} (已过期)`, overdue: true, soon: false };
-  if (diffDays === 0) return { text: "今天到期", overdue: false, soon: true };
-  if (diffDays === 1) return { text: "明天到期", overdue: false, soon: true };
-  if (diffDays <= 3) return { text: `${formatted} (${diffDays}天后)`, overdue: false, soon: true };
-  return { text: formatted, overdue: false, soon: false };
-}
-
-function minutesToText(min: number | null | undefined) {
-  if (!min) return null;
-  if (min < 60) return `${min}分钟`;
-  const hours = Math.floor(min / 60);
-  const mins = min % 60;
-  return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
-}
-
-function nodeText(node: any): string {
-  if (!node) return "";
-  if (node.text) return node.text;
-  if (node.content) return (node.content as any[]).map(nodeText).join("");
-  return "";
+  onEdit?: (task: TaskWithTags) => void;
+  onDelete?: (id: string) => void;
+  onToggleStatus?: (id: string, status: TaskStatus) => void;
+  onTogglePin?: (id: string, isPinned: boolean) => void;
+  onComplete?: (task: TaskWithTags) => void;
 }
 
 export function TaskCard({
@@ -68,165 +48,216 @@ export function TaskCard({
   onTogglePin,
   onComplete,
 }: TaskCardProps) {
-  const [isHovered, setIsHovered] = useState(false);
-  const statusCfg = TASK_STATUS_CONFIG[task.status];
-  const priorityCfg = TASK_PRIORITY_CONFIG[task.priority];
-  const categoryCfg = TASK_CATEGORY_CONFIG[task.category];
+  const statusConfig = TASK_STATUS_CONFIG[task.status];
+  const priorityConfig = TASK_PRIORITY_CONFIG[task.priority];
+  const categoryConfig = TASK_CATEGORY_CONFIG[task.category];
 
-  const dueDate = task.status !== "done" && task.status !== "cancelled" ? formatDate(task.due_date) : null;
-  const isDone = task.status === "done";
-  const isCancelled = task.status === "cancelled";
+  const isOverdue =
+    task.due_date && task.status !== "done" && task.status !== "cancelled" && new Date(task.due_date) < new Date();
 
-  const handleCheckboxClick = (e: React.MouseEvent) => {
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = date.getTime() - now.getTime();
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (days === 0) return "今天到期";
+    if (days === 1) return "明天到期";
+    if (days === -1) return "昨天到期";
+    if (days < 0) return `已逾期 ${Math.abs(days)} 天`;
+    if (days <= 7) return `${days} 天后到期`;
+    return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  };
+
+  const handleToggleComplete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isDone || isCancelled) {
-      onToggleStatus(task.id, "todo");
-    } else {
+    if (task.status === "done") {
+      onToggleStatus?.(task.id, "todo");
+    } else if (onComplete) {
       onComplete(task);
     }
   };
 
   return (
-    <div
+    <Card
       className={cn(
-        "group rounded-lg border bg-card p-4 transition-all hover:shadow-sm",
-        isDone && "opacity-60",
-        isCancelled && "opacity-40",
-        task.is_pinned && "border-primary/40 bg-primary/[0.02]"
+        "group transition-colors duration-150 border-l-4 hover:bg-accent",
+        task.is_pinned && "ring-1 ring-primary/20",
+        isOverdue && "border-l-red-500",
+        !isOverdue && task.status === "done" && "border-l-green-500",
+        !isOverdue && task.status !== "done" && task.priority === "high" && "border-l-orange-500",
+        !isOverdue && task.status !== "done" && task.priority === "medium" && "border-l-primary",
+        !isOverdue && task.status !== "done" && task.priority === "low" && "border-l-muted"
       )}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="flex items-start gap-3">
-        <button
-          onClick={handleCheckboxClick}
-          className={cn(
-            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-            isDone
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-muted-foreground/30 hover:border-primary"
-          )}
-          title={isDone ? "标记为未完成" : "标记为完成"}
-        >
-          {isDone && <Check className="h-3 w-3" />}
-        </button>
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-start gap-3">
+          <button
+            onClick={handleToggleComplete}
+            className={cn(
+              "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+              task.status === "done"
+                ? "border-green-500 bg-green-500 text-white"
+                : "border-muted-foreground/30 hover:border-primary"
+            )}
+          >
+            {task.status === "done" && <Check className="h-3 w-3" />}
+          </button>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3
-                  className={cn(
-                    "font-medium leading-tight",
-                    (isDone || isCancelled) && "line-through text-muted-foreground"
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {task.is_pinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
+                  <h3
+                    className={cn(
+                      "font-medium leading-tight",
+                      task.status === "done" && "line-through text-muted-foreground"
+                    )}
+                  >
+                    {task.title}
+                  </h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <Badge
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 font-medium",
+                      task.status === "done"
+                        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                        : task.status === "in_progress"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {statusConfig.label}
+                  </Badge>
+                  <Badge
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 font-medium",
+                      task.priority === "high"
+                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                        : task.priority === "medium"
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {priorityConfig.label}
+                  </Badge>
+                  <Badge className={cn("text-[10px] px-1.5 py-0 font-medium", categoryConfig.bg, categoryConfig.color)}>
+                    {categoryConfig.icon} {categoryConfig.label}
+                  </Badge>
+                  {task.estimated_minutes && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {task.estimated_minutes}分
+                      {task.actual_minutes ? ` / ${task.actual_minutes}分` : ""}
+                    </span>
                   )}
-                >
-                  {task.title}
-                </h3>
-                <span className={cn("inline-flex items-center gap-1 text-xs font-medium", priorityCfg.color)}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", priorityCfg.dot)} />
-                  {priorityCfg.label}
-                </span>
-                {task.is_pinned && (
-                  <Pin className="h-3 w-3 text-primary fill-current" />
+                </div>
+
+                {task.description && (
+                  <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2">
+                    {task.description}
+                  </p>
                 )}
+
+                {(task.tags?.length || 0) > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {(task.tags || []).map((tag) => (
+                      <TagBadge key={tag.id} tag={tag} />
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {task.due_date && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 text-[11px]",
+                        isOverdue ? "text-red-500 font-medium" : "text-muted-foreground"
+                      )}
+                    >
+                      <Clock className="h-3 w-3" />
+                      {formatDate(task.due_date)}
+                    </span>
+                  )}
+                  {task.reading_item_id && (
+                    <Link
+                      href={`/library/${task.reading_item_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-0.5 text-[11px] text-primary hover:underline"
+                    >
+                      <BookOpen className="h-3 w-3" />
+                      关联阅读
+                    </Link>
+                  )}
+                  {task.note_id && (
+                    <Link
+                      href={`/notes/${task.note_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-0.5 text-[11px] text-primary hover:underline"
+                    >
+                      <FileText className="h-3 w-3" />
+                      关联笔记
+                    </Link>
+                  )}
+                </div>
               </div>
 
-              {task.description && (
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{task.description}</p>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {onComplete && task.status !== "done" && (
+                    <DropdownMenuItem onClick={() => onComplete(task)}>
+                      <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
+                      标记完成
+                    </DropdownMenuItem>
+                  )}
+                  {task.status === "done" && onToggleStatus && (
+                    <DropdownMenuItem onClick={() => onToggleStatus(task.id, "todo")}>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      标记未完成
+                    </DropdownMenuItem>
+                  )}
+                  {onTogglePin && (
+                    <DropdownMenuItem onClick={() => onTogglePin(task.id, !task.is_pinned)}>
+                      <Pin className={cn("h-4 w-4 mr-2", task.is_pinned && "fill-current")} />
+                      {task.is_pinned ? "取消置顶" : "置顶"}
+                    </DropdownMenuItem>
+                  )}
+                  {onEdit && (
+                    <DropdownMenuItem onClick={() => onEdit(task)}>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      编辑
+                    </DropdownMenuItem>
+                  )}
+                  {onDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => onDelete(task.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        删除
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-
-            <div className={cn("flex items-center gap-0.5 transition-opacity", isHovered ? "opacity-100" : "opacity-0")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                title={task.is_pinned ? "取消置顶" : "置顶"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTogglePin(task.id, !task.is_pinned);
-                }}
-              >
-                <Pin className={cn("h-3.5 w-3.5", task.is_pinned && "text-primary fill-current")} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                title="编辑"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit(task);
-                }}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 hover:text-destructive"
-                title="删除"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(task.id);
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <Badge variant="secondary" className={cn("text-xs", categoryCfg.bg, categoryCfg.color, "hover:no-underline")}>
-              {categoryCfg.label}
-            </Badge>
-
-            <Badge variant="outline" className={cn("text-xs", statusCfg.color)}>
-              {statusCfg.label}
-            </Badge>
-
-            {dueDate && (
-              <span className={cn("inline-flex items-center gap-1", dueDate.overdue && "text-red-500 dark:text-red-400 font-medium", dueDate.soon && !dueDate.overdue && "text-orange-500 dark:text-orange-400")}>
-                <Calendar className="h-3 w-3" />
-                {dueDate.text}
-              </span>
-            )}
-
-            {(task.estimated_minutes || task.actual_minutes) && (
-              <span className="inline-flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {task.actual_minutes ? (
-                  <>{minutesToText(task.actual_minutes)} / {minutesToText(task.estimated_minutes) || "-"}</>
-                ) : (
-                  <>预估 {minutesToText(task.estimated_minutes)}</>
-                )}
-              </span>
-            )}
-
-            <div className="flex items-center gap-2">
-              {task.reading_item_id && (
-                <Link href={`/library/${task.reading_item_id}`} onClick={(e) => e.stopPropagation()} title="关联文章">
-                  <LinkIcon className="h-3 w-3 hover:text-foreground" />
-                </Link>
-              )}
-              {task.note_id && (
-                <Link href={`/notes/${task.note_id}`} onClick={(e) => e.stopPropagation()} title="关联笔记">
-                  <FileText className="h-3 w-3 hover:text-foreground" />
-                </Link>
-              )}
-            </div>
-
-            {task.tags && task.tags.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1">
-                {task.tags.map((tag) => (
-                  <TagBadge key={tag.id} tag={tag} />
-                ))}
-              </div>
-            )}
           </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

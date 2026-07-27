@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { LessonCard } from "@/components/lessons/lesson-card";
+import { TagFilter } from "@/components/tags/tag-filter";
 import {
   Select,
   SelectContent,
@@ -21,7 +21,7 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
-import type { LessonWithTags, Tag, LessonType } from "@organize/shared";
+import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 
 type TypeFilter = "all" | LessonType;
@@ -29,6 +29,8 @@ type TypeFilter = "all" | LessonType;
 export default function LessonsPage() {
   const router = useRouter();
   const [lessons, setLessons] = useState<LessonWithTags[]>([]);
+  const [allTags, setAllTags] = useState<TagWithCount[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
@@ -49,16 +51,24 @@ export default function LessonsPage() {
 
       const lessonsList = (lessonsData || []) as any[];
 
-      const { data: tagLinks } = await supabase
-        .from("lesson_tags")
-        .select("lesson_id, tag_id");
-
-      const { data: tagsData } = await supabase
-        .from("tags")
-        .select("id, name")
-        .eq("user_id", user.id);
+      const [{ data: tagLinks }, { data: tagsData }, { data: lessonTagLinks }] = await Promise.all([
+        supabase.from("lesson_tags").select("lesson_id, tag_id"),
+        supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
+        supabase.from("lesson_tags").select("tag_id"),
+      ]);
 
       const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
+
+      const tagCountMap = new Map<string, number>();
+      for (const row of lessonTagLinks || []) {
+        tagCountMap.set(row.tag_id, (tagCountMap.get(row.tag_id) || 0) + 1);
+      }
+
+      const tagsWithCount: TagWithCount[] = (tagsData || []).map((t) => ({
+        ...(t as Tag),
+        lesson_count: tagCountMap.get(t.id) || 0,
+      }));
+      setAllTags(tagsWithCount);
 
       const linksByLesson = new Map<string, Tag[]>();
       for (const link of tagLinks || []) {
@@ -97,6 +107,10 @@ export default function LessonsPage() {
 
   const filtered = lessons.filter((l) => {
     if (typeFilter !== "all" && l.lesson_type !== typeFilter) return false;
+    if (selectedTagIds.length > 0) {
+      const lessonTagIds = (l.tags || []).map(tag => tag.id);
+      if (!selectedTagIds.some(id => lessonTagIds.includes(id))) return false;
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const title = (l.title || "").toLowerCase();
@@ -152,6 +166,12 @@ export default function LessonsPage() {
             ))}
           </SelectContent>
         </Select>
+
+        <TagFilter
+          options={allTags}
+          selectedIds={selectedTagIds}
+          onChange={setSelectedTagIds}
+        />
       </div>
 
       {loading ? (
@@ -164,11 +184,11 @@ export default function LessonsPage() {
           <CardContent className="text-center py-12">
             <Lightbulb className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
             <p className="text-muted-foreground mb-4">
-              {search || typeFilter !== "all"
+              {search || typeFilter !== "all" || selectedTagIds.length > 0
                 ? "没有匹配的经验"
                 : "还没有记录经验"}
             </p>
-            {!search && typeFilter === "all" && (
+            {!search && typeFilter === "all" && selectedTagIds.length === 0 && (
               <Button onClick={handleCreate}>记录第一条经验</Button>
             )}
           </CardContent>

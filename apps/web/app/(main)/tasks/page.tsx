@@ -15,6 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { TaskCard } from "@/components/tasks/task-card";
 import { TaskDialog } from "@/components/tasks/task-dialog";
 import { CompleteTaskDialog } from "@/components/tasks/complete-task-dialog";
+import { TagFilter } from "@/components/tags/tag-filter";
 import {
   ListChecks,
   Plus,
@@ -22,9 +23,6 @@ import {
   Loader2,
   List,
   LayoutGrid,
-  Pin,
-  Calendar,
-  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -33,6 +31,7 @@ import type {
   TaskStatus,
   TaskCategory,
   Tag,
+  TagWithCount,
 } from "@organize/shared";
 import { TASK_STATUS_CONFIG, TASK_CATEGORY_CONFIG } from "@organize/shared";
 
@@ -42,7 +41,8 @@ type ViewMode = "list" | "kanban";
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [allTags, setAllTags] = useState<TagWithCount[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
@@ -69,17 +69,24 @@ export default function TasksPage() {
       const { data: tasksData } = await query;
       const tasksList = (tasksData || []) as unknown as Task[];
 
-      const { data: tagLinks } = await supabase
-        .from("task_tags")
-        .select("task_id, tag_id");
-
-      const { data: tagsData } = await supabase
-        .from("tags")
-        .select("id, name")
-        .eq("user_id", user.id);
+      const [{ data: tagLinks }, { data: tagsData }, { data: taskTagLinks }] = await Promise.all([
+        supabase.from("task_tags").select("task_id, tag_id"),
+        supabase.from("tags").select("id, name").eq("user_id", user.id),
+        supabase.from("task_tags").select("tag_id"),
+      ]);
 
       const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
-      setAllTags(tagsData as Tag[] || []);
+
+      const tagCountMap = new Map<string, number>();
+      for (const row of taskTagLinks || []) {
+        tagCountMap.set(row.tag_id, (tagCountMap.get(row.tag_id) || 0) + 1);
+      }
+
+      const tagsWithCount: TagWithCount[] = (tagsData || []).map((t) => ({
+        ...(t as Tag),
+        task_count: tagCountMap.get(t.id) || 0,
+      }));
+      setAllTags(tagsWithCount);
 
       const linksByTask = new Map<string, Tag[]>();
       for (const link of tagLinks || []) {
@@ -106,20 +113,32 @@ export default function TasksPage() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const handleSaveTask = async (data: Partial<Task>) => {
+  const handleSaveTask = async (data: Partial<Task>, tagIds: string[]) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    let taskId: string;
     if (editingTask) {
+      taskId = editingTask.id;
       await supabase
         .from("tasks")
         .update(data)
         .eq("id", editingTask.id);
+      await supabase.from("task_tags").delete().eq("task_id", editingTask.id);
     } else {
-      await supabase
+      const { data: inserted } = await supabase
         .from("tasks")
-        .insert({ ...data, user_id: user.id });
+        .insert({ ...data, user_id: user.id })
+        .select("id")
+        .single();
+      taskId = inserted!.id;
     }
+
+    if (tagIds.length > 0) {
+      const links = tagIds.map(tagId => ({ task_id: taskId, tag_id: tagId }));
+      await supabase.from("task_tags").insert(links);
+    }
+
     await fetchTasks();
     setEditingTask(null);
   };
@@ -151,10 +170,30 @@ export default function TasksPage() {
     setCompleteTask(task);
   };
 
-  const handleConfirmComplete = async () => {
+  const handleConfirmComplete = async (reflectionData?: { title?: string; content?: string; lessonType?: string }) => {
     if (!completeTask) return;
     await handleToggleStatus(completeTask.id, "done");
+
+    if (reflectionData && reflectionData.content?.trim()) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("lessons").insert({
+          user_id: user.id,
+          title: reflectionData.title?.trim() || `${completeTask.title} - 复盘`,
+          content: reflectionData.content.trim() ? {
+            type: "doc",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: reflectionData.content.trim() }] },
+            ],
+          } : null,
+          lesson_type: reflectionData.lessonType || "reflection",
+          task_id: completeTask.id,
+        });
+      }
+    }
+
     setCompleteTask(null);
+    await fetchTasks();
   };
 
   const openCreate = () => {
@@ -171,6 +210,10 @@ export default function TasksPage() {
     .filter((t) => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
       if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
+      if (selectedTagIds.length > 0) {
+        const taskTagIds = (t.tags || []).map(tag => tag.id);
+        if (!selectedTagIds.some(id => taskTagIds.includes(id))) return false;
+      }
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return (
@@ -249,6 +292,12 @@ export default function TasksPage() {
           </SelectContent>
         </Select>
 
+        <TagFilter
+          options={allTags}
+          selectedIds={selectedTagIds}
+          onChange={setSelectedTagIds}
+        />
+
         <div className="flex items-center gap-0.5 rounded-md border p-0.5 ml-auto">
           <button
             onClick={() => setViewMode("list")}
@@ -283,11 +332,11 @@ export default function TasksPage() {
           <CardContent className="text-center py-12">
             <ListChecks className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
             <p className="text-muted-foreground mb-4">
-              {search || statusFilter !== "all" || categoryFilter !== "all"
+              {search || statusFilter !== "all" || categoryFilter !== "all" || selectedTagIds.length > 0
                 ? "没有匹配的任务"
                 : "还没有任务"}
             </p>
-            {!search && statusFilter === "all" && categoryFilter === "all" && (
+            {!search && statusFilter === "all" && categoryFilter === "all" && selectedTagIds.length === 0 && (
               <Button onClick={openCreate}>创建第一个任务</Button>
             )}
           </CardContent>

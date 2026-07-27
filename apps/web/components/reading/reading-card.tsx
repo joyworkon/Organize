@@ -56,7 +56,7 @@ export function ReadingCard({
   return (
     <Card
       className={cn(
-        "group hover:shadow-md transition-all duration-200 relative overflow-hidden",
+        "group transition-colors duration-150 relative overflow-hidden hover:bg-accent",
         selected && "ring-2 ring-primary",
         item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
       )}
@@ -109,7 +109,7 @@ export function ReadingCard({
                       onTogglePin(item.id, !item.is_pinned);
                     }}
                     className={cn(
-                      "p-1 rounded hover:bg-accent",
+                      "h-7 w-7 p-0 rounded inline-flex items-center justify-center hover:bg-accent",
                       item.is_pinned ? "text-primary" : "text-muted-foreground"
                     )}
                     title={item.is_pinned ? "取消置顶" : "置顶"}
@@ -121,7 +121,7 @@ export function ReadingCard({
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1 rounded hover:bg-accent"
+                  className="h-7 w-7 p-0 rounded inline-flex items-center justify-center hover:bg-accent"
                   title="打开原文"
                   onClick={stop}
                 >
@@ -144,7 +144,7 @@ export function ReadingCard({
                       stop(e);
                       onDelete(item.id);
                     }}
-                    className="p-1 rounded hover:bg-accent"
+                    className="h-7 w-7 p-0 rounded inline-flex items-center justify-center hover:bg-accent"
                     title="删除"
                   >
                     <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />

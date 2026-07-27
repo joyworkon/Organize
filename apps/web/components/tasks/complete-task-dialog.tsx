@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +21,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import type { Task, LessonType } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 
@@ -30,54 +28,36 @@ interface CompleteTaskDialogProps {
   open: boolean;
   task: Task | null;
   onClose: () => void;
-  onComplete: () => void;
+  onComplete: (reflectionData?: { title?: string; content?: string; lessonType?: string }) => Promise<void>;
 }
 
 export function CompleteTaskDialog({ open, task, onClose, onComplete }: CompleteTaskDialogProps) {
-  const router = useRouter();
-  const supabase = createClient();
   const [writingReflection, setWritingReflection] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [lessonType, setLessonType] = useState<LessonType>("reflection");
   const [saving, setSaving] = useState(false);
 
-  const handleQuickComplete = () => {
-    onComplete();
-    onClose();
+  const handleQuickComplete = async () => {
+    setSaving(true);
+    try {
+      await onComplete();
+      handleClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSaveReflection = async () => {
     if (!task) return;
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: lesson, error } = await supabase
-        .from("lessons")
-        .insert({
-          user_id: user.id,
-          title: title.trim() || `${task.title} - 复盘`,
-          content: content.trim() ? {
-            type: "doc",
-            content: [
-              { type: "paragraph", content: [{ type: "text", text: content.trim() }] },
-            ],
-          } : null,
-          lesson_type: lessonType,
-          task_id: task.id,
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
-
-      onComplete();
-      onClose();
-      if (lesson) {
-        router.push(`/lessons/${lesson.id}`);
-      }
+      await onComplete({
+        title: title.trim(),
+        content: content.trim(),
+        lessonType,
+      });
+      handleClose();
     } finally {
       setSaving(false);
     }
@@ -88,6 +68,7 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
     setTitle("");
     setContent("");
     setLessonType("reflection");
+    setSaving(false);
     onClose();
   };
 
@@ -119,10 +100,10 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
             </div>
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={handleQuickComplete} className="sm:flex-1">
+              <Button variant="outline" onClick={handleQuickComplete} disabled={saving} className="sm:flex-1">
                 跳过，直接完成
               </Button>
-              <Button onClick={() => setWritingReflection(true)} className="sm:flex-1">
+              <Button onClick={() => setWritingReflection(true)} disabled={saving} className="sm:flex-1">
                 写经验总结
               </Button>
             </DialogFooter>
@@ -180,7 +161,7 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
               <Button variant="outline" onClick={handleQuickComplete} disabled={saving}>
                 取消，直接完成
               </Button>
-              <Button onClick={handleSaveReflection} disabled={saving}>
+              <Button onClick={handleSaveReflection} disabled={saving || !content.trim()}>
                 {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 保存并完成任务
               </Button>
