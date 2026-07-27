@@ -71,6 +71,25 @@
   }
 }
 
+/* ------------------------- 笔记页字体 / 字号 ------------------------- */
+/* 页面级字体族切换：作用于标题与正文；代码块 / 行内代码保持等宽（各自已显式声明 monospace，优先级更贴近元素，不受这里影响） */
+.note-page-serif .note-title,
+.note-page-serif .organize-editor {
+  font-family: Georgia, Cambria, "Times New Roman", ui-serif, serif;
+}
+.note-page-mono .note-title,
+.note-page-mono .organize-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* 小字号：标题与正文按比例缩小并持久化 */
+.note-page-small .note-title {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+.note-page-small .organize-editor {
+  font-size: 0.8125rem;
+}
+
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
 
 /* 代码块 */
@@ -121,13 +140,24 @@
   background: hsl(var(--muted) / 0.5);
 }
 
-/* 引用块 */
+/* 引用块：文字左对齐正文，竖线挂到左侧空白（Notion 式） */
 .organize-editor blockquote {
-  border-left: 3px solid hsl(var(--border));
-  padding-left: 1rem;
+  border-left: none;
+  padding-left: 0;
   margin: 0.75rem 0;
   color: hsl(var(--muted-foreground));
   font-style: italic;
+  position: relative;
+}
+.organize-editor blockquote::before {
+  content: "";
+  position: absolute;
+  left: -0.9rem;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--border));
 }
 
 /* 水平线 */
@@ -156,11 +186,47 @@
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
 }
-/* 嵌套列表（列表项里的子列表）用更小的间距，避免层级之间过空 */
+/* Notion 式：顶层列表文字精确左对齐正文，圆点/序号用绝对定位标记挂到左侧空白区
+   （不用原生 list-style，避免 outside 标记残留 ~6px 间隙导致文字与正文不齐） */
+.organize-editor > ul,
+.organize-editor > ol {
+  padding-left: 0;
+  margin-left: 0;
+  list-style: none;
+}
+.organize-editor > ol {
+  counter-reset: organize-ol;
+}
+.organize-editor > ul > li,
+.organize-editor > ol > li {
+  position: relative;
+  padding-left: 0; /* 清掉 prose 给 li 的默认左内边距，让文字精确对齐正文 */
+}
+.organize-editor > ul > li::before {
+  content: "•";
+  position: absolute;
+  left: -1.1em;
+  top: 0;
+  color: hsl(var(--muted-foreground));
+}
+.organize-editor > ol > li {
+  counter-increment: organize-ol;
+}
+.organize-editor > ol > li::before {
+  content: counter(organize-ol) ".";
+  position: absolute;
+  left: -2.4em;
+  width: 2em;
+  top: 0;
+  text-align: right;
+  color: hsl(var(--muted-foreground));
+}
+/* 嵌套列表（列表项里的子列表）保留原生标记与缩进以体现层级 */
 .organize-editor li > ul,
 .organize-editor li > ol {
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
+  padding-left: 1.4em;
 }
 
 /* 待办列表（TaskList）样式 */
@@ -169,14 +235,15 @@
   padding-left: 0;
   margin: 0.5rem 0;
 }
+/* Notion 式：待办正文左对齐正文，复选框挂到左侧空白区 */
 .organize-editor ul[data-type="taskList"] li {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
+  position: relative;
+  padding-left: 0;
   margin: 0.25rem 0;
 }
 .organize-editor ul[data-type="taskList"] li > label {
-  flex: 0 0 auto;
+  position: absolute;
+  left: -1.5rem;
   margin: 0;
   /* 高度取一行行高，配合 align-items:center 让复选框在首行内垂直居中；
      用 em 作回退、1lh 精确匹配当前字号的行高，prose / prose-sm 都能对齐 */
@@ -187,7 +254,7 @@
   user-select: none;
 }
 .organize-editor ul[data-type="taskList"] li > div {
-  flex: 1 1 auto;
+  margin-left: 0;
 }
 /* 待办项正文首/尾段落去掉外边距，保证首行从顶部起始，与左侧复选框行高对齐 */
 .organize-editor ul[data-type="taskList"] li > div > :first-child {
@@ -302,22 +369,22 @@
   margin-top: 0.25rem;
 }
 
-/* 折叠列表在编辑器内由 TipTap NodeView 渲染，实际 DOM 是 div 结构（非原生 details）：
+/* 折叠列表在编辑器内由 TipTap NodeView 渲染，实际 DOM 结构如下：
    <div data-type="details" [.is-open]>
-     <button/>                      ← 切换按钮（默认是块级空按钮，会自己占一行）
-     <div>                          ← contentDOM
-       <div data-type="detailsSummary"/>
-       <div data-type="detailsContent"/>
-   上面基于原生 details/summary 的选择器命中不了它，需专门适配。 */
+     <button/>                            ← 切换按钮（默认块级空按钮，会自己占一行）
+     <div>                                ← contentDOM
+       <summary/>                         ← 摘要行（原生 summary 标签）
+       <div data-type="detailsContent" [hidden]/>  ← 内容区，折叠时带 hidden 属性
+   摘要是 <summary> 标签而非 div，内容折叠靠 hidden 属性，选择器需据此适配。 */
 .organize-editor div[data-type="details"] {
   position: relative;
   margin: 0.5rem 0;
-  padding-left: 1.5rem; /* 给左侧 ▶ 标记留出空间 */
+  padding-left: 0; /* Notion 式：摘要文字左对齐正文，▶ 标记挂到左侧空白 */
 }
-/* 把空的切换按钮做成 ▶ 标记，绝对定位到左侧首行，避免它块级独占一行 */
+/* 把空的切换按钮做成 ▶ 标记，绝对定位到左侧首行外侧，避免它块级独占一行 */
 .organize-editor div[data-type="details"] > button {
   position: absolute;
-  left: 0;
+  left: -1.4rem;
   top: 0.1rem;
   width: 1.25rem;
   height: 1.5rem;
@@ -338,10 +405,14 @@
 .organize-editor div[data-type="details"].is-open > button::before {
   transform: rotate(90deg);
 }
-.organize-editor div[data-type="detailsSummary"] {
+.organize-editor div[data-type="details"] summary {
   font-weight: 500;
   padding: 0.1rem 0;
   outline: none;
+  list-style: none;
+}
+.organize-editor div[data-type="details"] summary::-webkit-details-marker {
+  display: none;
 }
 .organize-editor div[data-type="detailsContent"] {
   margin-top: 0.25rem;
