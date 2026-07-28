@@ -352,11 +352,13 @@ function BubbleToolbar({
   const ActiveBlockIcon = activeBlock.icon;
 
   const addLink = () => {
-    const url = window.prompt("输入链接 URL");
-    if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
-    } else {
+    const previousUrl = editor.getAttributes("link").href as string | undefined;
+    const url = window.prompt(previousUrl ? "编辑链接 URL（留空可取消链接）" : "输入链接 URL", previousUrl || "");
+    if (url === null) return;
+    if (url === "") {
       editor.chain().focus().unsetLink().run();
+    } else {
+      editor.chain().focus().setLink({ href: url }).run();
     }
   };
 
@@ -756,6 +758,20 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         }
         return false;
       },
+      handleClickOn: (_view, _pos, _node, _nodePos, event) => {
+        if (event.metaKey || event.ctrlKey) {
+          const anchor = (event.target as HTMLElement)?.closest("a");
+          if (anchor instanceof HTMLAnchorElement) {
+            const href = anchor.getAttribute("href");
+            if (href) {
+              event.preventDefault();
+              window.open(href, "_blank", "noopener,noreferrer");
+              return true;
+            }
+          }
+        }
+        return false;
+      },
     },
   });
 
@@ -989,12 +1005,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const hideWhenPointerLeavesEditor = (event: MouseEvent) => {
       const shell = rootRef.current;
       if (!shell) return;
-      // 手柄（6 点 + 加号）用负 left 挂在 shell 左侧、伸出到 shell 盒子之外，
-      // 它和正文之间还有一小段空隙。若用 shell.contains(target) 判断，鼠标一移到
-      // 手柄或这段空隙上就会被判为"离开编辑器"而隐藏手柄，导致手柄点不上。
-      // 改用几何范围判断：左侧留出一条手柄缓冲带（约 4rem），带内不隐藏。
       const rect = shell.getBoundingClientRect();
-      const LEFT_GUTTER = 64; // 3.5rem 手柄外扩 + 余量
+      const LEFT_GUTTER = 96;
       const inside =
         event.clientX >= rect.left - LEFT_GUTTER &&
         event.clientX <= rect.right + 8 &&
