@@ -52,3 +52,8 @@ supabase/.temp
 # IDE 会话产物（与已忽略的 .zcode/ 同等对待，避免再次跟踪）
 .zcode/
 .trae/
+.qoder/
+
+# 根目录测试/调试临时截图
+/*-regression.png
+/*-screenshot.png
