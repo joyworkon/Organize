@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
+import { cycleStatus, getHostname } from "./reading-card-utils";
 import type { MouseEvent } from "react";
 import { FavoriteButton } from "@/components/favorite-button";
 
@@ -26,14 +27,6 @@ interface ReadingCardProps {
   onTagsApplied?: (id: string, tagNames: string[]) => void;
 }
 
-function getHostname(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
 export function ReadingCard({
   item,
   onStatusChange,
@@ -44,12 +37,6 @@ export function ReadingCard({
   onTogglePin,
   onTagsApplied,
 }: ReadingCardProps) {
-  const cycleStatus = (current: ReadingStatus): ReadingStatus => {
-    const order: ReadingStatus[] = ["unread", "reading", "read"];
-    const idx = order.indexOf(current);
-    return order[(idx + 1) % order.length];
-  };
-
   const showCheckbox = Boolean(onSelectChange);
   const tags: Tag[] = item.tags || [];
   const hostname = getHostname(item.url);
