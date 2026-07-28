@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Star } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -22,7 +22,7 @@ export function FavoriteButton({
   className,
   iconClassName,
 }: FavoriteButtonProps) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [isFavorited, setIsFavorited] = useState(initialFavorited ?? false);
   const [isLoading, setIsLoading] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(initialFavorited !== undefined);

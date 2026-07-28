@@ -171,7 +171,7 @@ export function ShareDialog({
 
             <div className="flex items-center justify-between">
               <a
-                href={share.url}
+                href={fullUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-primary hover:underline inline-flex items-center gap-1"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Link, CheckSquare, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ export function QuickAdd() {
   const taskInputRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef(url);
   const taskTitleRef = useRef(taskTitle);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     urlRef.current = url;
@@ -114,25 +114,35 @@ export function QuickAdd() {
   const handleCreateNote = useCallback(async () => {
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "无标题笔记" }),
-      });
-
-      if (!response.ok) {
-        throw new Error("创建失败");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
       }
 
-      const note = await response.json();
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: user.id,
+          title: "无标题笔记",
+          content: { type: "doc", content: [{ type: "paragraph" }] },
+        })
+        .select()
+        .single();
+
+      if (error || !data) {
+        toast({ title: "创建失败", variant: "destructive" });
+        return;
+      }
+
       closePanel();
-      router.push(`/notes/${note.id}`);
+      router.push(`/notes/${data.id}`);
     } catch {
       toast({ title: "创建失败", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
-  }, [router, closePanel]);
+  }, [supabase, router, closePanel]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -199,11 +209,8 @@ export function QuickAdd() {
           "fixed right-4 sm:right-6 z-40 w-12 h-12 rounded-full",
           "shadow-sm border-2 border-primary/20",
           "hover:scale-105 transition-transform duration-200",
-          "bottom-24 sm:bottom-6"
+          "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+6rem))] sm:bottom-6"
         )}
-        style={{
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 6rem)"
-        }}
         onClick={open ? closePanel : openPanel}
       >
         <Plus className={cn("h-6 w-6 transition-transform duration-200", open && "rotate-45")} />
@@ -216,11 +223,9 @@ export function QuickAdd() {
             "fixed right-4 sm:right-6 z-40 w-[calc(100vw-2rem)] sm:w-80",
             "bg-card border rounded-lg p-2",
             "origin-bottom-right transition-all duration-150",
-            isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+            isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95",
+            "bottom-[calc(env(safe-area-inset-bottom)+9.5rem)] sm:bottom-20"
           )}
-          style={{
-            bottom: "calc(env(safe-area-inset-bottom, 0px) + 9.5rem)"
-          }}
         >
           {mode === "menu" && (
             <div className="space-y-1">

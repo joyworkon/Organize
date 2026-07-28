@@ -253,6 +253,31 @@ export default function DashboardPage() {
     loadData();
   };
 
+  const handleCreateNote = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: user.id,
+          title: "无标题笔记",
+          content: { type: "doc", content: [{ type: "paragraph" }] },
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        router.push(`/notes/${data.id}`);
+      }
+    } catch {
+      toast({ title: "创建笔记失败", variant: "destructive", duration: 2000 });
+    }
+  };
+
   const handleRecommendNext = () => {
     if (unreadArticles.length === 0) return;
     const randomIndex = Math.floor(Math.random() * unreadArticles.length);
@@ -323,7 +348,7 @@ export default function DashboardPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toast({ title: "功能开发中", description: "新建笔记功能即将上线", duration: 2000 })}
+            onClick={handleCreateNote}
           >
             <FileText className="h-4 w-4 mr-1.5" />
             笔记
