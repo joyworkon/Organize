@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +56,7 @@ export default function TasksPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectionMode, setSelectionMode] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { permission, requestPermission, scheduleDueDateReminders } = useNotifications();
 
   const [dialogOpen, setDialogOpen] = useState(false);

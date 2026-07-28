@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -27,7 +27,7 @@ interface FavoriteWithItem extends Favorite {
 }
 
 export default function FavoritesPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [favorites, setFavorites] = useState<FavoriteWithItem[]>([]);
   const [loading, setLoading] = useState(true);

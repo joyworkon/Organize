@@ -72,7 +72,6 @@
 }
 
 /* ------------------------- 笔记页字体 / 字号 ------------------------- */
-/* 页面级字体族切换：作用于标题与正文；代码块 / 行内代码保持等宽（各自已显式声明 monospace，优先级更贴近元素，不受这里影响） */
 .note-page-serif .note-title,
 .note-page-serif .organize-editor {
   font-family: Georgia, Cambria, "Times New Roman", ui-serif, serif;
@@ -81,13 +80,44 @@
 .note-page-mono .organize-editor {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-/* 小字号：标题与正文按比例缩小并持久化 */
 .note-page-small .note-title {
   font-size: 1.25rem;
   line-height: 1.75rem;
 }
 .note-page-small .organize-editor {
   font-size: 0.8125rem;
+}
+
+/* 笔记标题与编辑器正文左对齐：标题、创建时间、反向链接都匹配编辑器的 60px gutter */
+.note-page .note-title {
+  padding-left: 60px;
+  padding-right: 0;
+}
+.note-page .note-meta-row {
+  padding-left: 60px;
+}
+@media (max-width: 640px) {
+  .note-page .note-title {
+    padding-left: 40px;
+  }
+  .note-page .note-meta-row {
+    padding-left: 40px;
+  }
+}
+/* 全宽模式下保持对齐 */
+.note-page.max-w-none .note-title,
+.note-page.max-w-none .note-meta-row {
+  padding-left: 60px;
+}
+/* 反向链接区域对齐 */
+.note-page .mt-8.pt-6.border-t {
+  padding-left: 60px;
+  padding-right: 0;
+}
+@media (max-width: 640px) {
+  .note-page .mt-8.pt-6.border-t {
+    padding-left: 40px;
+  }
 }
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
@@ -140,24 +170,14 @@
   background: hsl(var(--muted) / 0.5);
 }
 
-/* 引用块：文字左对齐正文，竖线挂到左侧空白（Notion 式） */
-.organize-editor blockquote {
-  border-left: none;
-  padding-left: 0;
-  margin: 0.75rem 0;
+/* 引用块：左边框在 gutter 区域 */
+.organize-editor.prose blockquote {
+  border-left: 3px solid hsl(var(--border));
+  margin: 0.75rem 0 !important;
+  margin-left: -24px !important;
+  padding-left: 21px !important;
   color: hsl(var(--muted-foreground));
   font-style: italic;
-  position: relative;
-}
-.organize-editor blockquote::before {
-  content: "";
-  position: absolute;
-  left: -0.9rem;
-  top: 0.15em;
-  bottom: 0.15em;
-  width: 3px;
-  border-radius: 2px;
-  background: hsl(var(--border));
 }
 
 /* 水平线 */
@@ -167,114 +187,155 @@
   margin: 1.5rem 0;
 }
 
-/* 列表间距统一：prose 默认给 项目符号/编号列表 的 li 和其内层 <p> 都加了较大外边距，
-   而待办列表 li 用的是本文件下面另设的 0.25rem，导致「两个待办贴得紧、两个编号/圆点离得远」，
-   块间距看起来不平均。这里把三种列表（ul / ol / taskList）的 li 外边距统一为 0.25rem，
-   并清掉列表项内层段落的外边距（否则会与 li 外边距叠加），让所有列表项间距一致。 */
-.organize-editor ul li,
-.organize-editor ol li {
+/* 图片 */
+.organize-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.75rem 0;
+  display: block;
+}
+.organize-editor img.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--primary) / 0.4);
+  outline-offset: 2px;
+}
+
+/* 链接 */
+.organize-editor a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.organize-editor a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* 选中文字背景 */
+.organize-editor ::selection {
+  background: hsl(var(--primary) / 0.18);
+}
+
+/* 编辑器核心布局：统一左侧 gutter 区域 60px
+   所有块内容左对齐，标记/手柄在 gutter 内精确定位，切换块类型时内容不左右移动 */
+.organize-editor.prose {
+  padding-left: 60px !important;
+  padding-right: 0 !important;
+}
+
+/* 段落、标题等普通块：无额外缩进，内容与其他块左对齐 */
+.organize-editor.prose > p,
+.organize-editor.prose > h1,
+.organize-editor.prose > h2,
+.organize-editor.prose > h3,
+.organize-editor.prose > h4,
+.organize-editor.prose > h5,
+.organize-editor.prose > h6,
+.organize-editor.prose > blockquote,
+.organize-editor.prose > div[data-callout],
+.organize-editor.prose > div[data-type="details"],
+.organize-editor.prose > details,
+.organize-editor.prose > div[data-columns],
+.organize-editor.prose > hr,
+.organize-editor.prose > p.is-editor-empty,
+.organize-editor.prose > .math-block,
+.organize-editor.prose > .html-embed,
+.organize-editor.prose > table,
+.organize-editor.prose > img {
+  margin-left: 0 !important;
+}
+
+/* 列表间距统一 */
+.organize-editor.prose ul li,
+.organize-editor.prose ol li {
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
 }
-.organize-editor li > p {
+.organize-editor.prose li > p {
   margin-top: 0;
   margin-bottom: 0;
 }
-/* 顶层列表容器与其它块的上下间距也保持一致 */
-.organize-editor ul,
-.organize-editor ol {
+.organize-editor.prose ul,
+.organize-editor.prose ol {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
 }
-/* Notion 式：顶层列表文字精确左对齐正文，圆点/序号用绝对定位标记挂到左侧空白区
-   （不用原生 list-style，避免 outside 标记残留 ~6px 间隙导致文字与正文不齐） */
-.organize-editor > ul,
-.organize-editor > ol {
-  padding-left: 0;
-  margin-left: 0;
-  list-style: none;
+
+/* 顶层列表：使用负 margin-left + padding-left 让标记落在 gutter 区域
+   list-style-position: outside + margin-left: -24px 把标记拉到 gutter，padding-left: 24px 保持内容对齐 */
+.organize-editor.prose > ul,
+.organize-editor.prose > ol {
+  padding-left: 24px !important;
+  margin-left: -24px !important;
+  list-style-position: outside;
 }
-.organize-editor > ol {
-  counter-reset: organize-ol;
+.organize-editor.prose > ul {
+  list-style-type: disc;
 }
-.organize-editor > ul > li,
-.organize-editor > ol > li {
-  position: relative;
-  padding-left: 0; /* 清掉 prose 给 li 的默认左内边距，让文字精确对齐正文 */
-}
-.organize-editor > ul > li::before {
-  content: "•";
-  position: absolute;
-  left: -1.1em;
-  top: 0;
-  color: hsl(var(--muted-foreground));
-}
-.organize-editor > ol > li {
-  counter-increment: organize-ol;
-}
-.organize-editor > ol > li::before {
-  content: counter(organize-ol) ".";
-  position: absolute;
-  left: -2.4em;
-  width: 2em;
-  top: 0;
-  text-align: right;
-  color: hsl(var(--muted-foreground));
-}
-/* 嵌套列表（列表项里的子列表）保留原生标记与缩进以体现层级 */
-.organize-editor li > ul,
-.organize-editor li > ol {
-  margin-top: 0.25rem;
-  margin-bottom: 0.25rem;
-  padding-left: 1.4em;
+.organize-editor.prose > ol {
+  list-style-type: decimal;
+  padding-left: 28px !important;
+  margin-left: -28px !important;
 }
 
-/* 待办列表（TaskList）样式 */
-.organize-editor ul[data-type="taskList"] {
-  list-style: none;
-  padding-left: 0;
-  margin: 0.5rem 0;
+/* 嵌套列表：正常缩进 */
+.organize-editor.prose li > ul,
+.organize-editor.prose li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  padding-left: 1.5em !important;
+  margin-left: 0 !important;
 }
-/* Notion 式：待办正文左对齐正文，复选框挂到左侧空白区 */
-.organize-editor ul[data-type="taskList"] li {
+
+/* 待办列表（TaskList）样式：checkbox 精确放在 gutter 区域 */
+.organize-editor.prose ul[data-type="taskList"] {
+  list-style: none !important;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.organize-editor.prose ul[data-type="taskList"] li {
   position: relative;
-  padding-left: 0;
-  margin: 0.25rem 0;
+  padding-left: 24px !important;
+  margin-left: -24px !important;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
 }
-.organize-editor ul[data-type="taskList"] li > label {
+.organize-editor.prose ul[data-type="taskList"] li > label {
   position: absolute;
-  left: -1.5rem;
+  left: 2px;
+  top: 0.15em;
   margin: 0;
-  /* 高度取一行行高，配合 align-items:center 让复选框在首行内垂直居中；
-     用 em 作回退、1lh 精确匹配当前字号的行高，prose / prose-sm 都能对齐 */
-  height: 1.7em;
-  height: 1lh;
+  width: 1.25rem;
+  height: 1.25rem;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   user-select: none;
 }
-.organize-editor ul[data-type="taskList"] li > div {
+.organize-editor.prose ul[data-type="taskList"] li > div {
   margin-left: 0;
 }
-/* 待办项正文首/尾段落去掉外边距，保证首行从顶部起始，与左侧复选框行高对齐 */
-.organize-editor ul[data-type="taskList"] li > div > :first-child {
+.organize-editor.prose ul[data-type="taskList"] li > div > :first-child {
   margin-top: 0;
 }
-.organize-editor ul[data-type="taskList"] li > div > :last-child {
+.organize-editor.prose ul[data-type="taskList"] li > div > :last-child {
   margin-bottom: 0;
 }
-.organize-editor ul[data-type="taskList"] input[type="checkbox"] {
+.organize-editor.prose ul[data-type="taskList"] input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
   cursor: pointer;
   accent-color: hsl(var(--primary));
+  margin: 0;
 }
-.organize-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+.organize-editor.prose ul[data-type="taskList"] li[data-checked="true"] > div {
   color: hsl(var(--muted-foreground));
   text-decoration: line-through;
 }
 
-/* 占位符（空文档提示） */
+/* 占位符 */
 .organize-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
@@ -282,40 +343,44 @@
   pointer-events: none;
   height: 0;
 }
+.organize-editor .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+  opacity: 0.6;
+}
 
-/* 选中块的高亮反馈（Notion 风格：淡粉红背景，后续换色改这一个变量即可） */
+/* 选中块高亮：只设置背景色 + 移除浏览器默认 outline，完全不改变 margin/padding，
+   彻底解决点击块时元素向前/向后挪动的布局抖动问题 */
 :root {
-  --organize-selected-bg: hsl(350 80% 95% / 0.7);       /* 亮色：淡粉红 */
-  --organize-selected-bg-dark: hsl(350 40% 25% / 0.35); /* 暗色：深粉红 */
+  --organize-selected-bg: hsl(16 80% 94%);
+  --organize-selected-bg-dark: hsl(16 30% 20%);
 }
 .dark {
   --organize-selected-bg: var(--organize-selected-bg-dark);
 }
-.organize-editor .ProseMirror-selectednode,
-.organize-editor .organize-transformed-block {
-  /* 只保留淡粉红背景，不要外框 */
+.organize-editor.prose .ProseMirror-selectednode,
+.organize-editor.prose .organize-transformed-block {
   background-color: var(--organize-selected-bg);
-  border-radius: 6px;
-  /* 撑开左右边距（用负 margin 扩大背景范围，padding 保持内容到背景的距离），
-     让粉色底不紧贴文字，和上下一样有视觉留白 */
-  margin-inline: -8px;
-  padding-inline: 8px;
-  transition: background-color 120ms ease;
+  border-radius: 4px;
+  outline: none;
 }
-.organize-editor [data-block-background] {
-  margin-block: 4px;
-  margin-inline: -8px;
-  padding-block: 4px;
-  padding-inline: 8px;
-  border-radius: 6px;
+.organize-editor.prose [data-block-background] {
+  margin-block: 2px;
+  padding-block: 2px;
+  padding-inline: 4px;
+  margin-inline: -4px;
+  border-radius: 4px;
   background-clip: padding-box;
 }
-.organize-editor [data-block-background] > :first-child,
-.organize-editor [data-block-background] > div > :first-child {
+.organize-editor.prose [data-block-background] > :first-child,
+.organize-editor.prose [data-block-background] > div > :first-child {
   margin-top: 0;
 }
-.organize-editor [data-block-background] > :last-child,
-.organize-editor [data-block-background] > div > :last-child {
+.organize-editor.prose [data-block-background] > :last-child,
+.organize-editor.prose [data-block-background] > div > :last-child {
   margin-bottom: 0;
 }
 
@@ -339,87 +404,120 @@
 }
 
 /* ------------------------- 折叠列表（Details） ------------------------- */
-.organize-editor details {
-  margin: 0.5rem 0;
-  border-radius: 6px;
-}
-.organize-editor details summary {
-  cursor: pointer;
-  font-weight: 500;
-  padding: 0.25rem 0;
-  list-style: none;
-  user-select: none;
-}
-.organize-editor details summary::-webkit-details-marker {
-  display: none;
-}
-.organize-editor details summary::before {
-  content: "▶";
-  display: inline-block;
-  margin-right: 0.5rem;
-  font-size: 0.7em;
-  color: hsl(var(--muted-foreground));
-  transition: transform 0.15s ease;
-}
-.organize-editor details[open] > summary::before {
-  transform: rotate(90deg);
-}
-.organize-editor details > [data-details-content] {
-  padding-left: 1.25rem;
-  margin-top: 0.25rem;
-}
-
-/* 折叠列表在编辑器内由 TipTap NodeView 渲染，实际 DOM 结构如下：
-   <div data-type="details" [.is-open]>
-     <button/>                            ← 切换按钮（默认块级空按钮，会自己占一行）
-     <div>                                ← contentDOM
-       <summary/>                         ← 摘要行（原生 summary 标签）
-       <div data-type="detailsContent" [hidden]/>  ← 内容区，折叠时带 hidden 属性
-   摘要是 <summary> 标签而非 div，内容折叠靠 hidden 属性，选择器需据此适配。 */
-.organize-editor div[data-type="details"] {
+/* 新格式（div[data-type="details"]）：箭头在 gutter 区域 */
+.organize-editor.prose div[data-type="details"] {
   position: relative;
-  margin: 0.5rem 0;
-  padding-left: 0; /* Notion 式：摘要文字左对齐正文，▶ 标记挂到左侧空白 */
+  margin: 0.5rem 0 !important;
+  margin-left: -24px !important;
+  padding-left: 24px !important;
 }
-/* 把空的切换按钮做成 ▶ 标记，绝对定位到左侧首行外侧，避免它块级独占一行 */
-.organize-editor div[data-type="details"] > button {
+.organize-editor.prose div[data-type="details"] > button {
   position: absolute;
-  left: -1.4rem;
-  top: 0.1rem;
+  left: 2px;
+  top: 0.2rem;
   width: 1.25rem;
-  height: 1.5rem;
+  height: 1.25rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  margin: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
   color: hsl(var(--muted-foreground));
+  font-size: inherit;
+  line-height: inherit;
+  text-indent: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 3px;
+  opacity: 0.6;
+  transition: opacity 120ms ease, background-color 120ms ease;
 }
-.organize-editor div[data-type="details"] > button::before {
+.organize-editor.prose div[data-type="details"] > button:hover {
+  opacity: 1;
+  background: hsl(var(--accent));
+}
+.organize-editor.prose div[data-type="details"] > button::before {
   content: "▶";
-  font-size: 0.7em;
+  font-size: 0.6em;
+  line-height: 1;
   transition: transform 0.15s ease;
 }
-.organize-editor div[data-type="details"].is-open > button::before {
+.organize-editor.prose div[data-type="details"].is-open > button::before {
   transform: rotate(90deg);
 }
-.organize-editor div[data-type="details"] summary {
+.organize-editor.prose div[data-type="details"] summary {
+  display: block;
   font-weight: 500;
   padding: 0.1rem 0;
   outline: none;
-  list-style: none;
+  list-style: none !important;
+  list-style-type: none !important;
+  cursor: pointer;
 }
-.organize-editor div[data-type="details"] summary::-webkit-details-marker {
-  display: none;
+.organize-editor.prose div[data-type="details"] summary::-webkit-details-marker {
+  display: none !important;
 }
-.organize-editor div[data-type="detailsContent"] {
+.organize-editor.prose div[data-type="details"] summary::marker {
+  display: none !important;
+  content: "" !important;
+}
+.organize-editor.prose div[data-type="details"] summary::-moz-list-bullet {
+  list-style-type: none;
+}
+.organize-editor.prose div[data-type="details"] summary::before {
+  content: none !important;
+  display: none !important;
+}
+.organize-editor.prose div[data-type="detailsContent"] {
   margin-top: 0.25rem;
 }
-/* 折叠（未展开）时隐藏内容区 */
-.organize-editor div[data-type="details"]:not(.is-open) div[data-type="detailsContent"] {
+.organize-editor.prose div[data-type="details"]:not(.is-open) div[data-type="detailsContent"] {
   display: none;
+}
+
+/* 旧格式（details 标签）：箭头在 gutter 区域 */
+.organize-editor.prose details {
+  position: relative;
+  margin: 0.5rem 0 !important;
+  margin-left: -24px !important;
+  padding-left: 24px !important;
+}
+.organize-editor.prose details summary {
+  display: block;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.1rem 0;
+  outline: none;
+  list-style: none !important;
+  list-style-type: none !important;
+  user-select: none;
+  position: relative;
+}
+.organize-editor.prose details summary::-webkit-details-marker {
+  display: none !important;
+}
+.organize-editor.prose details summary::marker {
+  display: none !important;
+  content: "" !important;
+}
+.organize-editor.prose details > summary::before {
+  content: "▶";
+  position: absolute;
+  left: -22px;
+  top: 0.25em;
+  font-size: 0.6em;
+  color: hsl(var(--muted-foreground));
+  transition: transform 0.15s ease;
+}
+.organize-editor.prose details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.organize-editor.prose details > [data-details-content] {
+  padding-left: 0 !important;
+  margin-top: 0.25rem;
 }
 
 /* ------------------------- 标注（Callout） ------------------------- */
@@ -431,18 +529,64 @@
   border-radius: 8px;
   padding: 0.875rem 1rem;
   margin: 0.75rem 0;
+  position: relative;
 }
 .organize-editor div[data-callout] .callout-emoji {
   font-size: 1.125rem;
   line-height: 1.6;
   flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 2px;
+  transition: background-color 100ms ease;
+}
+.organize-editor div[data-callout] .callout-emoji:hover {
+  background: hsl(var(--accent));
 }
 .organize-editor div[data-callout] .callout-content {
   flex: 1;
   min-width: 0;
 }
-.organize-editor div[data-callout] .callout-content > p {
-  margin: 0;
+.organize-editor div[data-callout] .callout-content > :first-child {
+  margin-top: 0;
+}
+.organize-editor div[data-callout] .callout-content > :last-child {
+  margin-bottom: 0;
+}
+.callout-emoji-picker {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 6px;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px hsl(222 47% 11% / 0.12);
+}
+.callout-emoji-picker button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.callout-emoji-picker button:hover {
+  background: hsl(var(--accent));
+}
+.callout-emoji-picker button.active {
+  background: hsl(var(--primary) / 0.12);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.3);
 }
 
 /* ------------------------- 公式（KaTeX） ------------------------- */
@@ -484,31 +628,24 @@
 .organize-editor-shell > div:has(> .organize-editor) {
   position: relative;
 }
-/* 编辑器正文左边界必须与标题严格对齐：
-   标题 textarea 和编辑器 shell 都是容器（max-w-*）的直接子级、左边界 = 容器内容左边界。
-   这里把编辑器根节点的左内/外边距都归零，让正文第一个字符落在容器左边界，与标题对齐。
-   （手柄 .organize-block-handle 用绝对定位挂在 shell 上、left:-3.5rem，落在左侧空白区，
-     不依赖这里的内边距，所以去掉内边距不影响手柄。） */
-.organize-editor {
-  padding-left: 0 !important;
-  margin-left: 0 !important;
+.organize-editor.prose [data-id] {
+  transition: background-color 120ms ease;
 }
-.organize-editor [data-id] {
-  transition: background-color 180ms ease, box-shadow 180ms ease;
-}
-.organize-editor [data-id].is-deep-linked {
+.organize-editor.prose [data-id].is-deep-linked {
   background: hsl(var(--primary) / 0.08) !important;
-  box-shadow: 0 0 0 4px hsl(var(--primary) / 0.08);
-  border-radius: 6px;
+  border-radius: 4px;
 }
+
+/* 块手柄：固定在编辑器左侧 gutter 区域内（left: 10px），与列表标记/checkbox/折叠箭头同区域
+   手柄按钮有实色背景，hover 时自然覆盖后方标记（Notion 风格）*/
 .organize-block-handle {
   position: absolute;
-  left: -3.5rem;
+  left: 10px;
   z-index: 40;
   display: flex;
   align-items: center;
-  gap: 0;
-  height: 28px;
+  gap: 1px;
+  height: 22px;
   color: hsl(var(--muted-foreground));
   opacity: 0;
   visibility: hidden;
@@ -523,29 +660,34 @@
   pointer-events: auto;
 }
 .organize-block-handle button {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 25px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 4px;
-  background: transparent;
+  background: hsl(var(--background));
   color: inherit;
   cursor: pointer;
   font: inherit;
+  transition: background-color 100ms ease, color 100ms ease;
 }
 .organize-block-handle button:hover {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
+.dark .organize-block-handle button {
+  background: hsl(var(--background));
+}
 .organize-block-add {
   cursor: pointer !important;
 }
 .organize-block-add svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 1.8;
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.5;
 }
 .organize-block-grip {
   cursor: grab !important;
@@ -556,12 +698,14 @@
 }
 .organize-block-handle[data-dragging="true"] .organize-block-grip {
   cursor: grabbing !important;
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }
 .organize-grip-dots {
   display: grid;
   grid-template-columns: repeat(2, 3px);
   grid-template-rows: repeat(3, 3px);
-  gap: 2px 3px;
+  gap: 2px;
   pointer-events: none;
 }
 .organize-grip-dots > span {
@@ -569,10 +713,11 @@
   height: 3px;
   border-radius: 50%;
   background: currentColor;
+  opacity: 0.8;
 }
 .organize-block-drop-indicator {
   position: absolute;
-  left: 0;
+  left: 60px;
   right: 0;
   z-index: 39;
   height: 2px;
@@ -1047,9 +1192,18 @@
 .presentation-close { position: fixed; top: 22px; right: 22px; z-index: 2; }
 
 @media (max-width: 640px) {
-  .organize-editor { padding-left: 0 !important; margin-left: 0 !important; }
-  .organize-block-handle { left: -2rem; }
+  .organize-editor.prose { padding-left: 40px !important; }
+  .organize-block-handle { left: 6px; height: 20px; gap: 0; }
+  .organize-block-handle button { width: 18px; height: 18px; }
   .organize-block-add { display: none !important; }
+  .organize-block-drop-indicator { left: 40px; }
+  .organize-editor.prose > ul,
+  .organize-editor.prose > ol { margin-left: -20px !important; padding-left: 20px !important; }
+  .organize-editor.prose > ol { margin-left: -24px !important; padding-left: 24px !important; }
+  .organize-editor.prose ul[data-type="taskList"] li { margin-left: -20px !important; padding-left: 20px !important; }
+  .organize-editor.prose blockquote { margin-left: -20px !important; padding-left: 17px !important; }
+  .organize-editor.prose div[data-type="details"] { margin-left: -20px !important; padding-left: 20px !important; }
+  .organize-editor.prose details { margin-left: -20px !important; padding-left: 20px !important; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }
   .editor-dialog-backdrop { align-items: end; padding: 0; }
   .editor-dialog { width: 100% !important; max-height: 88vh; border-radius: 16px 16px 0 0; }
@@ -1076,4 +1230,3 @@ mark.hl-pink { background-color: rgb(251 207 232 / 0.7); color: inherit; padding
 .dark mark.hl-pink { background-color: rgb(131 24 67 / 0.4); }
 mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
 .dark mark.hl-purple { background-color: rgb(76 29 149 / 0.4); }
-

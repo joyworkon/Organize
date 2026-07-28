@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,13 +8,23 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { cn } from "@/lib/utils";
-import { Link2, Loader2, Check, AlertCircle, Inbox } from "lucide-react";
+import { Link2, Loader2, Check, AlertCircle, Inbox, ClipboardPaste } from "lucide-react";
 import type { ScrapeResult } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type Mode = "single" | "batch";
 
+function isValidUrl(str: string): boolean {
+  try {
+    const url = new URL(str);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export default function InboxPage() {
+  const supabase = useMemo(() => createClient(), []);
   const [mode, setMode] = useState<Mode>("single");
 
   // 单条模式状态
@@ -25,7 +35,6 @@ export default function InboxPage() {
   const [result, setResult] = useState<ScrapeResult | null>(null);
   const [saved, setSaved] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
-  const supabase = createClient();
 
   const handleScrape = async () => {
     if (!url.trim()) return;
@@ -87,8 +96,23 @@ export default function InboxPage() {
     if (e.key === "Enter") handleScrape();
   };
 
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const trimmed = text.trim();
+      if (isValidUrl(trimmed)) {
+        setUrl(trimmed);
+        setError(null);
+      } else {
+        setError("剪贴板中没有找到有效的链接");
+      }
+    } catch {
+      setError("无法访问剪贴板，请手动粘贴链接");
+    }
+  };
+
   return (
-    <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-0">
+    <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-xl sm:text-2xl font-bold">收集箱</h1>
         <p className="text-muted-foreground mt-1 text-sm sm:text-base">
@@ -125,11 +149,22 @@ export default function InboxPage() {
                   <Input
                     placeholder="粘贴链接，如 https://example.com/article"
                     value={url}
-                    onChange={(e) => setUrl(e.target.value)}
+                    onChange={(e) => {
+                      setUrl(e.target.value);
+                      if (error) setError(null);
+                    }}
                     onKeyDown={handleKeyDown}
                     className="pl-9"
                   />
                 </div>
+                <Button
+                  variant="outline"
+                  onClick={handlePasteFromClipboard}
+                  title="从剪贴板粘贴链接"
+                  disabled={loading}
+                >
+                  <ClipboardPaste className="h-4 w-4" />
+                </Button>
                 <Button onClick={handleScrape} disabled={loading || !url.trim()}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "抓取"}
                 </Button>

@@ -32,18 +32,18 @@ export function ThemeColorPicker({ compact = false }: ThemeColorPickerProps) {
 
   if (compact) {
     return (
-      <div className="flex flex-col items-center gap-1.5 py-1">
+      <div className="flex flex-col items-center gap-1 py-1">
         {THEME_COLOR_LIST.map((color) => (
           <button
             key={color}
             type="button"
             onClick={() => handleSelect(color)}
             className={cn(
-              "w-5 h-5 rounded-full border border-border transition-all",
+              "w-2 h-2 rounded-full border border-border/60 transition-all",
               COLOR_DOT_CLASSES[color],
               selected === color
-                ? "ring-2 ring-offset-1 ring-primary scale-110"
-                : "hover:scale-105"
+                ? "ring-1 ring-primary scale-125"
+                : "hover:scale-125"
             )}
             aria-label={`选择${color}主题色`}
             title={`${color}主题`}
@@ -61,11 +61,11 @@ export function ThemeColorPicker({ compact = false }: ThemeColorPickerProps) {
           type="button"
           onClick={() => handleSelect(color)}
           className={cn(
-            "w-6 h-6 rounded-full border border-border transition-all",
+            "w-3 h-3 rounded-full border border-border transition-all",
             COLOR_DOT_CLASSES[color],
             selected === color
-              ? "ring-2 ring-offset-2 ring-primary scale-110"
-              : "hover:scale-105"
+              ? "ring-1 ring-offset-1 ring-primary scale-125"
+              : "hover:scale-125"
           )}
           aria-label={`选择${color}主题色`}
           title={`${color}主题`}

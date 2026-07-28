@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -39,7 +39,7 @@ function downloadFile(filename: string, content: string, mimeType: string) {
 }
 
 export default function SettingsPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [exportingData, setExportingData] = useState(false);
   const [exportingMarkdown, setExportingMarkdown] = useState(false);
 
