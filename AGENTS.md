@@ -59,7 +59,8 @@ gh pr merge --squash              # 合并（单人项目可自开自合, 无需
 
 - **单人项目友好**：审批人数设为 0，可以自己开 PR 自己合，不阻塞。
 - **CI 门禁**：`.github/workflows/ci.yml` 会在每个 PR 上自动跑 `tsc --noEmit` + `vitest run`（与本地验证命令一致），检查不过不要合并；本地提前跑一遍可少一轮往返。
-- **Squash merge**：一个特性分支合并后会压成 master 上的一个提交，保持历史线性。
+- **Squash merge**：一个特性分支合并后会压成 master 上的一个提交，保持历史线性；合并完成后删除本地与远程特性分支，不留残枝。
+- **历史例外**：早期历史（截至 PR #3）存在批量普通合并（merge/agent-batch，内部嵌套二级 merge），这些不是单提交结构——回滚该区间的改动要用 `git revert -m 1 <merge-commit>`，不能按"一分支一提交"预期直接 revert。PR #4 起全部为 squash 合并。
 
 ### 开始新工作前：必须先同步
 
