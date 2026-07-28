@@ -24,21 +24,32 @@ export async function GET() {
     return NextResponse.json({ error: tagsError.message }, { status: 500 });
   }
 
-  // 并行统计两类资源的使用计数
-  const [itemTagsRes, noteTagsRes] = await Promise.all([
+  const [itemTagsRes, noteTagsRes, taskTagsRes, lessonTagsRes] = await Promise.all([
     supabase.from("item_tags").select("tag_id"),
     supabase.from("note_tags").select("tag_id"),
+    supabase.from("task_tags").select("tag_id"),
+    supabase.from("lesson_tags").select("tag_id"),
   ]);
 
-  const countMap = new Map<string, { note_count: number; reading_item_count: number }>();
+  const countMap = new Map<string, { note_count: number; reading_item_count: number; task_count: number; lesson_count: number }>();
   for (const row of itemTagsRes.data || []) {
-    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
     entry.reading_item_count += 1;
     countMap.set(row.tag_id, entry);
   }
   for (const row of noteTagsRes.data || []) {
-    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0 };
+    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
     entry.note_count += 1;
+    countMap.set(row.tag_id, entry);
+  }
+  for (const row of taskTagsRes.data || []) {
+    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
+    entry.task_count += 1;
+    countMap.set(row.tag_id, entry);
+  }
+  for (const row of lessonTagsRes.data || []) {
+    const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
+    entry.lesson_count += 1;
     countMap.set(row.tag_id, entry);
   }
 
@@ -46,7 +57,7 @@ export async function GET() {
     id: t.id,
     user_id: user.id,
     name: t.name,
-    ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0 }),
+    ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 }),
   }));
 
   return NextResponse.json(result);

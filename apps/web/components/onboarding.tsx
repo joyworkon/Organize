@@ -24,6 +24,31 @@ export function Onboarding() {
     }
   }, []);
 
+  // 防御：Radix Dialog 存在一个时序 bug —— 弹窗关闭后偶发不还原
+  // document.body 的 pointer-events，导致整页点击被禁用（表现为“卡死”，
+  // 页面能渲染但点什么都没反应）。这里在关闭后（含关闭动画结束）与卸载时
+  // 主动清掉 Radix 遗留的 pointer-events:none，兜底保证页面始终可交互。
+  useEffect(() => {
+    if (open) return;
+    const restore = () => {
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = "";
+      }
+    };
+    restore(); // 立即清一次
+    const t = setTimeout(restore, 350); // 关闭动画结束后再兜底清一次
+    return () => clearTimeout(t);
+  }, [open]);
+
+  // 组件卸载（如路由切换）时同样兜底还原，避免残留把整页锁死
+  useEffect(() => {
+    return () => {
+      if (document.body.style.pointerEvents === "none") {
+        document.body.style.pointerEvents = "";
+      }
+    };
+  }, []);
+
   const handleClose = () => {
     localStorage.setItem(ONBOARDED_KEY, "1");
     setOpen(false);

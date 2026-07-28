@@ -26,6 +26,7 @@ import { Callout } from "./extensions/callout";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
 import { BlockStyle } from "./extensions/block-style";
+import { ListBackspaceFix } from "./extensions/list-backspace";
 import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
@@ -83,6 +84,8 @@ interface EditorProps {
   noteTitle?: string;
   content: Record<string, unknown>;
   onUpdate: (content: Record<string, unknown>) => void;
+  /** 编辑器实例就绪 / 销毁时回调，供页面标题与正文联动（T1/T2） */
+  onEditorReady?: (editor: Editor | null) => void;
 }
 
 /* ----------------------------- 块类型配置 ----------------------------- */
@@ -658,8 +661,10 @@ function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number):
   return { left: coords.left, top: coords.bottom + 6 };
 }
 
-export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: EditorProps) {
+export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
   const initialContentRef = useRef(content);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -708,6 +713,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       BlockDeepLink,
       TransformedBlockSelection,
       BlockStyle,
+      ListBackspaceFix,
       UniqueID.configure({ types: BLOCK_ID_TYPES }),
     ];
   }, []);
@@ -757,6 +763,12 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
     setCommandMenu(null);
     setActionMenu(null);
     editor?.commands.focus();
+  }, [editor]);
+
+  // 把编辑器实例上抛给页面（标题回车拆分等联动需要它），卸载时清空。
+  useEffect(() => {
+    onEditorReadyRef.current?.(editor ?? null);
+    return () => onEditorReadyRef.current?.(null);
   }, [editor]);
 
   // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
@@ -939,11 +951,26 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
 
     const blockRect = block.getBoundingClientRect();
     const shellRect = shell.getBoundingClientRect();
-    const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
-    const firstLineHeight = Number.isFinite(parsedLineHeight)
-      ? Math.min(parsedLineHeight, blockRect.height)
-      : Math.min(28, blockRect.height);
-    const top = blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
+    const nodeName = node.type.name;
+    let top: number;
+    if (nodeName === "listItem" || nodeName === "taskItem") {
+      // 列表项 / 待办项的 <li> 外框会因外边距折叠而比首行文字更高，
+      // 用 blockRect.top 定位手柄会偏上、叠到上一块，导致点不上、悬停跳到上一块前。
+      // 改用首行文字的实际坐标定位，让手柄稳定对准 6 点。
+      try {
+        const lineCoords = editor.view.coordsAtPos(pos + 1);
+        const lineHeight = Math.max(20, lineCoords.bottom - lineCoords.top);
+        top = lineCoords.top - shellRect.top + (lineHeight - 28) / 2;
+      } catch {
+        top = blockRect.top - shellRect.top;
+      }
+    } else {
+      const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
+      const firstLineHeight = Number.isFinite(parsedLineHeight)
+        ? Math.min(parsedLineHeight, blockRect.height)
+        : Math.min(28, blockRect.height);
+      top = blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
+    }
     const next = { editor, node, pos, top, element: block };
 
     hoveredRef.current = next;
@@ -961,9 +988,19 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
   useEffect(() => {
     const hideWhenPointerLeavesEditor = (event: MouseEvent) => {
       const shell = rootRef.current;
-      if (shell && event.target instanceof Node && !shell.contains(event.target)) {
-        hideHoveredBlock();
-      }
+      if (!shell) return;
+      // 手柄（6 点 + 加号）用负 left 挂在 shell 左侧、伸出到 shell 盒子之外，
+      // 它和正文之间还有一小段空隙。若用 shell.contains(target) 判断，鼠标一移到
+      // 手柄或这段空隙上就会被判为"离开编辑器"而隐藏手柄，导致手柄点不上。
+      // 改用几何范围判断：左侧留出一条手柄缓冲带（约 4rem），带内不隐藏。
+      const rect = shell.getBoundingClientRect();
+      const LEFT_GUTTER = 64; // 3.5rem 手柄外扩 + 余量
+      const inside =
+        event.clientX >= rect.left - LEFT_GUTTER &&
+        event.clientX <= rect.right + 8 &&
+        event.clientY >= rect.top - 8 &&
+        event.clientY <= rect.bottom + 8;
+      if (!inside) hideHoveredBlock();
     };
     document.addEventListener("mousemove", hideWhenPointerLeavesEditor, true);
     return () => document.removeEventListener("mousemove", hideWhenPointerLeavesEditor, true);
@@ -1155,7 +1192,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate }: Edit
       className="relative organize-editor-shell"
       ref={rootRef}
       onMouseMove={updateHoveredBlock}
-      onMouseLeave={hideHoveredBlock}
     >
       <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
         <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />

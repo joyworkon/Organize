@@ -125,11 +125,12 @@ export default function DashboardPage() {
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
 
   const today = new Date();
-  const todayEnd = new Date(today);
-  todayEnd.setHours(23, 59, 59, 999);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    const now = new Date();
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -231,7 +232,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, router, todayEnd]);
+  }, [supabase, router]);
 
   useEffect(() => {
     loadData();

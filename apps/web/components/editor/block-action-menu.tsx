@@ -58,7 +58,34 @@ const BACKGROUNDS = [
   { label: "红色背景", value: "rgba(212,76,71,.14)" },
 ];
 
-const TEXT_TRANSFORMABLE_TYPES = new Set(["paragraph", "heading", "blockquote", "codeBlock", "callout"]);
+// 可直接转换的块：普通文本块 + 结构化的列表项 / 待办项 / 折叠列表。
+// 列表项在转换前需先从列表里 lift 出来（见 resolveTransformPos），details 本身是顶层块可直接替换。
+const TEXT_TRANSFORMABLE_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "blockquote",
+  "codeBlock",
+  "callout",
+  "details",
+  "listItem",
+  "taskItem",
+]);
+
+// 列表项 / 待办项转换前，先把光标放进去并用 liftListItem 把它移出列表，变成顶层段落，
+// 再返回该段落的位置交给目标块命令替换；其它类型直接返回原位置。
+function resolveTransformPos(editor: Editor, target: EditorBlockTarget): number {
+  if (target.type !== "listItem" && target.type !== "taskItem") return target.pos;
+  try {
+    const near = TextSelection.near(editor.state.doc.resolve(target.pos + 1));
+    editor.view.dispatch(editor.state.tr.setSelection(near));
+  } catch {
+    return target.pos;
+  }
+  const lifted = editor.commands.liftListItem(target.type);
+  if (!lifted) return target.pos;
+  const { $from } = editor.state.selection;
+  return $from.depth > 0 ? $from.before(1) : target.pos;
+}
 
 function dispatchDialog(editor: Editor, type: string, target: EditorBlockTarget) {
   editor.view.dom.dispatchEvent(
@@ -161,7 +188,8 @@ export function BlockActionMenu({
           {canTransformTarget && transformCommands.map((command) => {
             const Icon = command.icon;
             return <button key={command.id} type="button" onClick={() => finish(() => {
-              command.run(editor, target.pos);
+              const pos = resolveTransformPos(editor, target);
+              command.run(editor, pos);
               focusAndHighlightBlock(editor, target.id);
             })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
           })}

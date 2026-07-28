@@ -2,6 +2,11 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  // 开发假后端模式：跳过鉴权，直接放行（见 .env.local 的 NEXT_PUBLIC_MOCK_BACKEND）
+  if (process.env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
