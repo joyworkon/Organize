@@ -60,7 +60,20 @@ gh pr merge --squash              # 合并（单人项目可自开自合, 无需
 - **单人项目友好**：审批人数设为 0，可以自己开 PR 自己合，不阻塞。
 - **不强制 CI 检查**：当前未配置 `.github/workflows/`，合并前不会卡在某个 status check 上；改动验证靠本地 `tsc --noEmit` + `pnpm test`。
 - **Squash merge**：一个特性分支合并后会压成 master 上的一个提交，保持历史线性。
-- 建特性分支前先 `git pull origin master` 同步最新，避免合并冲突。
+
+### 开始新工作前：必须先同步
+
+master 会随时被其他 Agent / 协作者通过 PR 更新。**本地 master 经常是旧的**，直接基于旧 master 建分支会导致：缺最新改动、或合并时冲突。每次开始新任务前，固定执行：
+
+```bash
+git checkout master
+git pull origin master          # 拉远程最新到本地
+git checkout -b feat/<短描述>   # 基于最新 master 建新分支
+```
+
+- 手上有未提交的改动时，先 `git stash` 或先提交到当前特性分支，再切回 master 同步。
+- **一次只在一条特性分支上工作**，不要同时开多条分支，避免改了半天发现基线错了。
+- 改完 → push → 开 PR → 合并 → 删特性分支 → 切回 master 拉最新，再开始下一个任务。
 
 ## 架构
 
