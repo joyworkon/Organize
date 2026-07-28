@@ -58,7 +58,7 @@ gh pr merge --squash              # 合并（单人项目可自开自合, 无需
 ```
 
 - **单人项目友好**：审批人数设为 0，可以自己开 PR 自己合，不阻塞。
-- **不强制 CI 检查**：当前未配置 `.github/workflows/`，合并前不会卡在某个 status check 上；改动验证靠本地 `tsc --noEmit` + `pnpm test`。
+- **CI 门禁**：`.github/workflows/ci.yml` 会在每个 PR 上自动跑 `tsc --noEmit` + `vitest run`（与本地验证命令一致），检查不过不要合并；本地提前跑一遍可少一轮往返。
 - **Squash merge**：一个特性分支合并后会压成 master 上的一个提交，保持历史线性。
 
 ### 开始新工作前：必须先同步
