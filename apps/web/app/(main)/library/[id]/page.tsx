@@ -83,7 +83,7 @@ export default function ReadingDetailPage() {
   const params = useParams();
   const router = useRouter();
   const itemId = params.id as string;
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const contentRef = useRef<HTMLDivElement>(null);
   const focusContentRef = useRef<HTMLDivElement>(null);
   const focusScrollContainerRef = useRef<HTMLDivElement>(null);

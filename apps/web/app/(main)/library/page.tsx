@@ -112,6 +112,7 @@ function sortItems(items: ReadingItem[], sortOption: SmartSortOption): ReadingIt
 }
 
 export default function LibraryPage() {
+  const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<ReadingItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -138,7 +139,6 @@ export default function LibraryPage() {
   const selection = useSelection<ReadingItem>();
   const { selectedIds, isSelectMode, toggle, selectAll, clear, isSelected } = selection;
 
-  const supabase = createClient();
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
   const itemsLenRef = useRef(0);

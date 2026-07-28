@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -109,7 +109,7 @@ function getNoteExcerpt(content: Record<string, unknown> | null): string {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [loading, setLoading] = useState(true);
   const [overdueTasks, setOverdueTasks] = useState<TaskWithTags[]>([]);
@@ -461,293 +461,267 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="flex items-center gap-3 py-2">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">任务与内容</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-4">
-          {overdueTasks.length > 0 && (
-            <Card className="border-destructive/50">
-              <CardContent className="p-4">
-                <h3 className="font-medium flex items-center gap-2 mb-3 text-destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  逾期任务
-                  <Badge variant="destructive" className="ml-auto">{overdueTasks.length}</Badge>
-                </h3>
-                <div className="space-y-2">
-                  {overdueTasks.slice(0, 5).map((task) => (
-                    <div
-                      key={task.id}
-                      className={cn(
-                        "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer border-l-4 border-destructive bg-destructive/5"
-                      )}
-                      onClick={() => router.push(`/tasks`)}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleTaskStatus(task.id, "done");
-                        }}
-                        className="mt-0.5 h-4 w-4 rounded-full border border-destructive/50 flex items-center justify-center hover:bg-destructive/20 transition-colors"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                          <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                          <span className="flex items-center gap-1 text-destructive">
-                            <Clock className="h-3 w-3" />
-                            {formatDueTime(task.due_date)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="font-medium flex items-center gap-2 mb-3">
-                <CalendarClock className="h-4 w-4 text-primary" />
-                今日到期
-                <Badge variant="secondary" className="ml-auto">{todayTasks.length}</Badge>
-              </h3>
-              {todayTasks.length === 0 ? (
-                <EmptyState
-                  icon={CheckCircle2}
-                  title="今天没有到期任务"
-                  description="享受轻松的一天吧"
-                  className="py-8"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {todayTasks.slice(0, 6).map((task) => (
-                    <div
-                      key={task.id}
-                      className={cn(
-                        "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer border-l-4 border-primary"
-                      )}
-                      onClick={() => router.push(`/tasks`)}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleTaskStatus(task.id, "done");
-                        }}
-                        className="mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center hover:bg-primary/20 transition-colors"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                          <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatDueTime(task.due_date)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="font-medium flex items-center gap-2 mb-3">
-                <PlayCircle className="h-4 w-4 text-blue-500" />
-                进行中
-                <Badge variant="secondary" className="ml-auto">{inProgressTasks.length}</Badge>
-              </h3>
-              {inProgressTasks.length === 0 ? (
-                <EmptyState
-                  icon={PlayCircle}
-                  title="没有进行中的任务"
-                  description="选择一个任务开始专注吧"
-                  className="py-8"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {inProgressTasks.slice(0, 5).map((task) => (
-                    <Link
-                      key={task.id}
-                      href="/tasks"
-                      className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150"
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleToggleTaskStatus(task.id, "todo");
-                        }}
-                        className="mt-0.5 h-4 w-4 rounded-full bg-primary/20 border border-primary flex items-center justify-center"
-                      >
-                        <PlayCircle className="h-2.5 w-2.5 text-primary" />
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                          <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                          {task.due_date && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDueTime(task.due_date)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      <div className="rounded-lg border bg-card">
+        <div className="p-5 border-b">
+          <h3 className="font-semibold flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            逾期任务
+            <Badge variant="destructive" className="ml-auto">{overdueTasks.length}</Badge>
+          </h3>
         </div>
-
-        <div className="space-y-4">
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="font-medium flex items-center gap-2 mb-3">
-                <BookOpen className="h-4 w-4 text-orange-500" />
-                待读推荐
-                <Link
-                  href="/library"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
-                >
-                  查看全部
-                </Link>
-              </h3>
-              {unreadArticles.length === 0 ? (
-                <EmptyState
-                  icon={BookOpen}
-                  title="阅读清单是空的"
-                  description="去收集箱添加一些文章"
-                  className="py-8"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {unreadArticles.slice(0, 3).map((article) => (
-                    <Link
-                      key={article.id}
-                      href={`/library/${article.id}`}
-                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
-                    >
-                      <p className="text-sm font-medium line-clamp-1">{article.title || "无标题"}</p>
-                      {article.excerpt && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                          {article.excerpt}
-                        </p>
-                      )}
-                    </Link>
-                  ))}
-                  {unreadArticles.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full mt-2"
-                      onClick={handleRecommendNext}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                      推荐下一篇
-                    </Button>
+        <div className="p-5">
+          {overdueTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">没有逾期任务，继续保持 🎉</p>
+          ) : (
+            <div className="space-y-2">
+              {overdueTasks.slice(0, 5).map((task) => (
+                <div
+                  key={task.id}
+                  className={cn(
+                    "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <h3 className="font-medium flex items-center gap-2 mb-3">
-                <NoteIcon className="h-4 w-4 text-green-500" />
-                最近笔记
-                <Link
-                  href="/notes"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
+                  onClick={() => router.push(`/tasks`)}
                 >
-                  查看全部
-                </Link>
-              </h3>
-              {recentNotes.length === 0 ? (
-                <EmptyState
-                  icon={NoteIcon}
-                  title="还没有笔记"
-                  description="开始记录你的想法"
-                  className="py-8"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {recentNotes.map((note) => (
-                    <Link
-                      key={note.id}
-                      href={`/notes/${note.id}`}
-                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
-                    >
-                      <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
-                      {getNoteExcerpt(note.content) && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                          {getNoteExcerpt(note.content)}
-                        </p>
-                      )}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {reviewLessons.length > 0 && (
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-medium flex items-center gap-2 mb-3">
-                  <Lightbulb className="h-4 w-4 text-amber-500" />
-                  待复习经验
-                  <Badge variant="secondary" className="ml-auto">{reviewLessons.length}</Badge>
-                </h3>
-                <div className="space-y-2">
-                  {reviewLessons.slice(0, 3).map((lesson) => (
-                    <div
-                      key={lesson.id}
-                      className="p-2 rounded-md bg-amber-500/5 border border-amber-500/20"
-                    >
-                      <Link
-                        href={`/lessons/${lesson.id}`}
-                        className="block hover:opacity-80"
-                      >
-                        <p className="text-sm font-medium line-clamp-1">{lesson.title || "无标题经验"}</p>
-                      </Link>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-500/10"
-                          onClick={() => handleReviewAction(lesson.id, true)}
-                        >
-                          <ThumbsUp className="h-3 w-3 mr-1" />
-                          记住了
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => handleReviewAction(lesson.id, false)}
-                        >
-                          <RefreshCw className="h-3 w-3 mr-1" />
-                          再看看
-                        </Button>
-                      </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleTaskStatus(task.id, "done");
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded-full border border-destructive/50 flex items-center justify-center hover:bg-destructive/20 transition-colors shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
+                      <span className="flex items-center gap-1 text-destructive">
+                        <Clock className="h-3 w-3" />
+                        {formatDueTime(task.due_date)}
+                      </span>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
           )}
         </div>
+
+        <div className="p-5 border-b">
+          <h3 className="font-semibold flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-primary" />
+            今日到期
+            <Badge variant="secondary" className="ml-auto">{todayTasks.length}</Badge>
+          </h3>
+        </div>
+        <div className="p-5">
+          {todayTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">今天没有到期任务，享受轻松的一天吧</p>
+          ) : (
+            <div className="space-y-2">
+              {todayTasks.slice(0, 6).map((task) => (
+                <div
+                  key={task.id}
+                  className={cn(
+                    "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
+                  )}
+                  onClick={() => router.push(`/tasks`)}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleTaskStatus(task.id, "done");
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center hover:bg-primary/20 transition-colors shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatDueTime(task.due_date)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 border-b">
+          <h3 className="font-semibold flex items-center gap-2">
+            <PlayCircle className="h-4 w-4 text-blue-500" />
+            进行中
+            <Badge variant="secondary" className="ml-auto">{inProgressTasks.length}</Badge>
+          </h3>
+        </div>
+        <div className="p-5">
+          {inProgressTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">没有进行中的任务，选择一个开始专注吧</p>
+          ) : (
+            <div className="space-y-2">
+              {inProgressTasks.slice(0, 5).map((task) => (
+                <Link
+                  key={task.id}
+                  href="/tasks"
+                  className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                >
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleToggleTaskStatus(task.id, "todo");
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded-full bg-primary/20 border border-primary flex items-center justify-center shrink-0"
+                  >
+                    <PlayCircle className="h-2.5 w-2.5 text-primary" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
+                      {task.due_date && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatDueTime(task.due_date)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 border-b">
+          <h3 className="font-semibold flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-orange-500" />
+            待读推荐
+            <Link
+              href="/library"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
+            >
+              查看全部
+            </Link>
+          </h3>
+        </div>
+        <div className="p-5">
+          {unreadArticles.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">阅读清单是空的，去收集箱添加一些文章</p>
+          ) : (
+            <div className="space-y-2">
+              {unreadArticles.slice(0, 3).map((article) => (
+                <Link
+                  key={article.id}
+                  href={`/library/${article.id}`}
+                  className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                >
+                  <p className="text-sm font-medium line-clamp-1">{article.title || "无标题"}</p>
+                  {article.excerpt && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                      {article.excerpt}
+                    </p>
+                  )}
+                </Link>
+              ))}
+              {unreadArticles.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-2"
+                  onClick={handleRecommendNext}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  推荐下一篇
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="p-5 border-b">
+          <h3 className="font-semibold flex items-center gap-2">
+            <NoteIcon className="h-4 w-4 text-green-500" />
+            最近笔记
+            <Link
+              href="/notes"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
+            >
+              查看全部
+            </Link>
+          </h3>
+        </div>
+        <div className="p-5">
+          {recentNotes.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">还没有笔记，开始记录你的想法</p>
+          ) : (
+            <div className="space-y-2">
+              {recentNotes.map((note) => (
+                <Link
+                  key={note.id}
+                  href={`/notes/${note.id}`}
+                  className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                >
+                  <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
+                  {getNoteExcerpt(note.content) && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                      {getNoteExcerpt(note.content)}
+                    </p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {reviewLessons.length > 0 && (
+          <>
+            <div className="p-5 border-b">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-amber-500" />
+                待复习经验
+                <Badge variant="secondary" className="ml-auto">{reviewLessons.length}</Badge>
+              </h3>
+            </div>
+            <div className="p-5">
+              <div className="space-y-2">
+                {reviewLessons.slice(0, 3).map((lesson) => (
+                  <div
+                    key={lesson.id}
+                    className="p-3 rounded-md bg-amber-500/5"
+                  >
+                    <Link
+                      href={`/lessons/${lesson.id}`}
+                      className="block hover:opacity-80"
+                    >
+                      <p className="text-sm font-medium line-clamp-1">{lesson.title || "无标题经验"}</p>
+                    </Link>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-500/10"
+                        onClick={() => handleReviewAction(lesson.id, true)}
+                      >
+                        <ThumbsUp className="h-3 w-3 mr-1" />
+                        记住了
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => handleReviewAction(lesson.id, false)}
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        再看看
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <TaskDialog

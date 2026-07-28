@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ type SortOrder = "asc" | "desc";
 
 export default function NotesPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [notes, setNotes] = useState<NoteWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -40,7 +41,6 @@ export default function NotesPage() {
   const selection = useSelection<NoteWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
 
-  const supabase = createClient();
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
   const reqIdRef = useRef(0);

@@ -88,6 +88,38 @@
   font-size: 0.8125rem;
 }
 
+/* 笔记标题与编辑器正文左对齐：标题、创建时间、反向链接都匹配编辑器的 60px gutter */
+.note-page .note-title {
+  padding-left: 60px;
+  padding-right: 0;
+}
+.note-page .note-meta-row {
+  padding-left: 60px;
+}
+@media (max-width: 640px) {
+  .note-page .note-title {
+    padding-left: 40px;
+  }
+  .note-page .note-meta-row {
+    padding-left: 40px;
+  }
+}
+/* 全宽模式下保持对齐 */
+.note-page.max-w-none .note-title,
+.note-page.max-w-none .note-meta-row {
+  padding-left: 60px;
+}
+/* 反向链接区域对齐 */
+.note-page .mt-8.pt-6.border-t {
+  padding-left: 60px;
+  padding-right: 0;
+}
+@media (max-width: 640px) {
+  .note-page .mt-8.pt-6.border-t {
+    padding-left: 40px;
+  }
+}
+
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
 
 /* 代码块 */
