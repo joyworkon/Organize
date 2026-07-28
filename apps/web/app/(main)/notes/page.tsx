@@ -18,9 +18,14 @@ import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
-
-type SortField = "updated_at" | "created_at" | "title";
-type SortOrder = "asc" | "desc";
+import {
+  nextSortField,
+  applyPinned,
+  applyPinnedBatch,
+  removeNotes,
+  type SortField,
+  type SortOrder,
+} from "./page-utils";
 
 export default function NotesPage() {
   const router = useRouter();
@@ -143,15 +148,15 @@ export default function NotesPage() {
       toast({ title: "删除失败", description: error.message, variant: "destructive" });
       return;
     }
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+    setNotes((prev) => removeNotes(prev, new Set([id])));
     toast({ title: "已删除笔记" });
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
-    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: pinned } : n)));
+    setNotes((prev) => applyPinned(prev, id, pinned));
     const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
     if (error) {
-      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: !pinned } : n)));
+      setNotes((prev) => applyPinned(prev, id, !pinned));
       toast({ title: pinned ? "置顶失败" : "取消置顶失败", variant: "destructive" });
     }
   };
@@ -177,7 +182,7 @@ export default function NotesPage() {
       toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
       return;
     }
-    setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+    setNotes((prev) => removeNotes(prev, selectedIds));
     exitSelection();
     toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
   };
@@ -194,9 +199,7 @@ export default function NotesPage() {
       toast({ title: "操作失败", description: error.message, variant: "destructive" });
       return;
     }
-    setNotes((prev) =>
-      prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_pinned: pinned } : n))
-    );
+    setNotes((prev) => applyPinnedBatch(prev, selectedIds, pinned));
     exitSelection();
     toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
   };
@@ -273,11 +276,7 @@ export default function NotesPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => {
-              const fields: SortField[] = ["updated_at", "created_at", "title"];
-              const idx = fields.indexOf(sortBy);
-              setSortBy(fields[(idx + 1) % fields.length]);
-            }}
+            onClick={() => setSortBy(nextSortField(sortBy))}
           >
             <ArrowUpDown className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
