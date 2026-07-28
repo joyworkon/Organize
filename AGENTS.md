@@ -43,6 +43,25 @@ supabase status -o json     # 查看本地服务地址与 JWT 格式的 anon key
 - 本地服务端口：API `http://127.0.0.1:54321`，Studio `http://127.0.0.1:54323`
 - Web 环境变量在 `apps/web/.env.local`：`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+## 协作与分支
+
+`master` 是受保护分支（2026-07-27 起启用）。**禁止直接 push 到 master**，也禁止 force push 和删除该分支；连仓库 owner 也受此规则约束。
+
+所有改动必须走特性分支 + Pull Request：
+
+```bash
+git checkout -b feat/<短描述>     # 建特性分支（命名: feat/ fix/ docs/ chore/ 前缀）
+# 改代码, 提交
+git push -u origin feat/<短描述>  # 推特性分支
+gh pr create                      # 开 PR
+gh pr merge --squash              # 合并（单人项目可自开自合, 无需他人审批）
+```
+
+- **单人项目友好**：审批人数设为 0，可以自己开 PR 自己合，不阻塞。
+- **不强制 CI 检查**：当前未配置 `.github/workflows/`，合并前不会卡在某个 status check 上；改动验证靠本地 `tsc --noEmit` + `pnpm test`。
+- **Squash merge**：一个特性分支合并后会压成 master 上的一个提交，保持历史线性。
+- 建特性分支前先 `git pull origin master` 同步最新，避免合并冲突。
+
 ## 架构
 
 ### Monorepo 布局
