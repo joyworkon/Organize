@@ -1006,7 +1006,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       const shell = rootRef.current;
       if (!shell) return;
       const rect = shell.getBoundingClientRect();
-      const LEFT_GUTTER = 120;
+      const LEFT_GUTTER = 16;
       const inside =
         event.clientX >= rect.left - LEFT_GUTTER &&
         event.clientX <= rect.right + 8 &&
