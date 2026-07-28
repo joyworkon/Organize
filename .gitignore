@@ -24,6 +24,12 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+!.env.example
+# 加固：覆盖非 .env 开头的命名（keys.ts / secrets.json 等），防止误提交
+*.env
+secrets.*
+**/credentials/**
+**/service-account*.json
 
 # turbo
 .turbo
@@ -42,4 +48,7 @@ mobile/ios/
 # supabase
 supabase/.branches
 supabase/.temp
+
+# IDE 会话产物（与已忽略的 .zcode/ 同等对待，避免再次跟踪）
 .zcode/
+.trae/

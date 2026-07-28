@@ -4,9 +4,7 @@
 >
 > 编写日期：2026-07-27（阶段 A 完成于同日）
 >
-> 项目目录：`/Users/happy/Documents/Qoder/Organize`
->
-> 参考截图：`/var/folders/c7/3nyl0nzj5mq95v8b9hz3gxk00000gn/T/codex-clipboard-1a4392ce-fdd1-4d79-ac77-d0a5b73e2607.png`
+> 参考截图：Notion 页面右上角「更多」菜单（截图为编写时的临时剪贴板文件，已失效；菜单项清单见 §5.2）
 
 ## 0. 给接手 Agent 的重要说明
 

@@ -25,8 +25,11 @@ pnpm clean      # 清理
 pnpm --filter @organize/web dev
 pnpm --filter @organize/web build
 
-# 类型检查（项目暂无测试框架、无 test 脚本；改动后用这个验证）
+# 类型检查（改动后用这个验证）
 cd apps/web && npx tsc --noEmit
+
+# 单元测试（Vitest；现有用例在 apps/web/components/editor/）
+cd apps/web && pnpm test          # 等价: npx vitest run
 ```
 
 Supabase 本地后端（需要 Docker）：
