@@ -221,6 +221,10 @@
 .organize-editor.prose {
   padding-left: 60px !important;
   padding-right: 0 !important;
+  /* 取消 prose 的 65ch 宽度上限：类串里的 max-w-none 会被编译顺序更靠后的
+     sm:prose（≥640px 重新施加 max-width: 65ch）压过，导致正文比标题窄；
+     这里用双类选择器 + !important 兜底，让正文与标题同宽 */
+  max-width: none !important;
 }
 
 /* 段落、标题等普通块：无额外缩进，内容与其他块左对齐 */
