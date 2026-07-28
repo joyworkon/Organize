@@ -1,36 +1,53 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TagFilter } from "@/components/tags/tag-filter";
+import { useAllTags } from "@/components/tags/use-tags";
+import { BatchActionsBar } from "@/components/batch-actions-bar";
+import { useSelection } from "@/hooks/use-selection";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { Note } from "@organize/shared";
-import { Plus, Search, FileText, ArrowUpDown } from "lucide-react";
+import type { NoteWithTags } from "@organize/shared";
+import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { LayoutGrid, List as ListIcon, CheckSquare, X, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
+import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
 
 type SortField = "updated_at" | "created_at" | "title";
 type SortOrder = "asc" | "desc";
 
 export default function NotesPage() {
-  const [notes, setNotes] = useState<Note[]>([]);
+  const router = useRouter();
+  const [notes, setNotes] = useState<NoteWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
-  // 视图：卡片 / 列表
-  const [view, setView] = useState<NoteViewMode>("card");
-  // 批量选择
+  const [view, setView] = useState<NoteViewMode>("list");
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [mdImportOpen, setMdImportOpen] = useState(false);
+
+  const selection = useSelection<NoteWithTags>();
+  const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
+
   const supabase = createClient();
+  const { tags: allTags, refresh: refreshTags } = useAllTags();
+
+  const reqIdRef = useRef(0);
+  const showCheckbox = selectionMode || isSelectMode;
 
   const fetchNotes = useCallback(async () => {
+    const myReqId = ++reqIdRef.current;
     setLoading(true);
     const {
       data: { user },
@@ -38,30 +55,54 @@ export default function NotesPage() {
 
     if (!user) return;
 
+    let scopedIds: string[] | null = null;
+    if (selectedTagIds.length > 0) {
+      const { data: tagRows } = await supabase
+        .from("note_tags")
+        .select("note_id")
+        .in("tag_id", selectedTagIds);
+      if (!tagRows || tagRows.length === 0) {
+        if (reqIdRef.current !== myReqId) return;
+        setNotes([]);
+        setLoading(false);
+        return;
+      }
+      scopedIds = Array.from(new Set(tagRows.map((r) => r.note_id as string)));
+    }
+
     let query = supabase
       .from("notes")
-      .select("*, reading_item:reading_items(id, title, url)")
-      .eq("user_id", user.id)
-      // 置顶项在前，再按用户选择的字段排序
-      .order("is_pinned", { ascending: false })
-      .order(sortBy, { ascending: sortOrder === "asc" });
+      .select("*, reading_item:reading_items(id, title, url), tags:tags!note_tags(id, name)")
+      .eq("user_id", user.id);
 
     if (search.trim()) {
       query = query.ilike("title", `%${search.trim()}%`);
     }
+    if (scopedIds) query = query.in("id", scopedIds);
+
+    query = query
+      .order("is_pinned", { ascending: false })
+      .order(sortBy, { ascending: sortOrder === "asc" });
 
     const { data, error } = await query;
 
+    if (reqIdRef.current !== myReqId) return;
+
     if (!error && data) {
-      setNotes(data as Note[]);
+      setNotes(data as NoteWithTags[]);
     }
     setLoading(false);
-  }, [search, sortBy, sortOrder, supabase]);
+  }, [search, sortBy, sortOrder, selectedTagIds, supabase]);
 
   useEffect(() => {
     const timer = setTimeout(fetchNotes, 300);
     return () => clearTimeout(timer);
   }, [fetchNotes]);
+
+  const exitSelection = useCallback(() => {
+    clear();
+    setSelectionMode(false);
+  }, [clear]);
 
   const createNote = async () => {
     setCreating(true);
@@ -86,7 +127,7 @@ export default function NotesPage() {
       if (error) throw error;
 
       if (data) {
-        window.location.href = `/notes/${data.id}`;
+        router.push(`/notes/${data.id}`);
       }
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "创建失败");
@@ -100,49 +141,10 @@ export default function NotesPage() {
     const { error } = await supabase.from("notes").delete().eq("id", id);
     if (!error) {
       setNotes((prev) => prev.filter((n) => n.id !== id));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
     }
-  };
-
-  // ---------- 批量删除 ----------
-  const batchDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
-    const ids = Array.from(selectedIds);
-    const { error } = await supabase.from("notes").delete().in("id", ids);
-    if (!error) {
-      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
-      setSelectedIds(new Set());
-      setSelectionMode(false);
-    }
-  };
-
-  const toggleSelect = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
-  const selectAllVisible = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      notes.forEach((n) => next.add(n.id));
-      return next;
-    });
-  };
-  const clearSelection = () => {
-    setSelectedIds(new Set());
-    setSelectionMode(false);
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
-    // 乐观更新
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: pinned } : n)));
     const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
     if (error) {
@@ -150,20 +152,97 @@ export default function NotesPage() {
     }
   };
 
+  const handleToggleSelect = useCallback(
+    (id: string, checked: boolean) => {
+      if (checked) {
+        selection.select(id);
+      } else {
+        selection.deselect(id);
+      }
+    },
+    [selection]
+  );
+
+  const batchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
+    const ids = Array.from(selectedIds);
+    const count = ids.length;
+    const { error } = await supabase.from("notes").delete().in("id", ids);
+    if (!error) {
+      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+      exitSelection();
+      toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
+    }
+  };
+
+  const batchTogglePin = async (pinned: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const count = ids.length;
+    const { error } = await supabase
+      .from("notes")
+      .update({ is_pinned: pinned })
+      .in("id", ids);
+    if (!error) {
+      setNotes((prev) =>
+        prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_pinned: pinned } : n))
+      );
+      exitSelection();
+      toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
+    }
+  };
+
+  const handleSelectAllVisible = () => {
+    selectAll(notes.map((n) => n.id));
+  };
+
+  const noteCardProps = (note: NoteWithTags) => ({
+    note,
+    view,
+    selected: isSelected(note.id),
+    onSelectChange: showCheckbox ? handleToggleSelect : undefined,
+    selectionMode: selectionMode || isSelectMode,
+    onTogglePin: togglePin,
+    onDelete: deleteNote,
+    onTagsApplied: () => fetchNotes(),
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">笔记</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold">笔记</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             记录你的想法和阅读笔记
           </p>
         </div>
-        <Button onClick={createNote} disabled={creating}>
-          <Plus className="h-4 w-4 mr-2" />
-          新建笔记
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)} className="hidden sm:flex">
+            <FileDown className="h-4 w-4 mr-2" />
+            从 JoySpace 导入
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setMdImportOpen(true)} className="shrink-0">
+            <Upload className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">导入MD</span>
+          </Button>
+          <Button onClick={createNote} disabled={creating} className="shrink-0">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">新建笔记</span>
+          </Button>
+        </div>
       </div>
+
+      <JoyspaceImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={(id) => router.push(`/notes/${id}`)}
+      />
+      <MarkdownImportDialog
+        open={mdImportOpen}
+        onOpenChange={setMdImportOpen}
+        onImported={(id) => router.push(`/notes/${id}`)}
+      />
 
       {createError && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -171,18 +250,17 @@ export default function NotesPage() {
         </div>
       )}
 
-      {/* 搜索 + 排序 */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索笔记..."
+            placeholder="搜索..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -194,18 +272,18 @@ export default function NotesPage() {
             }}
           >
             <ArrowUpDown className="h-3.5 w-3.5" />
-            {sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}
+            <span className="hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+            className="hidden sm:flex"
           >
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
 
-          {/* 视图切换 */}
-          <div className="flex items-center rounded-md border overflow-hidden">
+          <div className="hidden sm:flex items-center rounded-md border overflow-hidden">
             <button
               onClick={() => setView("card")}
               className={cn(
@@ -228,90 +306,72 @@ export default function NotesPage() {
             </button>
           </div>
 
-          {/* 批量按钮 */}
           <Button
-            variant={selectionMode ? "default" : "outline"}
+            variant={showCheckbox ? "default" : "ghost"}
             size="sm"
             className="gap-1.5"
             onClick={() => {
-              setSelectionMode(!selectionMode);
-              if (selectionMode) setSelectedIds(new Set());
+              if (selectionMode) {
+                exitSelection();
+              } else {
+                setSelectionMode(true);
+              }
             }}
           >
-            <CheckSquare className="h-3.5 w-3.5" />
-            批量
+            <ListChecks className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">多选</span>
           </Button>
         </div>
       </div>
 
-      {/* 批量操作浮动条 */}
-      {(selectionMode || selectedIds.size > 0) && (
-        <div className="sticky top-0 z-30 -mx-4 px-4 py-2 bg-background/95 backdrop-blur border-b flex items-center gap-2">
-          <Checkbox
-            checked={notes.length > 0 && notes.every((n) => selectedIds.has(n.id))}
-            onCheckedChange={(c) => (c ? selectAllVisible() : clearSelection())}
-          />
-          <span className="text-sm font-medium">已选 {selectedIds.size} 项</span>
-          <div className="flex-1" />
-          <Button
-            size="sm"
-            variant="destructive"
-            className="gap-1.5"
-            onClick={batchDelete}
-            disabled={selectedIds.size === 0}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            删除
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearSelection}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+      <div className="flex items-center">
+        <TagFilter
+          options={allTags}
+          selectedIds={selectedTagIds}
+          onChange={setSelectedTagIds}
+        />
+      </div>
+
+      {isSelectMode && (
+        <BatchActionsBar
+          selectedCount={selectedIds.size}
+          totalCount={notes.length}
+          onClear={exitSelection}
+          onSelectAll={handleSelectAllVisible}
+          typeLabel="篇笔记"
+          actions={
+            <>
+              <Button size="sm" variant="ghost" className="gap-1" onClick={() => batchTogglePin(true)} title="置顶">
+                <Pin className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">置顶</span>
+              </Button>
+              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete} title="删除">
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">删除</span>
+              </Button>
+            </>
+          }
+        />
       )}
 
-      {/* 笔记列表 */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">加载中...</div>
       ) : notes.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <FileText className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p>{search ? "没有找到匹配的笔记" : "还没有笔记"}</p>
-          {!search && (
-            <Button variant="link" onClick={createNote} className="mt-2">
-              创建第一篇笔记
-            </Button>
-          )}
-        </div>
+        <EmptyState
+          icon={FileText}
+          title={search.trim() || selectedTagIds.length > 0 ? "没有找到匹配的笔记" : "还没有笔记"}
+          description="开始记录你的想法和灵感"
+        />
       ) : view === "list" ? (
-        <div className="grid gap-2">
+        <div className="grid gap-2 sm:gap-3">
           {notes.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              view="list"
-              selected={selectedIds.has(note.id)}
-              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
-              selectionMode={selectionMode}
-              onTogglePin={togglePin}
-              onDelete={deleteNote}
-              onTagsApplied={() => fetchNotes()}
-            />
+            <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              view="card"
-              selected={selectedIds.has(note.id)}
-              onSelectChange={selectionMode || selectedIds.size > 0 ? toggleSelect : undefined}
-              selectionMode={selectionMode}
-              onTogglePin={togglePin}
-              onDelete={deleteNote}
-              onTagsApplied={() => fetchNotes()}
-            />
+            <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
       )}

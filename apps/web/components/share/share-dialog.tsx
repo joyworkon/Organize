@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Share2, Copy, Check, Trash2, Loader2, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { ShareResourceType } from "@organize/shared";
 
 interface ShareDialogProps {
@@ -134,8 +135,8 @@ export function ShareDialog({
       {openProp === undefined && (
         <Button
           variant={triggerVariant}
-          size={triggerSize}
-          className="gap-1.5"
+          size={iconOnly ? "sm" : triggerSize}
+          className={cn(iconOnly && "h-7 w-7 p-0 gap-0", !iconOnly && "gap-1.5")}
           title="分享"
           onClick={(e) => {
             e.preventDefault();
@@ -143,7 +144,7 @@ export function ShareDialog({
             setOpen(true);
           }}
         >
-          <Share2 className={iconOnly ? "h-4 w-4" : "h-3.5 w-3.5"} />
+          <Share2 className="h-3.5 w-3.5" />
           {!iconOnly && (triggerLabel || "分享")}
         </Button>
       )}

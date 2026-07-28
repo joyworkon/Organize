@@ -5,47 +5,47 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 20 14.3% 9.1%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 20 14.3% 9.1%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --popover-foreground: 20 14.3% 9.1%;
+    --primary: 16 85% 50%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 20 40% 96%;
+    --secondary-foreground: 20 40% 15%;
+    --muted: 20 30% 96%;
+    --muted-foreground: 25 10% 45%;
+    --accent: 16 70% 95%;
+    --accent-foreground: 16 80% 25%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 20 20% 88%;
+    --input: 20 20% 88%;
+    --ring: 16 85% 50%;
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 20 15% 8%;
+    --foreground: 20 10% 95%;
+    --card: 20 15% 10%;
+    --card-foreground: 20 10% 95%;
+    --popover: 20 15% 10%;
+    --popover-foreground: 20 10% 95%;
+    --primary: 16 85% 55%;
+    --primary-foreground: 20 15% 8%;
+    --secondary: 20 10% 18%;
+    --secondary-foreground: 20 10% 95%;
+    --muted: 20 10% 18%;
+    --muted-foreground: 20 8% 65%;
+    --accent: 16 30% 22%;
+    --accent-foreground: 16 70% 85%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 20 10% 22%;
+    --input: 20 10% 22%;
+    --ring: 16 85% 55%;
   }
 }
 
@@ -53,12 +53,181 @@
   * {
     @apply border-border;
   }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
   }
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: inherit;
+  }
+}
+
+/* ------------------------- 笔记页字体 / 字号 ------------------------- */
+/* 页面级字体族切换：作用于标题与正文；代码块 / 行内代码保持等宽（各自已显式声明 monospace，优先级更贴近元素，不受这里影响） */
+.note-page-serif .note-title,
+.note-page-serif .organize-editor {
+  font-family: Georgia, Cambria, "Times New Roman", ui-serif, serif;
+}
+.note-page-mono .note-title,
+.note-page-mono .organize-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* 小字号：标题与正文按比例缩小并持久化 */
+.note-page-small .note-title {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+.note-page-small .organize-editor {
+  font-size: 0.8125rem;
 }
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
+
+/* 代码块 */
+.organize-editor pre {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.organize-editor pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+.organize-editor :not(pre) > code {
+  background: hsl(var(--muted));
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 表格 */
+.organize-editor table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+}
+.organize-editor th,
+.organize-editor td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.organize-editor th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+.dark .organize-editor th {
+  background: hsl(var(--muted) / 0.5);
+}
+
+/* 引用块：文字左对齐正文，竖线挂到左侧空白（Notion 式） */
+.organize-editor blockquote {
+  border-left: none;
+  padding-left: 0;
+  margin: 0.75rem 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+  position: relative;
+}
+.organize-editor blockquote::before {
+  content: "";
+  position: absolute;
+  left: -0.9rem;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--border));
+}
+
+/* 水平线 */
+.organize-editor hr {
+  border: none;
+  border-top: 2px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}
+
+/* 列表间距统一：prose 默认给 项目符号/编号列表 的 li 和其内层 <p> 都加了较大外边距，
+   而待办列表 li 用的是本文件下面另设的 0.25rem，导致「两个待办贴得紧、两个编号/圆点离得远」，
+   块间距看起来不平均。这里把三种列表（ul / ol / taskList）的 li 外边距统一为 0.25rem，
+   并清掉列表项内层段落的外边距（否则会与 li 外边距叠加），让所有列表项间距一致。 */
+.organize-editor ul li,
+.organize-editor ol li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.organize-editor li > p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+/* 顶层列表容器与其它块的上下间距也保持一致 */
+.organize-editor ul,
+.organize-editor ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+/* Notion 式：顶层列表文字精确左对齐正文，圆点/序号用绝对定位标记挂到左侧空白区
+   （不用原生 list-style，避免 outside 标记残留 ~6px 间隙导致文字与正文不齐） */
+.organize-editor > ul,
+.organize-editor > ol {
+  padding-left: 0;
+  margin-left: 0;
+  list-style: none;
+}
+.organize-editor > ol {
+  counter-reset: organize-ol;
+}
+.organize-editor > ul > li,
+.organize-editor > ol > li {
+  position: relative;
+  padding-left: 0; /* 清掉 prose 给 li 的默认左内边距，让文字精确对齐正文 */
+}
+.organize-editor > ul > li::before {
+  content: "•";
+  position: absolute;
+  left: -1.1em;
+  top: 0;
+  color: hsl(var(--muted-foreground));
+}
+.organize-editor > ol > li {
+  counter-increment: organize-ol;
+}
+.organize-editor > ol > li::before {
+  content: counter(organize-ol) ".";
+  position: absolute;
+  left: -2.4em;
+  width: 2em;
+  top: 0;
+  text-align: right;
+  color: hsl(var(--muted-foreground));
+}
+/* 嵌套列表（列表项里的子列表）保留原生标记与缩进以体现层级 */
+.organize-editor li > ul,
+.organize-editor li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  padding-left: 1.4em;
+}
 
 /* 待办列表（TaskList）样式 */
 .organize-editor ul[data-type="taskList"] {
@@ -66,19 +235,33 @@
   padding-left: 0;
   margin: 0.5rem 0;
 }
+/* Notion 式：待办正文左对齐正文，复选框挂到左侧空白区 */
 .organize-editor ul[data-type="taskList"] li {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
+  position: relative;
+  padding-left: 0;
   margin: 0.25rem 0;
 }
 .organize-editor ul[data-type="taskList"] li > label {
-  flex: 0 0 auto;
-  margin-top: 0.15rem;
+  position: absolute;
+  left: -1.5rem;
+  margin: 0;
+  /* 高度取一行行高，配合 align-items:center 让复选框在首行内垂直居中；
+     用 em 作回退、1lh 精确匹配当前字号的行高，prose / prose-sm 都能对齐 */
+  height: 1.7em;
+  height: 1lh;
+  display: inline-flex;
+  align-items: center;
   user-select: none;
 }
 .organize-editor ul[data-type="taskList"] li > div {
-  flex: 1 1 auto;
+  margin-left: 0;
+}
+/* 待办项正文首/尾段落去掉外边距，保证首行从顶部起始，与左侧复选框行高对齐 */
+.organize-editor ul[data-type="taskList"] li > div > :first-child {
+  margin-top: 0;
+}
+.organize-editor ul[data-type="taskList"] li > div > :last-child {
+  margin-bottom: 0;
 }
 .organize-editor ul[data-type="taskList"] input[type="checkbox"] {
   width: 1rem;
@@ -186,6 +369,59 @@
   margin-top: 0.25rem;
 }
 
+/* 折叠列表在编辑器内由 TipTap NodeView 渲染，实际 DOM 结构如下：
+   <div data-type="details" [.is-open]>
+     <button/>                            ← 切换按钮（默认块级空按钮，会自己占一行）
+     <div>                                ← contentDOM
+       <summary/>                         ← 摘要行（原生 summary 标签）
+       <div data-type="detailsContent" [hidden]/>  ← 内容区，折叠时带 hidden 属性
+   摘要是 <summary> 标签而非 div，内容折叠靠 hidden 属性，选择器需据此适配。 */
+.organize-editor div[data-type="details"] {
+  position: relative;
+  margin: 0.5rem 0;
+  padding-left: 0; /* Notion 式：摘要文字左对齐正文，▶ 标记挂到左侧空白 */
+}
+/* 把空的切换按钮做成 ▶ 标记，绝对定位到左侧首行外侧，避免它块级独占一行 */
+.organize-editor div[data-type="details"] > button {
+  position: absolute;
+  left: -1.4rem;
+  top: 0.1rem;
+  width: 1.25rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+}
+.organize-editor div[data-type="details"] > button::before {
+  content: "▶";
+  font-size: 0.7em;
+  transition: transform 0.15s ease;
+}
+.organize-editor div[data-type="details"].is-open > button::before {
+  transform: rotate(90deg);
+}
+.organize-editor div[data-type="details"] summary {
+  font-weight: 500;
+  padding: 0.1rem 0;
+  outline: none;
+  list-style: none;
+}
+.organize-editor div[data-type="details"] summary::-webkit-details-marker {
+  display: none;
+}
+.organize-editor div[data-type="detailsContent"] {
+  margin-top: 0.25rem;
+}
+/* 折叠（未展开）时隐藏内容区 */
+.organize-editor div[data-type="details"]:not(.is-open) div[data-type="detailsContent"] {
+  display: none;
+}
+
 /* ------------------------- 标注（Callout） ------------------------- */
 .organize-editor div[data-callout] {
   display: flex;
@@ -248,9 +484,14 @@
 .organize-editor-shell > div:has(> .organize-editor) {
   position: relative;
 }
+/* 编辑器正文左边界必须与标题严格对齐：
+   标题 textarea 和编辑器 shell 都是容器（max-w-*）的直接子级、左边界 = 容器内容左边界。
+   这里把编辑器根节点的左内/外边距都归零，让正文第一个字符落在容器左边界，与标题对齐。
+   （手柄 .organize-block-handle 用绝对定位挂在 shell 上、left:-3.5rem，落在左侧空白区，
+     不依赖这里的内边距，所以去掉内边距不影响手柄。） */
 .organize-editor {
-  padding-left: 2.5rem !important;
-  margin-left: -2.5rem;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
 }
 .organize-editor [data-id] {
   transition: background-color 180ms ease, box-shadow 180ms ease;
@@ -356,16 +597,16 @@
   z-index: 100;
   width: min(330px, calc(100vw - 24px));
   overflow: hidden;
-  /* 边框调淡：用 border 色加 50% 透明度，视觉上更轻 */
   border: 1px solid hsl(var(--border) / 0.5);
   border-radius: 12px;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  /* 阴影也调淡一点 */
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
-  /* 文字默认小一点 */
+  box-shadow: 0 8px 28px hsl(222 47% 11% / 0.08), 0 1px 4px hsl(222 47% 11% / 0.04);
   font-size: 13px;
   animation: editor-popover-in 110ms ease-out;
+}
+.dark .editor-popover {
+  box-shadow: 0 8px 28px hsl(0 0% 0% / 0.4), 0 1px 4px hsl(0 0% 0% / 0.2);
 }
 @keyframes editor-popover-in {
   from { opacity: 0; transform: translateY(-4px) scale(.985); }
@@ -578,8 +819,11 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(15, 23, 42, .32);
+  background: hsl(222 47% 11% / 0.5);
   backdrop-filter: blur(2px);
+}
+.dark .editor-dialog-backdrop {
+  background: hsl(0 0% 0% / 0.6);
 }
 .editor-dialog {
   width: min(480px, 100%);
@@ -589,7 +833,10 @@
   border-radius: 14px;
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 24px 80px rgba(15, 23, 42, .24);
+  box-shadow: 0 24px 80px hsl(222 47% 11% / 0.2);
+}
+.dark .editor-dialog {
+  box-shadow: 0 24px 80px hsl(0 0% 0% / 0.5);
 }
 .editor-dialog.wide { width: min(640px, 100%); }
 .editor-dialog-title {
@@ -751,7 +998,7 @@
 .html-embed-toolbar span,
 .html-embed-toolbar button { display: flex; align-items: center; gap: 5px; }
 .html-embed-toolbar button { border: 0; background: transparent; color: hsl(var(--muted-foreground)); }
-.html-embed iframe { display: block; width: 100%; border: 0; background: white; }
+.html-embed iframe { display: block; width: 100%; border: 0; background: hsl(var(--background)); }
 .html-editor-dialog textarea { min-height: 360px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* AI 录音 */
@@ -800,7 +1047,7 @@
 .presentation-close { position: fixed; top: 22px; right: 22px; z-index: 2; }
 
 @media (max-width: 640px) {
-  .organize-editor { padding-left: 2rem !important; margin-left: -2rem; }
+  .organize-editor { padding-left: 0 !important; margin-left: 0 !important; }
   .organize-block-handle { left: -2rem; }
   .organize-block-add { display: none !important; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }
@@ -809,3 +1056,24 @@
   .note-presentation main { width: calc(100vw - 40px); max-height: calc(100vh - 90px); }
   .note-presentation main > h1 { margin-bottom: 22px; }
 }
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  .bottom-safe { bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .top-safe { top: env(safe-area-inset-top); }
+}
+
+/* ------------------------- 文章高亮（划线） ------------------------- */
+mark.hl-yellow { background-color: rgb(254 240 138 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-yellow { background-color: rgb(113 63 18 / 0.4); }
+mark.hl-green { background-color: rgb(187 247 208 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-green { background-color: rgb(20 83 45 / 0.4); }
+mark.hl-blue { background-color: rgb(191 219 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-blue { background-color: rgb(30 58 138 / 0.4); }
+mark.hl-pink { background-color: rgb(251 207 232 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-pink { background-color: rgb(131 24 67 / 0.4); }
+mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
+.dark mark.hl-purple { background-color: rgb(76 29 149 / 0.4); }
+

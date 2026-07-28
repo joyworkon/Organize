@@ -79,15 +79,28 @@ export interface SequenceHandler {
   handler: () => void;
 }
 
+export interface UseHotkeySequenceOptions {
+  onBufferChange?: (buffer: string[]) => void;
+}
+
 /**
  * 双键序列快捷键（如 Gmail/Notion 风格 `g l`）。
  * 在 1.5 秒内按完整个序列才触发。
  */
-export function useHotkeySequence(sequences: SequenceHandler[]) {
+export function useHotkeySequence(
+  sequences: SequenceHandler[],
+  options?: UseHotkeySequenceOptions
+) {
   const seqsRef = useRef(sequences);
   seqsRef.current = sequences;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const notifyBufferChange = useCallback(() => {
+    optionsRef.current?.onBufferChange?.([...bufferRef.current]);
+  }, []);
 
   const reset = useCallback(() => {
     bufferRef.current = [];
@@ -95,7 +108,8 @@ export function useHotkeySequence(sequences: SequenceHandler[]) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  }, []);
+    notifyBufferChange();
+  }, [notifyBufferChange]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -117,6 +131,7 @@ export function useHotkeySequence(sequences: SequenceHandler[]) {
       if (bufferRef.current.length > maxLen) {
         bufferRef.current = bufferRef.current.slice(-maxLen);
       }
+      notifyBufferChange();
 
       // 检查是否有匹配的完整序列
       const buf = bufferRef.current;

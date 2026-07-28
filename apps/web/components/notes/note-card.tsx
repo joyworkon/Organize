@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,8 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
-import type { Note } from "@organize/shared";
+import type { Note, Tag, NoteWithTags } from "@organize/shared";
 import {
   Pin,
   MoreVertical,
@@ -22,18 +24,23 @@ import {
   Share2,
   Trash2,
   Link2,
+  Star,
 } from "lucide-react";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
 import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
 import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { nodeText } from "@/components/editor/block-utils";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 export type NoteViewMode = "card" | "list";
 
 type DialogKind = "export" | "autotag" | "history" | "share" | null;
 
 interface NoteCardProps {
-  note: Note;
+  note: NoteWithTags;
   view: NoteViewMode;
   selected?: boolean;
   onSelectChange?: (id: string, checked: boolean) => void;
@@ -43,13 +50,13 @@ interface NoteCardProps {
   onTagsApplied?: (id: string, names: string[]) => void;
 }
 
-/**
- * 笔记卡片/列表项。
- *
- * 设计：常驻图标只保留 Pin（置顶时显示）+ 更多菜单（⋯）。
- * 导出/AI标签/历史/分享/删除收进更多菜单。
- * 对话框统一用受控状态管理（避免 Radix DropdownMenu 自动关闭导致 Dialog 打不开）。
- */
+function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120): string {
+  if (!content) return "";
+  const text = nodeText(content as any);
+  if (!text) return "";
+  return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
+}
+
 export function NoteCard({
   note,
   view,
@@ -60,12 +67,104 @@ export function NoteCard({
   onDelete,
   onTagsApplied,
 }: NoteCardProps) {
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const showCheckbox = Boolean(onSelectChange);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+
+  const excerpt = useMemo(() => extractExcerpt(note.content), [note.content]);
+  const tags = note.tags || [];
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkFavorite() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("favorites")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("target_type", "note")
+        .eq("target_id", note.id)
+        .maybeSingle();
+      if (mounted) {
+        setIsFavorited(!!data);
+      }
+    }
+    checkFavorite();
+    return () => { mounted = false; };
+  }, [supabase, note.id]);
+
+  const handleToggleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (isTogglingFavorite) return;
+    setIsTogglingFavorite(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      if (isFavorited) {
+        const { error } = await supabase
+          .from("favorites")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("target_type", "note")
+          .eq("target_id", note.id);
+        if (error) throw error;
+        setIsFavorited(false);
+        toast({ title: "已取消收藏" });
+      } else {
+        const { error } = await supabase
+          .from("favorites")
+          .insert({
+            user_id: user.id,
+            target_type: "note",
+            target_id: note.id,
+          });
+        if (error) throw error;
+        setIsFavorited(true);
+        toast({ title: "已收藏" });
+      }
+    } catch {
+      toast({ title: "操作失败", variant: "destructive" });
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  };
 
   const stop = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (showCheckbox) {
+      e.preventDefault();
+      e.stopPropagation();
+      onSelectChange!(note.id, !selected);
+      return;
+    }
+    router.push(`/notes/${note.id}`);
+  };
+
+  const handleLinkClick = (e: React.MouseEvent) => {
+    if (showCheckbox) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const handleDelete = () => {
+    onDelete?.(note.id);
+  };
+
+  const handleTogglePin = () => {
+    onTogglePin?.(note.id, !note.is_pinned);
   };
 
   const Title = (
@@ -79,7 +178,6 @@ export function NoteCard({
     </h3>
   );
 
-  // 受控的对话框组：菜单点击时设状态，对应 Dialog 打开
   const Dialogs = (
     <>
       <AutoTagDialog
@@ -118,7 +216,7 @@ export function NoteCard({
           onClick={stop}
           className={cn(
             "p-1 rounded hover:bg-accent text-muted-foreground shrink-0",
-            !selectionMode && "opacity-0 group-hover:opacity-100"
+            !selectionMode && !showCheckbox && "opacity-0 group-hover:opacity-100"
           )}
           title="更多操作"
         >
@@ -138,7 +236,14 @@ export function NoteCard({
           </DropdownMenuItem>
         )}
 
-        {/* 导出：直接调 exportNoteToMarkdown（内部拉数据+下载） */}
+        <DropdownMenuItem
+          onClick={handleToggleFavorite}
+          disabled={isTogglingFavorite}
+        >
+          <Star className={cn("h-3.5 w-3.5 mr-2", isFavorited && "fill-yellow-500 text-yellow-500")} />
+          {isFavorited ? "取消收藏" : "收藏"}
+        </DropdownMenuItem>
+
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
@@ -205,74 +310,136 @@ export function NoteCard({
     </div>
   );
 
-  // ---- 列表视图：一行紧凑 ----
+  const ContentWrapper = ({ children, className }: { children: React.ReactNode; className?: string }) => {
+    if (showCheckbox) {
+      return (
+        <div className={className} onClick={handleLinkClick}>
+          {children}
+        </div>
+      );
+    }
+    return (
+      <Link href={`/notes/${note.id}`} className={className}>
+        {children}
+      </Link>
+    );
+  };
+
   if (view === "list") {
     return (
       <>
+        <ListItemContextMenu
+          type="note"
+          item={note}
+          onDelete={onDelete ? handleDelete : undefined}
+          onTogglePin={onTogglePin ? handleTogglePin : undefined}
+        >
         <Card
+          onClick={handleCardClick}
           className={cn(
-            "group hover:shadow-sm transition-shadow relative overflow-hidden",
+            "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
+            showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
             selected && "ring-2 ring-primary",
-            // 置顶：左侧细彩条（不抢眼但能识别），不用背景色避免和选中态混淆
             note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
           )}
         >
-          <CardContent className="p-3 flex items-center gap-3">
-            {CheckboxEl}
-            {note.is_pinned && (
-              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
-            )}
-            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0 flex items-center gap-2">
-              {Title}
-              {note.reading_item && (
-                <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0 max-w-[30%]">
-                  <Link2 className="h-3 w-3" />
-                  <span className="truncate">
-                    {(note.reading_item as any).title || (note.reading_item as any).url}
-                  </span>
-                </span>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-3">
+              {CheckboxEl}
+              {note.is_pinned && (
+                <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
               )}
-              <span className="text-xs text-muted-foreground shrink-0">
-                {new Date(note.updated_at).toLocaleDateString("zh-CN")}
-              </span>
-            </Link>
-            <div className="flex items-center gap-0.5 shrink-0">
-              {MoreMenu}
+              <ContentWrapper className="flex-1 min-w-0 flex items-center gap-2">
+                {Title}
+                {tags.length > 0 && (
+                  <span className="hidden md:flex items-center gap-1 shrink-0">
+                    {tags.slice(0, 2).map((tag) => (
+                      <TagBadge key={tag.id} tag={tag} size="sm" />
+                    ))}
+                    {tags.length > 2 && (
+                      <span className="text-xs text-muted-foreground">+{tags.length - 2}</span>
+                    )}
+                  </span>
+                )}
+                {note.reading_item && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title={(note.reading_item as any).title || (note.reading_item as any).url}>
+                    <Link2 className="h-3 w-3" />
+                    <span className="hidden lg:inline truncate max-w-[12rem]">
+                      {(note.reading_item as any).title || (note.reading_item as any).url}
+                    </span>
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {new Date(note.updated_at).toLocaleDateString("zh-CN")}
+                </span>
+              </ContentWrapper>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {MoreMenu}
+              </div>
             </div>
+            {excerpt && (
+              <ContentWrapper className="block mt-1.5 ml-8">
+                <p className="text-xs text-muted-foreground line-clamp-1">{excerpt}</p>
+              </ContentWrapper>
+            )}
           </CardContent>
         </Card>
+        </ListItemContextMenu>
         {Dialogs}
       </>
     );
   }
 
-  // ---- 卡片视图（默认）----
   return (
     <>
+      <ListItemContextMenu
+        type="note"
+        item={note}
+        onDelete={onDelete ? handleDelete : undefined}
+        onTogglePin={onTogglePin ? handleTogglePin : undefined}
+      >
       <Card
+        onClick={handleCardClick}
         className={cn(
-          "group hover:shadow-md transition-shadow h-full flex flex-col relative overflow-hidden",
+          "group cursor-pointer transition-colors duration-150 h-full flex flex-col relative overflow-hidden",
+          showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
           selected && "ring-2 ring-primary",
-          // 置顶：左侧细彩条（视觉统一）
           note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
         )}
       >
-        <CardContent className="p-4 flex-1">
-          <div className="flex items-center gap-2">
+        <CardContent className="p-3 sm:p-4 flex-1 flex flex-col">
+          <div className="flex items-start gap-2">
             {CheckboxEl}
             {note.is_pinned && (
-              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
+              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0 mt-0.5" />
             )}
-            <Link href={`/notes/${note.id}`} className="flex-1 min-w-0">
+            <ContentWrapper className="flex-1 min-w-0">
               {Title}
-            </Link>
+            </ContentWrapper>
             {MoreMenu}
           </div>
-          <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+          {excerpt && (
+            <ContentWrapper className="block mt-2">
+              <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">{excerpt}</p>
+            </ContentWrapper>
+          )}
+          <div className="flex-1" />
+          <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground flex-wrap">
+            {tags.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                {tags.slice(0, 3).map((tag) => (
+                  <TagBadge key={tag.id} tag={tag} size="sm" />
+                ))}
+                {tags.length > 3 && (
+                  <span className="text-xs text-muted-foreground">+{tags.length - 3}</span>
+                )}
+              </div>
+            )}
+            <div className="flex-1" />
             {note.reading_item && (
               <span className="flex items-center gap-1 line-clamp-1">
                 <Link2 className="h-3 w-3 shrink-0" />
-                <span className="truncate">
+                <span className="truncate max-w-[8rem]">
                   {(note.reading_item as any).title || (note.reading_item as any).url}
                 </span>
               </span>
@@ -281,7 +448,7 @@ export function NoteCard({
           </div>
         </CardContent>
       </Card>
-      {Dialogs}
+      </ListItemContextMenu>
       {Dialogs}
     </>
   );

@@ -88,11 +88,15 @@ export interface AIBlockResult {
   transcript?: string;
 }
 
+// 标签颜色类型
+export type TagColor = 'gray' | 'red' | 'orange' | 'amber' | 'yellow' | 'green' | 'emerald' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'purple' | 'fuchsia' | 'pink' | 'rose';
+
 // 标签
 export interface Tag {
   id: string;
   user_id: string;
   name: string;
+  color?: TagColor;
 }
 
 // 插件记录
@@ -124,14 +128,14 @@ export const READING_STATUS_CONFIG: Record<
   ReadingStatus,
   { label: string; color: string }
 > = {
-  unread: { label: "未读", color: "bg-gray-100 text-gray-800" },
-  reading: { label: "在读", color: "bg-blue-100 text-blue-800" },
-  read: { label: "已读", color: "bg-green-100 text-green-800" },
+  unread: { label: "未读", color: "bg-muted text-muted-foreground" },
+  reading: { label: "在读", color: "bg-accent text-accent-foreground" },
+  read: { label: "已读", color: "bg-primary/10 text-primary" },
 };
 
-// ---- 标签系统扩展（005 迁移后新增）----
+// ---- 标签系统扩展（005 迁移后新增，012迁移扩展task/lesson）----
 // 可被打标签的资源类型
-export type TaggableResource = "note" | "reading_item";
+export type TaggableResource = "note" | "reading_item" | "task" | "lesson";
 
 // 带标签的笔记（扩展 Note，不修改原接口避免和其它分支冲突）
 export interface NoteWithTags extends Note {
@@ -142,6 +146,8 @@ export interface NoteWithTags extends Note {
 export interface TagWithCount extends Tag {
   note_count?: number;
   reading_item_count?: number;
+  task_count?: number;
+  lesson_count?: number;
 }
 
 // 笔记-标签关联记录
@@ -149,6 +155,95 @@ export interface NoteTag {
   note_id: string;
   tag_id: string;
 }
+
+// ---- 待办任务（012 迁移新增）----
+export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
+export type TaskPriority = "high" | "medium" | "low";
+export type TaskCategory = "work" | "study" | "life";
+
+export interface Task {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  category: TaskCategory;
+  due_date: string | null;
+  estimated_minutes: number | null;
+  actual_minutes: number | null;
+  reading_item_id: string | null;
+  note_id: string | null;
+  is_pinned: boolean;
+  sort_order: number;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  tags?: Tag[];
+  reading_item?: ReadingItem;
+  note?: Note;
+  checklists?: TaskChecklist[];
+}
+
+export interface TaskChecklist {
+  id: string;
+  task_id: string;
+  content: string;
+  is_completed: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskWithTags extends Task {
+  tags?: Tag[];
+}
+
+export const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
+  todo: { label: "待办", color: "bg-muted text-muted-foreground" },
+  in_progress: { label: "进行中", color: "bg-primary/10 text-primary" },
+  done: { label: "已完成", color: "bg-green-500/10 text-green-600 dark:text-green-400" },
+  cancelled: { label: "已取消", color: "bg-muted text-muted-foreground line-through" },
+};
+
+export const TASK_PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; dot: string }> = {
+  high: { label: "高", color: "text-red-600 dark:text-red-400", dot: "bg-red-500" },
+  medium: { label: "中", color: "text-orange-500 dark:text-orange-400", dot: "bg-orange-500" },
+  low: { label: "低", color: "text-muted-foreground", dot: "bg-muted-foreground/40" },
+};
+
+export const TASK_CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string; icon: string }> = {
+  work: { label: "工作", color: "text-primary", bg: "bg-primary/10", icon: "💼" },
+  study: { label: "学习", color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", icon: "📚" },
+  life: { label: "生活", color: "text-accent-foreground", bg: "bg-accent", icon: "🏠" },
+};
+
+// ---- 经验总结（012 迁移新增）----
+export type LessonType = "reflection" | "lesson" | "insight";
+
+export interface Lesson {
+  id: string;
+  user_id: string;
+  title: string | null;
+  content: Record<string, unknown> | null;
+  lesson_type: LessonType;
+  task_id: string | null;
+  reading_item_id: string | null;
+  note_id: string | null;
+  created_at: string;
+  updated_at: string;
+  tags?: Tag[];
+}
+
+export interface LessonWithTags extends Lesson {
+  tags?: Tag[];
+}
+
+export const LESSON_TYPE_CONFIG: Record<LessonType, { label: string; icon: string; color: string; description: string }> = {
+  reflection: { label: "复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
+  lesson: { label: "经验", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
+  insight: { label: "灵感", icon: "✨", color: "text-purple-500", description: "突发的灵感和想法" },
+};
 
 // ---- 分享功能（006 迁移后新增）----
 export type ShareResourceType = "note" | "reading_item";
@@ -161,5 +256,33 @@ export interface Share {
   token: string;
   is_public: boolean;
   expires_at: string | null;
+  created_at: string;
+}
+
+// ---- 文章高亮（划线）（014 迁移新增）----
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink' | 'purple';
+
+export interface Highlight {
+  id: string;
+  user_id: string;
+  reading_item_id: string;
+  content: string;
+  note?: string | null;
+  color: HighlightColor;
+  anchor_path?: string | null;
+  anchor_offset?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---- 收藏夹（016 迁移新增）----
+export type FavoriteTargetType = 'reading' | 'note' | 'task';
+
+export interface Favorite {
+  id: string;
+  user_id: string;
+  target_type: FavoriteTargetType;
+  target_id: string;
+  note?: string | null;
   created_at: string;
 }

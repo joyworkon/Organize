@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("notes")
-    .select("*, reading_item:reading_items(id, title, url)")
+    .select("*, reading_item:reading_items(id, title, url), tags:tags!note_tags(id, name)")
     .eq("user_id", user.id);
 
   if (search) {

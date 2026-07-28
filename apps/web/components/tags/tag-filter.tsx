@@ -45,7 +45,7 @@ export function TagFilter({
     <div className="flex flex-wrap items-center gap-1.5">
       {visibleSelected.length > 0 ? (
         visibleSelected.map((tag) => (
-          <TagBadge key={tag.id} tag={tag} active onRemove={toggle} />
+          <TagBadge key={tag.id} tag={tag} active onRemove={() => toggle(tag.id)} />
         ))
       ) : (
         <span className="text-xs text-muted-foreground">全部标签</span>
@@ -78,7 +78,7 @@ export function TagFilter({
                   key={tag.id}
                   tag={tag}
                   active={selectedSet.has(tag.id)}
-                  onClick={toggle}
+                  onClick={() => toggle(tag.id)}
                 />
               ))}
             </div>

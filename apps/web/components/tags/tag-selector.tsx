@@ -4,16 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Tag as TagIcon, Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { TagBadge } from "./tag-badge";
 import { cn } from "@/lib/utils";
 import type { Tag } from "@organize/shared";
 
 interface TagSelectorProps {
   /** 当前已选中的标签 */
-  selected: Pick<Tag, "id" | "name">[];
+  selected: Pick<Tag, "id" | "name" | "color">[];
   /** 所有可选标签（由父组件通过 GET /api/tags 加载后传入） */
   options: Tag[];
   /** 选中状态变化时回调（增删都会触发，返回最新全量选中列表） */
-  onChange: (next: Pick<Tag, "id" | "name">[]) => void;
+  onChange: (next: Pick<Tag, "id" | "name" | "color">[]) => void;
   /** 允许输入新标签名直接创建；默认 true */
   allowCreate?: boolean;
   /** 触发器文案 */
@@ -55,7 +56,7 @@ export function TagSelector({
     query.trim().length <= 32 &&
     !options.some((o) => o.name.toLowerCase() === query.trim().toLowerCase());
 
-  const toggle = (tag: Pick<Tag, "id" | "name">) => {
+  const toggle = (tag: Pick<Tag, "id" | "name" | "color">) => {
     if (selectedIds.has(tag.id)) {
       onChange(selected.filter((t) => t.id !== tag.id));
     } else {
@@ -68,7 +69,7 @@ export function TagSelector({
     if (!name) return;
     // 给一个临时 id（以 new: 前缀），父组件在保存时识别并调用 POST /api/tags 创建
     // 更简单的做法：父组件 onSelectNew 回调里创建。这里统一走 onChange，用 new: 前缀
-    const tempTag = { id: `new:${name}`, name };
+    const tempTag = { id: `new:${name}`, name, color: "blue" as const };
     onChange([...selected, tempTag]);
     setQuery("");
   };
@@ -112,7 +113,7 @@ export function TagSelector({
                       >
                         {isSelected && <Check className="h-3 w-3" />}
                       </span>
-                      <span className="truncate">{tag.name}</span>
+                      <TagBadge tag={tag} size="sm" />
                     </CommandItem>
                   );
                 })}
