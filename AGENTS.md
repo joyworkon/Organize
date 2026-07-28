@@ -83,13 +83,15 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（001 建表 + RLS、002 存储桶、003 GRANT 权限）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（001–017 增量迁移：001 建表 + RLS、002 存储桶、003 GRANT 权限，其后 004–017 陆续加入笔记评论/建议、标签扩展与颜色、分享、置顶、全文搜索、笔记版本、任务与课程、清单、高亮、收藏等功能）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
 ### 后端（Supabase）
-- 表：`reading_items`（阅读条目）、`notes`（笔记，content 为 jsonb）、`tags`、`item_tags`（多对多）、`plugins`（插件配置）
-- 所有表启用 RLS（按 `auth.uid() = user_id` 行级隔离）；此外还必须 GRANT 表级权限（见 003 迁移），否则写入报 `permission denied for table`
+- 核心表（001）：`reading_items`（阅读条目）、`notes`（笔记，content 为 jsonb）、`tags`、`item_tags`（多对多）、`plugins`（插件配置）
+- 后续迁移新增的表：`note_comment_threads` / `note_comments` / `note_suggestions`（004 笔记评论与建议）、`note_tags`（005 笔记-标签）、`shares`（006 分享）、`note_versions`（010 笔记历史版本）、`tasks` / `lessons` / `task_tags` / `lesson_tags`（012 任务与课程）、`task_checklists`（013 任务清单）、`highlights`（014 高亮）、`favorites`（016 收藏）
+- 部分迁移是对既有表的 `alter`/索引而非建表：008 给 `notes`/`reading_items` 加 `is_pinned`、009 加全文搜索 trigram 索引、011 给 `tags` 加 `created_at`、015 给 `tasks` 加 `sort_order`、017 给 `tags` 加 `color`
+- 所有表启用 RLS（按 `auth.uid() = user_id` 行级隔离）；此外**每张新表都必须**额外 GRANT 表级权限（003 覆盖初始表，004+ 各自迁移内 GRANT），否则写入报 `permission denied for table`
 - `reading_items.reading_status` 为三态枚举：`unread` / `reading` / `read`
 
 ### 阅读链路
