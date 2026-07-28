@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { markdownToTiptapDoc } from "@/lib/import/markdown-to-tiptap";
 import { toast } from "@/hooks/use-toast";
@@ -40,7 +40,7 @@ export function MarkdownImportDialog({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const reset = () => {
     setMode("paste");

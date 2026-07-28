@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ export default function NotesPage() {
   const selection = useSelection<NoteWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { tags: allTags, refresh: refreshTags } = useAllTags();
 
   const reqIdRef = useRef(0);
@@ -139,9 +139,12 @@ export default function NotesPage() {
   const deleteNote = async (id: string) => {
     if (!confirm("确定删除这篇笔记？此操作不可撤销。")) return;
     const { error } = await supabase.from("notes").delete().eq("id", id);
-    if (!error) {
-      setNotes((prev) => prev.filter((n) => n.id !== id));
+    if (error) {
+      toast({ title: "删除失败", description: error.message, variant: "destructive" });
+      return;
     }
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+    toast({ title: "已删除笔记" });
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
@@ -149,6 +152,7 @@ export default function NotesPage() {
     const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
     if (error) {
       setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, is_pinned: !pinned } : n)));
+      toast({ title: pinned ? "置顶失败" : "取消置顶失败", variant: "destructive" });
     }
   };
 
@@ -169,11 +173,13 @@ export default function NotesPage() {
     const ids = Array.from(selectedIds);
     const count = ids.length;
     const { error } = await supabase.from("notes").delete().in("id", ids);
-    if (!error) {
-      setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
-      exitSelection();
-      toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
+    if (error) {
+      toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
+      return;
     }
+    setNotes((prev) => prev.filter((n) => !selectedIds.has(n.id)));
+    exitSelection();
+    toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
   };
 
   const batchTogglePin = async (pinned: boolean) => {
@@ -184,13 +190,15 @@ export default function NotesPage() {
       .from("notes")
       .update({ is_pinned: pinned })
       .in("id", ids);
-    if (!error) {
-      setNotes((prev) =>
-        prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_pinned: pinned } : n))
-      );
-      exitSelection();
-      toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
+    if (error) {
+      toast({ title: "操作失败", description: error.message, variant: "destructive" });
+      return;
     }
+    setNotes((prev) =>
+      prev.map((n) => (selectedIds.has(n.id) ? { ...n, is_pinned: pinned } : n))
+    );
+    exitSelection();
+    toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
   };
 
   const handleSelectAllVisible = () => {

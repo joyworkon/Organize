@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,7 @@ interface TaskDialogProps {
 }
 
 export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");

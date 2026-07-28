@@ -60,10 +60,18 @@ export default function NoteEditorPage() {
   useEffect(() => {
     let active = true;
     async function loadNote() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabase
         .from("notes")
         .select("*")
         .eq("id", noteId)
+        .eq("user_id", user.id)
         .single();
 
       if (!active) return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   CommandDialog,
@@ -232,7 +232,7 @@ function clearRecentSearches() {
 
 export function CommandPalette() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -514,6 +514,32 @@ export function CommandPalette() {
     };
   }, [searchQuery, performSearch]);
 
+  const handleCreateNote = async () => {
+    setOpen(false);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: user.id,
+          title: "无标题笔记",
+          content: { type: "doc", content: [{ type: "paragraph" }] },
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        router.push(`/notes/${data.id}`);
+      }
+    } catch {
+      toast({ title: "创建笔记失败", variant: "destructive" });
+    }
+  };
+
   const handleSelect = (path: string) => {
     setOpen(false);
     router.push(path);
@@ -637,128 +663,9 @@ export function CommandPalette() {
           autoFocus
         />
         <CommandList>
-          {!showSearch && !linkInputOpen && !showRecentSearches && (
-            <>
-              <CommandEmpty>没有找到结果</CommandEmpty>
-              <CommandGroup heading="导航">
-                {NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <CommandItem
-                      key={item.path}
-                      value={item.label}
-                      onSelect={() => handleSelect(item.path)}
-                    >
-                      <Icon className="mr-2 h-4 w-4" />
-                      <span>{item.label}</span>
-                      <CommandShortcut>{item.shortcut}</CommandShortcut>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="快速新建">
-                <CommandItem onSelect={() => setTaskDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>新建任务</span>
-                </CommandItem>
-                <CommandItem onSelect={() => setLinkInputOpen(true)}>
-                  <LinkIcon className="mr-2 h-4 w-4" />
-                  <span>粘贴链接到收集箱</span>
-                </CommandItem>
-                <CommandItem
-                  onSelect={() => {
-                    toast({ title: "功能开发中", description: "笔记新建功能即将上线" });
-                    setOpen(false);
-                  }}
-                >
-                  <FilePlus className="mr-2 h-4 w-4" />
-                  <span>新建笔记</span>
-                </CommandItem>
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="帮助">
-                <CommandItem onSelect={() => { resetOnboarding(); }}>
-                  <HelpCircle className="mr-2 h-4 w-4" />
-                  <span>重新查看引导</span>
-                </CommandItem>
-              </CommandGroup>
-            </>
-          )}
+          <CommandEmpty>没有找到结果</CommandEmpty>
 
-          {showRecentSearches && (
-            <>
-              <CommandGroup heading="最近搜索">
-                {recentSearches.map((query, idx) => (
-                  <CommandItem
-                    key={`${query}-${idx}`}
-                    value={query}
-                    onSelect={() => handleRecentSearchClick(query)}
-                  >
-                    <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
-                    <span className="flex-1">{query}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <div className="px-2 py-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-xs text-muted-foreground h-8"
-                  onClick={handleClearRecentSearches}
-                >
-                  <X className="mr-1.5 h-3 w-3" />
-                  清除最近搜索
-                </Button>
-              </div>
-              <CommandSeparator />
-              <CommandGroup heading="导航">
-                {NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <CommandItem
-                      key={item.path}
-                      value={item.label}
-                      onSelect={() => handleSelect(item.path)}
-                    >
-                      <Icon className="mr-2 h-4 w-4" />
-                      <span>{item.label}</span>
-                      <CommandShortcut>{item.shortcut}</CommandShortcut>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="快速新建">
-                <CommandItem onSelect={() => setTaskDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>新建任务</span>
-                </CommandItem>
-                <CommandItem onSelect={() => setLinkInputOpen(true)}>
-                  <LinkIcon className="mr-2 h-4 w-4" />
-                  <span>粘贴链接到收集箱</span>
-                </CommandItem>
-                <CommandItem
-                  onSelect={() => {
-                    toast({ title: "功能开发中", description: "笔记新建功能即将上线" });
-                    setOpen(false);
-                  }}
-                >
-                  <FilePlus className="mr-2 h-4 w-4" />
-                  <span>新建笔记</span>
-                </CommandItem>
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="帮助">
-                <CommandItem onSelect={() => { resetOnboarding(); }}>
-                  <HelpCircle className="mr-2 h-4 w-4" />
-                  <span>重新查看引导</span>
-                </CommandItem>
-              </CommandGroup>
-            </>
-          )}
-
-          {linkInputOpen && (
+          {linkInputOpen ? (
             <div className="p-3 space-y-3">
               <div className="flex items-center gap-2">
                 <LinkIcon className="h-4 w-4 text-muted-foreground" />
@@ -788,55 +695,125 @@ export function CommandPalette() {
                 </Button>
               </div>
             </div>
-          )}
-
-          {showEmptyState && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              <SearchIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>未找到相关内容</p>
-              <p className="text-xs mt-1">尝试其他关键词或检查拼写</p>
-            </div>
-          )}
-
-          {showSearch && !linkInputOpen && hasResults && (
+          ) : (
             <>
-              {groupedResults.tag.length > 0 && (
-                <CommandGroup heading="标签">
-                  {groupedResults.tag.map((r) => renderSearchResultItem(r, searchQuery))}
-                </CommandGroup>
+              {showRecentSearches && (
+                <>
+                  <CommandGroup heading="最近搜索">
+                    {recentSearches.map((query, idx) => (
+                      <CommandItem
+                        key={`${query}-${idx}`}
+                        value={query}
+                        onSelect={() => handleRecentSearchClick(query)}
+                      >
+                        <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+                        <span className="flex-1">{query}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <div className="px-2 py-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-xs text-muted-foreground h-8"
+                      onClick={handleClearRecentSearches}
+                    >
+                      <X className="mr-1.5 h-3 w-3" />
+                      清除最近搜索
+                    </Button>
+                  </div>
+                  <CommandSeparator />
+                </>
               )}
-              {renderMoreIndicator("tag", counts.tag)}
-              {groupedResults.reading.length > 0 && (
-                <CommandGroup heading="阅读">
-                  {groupedResults.reading.map((r) => renderSearchResultItem(r, searchQuery))}
-                </CommandGroup>
-              )}
-              {renderMoreIndicator("reading", counts.reading)}
-              {groupedResults.note.length > 0 && (
-                <CommandGroup heading="笔记">
-                  {groupedResults.note.map((r) => renderSearchResultItem(r, searchQuery))}
-                </CommandGroup>
-              )}
-              {renderMoreIndicator("note", counts.note)}
-              {groupedResults.task.length > 0 && (
-                <CommandGroup heading="任务">
-                  {groupedResults.task.map((r) => renderSearchResultItem(r, searchQuery))}
-                </CommandGroup>
-              )}
-              {renderMoreIndicator("task", counts.task)}
-              {groupedResults.lesson.length > 0 && (
-                <CommandGroup heading="经验">
-                  {groupedResults.lesson.map((r) => renderSearchResultItem(r, searchQuery))}
-                </CommandGroup>
-              )}
-              {renderMoreIndicator("lesson", counts.lesson)}
-            </>
-          )}
 
-          {showSearch && loading && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              搜索中...
-            </div>
+              {showSearch && loading && (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  搜索中...
+                </div>
+              )}
+
+              {showSearch && !loading && hasResults && (
+                <>
+                  {groupedResults.tag.length > 0 && (
+                    <CommandGroup heading="标签">
+                      {groupedResults.tag.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("tag", counts.tag)}
+                  {groupedResults.reading.length > 0 && (
+                    <CommandGroup heading="阅读">
+                      {groupedResults.reading.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("reading", counts.reading)}
+                  {groupedResults.note.length > 0 && (
+                    <CommandGroup heading="笔记">
+                      {groupedResults.note.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("note", counts.note)}
+                  {groupedResults.task.length > 0 && (
+                    <CommandGroup heading="任务">
+                      {groupedResults.task.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("task", counts.task)}
+                  {groupedResults.lesson.length > 0 && (
+                    <CommandGroup heading="经验">
+                      {groupedResults.lesson.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("lesson", counts.lesson)}
+                </>
+              )}
+
+              {showEmptyState && (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <SearchIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>未找到相关内容</p>
+                  <p className="text-xs mt-1">尝试其他关键词或检查拼写</p>
+                </div>
+              )}
+
+              <CommandGroup heading="导航">
+                {NAV_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <CommandItem
+                      key={item.path}
+                      value={item.label}
+                      onSelect={() => handleSelect(item.path)}
+                    >
+                      <Icon className="mr-2 h-4 w-4" />
+                      <span>{item.label}</span>
+                      <CommandShortcut>{item.shortcut}</CommandShortcut>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+              <CommandSeparator />
+              <CommandGroup heading="快速新建">
+                <CommandItem onSelect={() => setTaskDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span>新建任务</span>
+                </CommandItem>
+                <CommandItem onSelect={() => setLinkInputOpen(true)}>
+                  <LinkIcon className="mr-2 h-4 w-4" />
+                  <span>粘贴链接到收集箱</span>
+                </CommandItem>
+                <CommandItem onSelect={handleCreateNote}>
+                  <FilePlus className="mr-2 h-4 w-4" />
+                  <span>新建笔记</span>
+                </CommandItem>
+              </CommandGroup>
+              <CommandSeparator />
+              <CommandGroup heading="帮助">
+                <CommandItem onSelect={() => { resetOnboarding(); }}>
+                  <HelpCircle className="mr-2 h-4 w-4" />
+                  <span>重新查看引导</span>
+                </CommandItem>
+              </CommandGroup>
+            </>
           )}
         </CommandList>
       </CommandDialog>

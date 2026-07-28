@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export default function InboxPage() {
   const [result, setResult] = useState<ScrapeResult | null>(null);
   const [saved, setSaved] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const handleScrape = async () => {
     if (!url.trim()) return;

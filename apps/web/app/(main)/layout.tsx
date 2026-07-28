@@ -6,6 +6,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { Toaster } from "@/components/ui/toast";
 import { QuickAdd } from "@/components/quick-add";
 import { Onboarding } from "@/components/onboarding";
+import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
 
 export default function MainLayout({
   children,
@@ -14,6 +15,7 @@ export default function MainLayout({
 }) {
   return (
     <div className="min-h-screen bg-background">
+      <BodyPointerEventsGuard />
       <PluginBootstrap />
       <Sidebar />
       <MobileTabBar />

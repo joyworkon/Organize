@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { markdownToTiptapDoc } from "@/lib/import/markdown-to-tiptap";
 import { toast } from "@/hooks/use-toast";
@@ -43,7 +43,7 @@ export function JoyspaceImportDialog({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const reset = () => {
     setSourceUrl("");
