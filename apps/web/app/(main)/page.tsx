@@ -461,6 +461,12 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      <div className="flex items-center gap-3 py-2">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">任务与内容</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-4">
           {overdueTasks.length > 0 && (
