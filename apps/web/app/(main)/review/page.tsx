@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft,
@@ -119,7 +118,7 @@ export default function ReviewPage() {
   const [data, setData] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const today = new Date();
 
@@ -273,212 +272,210 @@ export default function ReviewPage() {
       </div>
 
       <div className="p-4 md:p-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" />
-            加载中...
-          </div>
-        ) : error ? (
-          <div className="text-center py-12 text-muted-foreground">{error}</div>
-        ) : data ? (
-          <>
-            <div className="grid lg:grid-cols-2 gap-4">
-              <div className="space-y-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4" />
-                      今日完成
-                    </h2>
-                    {data.tasks.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        今天还没有完成任务，加油 💪
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {data.tasks.map((task) => (
-                          <div
-                            key={task.id}
-                            className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors"
-                          >
-                            <Checkbox checked disabled className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground" />
-                            <span
-                              className={cn(
-                                "w-2 h-2 rounded-full shrink-0",
-                                CATEGORY_COLORS[task.category]
-                              )}
-                              title={CATEGORY_LABELS[task.category]}
-                            />
-                            <span className="text-sm flex-1 truncate">{task.title}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {formatTime(task.completed_at)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-                      <BookOpen className="h-4 w-4" />
-                      今日阅读
-                    </h2>
-                    {data.readingItems.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        今天还没有阅读记录
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {data.readingItems.map((item) => (
-                          <Link
-                            key={item.id}
-                            href={`/library/${item.id}`}
-                            className="flex flex-col gap-1.5 p-2 rounded hover:bg-accent transition-colors cursor-pointer"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm flex-1 truncate">
-                                {item.title || "无标题"}
-                              </span>
-                              <span className="text-xs text-muted-foreground shrink-0">
-                                {getReadingStatusLabel(item.reading_status)}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-primary rounded-full transition-all"
-                                  style={{
-                                    width: `${Math.round((item.reading_progress || 0) * 100)}%`,
-                                  }}
-                                />
-                              </div>
-                              <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
-                                {Math.round((item.reading_progress || 0) * 100)}%
-                              </span>
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="space-y-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      今日笔记
-                    </h2>
-                    {data.notes.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        今天还没有创建或编辑笔记
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {data.notes.map((note) => (
-                          <Link
-                            key={note.id}
-                            href={`/notes/${note.id}`}
-                            className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors cursor-pointer"
-                          >
-                            <span className="text-sm flex-1 truncate">
-                              {note.title || "无标题笔记"}
-                            </span>
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {formatTime(note.updated_at)}
-                            </span>
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardContent className="p-4">
-                    <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-                      <Highlighter className="h-4 w-4" />
-                      今日高亮
-                    </h2>
-                    {data.highlights.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">
-                        今天还没有添加高亮
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {data.highlights.map((highlight) => (
-                          <div
-                            key={highlight.id}
-                            className="p-2 rounded hover:bg-accent transition-colors"
-                          >
-                            <div className="flex items-start gap-2">
-                              <span
-                                className={cn(
-                                  "w-1 h-auto self-stretch rounded-full shrink-0",
-                                  highlight.color === "yellow" && "bg-yellow-400",
-                                  highlight.color === "green" && "bg-green-400",
-                                  highlight.color === "blue" && "bg-blue-400",
-                                  highlight.color === "pink" && "bg-pink-400",
-                                  highlight.color === "purple" && "bg-purple-400"
-                                )}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm line-clamp-2">
-                                  {truncateText(highlight.content, 50)}
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1 truncate">
-                                  {highlight.reading_items?.title || "未知文章"}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+        <div className="max-w-3xl mx-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              加载中...
             </div>
+          ) : error ? (
+            <div className="text-center py-12 text-muted-foreground">{error}</div>
+          ) : data ? (
+            <div className="rounded-lg border bg-card">
+              <div className="p-5 border-b">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  今日完成
+                </h2>
+              </div>
+              <div className="p-5">
+                {data.tasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    今天还没有完成任务，加油 💪
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {data.tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors"
+                      >
+                        <Checkbox checked disabled className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground" />
+                        <span
+                          className={cn(
+                            "w-2 h-2 rounded-full shrink-0",
+                            CATEGORY_COLORS[task.category]
+                          )}
+                          title={CATEGORY_LABELS[task.category]}
+                        />
+                        <span className="text-sm flex-1 truncate">{task.title}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {formatTime(task.completed_at)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {stats && (
-              <Card className="mt-4">
-                <CardContent className="p-4">
-                  <h2 className="text-sm font-medium text-muted-foreground mb-4 flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    今日统计
-                  </h2>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-primary">{stats.completedTasks}</p>
-                      <p className="text-xs text-muted-foreground">完成任务</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{stats.readingItems}</p>
-                      <p className="text-xs text-muted-foreground">阅读文章</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{stats.newNotes}</p>
-                      <p className="text-xs text-muted-foreground">新建笔记</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{stats.newHighlights}</p>
-                      <p className="text-xs text-muted-foreground">新增高亮</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{stats.readingMinutes}</p>
-                      <p className="text-xs text-muted-foreground">阅读分钟(预估)</p>
+              <div className="p-5 border-b">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-orange-500" />
+                  今日阅读
+                </h2>
+              </div>
+              <div className="p-5">
+                {data.readingItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    今天还没有阅读记录
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.readingItems.map((item) => (
+                      <Link
+                        key={item.id}
+                        href={`/library/${item.id}`}
+                        className="flex flex-col gap-1.5 p-2 rounded hover:bg-accent transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm flex-1 truncate">
+                            {item.title || "无标题"}
+                          </span>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {getReadingStatusLabel(item.reading_status)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all"
+                              style={{
+                                width: `${Math.round((item.reading_progress || 0) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
+                            {Math.round((item.reading_progress || 0) * 100)}%
+                          </span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 border-b">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-green-500" />
+                  今日笔记
+                </h2>
+              </div>
+              <div className="p-5">
+                {data.notes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    今天还没有创建或编辑笔记
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {data.notes.map((note) => (
+                      <Link
+                        key={note.id}
+                        href={`/notes/${note.id}`}
+                        className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors cursor-pointer"
+                      >
+                        <span className="text-sm flex-1 truncate">
+                          {note.title || "无标题笔记"}
+                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {formatTime(note.updated_at)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 border-b">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Highlighter className="h-4 w-4 text-yellow-500" />
+                  今日高亮
+                </h2>
+              </div>
+              <div className="p-5">
+                {data.highlights.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    今天还没有添加高亮
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.highlights.map((highlight) => (
+                      <div
+                        key={highlight.id}
+                        className="p-2 rounded hover:bg-accent transition-colors"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className={cn(
+                              "w-1 h-auto self-stretch rounded-full shrink-0",
+                              highlight.color === "yellow" && "bg-yellow-400",
+                              highlight.color === "green" && "bg-green-400",
+                              highlight.color === "blue" && "bg-blue-400",
+                              highlight.color === "pink" && "bg-pink-400",
+                              highlight.color === "purple" && "bg-purple-400"
+                            )}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm line-clamp-2">
+                              {truncateText(highlight.content, 50)}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1 truncate">
+                              {highlight.reading_items?.title || "未知文章"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {stats && (
+                <>
+                  <div className="p-5 border-b">
+                    <h2 className="font-semibold flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-primary" />
+                      今日统计
+                    </h2>
+                  </div>
+                  <div className="p-5">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-primary">{stats.completedTasks}</p>
+                        <p className="text-xs text-muted-foreground">完成任务</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold">{stats.readingItems}</p>
+                        <p className="text-xs text-muted-foreground">阅读文章</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold">{stats.newNotes}</p>
+                        <p className="text-xs text-muted-foreground">新建笔记</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold">{stats.newHighlights}</p>
+                        <p className="text-xs text-muted-foreground">新增高亮</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold">{stats.readingMinutes}</p>
+                        <p className="text-xs text-muted-foreground">阅读分钟(预估)</p>
+                      </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

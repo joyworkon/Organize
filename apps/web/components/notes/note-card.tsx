@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
-import type { Note, Tag, NoteWithTags } from "@organize/shared";
+import type { NoteWithTags } from "@organize/shared";
 import {
   Pin,
   MoreVertical,
@@ -76,6 +75,7 @@ export function NoteCard({
 
   const excerpt = useMemo(() => extractExcerpt(note.content), [note.content]);
   const tags = note.tags || [];
+  const href = `/notes/${note.id}`;
 
   useEffect(() => {
     let mounted = true;
@@ -137,10 +137,10 @@ export function NoteCard({
     }
   };
 
-  const stop = (e: React.MouseEvent) => {
+  const stop = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
-  };
+  }, []);
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (showCheckbox) {
@@ -149,13 +149,17 @@ export function NoteCard({
       onSelectChange!(note.id, !selected);
       return;
     }
-    router.push(`/notes/${note.id}`);
+    if (e.metaKey || e.ctrlKey) {
+      window.open(href, "_blank");
+      return;
+    }
+    router.push(href);
   };
 
-  const handleLinkClick = (e: React.MouseEvent) => {
-    if (showCheckbox) {
+  const handleCardAuxClick = (e: React.MouseEvent) => {
+    if (e.button === 1 && !showCheckbox) {
       e.preventDefault();
-      e.stopPropagation();
+      window.open(href, "_blank");
     }
   };
 
@@ -214,9 +218,10 @@ export function NoteCard({
       <DropdownMenuTrigger asChild>
         <button
           onClick={stop}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") stop(e); }}
           className={cn(
             "p-1 rounded hover:bg-accent text-muted-foreground shrink-0",
-            !selectionMode && !showCheckbox && "opacity-0 group-hover:opacity-100"
+            !selectionMode && !showCheckbox && "opacity-40 group-hover:opacity-100"
           )}
           title="更多操作"
         >
@@ -305,25 +310,53 @@ export function NoteCard({
       <Checkbox
         checked={selected}
         onCheckedChange={(c) => onSelectChange!(note.id, c === true)}
-        className={cn(!selectionMode && "opacity-0 group-hover:opacity-100")}
+        className={cn(!selectionMode && "opacity-40 group-hover:opacity-100")}
       />
     </div>
   );
 
-  const ContentWrapper = ({ children, className }: { children: React.ReactNode; className?: string }) => {
-    if (showCheckbox) {
-      return (
-        <div className={className} onClick={handleLinkClick}>
-          {children}
-        </div>
-      );
-    }
-    return (
-      <Link href={`/notes/${note.id}`} className={className}>
-        {children}
-      </Link>
+  const cardBaseClass = cn(
+    "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
+    showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
+    selected && "ring-2 ring-primary",
+    note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
+  );
+
+  const pinnedIcon = (inline = false) =>
+    note.is_pinned && (
+      <Pin className={cn("h-3.5 w-3.5 text-primary fill-primary shrink-0", inline && "mt-0.5")} />
     );
-  };
+
+  const tagsPreview = (count: number) =>
+    tags.length > 0 && (
+      <span className="hidden md:flex items-center gap-1 shrink-0">
+        {tags.slice(0, count).map((tag) => (
+          <TagBadge key={tag.id} tag={tag} size="sm" />
+        ))}
+        {tags.length > count && (
+          <span className="text-xs text-muted-foreground">+{tags.length - count}</span>
+        )}
+      </span>
+    );
+
+  const readingLink = note.reading_item && (
+    <span
+      className="flex items-center gap-1 text-xs text-muted-foreground shrink-0"
+      title={(note.reading_item as any).title || (note.reading_item as any).url}
+      onClick={stop}
+    >
+      <Link2 className="h-3 w-3" />
+      <span className="hidden lg:inline truncate max-w-[12rem]">
+        {(note.reading_item as any).title || (note.reading_item as any).url}
+      </span>
+    </span>
+  );
+
+  const dateBadge = (
+    <span className="text-xs text-muted-foreground shrink-0">
+      {new Date(note.updated_at).toLocaleDateString("zh-CN")}
+    </span>
+  );
 
   if (view === "list") {
     return (
@@ -336,51 +369,27 @@ export function NoteCard({
         >
         <Card
           onClick={handleCardClick}
-          className={cn(
-            "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
-            showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
-            selected && "ring-2 ring-primary",
-            note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
-          )}
+          onMouseDown={handleCardAuxClick}
+          className={cn(cardBaseClass)}
         >
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center gap-3">
               {CheckboxEl}
-              {note.is_pinned && (
-                <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0" />
-              )}
-              <ContentWrapper className="flex-1 min-w-0 flex items-center gap-2">
+              {pinnedIcon()}
+              <div className="flex-1 min-w-0 flex items-center gap-2">
                 {Title}
-                {tags.length > 0 && (
-                  <span className="hidden md:flex items-center gap-1 shrink-0">
-                    {tags.slice(0, 2).map((tag) => (
-                      <TagBadge key={tag.id} tag={tag} size="sm" />
-                    ))}
-                    {tags.length > 2 && (
-                      <span className="text-xs text-muted-foreground">+{tags.length - 2}</span>
-                    )}
-                  </span>
-                )}
-                {note.reading_item && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title={(note.reading_item as any).title || (note.reading_item as any).url}>
-                    <Link2 className="h-3 w-3" />
-                    <span className="hidden lg:inline truncate max-w-[12rem]">
-                      {(note.reading_item as any).title || (note.reading_item as any).url}
-                    </span>
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {new Date(note.updated_at).toLocaleDateString("zh-CN")}
-                </span>
-              </ContentWrapper>
+                {tagsPreview(2)}
+                {readingLink}
+                {dateBadge}
+              </div>
               <div className="flex items-center gap-0.5 shrink-0">
                 {MoreMenu}
               </div>
             </div>
             {excerpt && (
-              <ContentWrapper className="block mt-1.5 ml-8">
-                <p className="text-xs text-muted-foreground line-clamp-1">{excerpt}</p>
-              </ContentWrapper>
+              <p className="text-xs text-muted-foreground line-clamp-1 mt-1.5 ml-8">
+                {excerpt}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -400,28 +409,22 @@ export function NoteCard({
       >
       <Card
         onClick={handleCardClick}
-        className={cn(
-          "group cursor-pointer transition-colors duration-150 h-full flex flex-col relative overflow-hidden",
-          showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
-          selected && "ring-2 ring-primary",
-          note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
-        )}
+        onMouseDown={handleCardAuxClick}
+        className={cn(cardBaseClass, "h-full flex flex-col")}
       >
         <CardContent className="p-3 sm:p-4 flex-1 flex flex-col">
           <div className="flex items-start gap-2">
             {CheckboxEl}
-            {note.is_pinned && (
-              <Pin className="h-3.5 w-3.5 text-primary fill-primary shrink-0 mt-0.5" />
-            )}
-            <ContentWrapper className="flex-1 min-w-0">
+            {pinnedIcon(true)}
+            <div className="flex-1 min-w-0">
               {Title}
-            </ContentWrapper>
+            </div>
             {MoreMenu}
           </div>
           {excerpt && (
-            <ContentWrapper className="block mt-2">
-              <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed">{excerpt}</p>
-            </ContentWrapper>
+            <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mt-2">
+              {excerpt}
+            </p>
           )}
           <div className="flex-1" />
           <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground flex-wrap">
@@ -437,7 +440,11 @@ export function NoteCard({
             )}
             <div className="flex-1" />
             {note.reading_item && (
-              <span className="flex items-center gap-1 line-clamp-1">
+              <span
+                className="flex items-center gap-1 line-clamp-1"
+                title={(note.reading_item as any).title || (note.reading_item as any).url}
+                onClick={stop}
+              >
                 <Link2 className="h-3 w-3 shrink-0" />
                 <span className="truncate max-w-[8rem]">
                   {(note.reading_item as any).title || (note.reading_item as any).url}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,7 +28,7 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
   const [running, setRunning] = useState(false);
   // 原始文本保留，便于失败后重试
   const lastRawRef = useRef<string>("");
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const updateItem = (id: string, patch: Partial<BatchItem>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));

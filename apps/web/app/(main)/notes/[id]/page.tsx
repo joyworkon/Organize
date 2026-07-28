@@ -60,10 +60,18 @@ export default function NoteEditorPage() {
   useEffect(() => {
     let active = true;
     async function loadNote() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabase
         .from("notes")
         .select("*")
         .eq("id", noteId)
+        .eq("user_id", user.id)
         .single();
 
       if (!active) return;
@@ -419,7 +427,7 @@ export default function NoteEditorPage() {
 
       {/* 创建时间 */}
       {createdAt && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
+        <div className="note-meta-row flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
           <Calendar className="h-3 w-3" />
           创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
         </div>

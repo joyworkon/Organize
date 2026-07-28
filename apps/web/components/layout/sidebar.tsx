@@ -23,7 +23,7 @@ import {
   Star,
   Settings,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
@@ -49,7 +49,7 @@ export function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   useThemeColor();
 
   useEffect(() => {
