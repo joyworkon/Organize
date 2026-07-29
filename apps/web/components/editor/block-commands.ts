@@ -67,11 +67,19 @@ export function buildBlockReplacement(
   node: ProseMirrorNode,
   content: JSONContent
 ): JSONContent {
-  const text = node.textContent;
+  const text = blockTextForReplacement(node);
   const blockId = String(node.attrs?.id || "");
+  const inlineContent = (value: string): JSONContent[] =>
+    value.split("\n").flatMap((line, index) => [
+      ...(index > 0 ? [{ type: "hardBreak" }] : []),
+      ...(line ? [{ type: "text", text: line }] : []),
+    ]);
   const addTextToFirstTextContainer = (candidate: JSONContent): JSONContent => {
     if (!text) return candidate;
-    if (["paragraph", "heading", "codeBlock", "callout", "detailsSummary"].includes(candidate.type || "")) {
+    if (["paragraph", "heading", "detailsSummary"].includes(candidate.type || "")) {
+      return { ...candidate, content: inlineContent(text) };
+    }
+    if (candidate.type === "codeBlock") {
       return { ...candidate, content: [{ type: "text", text }] };
     }
     // 叶子节点（horizontalRule / image 等）不允许带 content，原样返回避免非法 JSON
@@ -90,6 +98,18 @@ export function buildBlockReplacement(
   return blockId
     ? preserveBlockId(addTextToFirstTextContainer(content), blockId)
     : addTextToFirstTextContainer(content);
+}
+
+export function blockTextForReplacement(node: ProseMirrorNode): string {
+  if (node.type.name !== "columns") return node.textContent;
+  const lines: string[] = [];
+  node.descendants((child) => {
+    if (!child.isTextblock) return true;
+    const text = child.textContent;
+    if (text.trim()) lines.push(text);
+    return false;
+  });
+  return lines.join("\n");
 }
 
 const JOINABLE_LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
@@ -169,6 +189,7 @@ export function replaceBlockWithColumns(editor: Editor, pos: number, columnCount
     attrs: {
       cols,
       widths: normalizeColumnWidths(null, cols),
+      widthsCustomized: false,
       ...(blockId ? { id: blockId } : {}),
     },
     content: columnsContent,
@@ -349,7 +370,12 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["callout", "提示", "标注"],
     canTransform: true,
     preview: { sample: "💡 标注内容", caption: "醒目的标注提示" },
-    run: (editor, pos) => replaceBlock(editor, pos, { type: "callout", attrs: { emoji: "💡" } }),
+    run: (editor, pos) =>
+      replaceBlock(editor, pos, {
+        type: "callout",
+        attrs: { emoji: "💡" },
+        content: [{ type: "paragraph" }],
+      }),
   },
   ...([1, 2, 3, 4] as const).map((level) => ({
     id: `toggle-heading-${level}`,
@@ -407,7 +433,8 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     preview: { sample: "E = mc²", caption: "LaTeX 数学公式区块" },
     run: (editor, pos) => {
       // 块内文字若为 LaTeX 直接带入公式
-      const latex = (editor.state.doc.nodeAt(pos)?.textContent || "").trim();
+      const source = editor.state.doc.nodeAt(pos);
+      const latex = source ? blockTextForReplacement(source).trim() : "";
       replaceBlock(editor, pos, { type: "mathBlock", attrs: { latex } });
     },
   },

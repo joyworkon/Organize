@@ -10,6 +10,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { describe, expect, it } from "vitest";
 import { BLOCK_COMMANDS, replaceBlock } from "./block-commands";
+import { Callout } from "./extensions/callout";
 import { Columns, Column } from "./extensions/columns";
 
 function createEditor(content: JSONContent) {
@@ -21,6 +22,7 @@ function createEditor(content: JSONContent) {
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      Callout,
       Columns,
       Column,
     ],
@@ -117,6 +119,7 @@ describe("replaceBlock 相邻同类列表合并", () => {
     expect(columns.type.name).toBe("columns");
     expect(columns.attrs.cols).toBe(2);
     expect(columns.attrs.widths).toEqual([50, 50]);
+    expect(columns.attrs.widthsCustomized).toBe(false);
     expect(columns.childCount).toBe(2);
     expect(columns.child(0).firstChild!.type.name).toBe("paragraph");
     expect(columns.child(0).textContent).toBe("栏里的文字");
@@ -137,6 +140,7 @@ describe("replaceBlock 相邻同类列表合并", () => {
     expect(columns.type.name).toBe("columns");
     expect(columns.attrs.cols).toBe(5);
     expect(columns.attrs.widths).toEqual([20, 20, 20, 20, 20]);
+    expect(columns.attrs.widthsCustomized).toBe(false);
     expect(columns.childCount).toBe(5);
     editor.destroy();
   });
@@ -182,6 +186,51 @@ describe("replaceBlock 相邻同类列表合并", () => {
     expect(columns.child(1).textContent).toBe("乙丙丁");
     expect(columns.child(1).childCount).toBe(3);
     expect(columns.child(1).firstChild!.type.name).toBe("paragraph");
+    editor.destroy();
+  });
+
+  it("分栏转换成文本时保留每一栏文字，并用换行分隔", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{
+        type: "columns",
+        attrs: { cols: 3, widths: [50, 25, 25], widthsCustomized: true },
+        content: ["甲", "乙", "丙"].map((text) => ({
+          type: "column",
+          content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+        })),
+      }],
+    });
+    BLOCK_COMMANDS.find((item) => item.id === "paragraph")!.run(editor, 0);
+    const paragraph = editor.state.doc.firstChild!;
+    expect(paragraph.type.name).toBe("paragraph");
+    expect(paragraph.toJSON().content).toEqual([
+      { type: "text", text: "甲" },
+      { type: "hardBreak" },
+      { type: "text", text: "乙" },
+      { type: "hardBreak" },
+      { type: "text", text: "丙" },
+    ]);
+    editor.destroy();
+  });
+
+  it("分栏转换成标注时生成合法块结构且不丢文字", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{
+        type: "columns",
+        attrs: { cols: 2, widths: [50, 50] },
+        content: ["左栏", "右栏"].map((text) => ({
+          type: "column",
+          content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+        })),
+      }],
+    });
+    BLOCK_COMMANDS.find((item) => item.id === "callout")!.run(editor, 0);
+    const callout = editor.state.doc.firstChild!;
+    expect(callout.type.name).toBe("callout");
+    expect(callout.firstChild!.type.name).toBe("paragraph");
+    expect(callout.textContent).toBe("左栏右栏");
     editor.destroy();
   });
 });

@@ -17,8 +17,18 @@ export function normalizeColumnCount(value: unknown): number {
   return Math.min(MAX_COLUMN_COUNT, Math.max(MIN_COLUMN_COUNT, Math.round(parsed)));
 }
 
-function equalColumnWidths(cols: number): number[] {
-  return Array.from({ length: cols }, () => 100 / cols);
+export function equalColumnWidths(cols: number): number[] {
+  const widths = Array.from(
+    { length: cols },
+    () => Number((100 / cols).toFixed(4))
+  );
+  const correction = Number(
+    (100 - widths.reduce((sum, width) => sum + width, 0)).toFixed(4)
+  );
+  widths[widths.length - 1] = Number(
+    (widths[widths.length - 1] + correction).toFixed(4)
+  );
+  return widths;
 }
 
 export function normalizeColumnWidths(value: unknown, columnCount: unknown): number[] {
@@ -81,6 +91,17 @@ export function resizeColumnWidths(
   return normalizeColumnWidths(widths, widths.length);
 }
 
+export function resolveColumnWidths(
+  value: unknown,
+  columnCount: unknown,
+  widthsCustomized: unknown
+): number[] {
+  const cols = normalizeColumnCount(columnCount);
+  return widthsCustomized === true || widthsCustomized === "true"
+    ? normalizeColumnWidths(value, cols)
+    : equalColumnWidths(cols);
+}
+
 function serializeColumnWidths(widths: number[]): string {
   return widths.map((width) => Number(width.toFixed(4))).join(",");
 }
@@ -94,9 +115,10 @@ function parseColumnWidths(element: HTMLElement): number[] | null {
 
 function ColumnsView({ node, updateAttributes, editor }: NodeViewProps) {
   const cols = normalizeColumnCount(node.childCount || node.attrs.cols);
+  const widthsCustomized = node.attrs.widthsCustomized === true;
   const widths = useMemo(
-    () => normalizeColumnWidths(node.attrs.widths, cols),
-    [cols, node.attrs.widths]
+    () => resolveColumnWidths(node.attrs.widths, cols, widthsCustomized),
+    [cols, node.attrs.widths, widthsCustomized]
   );
   const layoutRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -122,8 +144,16 @@ function ColumnsView({ node, updateAttributes, editor }: NodeViewProps) {
     updateAttributes({
       cols,
       widths: resizeColumnWidths(widths, cols, dividerIndex, deltaPercent),
+      widthsCustomized: true,
     });
   }, [cols, updateAttributes, widths]);
+
+  useEffect(() => {
+    if (widthsCustomized) return;
+    const storedWidths = normalizeColumnWidths(node.attrs.widths, cols);
+    if (storedWidths.every((width, index) => width === widths[index])) return;
+    updateAttributes({ cols, widths, widthsCustomized: false });
+  }, [cols, node.attrs.widths, updateAttributes, widths, widthsCustomized]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -139,6 +169,7 @@ function ColumnsView({ node, updateAttributes, editor }: NodeViewProps) {
           drag.dividerIndex,
           deltaPercent
         ),
+        widthsCustomized: true,
       });
     };
     const finishPointerDrag = () => {
@@ -166,6 +197,7 @@ function ColumnsView({ node, updateAttributes, editor }: NodeViewProps) {
       data-columns=""
       data-cols={cols}
       data-column-widths={serializeColumnWidths(widths)}
+      data-column-widths-customized={widthsCustomized ? "true" : "false"}
     >
       <div
         ref={layoutRef}
@@ -277,6 +309,14 @@ export const Columns = Node.create({
           return { "data-column-widths": serializeColumnWidths(widths) };
         },
       },
+      widthsCustomized: {
+        default: false,
+        parseHTML: (element) =>
+          (element as HTMLElement).getAttribute("data-column-widths-customized") === "true",
+        renderHTML: (attributes) => ({
+          "data-column-widths-customized": attributes.widthsCustomized ? "true" : "false",
+        }),
+      },
     };
   },
 
@@ -286,13 +326,18 @@ export const Columns = Node.create({
 
   renderHTML({ HTMLAttributes, node }) {
     const cols = normalizeColumnCount(node.childCount || node.attrs.cols);
-    const widths = normalizeColumnWidths(node.attrs.widths, cols);
+    const widths = resolveColumnWidths(
+      node.attrs.widths,
+      cols,
+      node.attrs.widthsCustomized
+    );
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
         "data-columns": "",
         "data-cols": String(cols),
         "data-column-widths": serializeColumnWidths(widths),
+        "data-column-widths-customized": node.attrs.widthsCustomized ? "true" : "false",
         style: `display:grid;grid-template-columns:${widths.map((width) => `${width}fr`).join(" ")};gap:1.5rem;`,
       }),
       0,
@@ -312,7 +357,7 @@ export const Columns = Node.create({
           const widths = equalColumnWidths(columnCount);
           return commands.insertContent({
             type: this.name,
-            attrs: { cols: columnCount, widths },
+            attrs: { cols: columnCount, widths, widthsCustomized: false },
             content: Array.from({ length: columnCount }, () => ({
               type: "column",
               content: [{ type: "paragraph" }],
