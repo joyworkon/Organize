@@ -31,7 +31,15 @@ import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
-import { BlockMultiSelect, getMultiSelectedBlocks, setMultiSelectedBlocks, setMultiSelectDragInProgress } from "./extensions/block-multi-select";
+import {
+  BlockMultiSelect,
+  blockSelectionBoundsForElement,
+  getMultiSelectedBlocks,
+  pointIsInsideBlockSelectionBounds,
+  setMultiSelectedBlocks,
+  setMultiSelectDragInProgress,
+  type BlockSelectionRect,
+} from "./extensions/block-multi-select";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
@@ -198,8 +206,7 @@ function convertToColumns(editor: Editor, cols: number) {
   const command = BLOCK_COMMANDS.find((item) => item.id === `columns-${cols}`);
   if (!command) return;
   const { $from } = editor.state.selection;
-  // 仅转换顶层块；嵌套块（列表项 / callout / 引用内）不转换，避免吞掉整个容器
-  if ($from.depth !== 1) return;
+  if ($from.depth < 1) return;
   command.run(editor, $from.before(1));
 }
 
@@ -756,6 +763,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     fromText: boolean;
     blockTop: number;
     blockBottom: number;
+    bounds: BlockSelectionRect;
   } | null>(null);
   const activePlugins = usePluginStore((state) => Array.from(state.activePlugins.entries()));
   const pluginContexts = usePluginStore((state) => state.contexts);
@@ -1400,22 +1408,32 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     if (target.closest(".organize-block-handle")) return;
     const editorDom = editor.view.dom;
     if (!editorDom.contains(target)) return;
+    const bounds = blockSelectionBoundsForElement(editorDom);
+    if (!pointIsInsideBlockSelectionBounds(bounds, event.clientX, event.clientY)) return;
     if (target === editorDom) {
       // 空白区：阻止浏览器开始文本选择 / 放置光标（拖动期间的选区同步会清掉多选状态）
       event.preventDefault();
-      selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: false, blockTop: 0, blockBottom: 0 };
+      selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: false, blockTop: 0, blockBottom: 0, bounds };
       return;
     }
     // 文字区：记录起始块，拖出它的纵向范围后再切换
     const block = blockElementAtTarget(editorDom, target, event.clientY);
     if (!block) return;
     const rect = block.getBoundingClientRect();
-    selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: true, blockTop: rect.top, blockBottom: rect.bottom };
+    selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: true, blockTop: rect.top, blockBottom: rect.bottom, bounds };
   }, [actionMenu, commandMenu, editor]);
 
   const moveSelectDrag = useCallback((event: MouseEvent) => {
     const drag = selectDragRef.current;
     if (!drag || !editor) return;
+    if (!pointIsInsideBlockSelectionBounds(drag.bounds, event.clientX, event.clientY)) {
+      if (drag.active) {
+        window.getSelection()?.removeAllRanges();
+        setSelectRect(null);
+        setMultiSelectedBlocks(editor, []);
+      }
+      return;
+    }
     if (!drag.active) {
       if (drag.fromText) {
         // 还在起始块内部：保持原生文本选择
@@ -1460,6 +1478,9 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       editor.view.dom.style.userSelect = "";
       setMultiSelectDragInProgress(false);
       setSelectRect(null);
+      if (!pointIsInsideBlockSelectionBounds(drag.bounds, event.clientX, event.clientY)) {
+        setMultiSelectedBlocks(editor, []);
+      }
       return;
     }
     // 只是点击（没拖起来）：清空多选
@@ -1467,6 +1488,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     // Notion 风格：点击正文末尾下方的空白区域，把光标放到最后一行；
     // 最后一个块不是文本块（图片/表格等）时先补一个空段落
     const editorDom = editor.view.dom;
+    if (!pointIsInsideBlockSelectionBounds(drag.bounds, event.clientX, event.clientY)) return;
     const lastChild = editorDom.lastElementChild;
     if (lastChild && event.clientY > lastChild.getBoundingClientRect().bottom) {
       const lastNode = editor.state.doc.lastChild;

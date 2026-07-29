@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
+import { normalizeColumnCount, normalizeColumnWidths } from "./extensions/columns";
 
 export function preserveBlockId(content: JSONContent, blockId: string): JSONContent {
   const visit = (candidate: JSONContent): { node: JSONContent; preserved: boolean } => {
@@ -119,6 +120,65 @@ export function replaceBlock(editor: Editor, pos: number, content: JSONContent) 
     }
   }
   editor.view.dispatch(tr);
+}
+
+export function replaceBlockWithColumns(editor: Editor, pos: number, columnCount: number) {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) return;
+  const cols = normalizeColumnCount(columnCount);
+  const blockId = String(node.attrs?.id || "");
+  const source: JSONContent = node.toJSON();
+  if (source.attrs?.id) {
+    const attrs = { ...source.attrs };
+    delete attrs.id;
+    source.attrs = attrs;
+  }
+
+  let columnsContent: JSONContent[];
+  if (node.type.name === "columns") {
+    const existing = (source.content || []).map((column) => ({
+      ...column,
+      content: [...(column.content || [{ type: "paragraph" }])],
+    }));
+    if (existing.length >= cols) {
+      columnsContent = existing.slice(0, cols);
+      for (const overflow of existing.slice(cols)) {
+        columnsContent[cols - 1].content!.push(...(overflow.content || []));
+      }
+    } else {
+      columnsContent = [
+        ...existing,
+        ...Array.from({ length: cols - existing.length }, () => ({
+          type: "column",
+          content: [{ type: "paragraph" }],
+        })),
+      ];
+    }
+  } else {
+    columnsContent = [
+      { type: "column", content: [source] },
+      ...Array.from({ length: cols - 1 }, () => ({
+        type: "column",
+        content: [{ type: "paragraph" }],
+      })),
+    ];
+  }
+
+  const replacement: JSONContent = {
+    type: "columns",
+    attrs: {
+      cols,
+      widths: normalizeColumnWidths(null, cols),
+      ...(blockId ? { id: blockId } : {}),
+    },
+    content: columnsContent,
+  };
+  const replacementNode = editor.schema.nodeFromJSON(replacement);
+  editor.view.dispatch(
+    editor.state.tr
+      .replaceWith(pos, pos + node.nodeSize, replacementNode)
+      .scrollIntoView()
+  );
 }
 
 function textBlock(type: "paragraph" | "heading", attrs?: Record<string, unknown>): JSONContent {
@@ -367,15 +427,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["columns", "column", "分栏", `${cols}列`],
     canTransform: true,
     preview: { sample: "▯".repeat(cols), caption: `${["两", "三", "四", "五"][cols - 2]}栏并排布局` },
-    run: (editor: Editor, pos: number) =>
-      replaceBlock(editor, pos, {
-        type: "columns",
-        attrs: { cols },
-        content: Array.from({ length: cols }, () => ({
-          type: "column",
-          content: [{ type: "paragraph" }],
-        })),
-      }),
+    run: (editor: Editor, pos: number) => replaceBlockWithColumns(editor, pos, cols),
   })),
 ];
 

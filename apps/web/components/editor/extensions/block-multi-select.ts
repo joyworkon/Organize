@@ -19,6 +19,52 @@ const multiSelectKey = new PluginKey<Set<number>>("organizeBlockMultiSelect");
 // 否则从文字上起拖时浏览器一边选文字、插件一边把块多选清掉
 let selectDragInProgress = false;
 
+export interface BlockSelectionRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export function calculateBlockSelectionBounds(
+  editorRect: BlockSelectionRect,
+  paddingLeft: number,
+  gutterWidth: number
+): BlockSelectionRect {
+  const safePadding = Number.isFinite(paddingLeft) ? Math.max(0, paddingLeft) : 0;
+  const safeGutter = Number.isFinite(gutterWidth) ? Math.max(0, gutterWidth) : 0;
+  return {
+    left: Math.min(editorRect.right, editorRect.left + Math.max(0, safePadding - safeGutter)),
+    right: editorRect.right,
+    top: editorRect.top,
+    bottom: editorRect.bottom,
+  };
+}
+
+export function pointIsInsideBlockSelectionBounds(
+  bounds: BlockSelectionRect,
+  clientX: number,
+  clientY: number
+): boolean {
+  return (
+    clientX >= bounds.left
+    && clientX <= bounds.right
+    && clientY >= bounds.top
+    && clientY <= bounds.bottom
+  );
+}
+
+export function blockSelectionBoundsForElement(editorDom: HTMLElement): BlockSelectionRect {
+  const rect = editorDom.getBoundingClientRect();
+  const editorStyle = window.getComputedStyle(editorDom);
+  const rootStyle = window.getComputedStyle(document.documentElement);
+  const paddingLeft = Number.parseFloat(editorStyle.paddingLeft) || 0;
+  const gutterWidth = Number.parseFloat(
+    rootStyle.getPropertyValue("--organize-gutter")
+  ) || 0;
+  return calculateBlockSelectionBounds(rect, paddingLeft, gutterWidth);
+}
+
 export function setMultiSelectDragInProgress(value: boolean) {
   selectDragInProgress = value;
 }
