@@ -88,36 +88,19 @@
   font-size: 0.8125rem;
 }
 
-/* 笔记标题与编辑器正文左对齐：标题、创建时间、反向链接都匹配编辑器的 60px gutter */
+/* 页面级内容与编辑器的蓝色内容线对齐，列表标记仍留在更右侧的正文轴。 */
+.note-page .note-title,
+.note-page .note-meta-row {
+  padding-left: var(--organize-content-lane-inset);
+}
 .note-page .note-title {
-  padding-left: 60px;
   padding-right: 0;
 }
-.note-page .note-meta-row {
-  padding-left: 60px;
-}
-@media (max-width: 640px) {
-  .note-page .note-title {
-    padding-left: 40px;
-  }
-  .note-page .note-meta-row {
-    padding-left: 40px;
-  }
-}
-/* 全宽模式下保持对齐 */
-.note-page.max-w-none .note-title,
-.note-page.max-w-none .note-meta-row {
-  padding-left: 60px;
-}
+
 /* 反向链接区域对齐 */
 .note-page .mt-8.pt-6.border-t {
-  padding-left: 60px;
+  padding-left: var(--organize-content-lane-inset);
   padding-right: 0;
-}
-@media (max-width: 640px) {
-  .note-page .mt-8.pt-6.border-t {
-    padding-left: 40px;
-  }
 }
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
@@ -216,10 +199,9 @@
   background: hsl(var(--primary) / 0.18);
 }
 
-/* 编辑器核心布局：统一左侧 gutter 区域 60px
-   所有块内容左对齐，标记/手柄在 gutter 内精确定位，切换块类型时内容不左右移动 */
+/* 编辑器核心布局：外层内边距容纳块手柄；蓝色内容线位于标记槽左缘。 */
 .organize-editor.prose {
-  padding-left: 60px !important;
+  padding-left: var(--organize-editor-padding) !important;
   padding-right: 0 !important;
   /* 取消 prose 的 65ch 宽度上限：类串里的 max-w-none 会被编译顺序更靠后的
      sm:prose（≥640px 重新施加 max-width: 65ch）压过，导致正文比标题窄；
@@ -227,23 +209,10 @@
   max-width: none !important;
 }
 
-/* 段落、标题等普通块：无额外缩进，内容与其他块左对齐 */
-.organize-editor.prose > p,
-.organize-editor.prose > h1,
-.organize-editor.prose > h2,
-.organize-editor.prose > h3,
-.organize-editor.prose > h4,
-.organize-editor.prose > h5,
-.organize-editor.prose > h6,
-.organize-editor.prose > div[data-callout],
-.organize-editor.prose > div[data-columns],
-.organize-editor.prose > hr,
-.organize-editor.prose > p.is-editor-empty,
-.organize-editor.prose > .math-block,
-.organize-editor.prose > .html-embed,
-.organize-editor.prose > table,
-.organize-editor.prose > img {
-  margin-left: 0 !important;
+/* 无自身标记的顶层块直接占满蓝色内容线；列表、折叠和引用保留标记槽。 */
+.organize-editor.prose
+  > :not(ul):not(ol):not(blockquote):not(div[data-type="details"]) {
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
 }
 
 /* 列表间距统一 */
@@ -360,8 +329,12 @@
 :root {
   --organize-selected-bg: rgba(35, 131, 226, 0.14);
   --organize-selected-bg-dark: rgba(35, 131, 226, 0.28);
-  /* gutter 宽度：列表标记 / checkbox / 折叠箭头所在区域（与负 margin 值对应） */
+  --organize-editor-padding: 60px;
+  /* gutter 宽度：列表标记 / checkbox / 折叠箭头所在区域。 */
   --organize-gutter: 24px;
+  --organize-content-lane-inset: calc(
+    var(--organize-editor-padding) - var(--organize-gutter)
+  );
 }
 .dark {
   --organize-selected-bg: var(--organize-selected-bg-dark);
@@ -380,6 +353,15 @@
 .organize-editor.prose .organize-transformed-block:not(li[data-checked]):not(div[data-type="details"]):not(blockquote),
 .organize-editor.prose .organize-block-selected:not(li[data-checked]):not(div[data-type="details"]):not(blockquote) {
   box-shadow: calc(-1 * var(--organize-gutter)) 0 0 0 var(--organize-selected-bg);
+}
+/* 普通块已经占住蓝色内容线，不再用阴影重复向左扩展。 */
+.organize-editor.prose
+  > :not(ul):not(ol):not(blockquote):not(div[data-type="details"]):is(
+    .ProseMirror-selectednode,
+    .organize-transformed-block,
+    .organize-block-selected
+  ) {
+  box-shadow: none !important;
 }
 .organize-editor.prose > ul:not([data-type="taskList"]).ProseMirror-selectednode,
 .organize-editor.prose > ul:not([data-type="taskList"]).organize-transformed-block,
@@ -1445,9 +1427,11 @@
 .presentation-close { position: fixed; top: 22px; right: 22px; z-index: 2; }
 
 @media (max-width: 640px) {
-  .organize-editor.prose { padding-left: 40px !important; }
+  :root {
+    --organize-editor-padding: 40px;
+    --organize-gutter: 20px;
+  }
   /* 移动端 gutter 只有 40px：手柄收到最左端 1..17px，让出 20px 起的标记区 */
-  :root { --organize-gutter: 20px; }
   .organize-block-handle { left: 1px; height: 20px; gap: 0; }
   .organize-block-handle button { width: 16px; height: 18px; }
   .organize-block-add { display: none !important; }
