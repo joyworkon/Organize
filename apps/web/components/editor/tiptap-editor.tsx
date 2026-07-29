@@ -711,17 +711,20 @@ function handleTopForBlock(block: HTMLElement, shellRect: DOMRect): number {
   return anchorRect.top + paddingTop - shellRect.top + Math.max(0, (firstLineHeight - HANDLE_HEIGHT) / 2);
 }
 
-/**
- * 计算块手柄的水平位置：贴着块左侧（Notion 风格），右缘离标记区 HANDLE_GAP px，
- * 而不是钉在编辑器 gutter 最左端。gutter 宽度取 CSS 变量（桌面 24 / 移动 20）。
- * 标准版心（60px 左内边距）下会略微溢出 shell 左缘（约 -3px），与 Notion 一致。
- */
+/** 计算块手柄的水平位置：贴着块的视觉左缘，待办列表则贴着 checkbox 槽。 */
 function handleLeftForBlock(block: HTMLElement, shellRect: DOMRect, handleWidth: number): number {
-  const anchor = firstTextblockElement(block);
-  const textLeft = anchor.getBoundingClientRect().left;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--organize-gutter");
-  const gutter = Number.parseFloat(raw) || 24;
-  return textLeft - shellRect.left - gutter - HANDLE_GAP - handleWidth;
+  let blockLeft = block.getBoundingClientRect().left;
+
+  // TaskList 的顶层 ul 不占 checkbox 槽，真正的行从 li 的负 margin 开始。
+  if (block.matches('ul[data-type="taskList"]')) {
+    const anchor = firstTextblockElement(block);
+    const textLeft = anchor.getBoundingClientRect().left;
+    const raw = getComputedStyle(document.documentElement).getPropertyValue("--organize-gutter");
+    const gutter = Number.parseFloat(raw) || 24;
+    blockLeft = textLeft - gutter;
+  }
+
+  return blockLeft - shellRect.left - HANDLE_GAP - handleWidth;
 }
 
 function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number): EditorMenuPoint {
