@@ -88,7 +88,7 @@ export const Callout = Node.create<CalloutOptions>({
   },
 
   parseHTML() {
-    return [{ tag: "div[data-callout]" }];
+    return [{ tag: "div[data-callout]", contentElement: ".callout-content" }];
   },
 
   renderHTML({ HTMLAttributes, node }) {
@@ -112,11 +112,11 @@ export const Callout = Node.create<CalloutOptions>({
       setCallout:
         (attrs) =>
         ({ commands }) =>
-          commands.setNode(this.name, attrs),
+          commands.wrapIn(this.name, attrs),
       toggleCallout:
         (attrs) =>
         ({ commands }) =>
-          commands.toggleNode(this.name, "paragraph", attrs),
+          commands.toggleWrap(this.name, attrs),
     };
   },
 });

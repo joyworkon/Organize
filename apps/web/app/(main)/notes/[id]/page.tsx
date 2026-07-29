@@ -435,6 +435,7 @@ export default function NoteEditorPage() {
 
       {/* 编辑器 */}
       <TipTapEditor
+        key={noteId}
         noteId={noteId}
         noteTitle={title}
         content={content}

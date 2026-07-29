@@ -81,10 +81,25 @@ function resolveTransformPos(editor: Editor, target: EditorBlockTarget): number 
   } catch {
     return target.pos;
   }
-  const lifted = editor.commands.liftListItem(target.type);
-  if (!lifted) return target.pos;
-  const { $from } = editor.state.selection;
-  return $from.depth > 0 ? $from.before(1) : target.pos;
+  // liftListItem 每次只 lift 一层，嵌套列表项需要循环 lift 到顶层，
+  // 否则 $from.before(1) 会指向顶层列表节点，replaceBlock 会把整个列表替换掉
+  let lifted = editor.commands.liftListItem(target.type);
+  while (lifted && editor.state.selection.$from.depth > 1) {
+    lifted = editor.commands.liftListItem(target.type);
+  }
+  if (!lifted || editor.state.selection.$from.depth !== 1) return target.pos;
+  const pos = editor.state.selection.$from.before(1);
+  // lift 产生的新段落会被 UniqueID 分配新 id，把原 listItem 的 id 写回，
+  // 保证后续的 focusAndHighlightBlock(target.id)、评论锚点和 #block-<id> 深链仍然有效
+  if (target.id) {
+    const node = editor.state.doc.nodeAt(pos);
+    if (node && node.attrs.id !== target.id) {
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, id: target.id })
+      );
+    }
+  }
+  return pos;
 }
 
 function dispatchDialog(editor: Editor, type: string, target: EditorBlockTarget) {
@@ -105,7 +120,22 @@ function deleteBlock(editor: Editor, target: EditorBlockTarget) {
   if (!node) return;
   const complex = ["table", "image", "htmlEmbed", "columns", "details"].includes(node.type.name) || node.content.size > 500;
   if (complex && !window.confirm("删除这个复杂区块？此操作可通过撤销恢复。")) return;
-  const tr = editor.state.tr.delete(target.pos, target.pos + node.nodeSize);
+  let from = target.pos;
+  let to = target.pos + node.nodeSize;
+  // 删除列表中最后一个列表项时，连同父列表一起删除，
+  // 否则会残留没有 listItem 的空 bulletList/taskList（schema 要求 listItem+）
+  if (node.type.name === "listItem" || node.type.name === "taskItem") {
+    const $pos = editor.state.doc.resolve(target.pos);
+    const parent = $pos.parent;
+    if (
+      ["bulletList", "orderedList", "taskList"].includes(parent.type.name) &&
+      parent.childCount === 1
+    ) {
+      from = $pos.before($pos.depth);
+      to = $pos.after($pos.depth);
+    }
+  }
+  const tr = editor.state.tr.delete(from, to);
   if (tr.doc.childCount === 0) tr.insert(0, editor.schema.nodes.paragraph.create());
   editor.view.dispatch(tr.scrollIntoView());
   editor.commands.focus();
@@ -174,6 +204,9 @@ export function BlockActionMenu({
     [query, target.json.attrs?.level, target.type]
   );
   const canTransformTarget = TEXT_TRANSFORMABLE_TYPES.has(target.type);
+  // moveBlock 只收集顶层块，对嵌套的 listItem/taskItem 永远找不到目标，
+  // 「上移 / 下移」会静默无效，因此对这两类块直接隐藏
+  const canMoveTarget = target.type !== "listItem" && target.type !== "taskItem";
 
   const finish = (callback: () => void | Promise<void>) => {
     void callback();
@@ -260,7 +293,12 @@ export function BlockActionMenu({
 
   const copyLink = async () => {
     const href = `${window.location.origin}/notes/${noteId}#block-${target.id}`;
-    await navigator.clipboard.writeText(href);
+    try {
+      // 非安全上下文里 navigator.clipboard 可能为 undefined 或 reject
+      await navigator.clipboard.writeText(href);
+    } catch {
+      window.prompt("复制链接", href);
+    }
   };
 
   return (
@@ -273,8 +311,8 @@ export function BlockActionMenu({
         <div className="editor-menu-separator" />
         <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onClick={() => finish(copyLink)} query={query} />
         <Action icon={Copy} label="创建副本" shortcut="⌘D" onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
-        <Action icon={ArrowUp} label="上移" onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />
-        <Action icon={ArrowDown} label="下移" onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />
+        {canMoveTarget && <Action icon={ArrowUp} label="上移" onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />}
+        {canMoveTarget && <Action icon={ArrowDown} label="下移" onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />}
         <Action icon={FileInput} label="移动到" onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />
         <Action icon={Trash2} label="删除" shortcut="Del" danger onClick={() => finish(() => deleteBlock(editor, target))} query={query} />
         <div className="editor-menu-separator" />

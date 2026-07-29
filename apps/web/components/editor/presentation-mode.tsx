@@ -21,17 +21,28 @@ export function PresentationMode({
     const handler = (event: KeyboardEvent) => {
       if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) {
         event.preventDefault();
+        event.stopPropagation();
         setIndex((value) => Math.min(value + 1, slides.length - 1));
       } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
         event.preventDefault();
+        event.stopPropagation();
         setIndex((value) => Math.max(value - 1, 0));
-      } else if (event.key === "Escape") onClose();
+      } else if (event.key === "Escape") {
+        event.stopPropagation();
+        onClose();
+      } else {
+        // 演示期间组件拿不到 editor 实例，无法 setEditable(false)；在捕获阶段拦截其余按键，
+        // 避免底层仍聚焦的编辑器响应输入或 Ctrl+Z 等快捷键修改文档。
+        event.preventDefault();
+        event.stopPropagation();
+      }
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
   }, [onClose, slides.length]);
 
-  const slide = slides[index];
+  const slide = slides[Math.min(index, slides.length - 1)];
+  if (!slide) return null;
   return (
     <div className="note-presentation" role="dialog" aria-modal="true" aria-label="笔记演示模式">
       <button className="presentation-close" type="button" onClick={onClose} aria-label="退出演示"><X /></button>

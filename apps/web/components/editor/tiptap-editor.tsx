@@ -33,7 +33,7 @@ import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { BLOCK_ID_TYPES, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
+import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
 import { EditorDialogs } from "./editor-dialogs";
@@ -605,6 +605,8 @@ function BubbleToolbar({
 interface OpenMenuState {
   pos: number;
   point: EditorMenuPoint;
+  /** 由 "/" 触发时为 true：菜单执行/关闭时需清掉块里的触发字符 */
+  slash?: boolean;
 }
 
 interface OpenActionState extends OpenMenuState {
@@ -742,6 +744,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
       },
       handleKeyDown: (view, event) => {
+        // IME 组合态（如中文输入法选词）期间的按键不交给编辑器处理
+        if (event.isComposing || event.keyCode === 229) return false;
         const { $from, empty } = view.state.selection;
         if (
           event.key === "Enter"
@@ -761,7 +765,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         }
         if ((event.metaKey || event.ctrlKey) && event.key === "/") {
           event.preventDefault();
-          const pos = $from.depth > 0 ? $from.before(1) : 0;
+          // 仅顶层块打开块命令菜单；嵌套块（列表项/callout/引用内）直接忽略，
+          // 否则 replaceBlock 会把整个顶层容器替换掉，吞掉其余内容
+          if ($from.depth !== 1) return false;
+          const pos = $from.before(1);
           const coords = view.coordsAtPos($from.pos);
           view.dispatch(view.state.tr.setSelection(view.state.selection));
           setActionMenu(null);
@@ -881,6 +888,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const node = editor.state.doc.nodeAt(pos);
     if (!node) return;
     const blockId = String(node.attrs?.id || "");
+    if (!blockId) return;
     const title = node.textContent.trim() || "无标题笔记";
     try {
       const response = await fetch("/api/notes", {
@@ -920,7 +928,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       if (typeof detail.pos === "number") {
         if (detail.type === "slash-menu" && detail.point) {
           setActionMenu(null);
-          setCommandMenu({ pos: detail.pos, point: detail.point });
+          setCommandMenu({ pos: detail.pos, point: detail.point, slash: true });
         } else if (detail.type === "html") replaceAt(editor, detail.pos, { type: "htmlEmbed" });
         else if (detail.type === "ai-notes") setDialog({ type: "ai-notes", pos: detail.pos });
         else if (detail.type === "image") uploadImage(detail.pos);
@@ -941,14 +949,17 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   }, [addReadingReference, convertBlockToPage, editor, uploadImage]);
 
   useEffect(() => {
+    let active = true;
     fetch(`/api/notes/${noteId}/comments`)
       .then((response) => response.ok ? response.json() : [])
       .then((threads) => {
+        if (!active) return;
         const counts: Record<string, number> = {};
         for (const thread of threads) if (!thread.resolved_at) counts[thread.block_id] = (counts[thread.block_id] || 0) + 1;
         setCommentCounts(counts);
       })
       .catch(() => {});
+    return () => { active = false; };
   }, [dialog, noteId]);
 
   const skills = useMemo<EditorSkillAction[]>(() => {
@@ -990,8 +1001,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
             if (extension.type === "ai-action") {
               const result = await (extension as AIActionExtension).handler(target.text, context);
               if (typeof result === "string" && result && result !== target.text) {
-                const node = editor?.state.doc.nodeAt(target.pos);
-                if (node) editor?.chain().focus().insertContentAt(target.pos + node.nodeSize, { type: "paragraph", content: [{ type: "text", text: result }] }).run();
+                // await 期间文档可能已变化，target.pos 会过期：按块 id 重新定位
+                if (!editor) return;
+                const found = findBlockById(editor.state.doc, target.id);
+                if (!found) return;
+                editor.chain().focus().insertContentAt(found.pos + found.node.nodeSize, { type: "paragraph", content: [{ type: "text", text: result }] }).run();
               }
             } else await (extension as ToolbarActionExtension).handler(context);
           },
@@ -1295,7 +1309,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       {dropTarget && (
         <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
       )}
-      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} onClose={closeMenus} />}
+      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />
       {presentationStart && <PresentationMode doc={editor.getJSON()} startBlockId={presentationStart} onClose={() => setPresentationStart(null)} />}

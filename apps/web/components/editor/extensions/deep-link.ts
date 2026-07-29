@@ -6,7 +6,12 @@ const deepLinkKey = new PluginKey<string | null>("organizeBlockDeepLink");
 
 function hashBlockId() {
   if (typeof window === "undefined" || !window.location.hash.startsWith("#block-")) return null;
-  return decodeURIComponent(window.location.hash.slice(7));
+  try {
+    return decodeURIComponent(window.location.hash.slice(7));
+  } catch {
+    // hash 中含非法百分号编码（如 "#block-%"）时 decodeURIComponent 抛 URIError
+    return null;
+  }
 }
 
 export const BlockDeepLink = Extension.create({

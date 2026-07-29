@@ -54,11 +54,14 @@ export function EditorPopover({
     const observer = new ResizeObserver(updatePosition);
     observer.observe(popover);
     window.addEventListener("resize", updatePosition);
+    // 页面滚动时弹层会与目标块脱节：捕获阶段监听，滚动即关闭
+    window.addEventListener("scroll", onClose, true);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", onClose, true);
     };
-  }, [point]);
+  }, [point, onClose]);
 
   return createPortal(
     <div ref={ref} className={`editor-popover ${className}`} style={position}>

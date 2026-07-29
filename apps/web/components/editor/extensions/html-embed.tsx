@@ -34,7 +34,7 @@ function HtmlEmbedView({ node, updateAttributes, selected }: NodeViewProps) {
     <NodeViewWrapper className={selected ? "html-embed is-selected" : "html-embed"}>
       <div className="html-embed-toolbar" contentEditable={false}>
         <span><Code2 className="h-3.5 w-3.5" />HTML 嵌入</span>
-        <button type="button" onClick={() => setEditing(true)}><Pencil className="h-3.5 w-3.5" />编辑</button>
+        <button type="button" onClick={() => { setDraft(String(node.attrs.html || DEFAULT_HTML)); setEditing(true); }}><Pencil className="h-3.5 w-3.5" />编辑</button>
       </div>
       <iframe
         title="HTML 嵌入预览"
