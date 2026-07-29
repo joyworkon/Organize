@@ -44,6 +44,7 @@ import type {
 } from "@organize/shared";
 import { TASK_STATUS_CONFIG, TASK_CATEGORY_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
+import { mutateTrash } from "@/lib/trash/client";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
@@ -173,10 +174,18 @@ export default function TasksPage() {
   };
 
   const handleDelete = async (taskId: string) => {
-    if (!confirm("确定删除这个任务吗？")) return;
-    await supabase.from("task_tags").delete().eq("task_id", taskId);
-    await supabase.from("tasks").delete().eq("id", taskId);
-    await fetchTasks();
+    if (!confirm("将这个任务移入垃圾箱？任务清单和标签会一并保留。")) return;
+    try {
+      await mutateTrash("task", [taskId], "soft_delete");
+      await fetchTasks();
+      toast({ title: "任务已移入垃圾箱" });
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleToggleStatus = async (taskId: string, status: TaskStatus) => {
@@ -357,14 +366,19 @@ export default function TasksPage() {
   const batchDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!confirm(`确定删除选中的 ${ids.length} 个任务？此操作不可撤销。`)) return;
+    if (!confirm(`将选中的 ${ids.length} 个任务移入垃圾箱？`)) return;
     const count = ids.length;
-    await supabase.from("task_tags").delete().in("task_id", ids);
-    const { error } = await supabase.from("tasks").delete().in("id", ids);
-    if (!error) {
+    try {
+      await mutateTrash("task", ids, "soft_delete");
       await fetchTasks();
       exitSelection();
-      toast({ title: `已删除 ${count} 个任务`, variant: "destructive" });
+      toast({ title: `${count} 个任务已移入垃圾箱` });
+    } catch (error) {
+      toast({
+        title: "批量删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
   };
 

@@ -6,7 +6,7 @@ import type { ReadingStatus } from "@organize/shared";
 // PATCH /api/reading-items/batch
 // body: { ids: string[], action: "status" | "delete", reading_status?: ReadingStatus, tag_id?: string }
 // - action="status"  : 批量修改阅读状态（需 reading_status）
-// - action="delete"  : 批量删除
+// - action="delete"  : 批量移入垃圾箱
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -30,13 +30,16 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (action === "delete") {
-    const { error } = await supabase
-      .from("reading_items")
-      .delete()
-      .in("id", ids)
-      .eq("user_id", user.id);
+    const { data, error } = await supabase.rpc("mutate_trash", {
+      p_action: "soft_delete",
+      p_resource_type: "reading_item",
+      p_ids: ids,
+    });
     if (error) return serverError(error);
-    return NextResponse.json({ success: true, affected: ids.length });
+    return NextResponse.json({
+      success: true,
+      affected: typeof data === "number" ? data : 0,
+    });
   }
 
   if (action === "status") {

@@ -7,6 +7,13 @@ import { toast } from "@/hooks/use-toast";
 import { resetOnboarding } from "@/components/onboarding";
 import { tiptapJsonToMarkdown } from "@/lib/export/tiptap-to-md";
 import {
+  BACKUP_TABLES,
+  BACKUP_MAX_ROWS_PER_TABLE,
+  createBackupV2,
+  type BackupData,
+  type BackupRow,
+} from "@/lib/backup/schema";
+import {
   Settings as SettingsIcon,
   Palette,
   Download,
@@ -53,32 +60,143 @@ export default function SettingsPage() {
         throw new Error("未登录");
       }
 
-      const [
-        readingItemsRes,
-        notesRes,
-        tasksRes,
-        tagsRes,
-        lessonsRes,
-        highlightsRes,
-      ] = await Promise.all([
-        supabase.from("reading_items").select("*").eq("user_id", user.id),
-        supabase.from("notes").select("*").eq("user_id", user.id),
-        supabase.from("tasks").select("*").eq("user_id", user.id),
-        supabase.from("tags").select("*").eq("user_id", user.id),
-        supabase.from("lessons").select("*").eq("user_id", user.id),
-        supabase.from("highlights").select("*").eq("user_id", user.id),
-      ]);
+      const tableQueries = [
+        {
+          table: "reading_items",
+          columns:
+            "id, url, title, content, excerpt, cover_image, reading_status, reading_progress, is_pinned, started_reading_at, completed_reading_at, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "notes",
+          columns:
+            "id, title, content, reading_item_id, is_pinned, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "tags",
+          columns: "id, name, color, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "item_tags",
+          columns: "item_id, tag_id",
+          order: ["item_id", "tag_id"],
+        },
+        {
+          table: "note_tags",
+          columns: "note_id, tag_id",
+          order: ["note_id", "tag_id"],
+        },
+        {
+          table: "tasks",
+          columns:
+            "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, is_pinned, sort_order, completed_at, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_checklists",
+          columns:
+            "id, task_id, content, is_completed, sort_order, created_at, updated_at",
+          order: ["id"],
+        },
+        {
+          table: "task_tags",
+          columns: "task_id, tag_id",
+          order: ["task_id", "tag_id"],
+        },
+        {
+          table: "lessons",
+          columns:
+            "id, title, content, lesson_type, task_id, reading_item_id, note_id, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "lesson_tags",
+          columns: "lesson_id, tag_id",
+          order: ["lesson_id", "tag_id"],
+        },
+        {
+          table: "highlights",
+          columns:
+            "id, reading_item_id, content, note, color, anchor_path, anchor_offset, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "favorites",
+          columns: "id, target_type, target_id, note, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "note_versions",
+          columns: "id, note_id, content, title, message, created_at",
+          order: ["id"],
+        },
+        {
+          table: "note_comment_threads",
+          columns: "id, note_id, block_id, resolved_at, created_at, updated_at",
+          order: ["id"],
+        },
+        {
+          table: "note_comments",
+          columns: "id, thread_id, body, created_at, updated_at",
+          order: ["id"],
+        },
+        {
+          table: "note_suggestions",
+          columns:
+            "id, note_id, block_id, original_block, proposed_block, status, created_at, updated_at",
+          order: ["id"],
+        },
+      ] as const;
 
-      const exportObj = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        reading_items: readingItemsRes.data || [],
-        notes: notesRes.data || [],
-        tasks: tasksRes.data || [],
-        tags: tagsRes.data || [],
-        lessons: lessonsRes.data || [],
-        highlights: highlightsRes.data || [],
-      };
+      const pageSize = 500;
+      const results = await Promise.all(
+        tableQueries.map(async (config) => {
+          const rows: BackupRow[] = [];
+          for (let offset = 0; ; offset += pageSize) {
+            let query = supabase.from(config.table).select(config.columns);
+            if ("userOwned" in config && config.userOwned) {
+              query = query.eq("user_id", user.id);
+            }
+            for (const field of config.order) {
+              query = query.order(field, { ascending: true });
+            }
+
+            const result = await query.range(offset, offset + pageSize - 1);
+            if (result.error) {
+              throw new Error(`${config.table} 导出失败: ${result.error.message}`);
+            }
+            const page = (result.data ?? []) as unknown as BackupRow[];
+            rows.push(...page);
+            if (rows.length > BACKUP_MAX_ROWS_PER_TABLE) {
+              throw new Error(
+                `${config.table} 超过 ${BACKUP_MAX_ROWS_PER_TABLE} 条，无法生成安全备份`
+              );
+            }
+            if (page.length < pageSize) break;
+          }
+          return rows;
+        })
+      );
+
+      if (
+        tableQueries.some((config, index) => config.table !== BACKUP_TABLES[index])
+      ) {
+        throw new Error("备份表顺序与格式合同不一致");
+      }
+
+      const backupData = Object.fromEntries(
+        BACKUP_TABLES.map((table, index) => [table, results[index]])
+      ) as unknown as BackupData;
+      const exportObj = createBackupV2(backupData);
 
       const dateStr = formatDateForFilename(new Date());
       downloadFile(

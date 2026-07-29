@@ -3,6 +3,12 @@ import * as cheerio from "cheerio";
 import { JSDOM } from "jsdom";
 import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import type { ScrapeResult } from "@organize/shared";
+import {
+  SafeFetchError,
+  safeFetchHtml,
+  type HttpRequester,
+} from "./safe-fetch";
+import type { AddressLookup } from "./url-safety";
 
 const FETCH_TIMEOUT = 15000;
 
@@ -12,10 +18,23 @@ const USER_AGENT =
 export interface ScrapeOptions {
   timeout?: number;
   userAgent?: string;
+  lookup?: AddressLookup;
+  request?: HttpRequester;
+  maxBytes?: number;
 }
 
 export interface ScrapeError {
-  code: "INVALID_URL" | "FETCH_FAILED" | "TIMEOUT" | "PARSE_FAILED" | "HTTP_ERROR";
+  code:
+    | "INVALID_URL"
+    | "URL_BLOCKED"
+    | "DNS_FAILED"
+    | "FETCH_FAILED"
+    | "TIMEOUT"
+    | "PARSE_FAILED"
+    | "HTTP_ERROR"
+    | "TOO_MANY_REDIRECTS"
+    | "TOO_LARGE"
+    | "NON_HTML";
   message: string;
   statusCode?: number;
 }
@@ -28,57 +47,34 @@ export async function scrapeUrl(
   options: ScrapeOptions = {}
 ): Promise<{ data?: ScrapeResult; error?: ScrapeError }> {
   const { timeout = FETCH_TIMEOUT, userAgent = USER_AGENT } = options;
-
-  // 验证 URL
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(url);
-    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-      return { error: { code: "INVALID_URL", message: "仅支持 HTTP/HTTPS 链接" } };
-    }
-  } catch {
-    return { error: { code: "INVALID_URL", message: "URL 格式不正确" } };
-  }
-
-  // 抓取页面
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-
   let html: string;
+  let finalUrl: URL;
   try {
-    const response = await fetch(parsedUrl.toString(), {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": userAgent,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      },
-      redirect: "follow",
+    const result = await safeFetchHtml(url, {
+      timeout,
+      userAgent,
+      lookup: options.lookup,
+      request: options.request,
+      maxBytes: options.maxBytes,
     });
-
-    if (!response.ok) {
+    html = result.html;
+    finalUrl = result.finalUrl;
+  } catch (error) {
+    if (error instanceof SafeFetchError) {
       return {
         error: {
-          code: "HTTP_ERROR",
-          message: `无法访问该页面 (${response.status})`,
-          statusCode: response.status,
+          code: error.code,
+          message: error.message,
+          statusCode: error.statusCode,
         },
       };
     }
-
-    html = await response.text();
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      return { error: { code: "TIMEOUT", message: "请求超时，请稍后重试" } };
-    }
     return { error: { code: "FETCH_FAILED", message: "无法获取页面内容" } };
-  } finally {
-    clearTimeout(timer);
   }
 
   // 解析内容
   try {
-    const result = parseHtml(html, parsedUrl);
+    const result = parseHtml(html, finalUrl);
     // 入库前清洗 HTML：移除脚本/事件处理器等，防止存储型 XSS
     return { data: { ...result, content: sanitizeContent(result.content) } };
   } catch {

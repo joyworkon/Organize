@@ -26,6 +26,8 @@ import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/sh
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
+import { mutateTrash } from "@/lib/trash/client";
 
 type TypeFilter = "all" | LessonType;
 
@@ -99,9 +101,18 @@ export default function LessonsPage() {
   }, [fetchLessons]);
 
   const handleDelete = async (lessonId: string) => {
-    await supabase.from("lesson_tags").delete().eq("lesson_id", lessonId);
-    await supabase.from("lessons").delete().eq("id", lessonId);
-    await fetchLessons();
+    if (!confirm("将这条经验移入垃圾箱？之后可以恢复。")) return;
+    try {
+      await mutateTrash("lesson", [lessonId], "soft_delete");
+      await fetchLessons();
+      toast({ title: "经验已移入垃圾箱" });
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCreate = () => {

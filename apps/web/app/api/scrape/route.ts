@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeUrl } from "@/lib/scraper";
+import { createClient } from "@/lib/supabase/server";
 
 // 内存缓存：避免重复抓取同一 URL（ISR 风格缓存）
 const scrapeCache = new Map<string, { data: unknown; timestamp: number }>();
@@ -7,6 +8,14 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 小时缓存
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "未授权", code: "UNAUTHORIZED" }, { status: 401 });
+    }
+
     const { url, force } = await request.json();
 
     if (!url || typeof url !== "string") {
@@ -28,13 +37,18 @@ export async function POST(request: NextRequest) {
     if (error) {
       const statusMap: Record<string, number> = {
         INVALID_URL: 400,
+        URL_BLOCKED: 403,
+        DNS_FAILED: 422,
         TIMEOUT: 408,
         HTTP_ERROR: 422,
         FETCH_FAILED: 422,
         PARSE_FAILED: 422,
+        TOO_MANY_REDIRECTS: 422,
+        TOO_LARGE: 413,
+        NON_HTML: 415,
       };
       return NextResponse.json(
-        { error: error.message },
+        { error: error.message, code: error.code },
         { status: statusMap[error.code] || 500 }
       );
     }

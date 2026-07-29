@@ -18,6 +18,7 @@ import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
+import { mutateTrash } from "@/lib/trash/client";
 import {
   nextSortField,
   applyPinned,
@@ -142,14 +143,18 @@ export default function NotesPage() {
   };
 
   const deleteNote = async (id: string) => {
-    if (!confirm("确定删除这篇笔记？此操作不可撤销。")) return;
-    const { error } = await supabase.from("notes").delete().eq("id", id);
-    if (error) {
-      toast({ title: "删除失败", description: error.message, variant: "destructive" });
-      return;
+    if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
+    try {
+      await mutateTrash("note", [id], "soft_delete");
+      setNotes((prev) => removeNotes(prev, new Set([id])));
+      toast({ title: "笔记已移入垃圾箱" });
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
-    setNotes((prev) => removeNotes(prev, new Set([id])));
-    toast({ title: "已删除笔记" });
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
@@ -174,17 +179,21 @@ export default function NotesPage() {
 
   const batchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selectedIds.size} 篇笔记？此操作不可撤销。`)) return;
+    if (!confirm(`将选中的 ${selectedIds.size} 篇笔记移入垃圾箱？`)) return;
     const ids = Array.from(selectedIds);
     const count = ids.length;
-    const { error } = await supabase.from("notes").delete().in("id", ids);
-    if (error) {
-      toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
-      return;
+    try {
+      await mutateTrash("note", ids, "soft_delete");
+      setNotes((prev) => removeNotes(prev, selectedIds));
+      exitSelection();
+      toast({ title: `${count} 篇笔记已移入垃圾箱` });
+    } catch (error) {
+      toast({
+        title: "批量删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
-    setNotes((prev) => removeNotes(prev, selectedIds));
-    exitSelection();
-    toast({ title: `已删除 ${count} 篇笔记`, variant: "destructive" });
   };
 
   const batchTogglePin = async (pinned: boolean) => {

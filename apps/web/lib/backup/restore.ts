@@ -1,0 +1,196 @@
+import {
+  BACKUP_TABLES,
+  type BackupData,
+  type BackupRow,
+  type BackupTable,
+  type BackupV2,
+} from "./schema";
+
+export interface RestorePayload {
+  restore_payload_version: 1;
+  data: BackupData;
+}
+
+type UuidFactory = () => string;
+
+const ID_TABLES = [
+  "reading_items",
+  "notes",
+  "tags",
+  "tasks",
+  "task_checklists",
+  "lessons",
+  "highlights",
+  "favorites",
+  "note_versions",
+  "note_comment_threads",
+  "note_comments",
+  "note_suggestions",
+] as const satisfies readonly BackupTable[];
+
+type IdTable = (typeof ID_TABLES)[number];
+
+export function prepareRestorePayload(
+  backup: BackupV2,
+  uuidFactory: UuidFactory = () => crypto.randomUUID()
+): RestorePayload {
+  const maps = {} as Record<IdTable, Map<string, string>>;
+  const generatedIds = new Set<string>();
+
+  for (const table of ID_TABLES) {
+    const tableMap = new Map<string, string>();
+    for (const row of backup.data[table]) {
+      const oldId = String(row.id);
+      const newId = uuidFactory();
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          newId
+        ) ||
+        generatedIds.has(newId)
+      ) {
+        throw new Error("UUID factory returned an invalid or duplicate ID");
+      }
+      generatedIds.add(newId);
+      tableMap.set(oldId, newId);
+    }
+    maps[table] = tableMap;
+  }
+
+  const data = Object.fromEntries(
+    BACKUP_TABLES.map((table) => [table, []])
+  ) as unknown as BackupData;
+
+  data.reading_items = backup.data.reading_items.map((row) =>
+    withId(row, maps.reading_items)
+  );
+  data.notes = backup.data.notes.map((row) => ({
+    ...withId(row, maps.notes),
+    reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+  }));
+  data.tags = backup.data.tags.map((row) => withId(row, maps.tags));
+  data.item_tags = backup.data.item_tags.map((row) => ({
+    item_id: remap(row.item_id, maps.reading_items),
+    tag_id: remap(row.tag_id, maps.tags),
+  }));
+  data.note_tags = backup.data.note_tags.map((row) => ({
+    note_id: remap(row.note_id, maps.notes),
+    tag_id: remap(row.tag_id, maps.tags),
+  }));
+  data.tasks = backup.data.tasks.map((row) => ({
+    ...withId(row, maps.tasks),
+    reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
+    note_id: remapOptional(row.note_id, maps.notes),
+  }));
+  data.task_checklists = backup.data.task_checklists.map((row) => ({
+    ...withId(row, maps.task_checklists),
+    task_id: remap(row.task_id, maps.tasks),
+  }));
+  data.task_tags = backup.data.task_tags.map((row) => ({
+    task_id: remap(row.task_id, maps.tasks),
+    tag_id: remap(row.tag_id, maps.tags),
+  }));
+  data.lessons = backup.data.lessons.map((row) => ({
+    ...withId(row, maps.lessons),
+    task_id: remapOptional(row.task_id, maps.tasks),
+    reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
+    note_id: remapOptional(row.note_id, maps.notes),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+  }));
+  data.lesson_tags = backup.data.lesson_tags.map((row) => ({
+    lesson_id: remap(row.lesson_id, maps.lessons),
+    tag_id: remap(row.tag_id, maps.tags),
+  }));
+  data.highlights = backup.data.highlights.map((row) => ({
+    ...withId(row, maps.highlights),
+    reading_item_id: remap(row.reading_item_id, maps.reading_items),
+  }));
+  data.favorites = backup.data.favorites.map((row) => ({
+    ...withId(row, maps.favorites),
+    target_id:
+      row.target_type === "reading"
+        ? remap(row.target_id, maps.reading_items)
+        : row.target_type === "note"
+          ? remap(row.target_id, maps.notes)
+          : remap(row.target_id, maps.tasks),
+  }));
+  data.note_versions = backup.data.note_versions.map((row) => ({
+    ...withId(row, maps.note_versions),
+    note_id: remap(row.note_id, maps.notes),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+  }));
+  data.note_comment_threads = backup.data.note_comment_threads.map((row) => ({
+    ...withId(row, maps.note_comment_threads),
+    note_id: remap(row.note_id, maps.notes),
+  }));
+  data.note_comments = backup.data.note_comments.map((row) => ({
+    ...withId(row, maps.note_comments),
+    thread_id: remap(row.thread_id, maps.note_comment_threads),
+  }));
+  data.note_suggestions = backup.data.note_suggestions.map((row) => ({
+    ...withId(row, maps.note_suggestions),
+    note_id: remap(row.note_id, maps.notes),
+    original_block: rewriteInternalLinks(
+      row.original_block,
+      maps.notes,
+      maps.reading_items
+    ),
+    proposed_block: rewriteInternalLinks(
+      row.proposed_block,
+      maps.notes,
+      maps.reading_items
+    ),
+  }));
+
+  return { restore_payload_version: 1, data };
+}
+
+function withId(row: BackupRow, map: Map<string, string>): BackupRow {
+  return { ...row, id: remap(row.id, map) };
+}
+
+function remap(value: unknown, map: Map<string, string>): string {
+  const mapped = typeof value === "string" ? map.get(value) : undefined;
+  if (!mapped) throw new Error(`Missing restore mapping for ${String(value)}`);
+  return mapped;
+}
+
+function remapOptional(
+  value: unknown,
+  map: Map<string, string>
+): string | null {
+  return value === null ? null : remap(value, map);
+}
+
+function rewriteInternalLinks(
+  value: unknown,
+  noteIds: Map<string, string>,
+  readingIds: Map<string, string>
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => rewriteInternalLinks(entry, noteIds, readingIds));
+  }
+  if (!isRecord(value)) return value;
+
+  const rewritten: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "href" && typeof entry === "string") {
+      rewritten[key] = entry.replace(
+        /\/(notes|library)\/([0-9a-f-]{36})(?=[/?#]|$)/gi,
+        (_match, kind: "notes" | "library", oldId: string) => {
+          const mapped =
+            kind === "notes" ? noteIds.get(oldId) : readingIds.get(oldId);
+          if (!mapped) throw new Error(`Unknown internal link target ${oldId}`);
+          return `/${kind}/${mapped}`;
+        }
+      );
+    } else {
+      rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds);
+    }
+  }
+  return rewritten;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

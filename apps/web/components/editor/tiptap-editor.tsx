@@ -1490,8 +1490,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     return () => {
       window.removeEventListener("mousemove", moveSelectDrag, true);
       window.removeEventListener("mouseup", finishSelectDrag, true);
+      selectDragRef.current = null;
+      setMultiSelectDragInProgress(false);
+      if (editor) editor.view.dom.style.userSelect = "";
     };
-  }, [finishSelectDrag, moveSelectDrag]);
+  }, [editor, finishSelectDrag, moveSelectDrag]);
 
   // 多选状态同步到 React（隐藏光标用）；插件在输入/点击时会自动清空，这里跟随
   useEffect(() => {
