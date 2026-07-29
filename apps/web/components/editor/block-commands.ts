@@ -7,6 +7,7 @@ import {
   Columns2,
   Columns3,
   Columns4,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
@@ -23,6 +24,7 @@ import {
   Sigma,
   Table as TableIcon,
   Text,
+  TextCursorInput,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -70,6 +72,8 @@ export function buildBlockReplacement(
     if (["paragraph", "heading", "codeBlock", "callout", "detailsSummary"].includes(candidate.type || "")) {
       return { ...candidate, content: [{ type: "text", text }] };
     }
+    // 叶子节点（horizontalRule / image 等）不允许带 content，原样返回避免非法 JSON
+    if (!candidate.content) return candidate;
     let inserted = false;
     return {
       ...candidate,
@@ -154,6 +158,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Text,
     keywords: ["text", "paragraph", "正文", "文本"],
     canTransform: true,
+    preview: { sample: "正文文本", caption: "普通正文文本" },
     run: (editor, pos) => replaceBlock(editor, pos, textBlock("paragraph")),
   },
   ...([1, 2, 3, 4] as const).map((level) => ({
@@ -164,8 +169,22 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: [`h${level}`, "heading", "标题"],
     shortcut: "#".repeat(level),
     canTransform: true,
+    preview: {
+      sample: `标题 ${level}`,
+      caption: ["大型版块标题", "中型版块标题", "小型版块标题", "迷你版块标题"][level - 1],
+    },
     run: (editor: Editor, pos: number) => replaceBlock(editor, pos, textBlock("heading", { level })),
   })),
+  {
+    id: "page",
+    label: "页面",
+    category: "基本区块",
+    icon: FileText,
+    keywords: ["page", "页面", "子页面", "子笔记"],
+    canTransform: true,
+    preview: { sample: "📄 子页面", caption: "转换成子页面链接" },
+    run: (editor, pos) => emit(editor, "page", pos),
+  },
   {
     id: "bullet-list",
     label: "项目符号列表",
@@ -173,6 +192,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: List,
     keywords: ["bullet", "list", "无序", "列表"],
     canTransform: true,
+    preview: { sample: "• 列表项", caption: "无序项目符号列表" },
     run: (editor, pos) => replaceBlock(editor, pos, listBlock("bulletList")),
   },
   {
@@ -182,6 +202,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: ListOrdered,
     keywords: ["ordered", "number", "有序", "编号"],
     canTransform: true,
+    preview: { sample: "1. 列表项", caption: "自动编号的有序列表" },
     run: (editor, pos) => replaceBlock(editor, pos, listBlock("orderedList")),
   },
   {
@@ -191,6 +212,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: ListTodo,
     keywords: ["todo", "task", "check", "待办"],
     canTransform: true,
+    preview: { sample: "☑ 待办事项", caption: "可勾选的任务清单" },
     run: (editor, pos) =>
       replaceBlock(editor, pos, {
         type: "taskList",
@@ -206,6 +228,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: ListCollapse,
     keywords: ["toggle", "details", "折叠"],
     canTransform: true,
+    preview: { sample: "▸ 折叠列表", caption: "可展开 / 折叠的列表" },
     run: (editor, pos) =>
       replaceBlock(editor, pos, {
         type: "details",
@@ -222,6 +245,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Quote,
     keywords: ["quote", "blockquote", "引用"],
     canTransform: true,
+    preview: { sample: "引用文字", caption: "引用一段文字" },
     run: (editor, pos) =>
       replaceBlock(editor, pos, {
         type: "blockquote",
@@ -235,6 +259,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: CodeSquare,
     keywords: ["code", "代码"],
     canTransform: true,
+    preview: { sample: "const a = 1;", caption: "等宽字体的代码片段" },
     run: (editor, pos) => replaceBlock(editor, pos, { type: "codeBlock", content: [] }),
   },
   {
@@ -244,14 +269,37 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Lightbulb,
     keywords: ["callout", "提示", "标注"],
     canTransform: true,
+    preview: { sample: "💡 标注内容", caption: "醒目的标注提示" },
     run: (editor, pos) => replaceBlock(editor, pos, { type: "callout", attrs: { emoji: "💡" } }),
   },
+  ...([1, 2, 3, 4] as const).map((level) => ({
+    id: `toggle-heading-${level}`,
+    label: `折叠标题 ${level}`,
+    category: "基本区块" as const,
+    icon: TextCursorInput,
+    keywords: [`h${level}`, "toggle", "heading", "折叠", "标题"],
+    canTransform: true,
+    preview: {
+      sample: `▸ 折叠标题 ${level}`,
+      caption: `可折叠的${["大", "中", "小", "迷你"][level - 1]}型标题`,
+    },
+    run: (editor: Editor, pos: number) =>
+      replaceBlock(editor, pos, {
+        type: "details",
+        content: [
+          { type: "detailsSummary", attrs: { level }, content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      }),
+  })),
   {
     id: "divider",
     label: "分隔线",
     category: "基本区块",
     icon: Minus,
     keywords: ["divider", "line", "分隔线"],
+    canTransform: true,
+    preview: { sample: "———", caption: "水平分隔线" },
     run: (editor, pos) => replaceBlock(editor, pos, { type: "horizontalRule" }),
   },
   {
@@ -276,7 +324,13 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     category: "媒体",
     icon: Sigma,
     keywords: ["math", "latex", "公式"],
-    run: (editor, pos) => emit(editor, "math", pos),
+    canTransform: true,
+    preview: { sample: "E = mc²", caption: "LaTeX 数学公式区块" },
+    run: (editor, pos) => {
+      // 块内文字若为 LaTeX 直接带入公式
+      const latex = (editor.state.doc.nodeAt(pos)?.textContent || "").trim();
+      replaceBlock(editor, pos, { type: "mathBlock", attrs: { latex } });
+    },
   },
   {
     id: "reference",
@@ -292,6 +346,8 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     category: "布局" as const,
     icon: [Columns2, Columns3, Columns4][cols - 2],
     keywords: ["columns", "column", "分栏", `${cols}列`],
+    canTransform: true,
+    preview: { sample: "▯".repeat(cols), caption: `${["两", "三", "四"][cols - 2]}栏并排布局` },
     run: (editor: Editor, pos: number) =>
       replaceBlock(editor, pos, {
         type: "columns",

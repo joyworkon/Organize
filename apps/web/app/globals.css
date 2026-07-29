@@ -468,6 +468,33 @@
   display: none !important;
   content: "" !important;
 }
+
+/* 折叠标题：summary[data-level] 按标题字号渲染（箭头按钮随行高微调） */
+.organize-editor.prose div[data-type="details"] summary[data-level="1"] {
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.organize-editor.prose div[data-type="details"] summary[data-level="2"] {
+  font-size: 1.3em;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.organize-editor.prose div[data-type="details"] summary[data-level="3"] {
+  font-size: 1.15em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.organize-editor.prose div[data-type="details"] summary[data-level="4"] {
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+/* 折叠标题的箭头按钮按摘要行高对齐首行中心 */
+.organize-editor.prose div[data-type="details"]:has(summary[data-level="1"]) > button { top: 0.5rem; }
+.organize-editor.prose div[data-type="details"]:has(summary[data-level="2"]) > button { top: 0.4rem; }
+.organize-editor.prose div[data-type="details"]:has(summary[data-level="3"]) > button { top: 0.3rem; }
+.organize-editor.prose div[data-type="details"]:has(summary[data-level="4"]) > button { top: 0.25rem; }
 .organize-editor.prose div[data-type="details"] summary::-moz-list-bullet {
   list-style-type: none;
 }
@@ -640,11 +667,12 @@
   border-radius: 4px;
 }
 
-/* 块手柄：固定在编辑器左侧 gutter 区域内（left: 10px），与列表标记/checkbox/折叠箭头同区域
-   手柄按钮有实色背景，hover 时自然覆盖后方标记（Notion 风格）*/
+/* 块手柄：固定在编辑器左侧 gutter 最左端（left: 1px，整体宽约 36px）。
+   列表标记 / checkbox / 折叠箭头位于 gutter 右侧 38px 起的区域（见上文列表样式），
+   两者分占 gutter 左右两侧、互不重叠。*/
 .organize-block-handle {
   position: absolute;
-  left: 10px;
+  left: 1px;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -667,7 +695,7 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 20px;
+  width: 17px;
   height: 20px;
   padding: 0;
   border: 0;
@@ -919,6 +947,74 @@
   font-size: 13px;
 }
 .editor-menu-meta { color: hsl(var(--muted-foreground)); }
+
+/* 「转换成」悬停小预览弹窗 */
+.block-transform-preview {
+  position: fixed;
+  z-index: 110;
+  width: 200px;
+  border: 1px solid hsl(var(--border) / 0.5);
+  border-radius: 10px;
+  background: hsl(var(--popover));
+  box-shadow: 0 8px 28px hsl(222 47% 11% / 0.12), 0 1px 4px hsl(222 47% 11% / 0.05);
+  overflow: hidden;
+  pointer-events: none;
+}
+.block-transform-preview-sample {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding: 18px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  word-break: break-word;
+}
+.block-transform-preview-caption {
+  padding: 7px 12px;
+  background: hsl(222 47% 11% / 0.85);
+  color: hsl(0 0% 100%);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.dark .block-transform-preview-caption {
+  background: hsl(0 0% 0% / 0.7);
+}
+.block-transform-preview-sample.preview-heading-1 { font-size: 24px; }
+.block-transform-preview-sample.preview-heading-2 { font-size: 20px; }
+.block-transform-preview-sample.preview-heading-3 { font-size: 17px; }
+.block-transform-preview-sample.preview-heading-4 { font-size: 15px; }
+.block-transform-preview-sample.preview-toggle-heading-1 { font-size: 24px; }
+.block-transform-preview-sample.preview-toggle-heading-2 { font-size: 20px; }
+.block-transform-preview-sample.preview-toggle-heading-3 { font-size: 17px; }
+.block-transform-preview-sample.preview-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 400;
+}
+.block-transform-preview-sample.preview-math {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.block-transform-preview-sample.preview-quote {
+  font-weight: 400;
+  border-left: 3px solid hsl(var(--foreground));
+  padding-left: 10px;
+  margin: 14px;
+  min-height: 0;
+}
+.block-transform-preview-sample.preview-callout {
+  background: hsl(var(--accent));
+  border-radius: 6px;
+  margin: 12px;
+  padding: 12px;
+  min-height: 0;
+  font-weight: 400;
+}
+/* 触屏设备点按时预览只会闪一帧，直接禁用 */
+@media (hover: none) {
+  .block-transform-preview { display: none; }
+}
 .editor-menu-subtitle {
   display: flex;
   align-items: center;
@@ -1197,8 +1293,9 @@
 
 @media (max-width: 640px) {
   .organize-editor.prose { padding-left: 40px !important; }
-  .organize-block-handle { left: 6px; height: 20px; gap: 0; }
-  .organize-block-handle button { width: 18px; height: 18px; }
+  /* 移动端 gutter 只有 40px：手柄收到最左端 1..17px，让出 20px 起的标记区 */
+  .organize-block-handle { left: 1px; height: 20px; gap: 0; }
+  .organize-block-handle button { width: 16px; height: 18px; }
   .organize-block-add { display: none !important; }
   .organize-block-drop-indicator { left: 40px; }
   .organize-editor.prose > ul,

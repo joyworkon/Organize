@@ -703,7 +703,19 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       TableHeader,
       Details,
       DetailsContent,
-      DetailsSummary,
+      // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
+      DetailsSummary.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            level: {
+              default: 0,
+              parseHTML: (el) => Number((el as HTMLElement).getAttribute("data-level") || 0),
+              renderHTML: (attrs) => (attrs.level ? { "data-level": String(attrs.level) } : {}),
+            },
+          };
+        },
+      }),
       Callout,
       InlineMath,
       MathBlock,
@@ -863,6 +875,43 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
   }, [editor]);
 
+  // 「转换成 → 页面」：以块文本为标题创建子笔记，并把块替换为指向它的链接段落
+  const convertBlockToPage = useCallback(async (pos: number) => {
+    if (!editor) return;
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node) return;
+    const blockId = String(node.attrs?.id || "");
+    const title = node.textContent.trim() || "无标题笔记";
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!response.ok) {
+        console.warn("[editor] 转换成页面失败", response.status);
+        return;
+      }
+      const created = (await response.json()) as { id: string; title: string };
+      // 创建期间块可能已被删除/移动：校验同位置的块仍是原来那个（按 block id）
+      const current = editor.state.doc.nodeAt(pos);
+      if (!current || String(current.attrs?.id || "") !== blockId) return;
+      replaceAt(editor, pos, {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "📄 " },
+          {
+            type: "text",
+            marks: [{ type: "link", attrs: { href: `/notes/${created.id}` } }],
+            text: created.title,
+          },
+        ],
+      });
+    } catch (error) {
+      console.warn("[editor] 转换成页面失败", error);
+    }
+  }, [editor]);
+
   useEffect(() => {
     if (!editor) return;
     const root = rootRef.current;
@@ -879,6 +928,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
           if (latex) replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
         } else if (detail.type === "reference") addReadingReference(detail.pos);
+        else if (detail.type === "page") void convertBlockToPage(detail.pos);
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });
         if (detail.type === "comment") setDialog({ type: "comment", target: detail.target });
@@ -888,7 +938,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     };
     root?.addEventListener("organize-editor-action", handler);
     return () => root?.removeEventListener("organize-editor-action", handler);
-  }, [addReadingReference, editor, uploadImage]);
+  }, [addReadingReference, convertBlockToPage, editor, uploadImage]);
 
   useEffect(() => {
     fetch(`/api/notes/${noteId}/comments`)

@@ -163,6 +163,7 @@ export function BlockActionMenu({
 }) {
   const [view, setView] = useState<"main" | "transform" | "color" | "skills">("main");
   const [query, setQuery] = useState("");
+  const [preview, setPreview] = useState<{ commandId: string; top: number; left: number } | null>(null);
   const transformCommands = useMemo(
     () => BLOCK_COMMANDS.filter((item) => {
       if (!item.canTransform || !commandMatches(item, query)) return false;
@@ -180,20 +181,40 @@ export function BlockActionMenu({
   };
 
   if (view === "transform") {
+    const previewCommand = preview ? transformCommands.find((item) => item.id === preview.commandId) : null;
     return (
       <EditorPopover point={point} onClose={onClose} className="block-action-popover">
-        <MenuHeader title="转换成" query={query} onQuery={setQuery} onBack={() => setView("main")} />
-        <div className="editor-menu-scroll compact">
+        <MenuHeader title="转换成" query={query} onQuery={setQuery} onBack={() => { setPreview(null); setView("main"); }} />
+        <div className="editor-menu-scroll compact" onMouseLeave={() => setPreview(null)}>
           {!canTransformTarget && <div className="editor-menu-empty">{target.type} 是结构化区块，不能直接转换；请先复制其中的文本。</div>}
           {canTransformTarget && transformCommands.map((command) => {
             const Icon = command.icon;
-            return <button key={command.id} type="button" onClick={() => finish(() => {
-              const pos = resolveTransformPos(editor, target);
-              command.run(editor, pos);
-              focusAndHighlightBlock(editor, target.id);
-            })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
+            return <button key={command.id} type="button"
+              onMouseEnter={(event) => {
+                if (!command.preview) {
+                  setPreview(null);
+                  return;
+                }
+                const rect = event.currentTarget.getBoundingClientRect();
+                setPreview({
+                  commandId: command.id,
+                  top: Math.max(8, Math.min(rect.top, window.innerHeight - 180)),
+                  left: Math.min(rect.right + 8, window.innerWidth - 216),
+                });
+              }}
+              onClick={() => finish(() => {
+                const pos = resolveTransformPos(editor, target);
+                command.run(editor, pos);
+                focusAndHighlightBlock(editor, target.id);
+              })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
           })}
         </div>
+        {previewCommand?.preview && (
+          <div className="block-transform-preview" style={{ top: preview!.top, left: preview!.left }} aria-hidden="true">
+            <div className={`block-transform-preview-sample preview-${previewCommand.id}`}>{previewCommand.preview.sample}</div>
+            <div className="block-transform-preview-caption">{previewCommand.preview.caption}</div>
+          </div>
+        )}
       </EditorPopover>
     );
   }
