@@ -58,8 +58,8 @@ const BACKGROUNDS = [
   { label: "红色背景", value: "rgba(212,76,71,.14)" },
 ];
 
-// 可直接转换的块：普通文本块 + 结构化的列表项 / 待办项 / 折叠列表。
-// 列表项在转换前需先从列表里 lift 出来（见 resolveTransformPos），details 本身是顶层块可直接替换。
+// 可直接转换的块：普通文本块、列表项 / 待办项 / 折叠列表和分栏。
+// 分栏转换为普通块时由 block-commands 按换行合并各栏文字；切换列数则保留栏内结构。
 const TEXT_TRANSFORMABLE_TYPES = new Set([
   "paragraph",
   "heading",
@@ -69,6 +69,7 @@ const TEXT_TRANSFORMABLE_TYPES = new Set([
   "details",
   "listItem",
   "taskItem",
+  "columns",
 ]);
 
 // 列表项 / 待办项转换前，先把光标放进去并用 liftListItem 把它移出列表，变成顶层段落，

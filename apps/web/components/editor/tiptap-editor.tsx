@@ -715,6 +715,12 @@ function handleTopForBlock(block: HTMLElement, shellRect: DOMRect): number {
 function handleLeftForBlock(block: HTMLElement, shellRect: DOMRect, handleWidth: number): number {
   let blockLeft = block.getBoundingClientRect().left;
 
+  // 普通项目符号 / 编号列表的 li 左缘是正文轴，原生 marker 位于父列表的 gutter。
+  // 手柄贴父列表左缘，避免与圆点或序号重叠。TaskItem 的 li 已包含 checkbox 槽。
+  if (block.matches("li") && !block.parentElement?.matches('ul[data-type="taskList"]')) {
+    blockLeft = block.parentElement?.getBoundingClientRect().left ?? blockLeft;
+  }
+
   // TaskList 的顶层 ul 不占 checkbox 槽，真正的行从 li 的负 margin 开始。
   if (block.matches('ul[data-type="taskList"]')) {
     const anchor = firstTextblockElement(block);
@@ -725,6 +731,19 @@ function handleLeftForBlock(block: HTMLElement, shellRect: DOMRect, handleWidth:
   }
 
   return blockLeft - shellRect.left - HANDLE_GAP - handleWidth;
+}
+
+function pointIsOverRenderedText(block: HTMLElement, clientX: number, clientY: number): boolean {
+  const anchor = firstTextblockElement(block);
+  if (!anchor.textContent) return false;
+  const range = document.createRange();
+  range.selectNodeContents(anchor);
+  return Array.from(range.getClientRects()).some((rect) => (
+    clientX >= rect.left
+    && clientX <= rect.right
+    && clientY >= rect.top
+    && clientY <= rect.bottom
+  ));
 }
 
 function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number): EditorMenuPoint {
@@ -1400,21 +1419,27 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
 
   /* ------------------------- 拖拽块多选 ------------------------- */
 
-  // 两种起点都算框选：
-  // 1）编辑器空白 / 块间隙 / 左侧 gutter（事件目标是 editorDom 本身）→ 直接框选；
-  // 2）文字上（图3 的 Notion 方式）→ 先让浏览器做原生文本选择，一旦拖出起始块的
+  // 三种起点都算框选：
+  // 1）笔记画布左右留白 / 编辑器 padding → 直接框选；
+  // 2）块内没有文字的横向空白 → 直接框选；
+  // 3）文字上（图3 的 Notion 方式）→ 先让浏览器做原生文本选择，一旦拖出起始块的
   //    纵向范围就切换为块多选（清掉文本选区、画选择矩形）。
-  const beginSelectDrag = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const beginSelectDrag = useCallback((event: MouseEvent) => {
     if (!editor || event.button !== 0) return;
     if (commandMenu || actionMenu) return;
-    const target = event.target as HTMLElement;
-    if (target.closest(".organize-block-handle")) return;
+    if (event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest(
+      ".organize-block-handle, .organize-column-resizer, .editor-popover, "
+      + "button, input, textarea, select, a, [contenteditable='false']"
+    )) return;
     const editorDom = editor.view.dom;
-    if (!editorDom.contains(target)) return;
     const bounds = blockSelectionBoundsForElement(editorDom);
     if (!pointIsInsideBlockSelectionBounds(bounds, event.clientX, event.clientY)) return;
-    if (target === editorDom) {
-      // 空白区：阻止浏览器开始文本选择 / 放置光标（拖动期间的选区同步会清掉多选状态）
+    const startedInsideEditor = editorDom.contains(target);
+    if (!startedInsideEditor || target === editorDom) {
+      // 画布左右留白 / 编辑器 padding：没有原生文本选择，直接按行框选。
       event.preventDefault();
       selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: false, blockTop: 0, blockBottom: 0, bounds };
       return;
@@ -1423,8 +1448,22 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const block = blockElementAtTarget(editorDom, target, event.clientY);
     if (!block) return;
     const rect = block.getBoundingClientRect();
-    selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: true, blockTop: rect.top, blockBottom: rect.bottom, bounds };
+    const fromText = pointIsOverRenderedText(block, event.clientX, event.clientY);
+    selectDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      fromText,
+      blockTop: fromText ? rect.top : 0,
+      blockBottom: fromText ? rect.bottom : 0,
+      bounds,
+    };
   }, [actionMenu, commandMenu, editor]);
+
+  useEffect(() => {
+    document.addEventListener("mousedown", beginSelectDrag);
+    return () => document.removeEventListener("mousedown", beginSelectDrag);
+  }, [beginSelectDrag]);
 
   const moveSelectDrag = useCallback((event: MouseEvent) => {
     const drag = selectDragRef.current;
@@ -1538,7 +1577,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       className="relative organize-editor-shell"
       ref={rootRef}
       onMouseMove={updateHoveredBlock}
-      onMouseDown={beginSelectDrag}
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
     >
       <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>

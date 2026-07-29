@@ -80,10 +80,6 @@
 .note-page-mono .organize-editor {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.note-page-small .note-title {
-  font-size: 1.25rem;
-  line-height: 1.75rem;
-}
 .note-page-small .organize-editor {
   font-size: 0.8125rem;
 }
@@ -95,6 +91,12 @@
 }
 .note-page .note-title {
   padding-right: 0;
+  font-size: 2.5rem;
+  line-height: 1.2;
+}
+.note-page.note-page-small .note-title {
+  font-size: 2rem;
+  line-height: 1.25;
 }
 
 /* 反向链接区域对齐 */
@@ -1437,6 +1439,8 @@
   .organize-block-add { display: none !important; }
   .organize-block-drop-indicator { left: 40px; }
   .organize-editor { --organize-columns-gap: 18px; }
+  .note-page .note-title { font-size: 2rem; }
+  .note-page.note-page-small .note-title { font-size: 1.875rem; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }
   .editor-dialog-backdrop { align-items: end; padding: 0; }
   .editor-dialog { width: 100% !important; max-height: 88vh; border-radius: 16px 16px 0 0; }

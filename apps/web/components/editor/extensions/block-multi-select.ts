@@ -28,14 +28,27 @@ export interface BlockSelectionRect {
 
 export function calculateBlockSelectionBounds(
   editorRect: BlockSelectionRect,
-  paddingLeft: number,
-  gutterWidth: number
+  surfaceRect: BlockSelectionRect = editorRect,
+  surfacePaddingLeft = 0,
+  surfacePaddingRight = surfacePaddingLeft
 ): BlockSelectionRect {
-  const safePadding = Number.isFinite(paddingLeft) ? Math.max(0, paddingLeft) : 0;
-  const safeGutter = Number.isFinite(gutterWidth) ? Math.max(0, gutterWidth) : 0;
+  const safeLeftPadding = Number.isFinite(surfacePaddingLeft)
+    ? Math.max(0, surfacePaddingLeft)
+    : 0;
+  const safeRightPadding = Number.isFinite(surfacePaddingRight)
+    ? Math.max(0, surfacePaddingRight)
+    : 0;
+  const surfaceLeft = Math.min(
+    surfaceRect.right,
+    surfaceRect.left + safeLeftPadding
+  );
+  const surfaceRight = Math.max(
+    surfaceRect.left,
+    surfaceRect.right - safeRightPadding
+  );
   return {
-    left: Math.min(editorRect.right, editorRect.left + Math.max(0, safePadding - safeGutter)),
-    right: editorRect.right,
+    left: Math.min(editorRect.left, surfaceLeft),
+    right: Math.max(editorRect.right, surfaceRight),
     top: editorRect.top,
     bottom: editorRect.bottom,
   };
@@ -55,14 +68,21 @@ export function pointIsInsideBlockSelectionBounds(
 }
 
 export function blockSelectionBoundsForElement(editorDom: HTMLElement): BlockSelectionRect {
-  const rect = editorDom.getBoundingClientRect();
-  const editorStyle = window.getComputedStyle(editorDom);
-  const rootStyle = window.getComputedStyle(document.documentElement);
-  const paddingLeft = Number.parseFloat(editorStyle.paddingLeft) || 0;
-  const gutterWidth = Number.parseFloat(
-    rootStyle.getPropertyValue("--organize-gutter")
-  ) || 0;
-  return calculateBlockSelectionBounds(rect, paddingLeft, gutterWidth);
+  const editorRect = editorDom.getBoundingClientRect();
+  const surface = editorDom.closest(".container");
+  if (!(surface instanceof HTMLElement)) {
+    return calculateBlockSelectionBounds(editorRect);
+  }
+
+  const surfaceStyle = window.getComputedStyle(surface);
+  const surfacePaddingLeft = Number.parseFloat(surfaceStyle.paddingLeft) || 0;
+  const surfacePaddingRight = Number.parseFloat(surfaceStyle.paddingRight) || 0;
+  return calculateBlockSelectionBounds(
+    editorRect,
+    surface.getBoundingClientRect(),
+    surfacePaddingLeft,
+    surfacePaddingRight
+  );
 }
 
 export function setMultiSelectDragInProgress(value: boolean) {

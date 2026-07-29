@@ -54,27 +54,32 @@ function pressKey(editor: Editor, key: string) {
 }
 
 describe("BlockMultiSelect 拖拽块多选", () => {
-  it("框选边界从蓝色块背景左缘开始，而不是从编辑器 padding 外缘开始", () => {
+  it("框选边界横向扩展到笔记主画布，纵向仍限制在编辑器内", () => {
     const bounds = calculateBlockSelectionBounds(
-      { left: 100, right: 900, top: 200, bottom: 700 },
-      60,
+      { left: 376, right: 1144, top: 200, bottom: 700 },
+      { left: 240, right: 1280, top: 0, bottom: 900 },
+      24,
       24
     );
-    expect(bounds).toEqual({ left: 136, right: 900, top: 200, bottom: 700 });
-    expect(pointIsInsideBlockSelectionBounds(bounds, 135, 300)).toBe(false);
-    expect(pointIsInsideBlockSelectionBounds(bounds, 136, 300)).toBe(true);
+    expect(bounds).toEqual({ left: 264, right: 1256, top: 200, bottom: 700 });
+    expect(pointIsInsideBlockSelectionBounds(bounds, 263, 300)).toBe(false);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 264, 300)).toBe(true);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 1256, 300)).toBe(true);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 1257, 300)).toBe(false);
     expect(pointIsInsideBlockSelectionBounds(bounds, 500, 701)).toBe(false);
   });
 
-  it("移动端 padding/gutter 也按同一公式约束框选区域", () => {
+  it("移动端画布与编辑器同宽时不会把框选范围扩到页面外", () => {
     const bounds = calculateBlockSelectionBounds(
-      { left: 12, right: 360, top: 80, bottom: 640 },
-      40,
-      20
+      { left: 16, right: 360, top: 80, bottom: 640 },
+      { left: 0, right: 376, top: 0, bottom: 700 },
+      16,
+      16
     );
-    expect(bounds.left).toBe(32);
-    expect(pointIsInsideBlockSelectionBounds(bounds, 20, 200)).toBe(false);
-    expect(pointIsInsideBlockSelectionBounds(bounds, 32, 200)).toBe(true);
+    expect(bounds.left).toBe(16);
+    expect(bounds.right).toBe(360);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 15, 200)).toBe(false);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 16, 200)).toBe(true);
   });
 
   it("设置选中后可以通过 getMultiSelectedBlocks 读到", () => {
