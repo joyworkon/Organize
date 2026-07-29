@@ -34,7 +34,7 @@ export const SlashCommand = Extension.create({
                   type: "slash-menu",
                   pos,
                   range,
-                  point: rect ? { left: rect.left, top: rect.bottom + 8 } : { left: 20, top: 80 },
+                  point: rect ? { left: rect.left, top: rect.bottom + 8, anchorTop: rect.top } : { left: 20, top: 80 },
                 },
               })
             );

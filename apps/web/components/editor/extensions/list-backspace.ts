@@ -1,4 +1,7 @@
 import { Extension } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
+
+const LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
 
 /**
  * 块首退格修正：当光标在一个「带标记/样式的结构块」最前面按退格时，
@@ -7,10 +10,14 @@ import { Extension } from "@tiptap/core";
  *
  * 覆盖的块类型：
  *  - 项目符号列表 / 编号列表（listItem）、待办列表（taskItem）→ liftListItem 抬回正文（嵌套时只抬一级）
+ *    · 例外：空列表项直接删除（光标移到上一项末尾），默认行为只会把空段落并进上一项、
+ *      项还在；抬回正文则会变成「抬成空段落 ↔ 又被拉回列表」的死循环
  *  - 引用（blockquote）、标注（callout）→ lift 把当前段落从包裹中抬出
  *  - 代码块（codeBlock）→ clearNodes 归一化为段落
  *  - 标题（heading）→ clearNodes 归一化为段落
  *  - 折叠列表（details 的 detailsSummary）→ 整块展开：摘要行变段落、内容块原样留在下方
+ *  - 顶层文本块且上一兄弟是列表 → 文本并入列表末项（空块则直接删除，光标进列表末尾），
+ *    避免默认行为把段落重新变成一个列表项（上一规则刚抬出来、这一按又变回去的死循环）
  *
  * 只在「光标位于当前文本块最前面（parentOffset === 0）」时介入，其它退格保持默认行为。
  */
@@ -47,9 +54,16 @@ export const ListBackspaceFix = Extension.create({
           const typeName = node.type.name;
 
           if (typeName === "listItem" || typeName === "taskItem") {
-            // 仅当光标处于该列表项的第一个子块开头时才抬回正文，
+            // 仅当光标处于该列表项的第一个子块开头时才介入，
             // 否则（比如列表项里的第二段）交给默认行为，避免破坏嵌套内容
             if ($from.index(depth) !== 0) return false;
+            // 空列表项：默认 joinBackward 只会把空段落并进上一项、残留一个空行（项还在）。
+            // 这里直接把空项删除：光标移到上一项末尾；首个空项仍抬回普通段落。
+            if (node.textContent.length === 0) {
+              const indexInList = $from.index(depth - 1);
+              if (indexInList === 0) return editor.commands.liftListItem(typeName);
+              return deleteEmptyListItem(editor, $from.before(depth), node.nodeSize);
+            }
             return editor.commands.liftListItem(typeName);
           }
 
@@ -63,11 +77,72 @@ export const ListBackspaceFix = Extension.create({
           }
         }
 
+        // 顶层文本块、上一兄弟是列表：把当前块内容并入列表最后一项（空块直接删除）。
+        // 默认 joinBackward 会把段落重新包装成一个列表项 —— 刚从列表里退格抬出来的段落
+        // 下一按又变回列表项，用户看到的就是「删掉的元素又恢复了、永远删不上去」。
+        if ($from.depth === 1 && $from.parent.isTextblock) {
+          const blockPos = $from.before(1);
+          const $block = editor.state.doc.resolve(blockPos);
+          const previous = $block.nodeBefore;
+          if (previous && LIST_TYPES.has(previous.type.name)) {
+            return mergeIntoListEnd(editor, blockPos, $from.parent.content.size);
+          }
+        }
+
         return false;
       },
     };
   },
 });
+
+/**
+ * 把 blockPos 处的顶层文本块并入上一个列表的末尾：
+ *  - 非空块：行内内容追加到列表最后一个文本块末尾，光标留在合并点（下次退格正常删字）
+ *  - 空块：直接删除，光标落在列表末尾
+ */
+function mergeIntoListEnd(
+  editor: import("@tiptap/core").Editor,
+  blockPos: number,
+  contentSize: number
+): boolean {
+  return editor
+    .chain()
+    .command(({ tr, dispatch }) => {
+      if (dispatch) {
+        const block = tr.doc.nodeAt(blockPos);
+        if (!block) return false;
+        // 列表末尾的文本位置（删除前定位，删除不影响它前面的位置）
+        const joinAt = TextSelection.near(tr.doc.resolve(blockPos - 1), -1).from;
+        tr.delete(blockPos, blockPos + block.nodeSize);
+        if (contentSize > 0) {
+          tr.insert(joinAt, block.content);
+        }
+        tr.setSelection(TextSelection.near(tr.doc.resolve(joinAt), 1)).scrollIntoView();
+      }
+      return true;
+    })
+    .run();
+}
+
+/** 删除空列表项，光标移到上一项末尾。 */
+function deleteEmptyListItem(
+  editor: import("@tiptap/core").Editor,
+  itemPos: number,
+  itemSize: number
+): boolean {
+  return editor
+    .chain()
+    .command(({ tr, dispatch }) => {
+      if (dispatch) {
+        // 上一项末尾的文本位置（在 itemPos 之前，不受删除影响）
+        const before = TextSelection.near(tr.doc.resolve(itemPos - 1), -1).from;
+        tr.delete(itemPos, itemPos + itemSize);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(before), 1)).scrollIntoView();
+      }
+      return true;
+    })
+    .run();
+}
 
 /**
  * 把折叠列表整块展开为普通块：

@@ -257,4 +257,131 @@ describe("ListBackspaceFix 块首退格", () => {
     expect(editor.state.doc.textContent).toBe("列表项");
     editor.destroy();
   });
+
+  it("空列表项：直接删除该项（光标移到上一项末尾），不残留空段落", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] },
+            { type: "listItem", content: [{ type: "paragraph" }] },
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "乙" }] }] },
+          ],
+        },
+      ],
+    });
+    // 光标放到空项里
+    let emptyPos: number | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (emptyPos === null && node.type.name === "listItem" && node.textContent.length === 0) {
+        emptyPos = pos + 2;
+      }
+      return true;
+    });
+    expect(emptyPos).not.toBeNull();
+    editor.commands.setTextSelection(emptyPos!);
+    expect(pressBackspace(editor)).toBe(true);
+    // 空项被删除：列表不裂、项内不残留空段落
+    expect(typeNames(editor)).toEqual(["bulletList"]);
+    const list = editor.state.doc.firstChild!;
+    expect(list.childCount).toBe(2);
+    expect(list.textContent).toBe("甲乙");
+    expect(list.child(0).childCount).toBe(1);
+    // 光标落在上一项末尾，继续退格就是正常删字
+    expect(editor.state.selection.$from.parent.textContent).toBe("甲");
+    expect(editor.state.selection.$from.parentOffset).toBe(1);
+    editor.destroy();
+  });
+
+  it("顶层空段落、上一兄弟是列表：直接删除空段落，光标进列表末尾", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] }] },
+        { type: "paragraph" },
+        { type: "paragraph", content: [{ type: "text", text: "下方" }] },
+      ],
+    });
+    // 光标放到空段落
+    let emptyPos: number | null = null;
+    editor.state.doc.forEach((node, offset) => {
+      if (emptyPos === null && node.type.name === "paragraph" && node.content.size === 0) {
+        emptyPos = offset + 1;
+      }
+    });
+    expect(emptyPos).not.toBeNull();
+    editor.commands.setTextSelection(emptyPos!);
+    expect(pressBackspace(editor)).toBe(true);
+    expect(typeNames(editor)).toEqual(["bulletList", "paragraph"]);
+    // 列表没有多出新空项，光标落在列表文字末尾
+    expect(editor.state.doc.firstChild!.childCount).toBe(1);
+    expect(editor.state.selection.$from.parent.textContent).toBe("甲");
+    expect(editor.state.selection.$from.parentOffset).toBe(1);
+    editor.destroy();
+  });
+
+  it("顶层段落、上一兄弟是列表：文本并入列表末项，不再变回列表项（打破死循环）", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] },
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "乙" }] }] },
+          ],
+        },
+        { type: "paragraph", content: [{ type: "text", text: "丙" }] },
+      ],
+    });
+    // 光标放到「丙」开头
+    let pos: number | null = null;
+    editor.state.doc.descendants((node, nodePos) => {
+      if (pos === null && node.isText && node.text === "丙") pos = nodePos;
+      return true;
+    });
+    editor.commands.setTextSelection(pos!);
+    expect(pressBackspace(editor)).toBe(true);
+    expect(typeNames(editor)).toEqual(["bulletList"]);
+    // 仍是 2 个列表项：丙并入「乙」而不是成为一个新列表项
+    const list = editor.state.doc.firstChild!;
+    expect(list.childCount).toBe(2);
+    expect(list.child(1).textContent).toBe("乙丙");
+    // 光标在合并点（乙|丙之间），下一次退格删除的是字符而不是又把块抬出来
+    expect(editor.state.selection.$from.parent.textContent).toBe("乙丙");
+    expect(editor.state.selection.$from.parentOffset).toBe(1);
+    editor.destroy();
+  });
+
+  it("段落从列表抬出后再退格：内容并入上一项，不会反复横跳", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "上文" }] },
+        {
+          type: "bulletList",
+          content: [
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] },
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "乙" }] }] },
+          ],
+        },
+      ],
+    });
+    // 光标放到「乙」开头：第一次退格抬成段落
+    let pos: number | null = null;
+    editor.state.doc.descendants((node, nodePos) => {
+      if (pos === null && node.isText && node.text === "乙") pos = nodePos;
+      return true;
+    });
+    editor.commands.setTextSelection(pos!);
+    expect(pressBackspace(editor)).toBe(true);
+    expect(typeNames(editor)).toEqual(["paragraph", "bulletList", "paragraph"]);
+    // 第二次退格：并入上一项，列表项数不增加
+    expect(pressBackspace(editor)).toBe(true);
+    expect(typeNames(editor)).toEqual(["paragraph", "bulletList"]);
+    expect(editor.state.doc.textContent).toContain("甲乙");
+    editor.destroy();
+  });
 });

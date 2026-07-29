@@ -14,6 +14,8 @@ export interface EditorBlockTarget {
 export interface EditorMenuPoint {
   left: number;
   top: number;
+  /** 锚点块的顶边坐标（viewport）：菜单向上翻转展开时用于贴住块顶 */
+  anchorTop?: number;
 }
 
 export interface BlockCommandDefinition {
