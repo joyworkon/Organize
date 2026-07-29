@@ -15,6 +15,14 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 const multiSelectKey = new PluginKey<Set<number>>("organizeBlockMultiSelect");
 
+// 框选拖动进行中：此期间的光标同步（浏览器原生选区变化）不清空多选，
+// 否则从文字上起拖时浏览器一边选文字、插件一边把块多选清掉
+let selectDragInProgress = false;
+
+export function setMultiSelectDragInProgress(value: boolean) {
+  selectDragInProgress = value;
+}
+
 export function getMultiSelectedBlocks(editor: Editor): number[] {
   return Array.from(multiSelectKey.getState(editor.state) ?? []);
 }
@@ -37,8 +45,10 @@ export const BlockMultiSelect = Extension.create({
           apply(transaction, value) {
             const next = transaction.getMeta(multiSelectKey);
             if (next !== undefined) return next;
-            // 其它编辑 / 光标移动发生时兜底清空（删除命令会显式再清一次）
-            if (transaction.docChanged || transaction.selectionSet) return new Set<number>();
+            // 其它编辑 / 光标移动发生时兜底清空（删除命令会显式再清一次）；
+            // 框选拖动中的光标同步不清（从文字上起拖时会先产生文本选区再切换）
+            if (transaction.docChanged) return new Set<number>();
+            if (transaction.selectionSet && !selectDragInProgress) return new Set<number>();
             return value;
           },
         },

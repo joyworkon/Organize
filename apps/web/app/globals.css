@@ -308,10 +308,10 @@
 }
 .organize-editor.prose ul[data-type="taskList"] li > label {
   position: absolute;
-  left: 2px;
+  left: 0;
   top: 0.15em;
   margin: 0;
-  width: 1.25rem;
+  width: 1rem;
   height: 1.25rem;
   display: inline-flex;
   align-items: center;
@@ -429,9 +429,9 @@
 }
 .organize-editor.prose div[data-type="details"] > button {
   position: absolute;
-  left: 2px;
+  left: 0;
   top: 0.2rem;
-  width: 1.25rem;
+  width: 1rem;
   height: 1.25rem;
   display: inline-flex;
   align-items: center;
@@ -814,6 +814,15 @@
 /* 块多选激活时隐藏文本光标，避免「块高亮 + 远处光标闪烁」的双重焦点错觉 */
 .organize-editor-shell[data-block-selecting="true"] .organize-editor {
   caret-color: transparent;
+}
+/* 拖拽框选时的选择矩形（Notion 风格的半透明蓝框） */
+.organize-select-rect {
+  position: fixed;
+  z-index: 30;
+  background: rgba(35, 131, 226, 0.08);
+  border: 1px solid rgba(35, 131, 226, 0.35);
+  border-radius: 1px;
+  pointer-events: none;
 }
 .organize-block-drop-indicator::before {
   content: "";
