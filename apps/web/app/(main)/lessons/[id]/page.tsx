@@ -24,12 +24,15 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2, Lightbulb } from "lucide-react";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { cn } from "@/lib/utils";
 import type { LessonWithTags, LessonType, Tag, Task, ReadingItem, Note } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
+import { EmptyState } from "@/components/ui/empty-state";
+import { toast } from "@/hooks/use-toast";
+import { mutateTrash } from "@/lib/trash/client";
 
 function nodeText(node: any): string {
   if (!node) return "";
@@ -78,6 +81,7 @@ export default function LessonEditorPage() {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(isNew);
+  const [missing, setMissing] = useState(false);
 
   const [title, setTitle] = useState("");
   const [contentText, setContentText] = useState("");
@@ -100,9 +104,11 @@ export default function LessonEditorPage() {
 
   const fetchLesson = useCallback(async () => {
     if (isNew) {
+      setMissing(false);
       setEditing(true);
       return;
     }
+    setMissing(false);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -119,14 +125,16 @@ export default function LessonEditorPage() {
       setReadingItems((readingsData || []) as ReadingItem[]);
       setNotes((notesData || []) as Note[]);
 
-      const { data } = await supabase
+      const { data, error: lessonError } = await supabase
         .from("lessons")
         .select("*")
         .eq("id", lessonId)
         .eq("user_id", user.id)
         .single();
 
-      if (data) {
+      if (lessonError || !data) {
+        setMissing(true);
+      } else {
         setTitle(data.title || "");
         setContentText(nodeText(data.content));
         setLessonType(data.lesson_type);
@@ -266,10 +274,18 @@ export default function LessonEditorPage() {
       router.push("/lessons");
       return;
     }
-    if (!confirm("确定删除这条经验吗？")) return;
-    await supabase.from("lesson_tags").delete().eq("lesson_id", lessonId);
-    await supabase.from("lessons").delete().eq("id", lessonId);
-    router.push("/lessons");
+    if (!confirm("将这条经验移入垃圾箱？之后可以恢复。")) return;
+    try {
+      await mutateTrash("lesson", [lessonId], "soft_delete");
+      toast({ title: "经验已移入垃圾箱" });
+      router.push("/lessons");
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   const typeConfig = LESSON_TYPE_CONFIG[lessonType];
@@ -279,6 +295,26 @@ export default function LessonEditorPage() {
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin" />
       </div>
+    );
+  }
+
+  if (missing) {
+    return (
+      <EmptyState
+        icon={Lightbulb}
+        title="经验不存在或已被删除"
+        description="已删除的经验可以在垃圾箱中恢复"
+        action={
+          <div className="flex items-center gap-2">
+            <Link href="/lessons">
+              <Button variant="outline">返回经验列表</Button>
+            </Link>
+            <Link href="/trash">
+              <Button>打开垃圾箱</Button>
+            </Link>
+          </div>
+        }
+      />
     );
   }
 
@@ -329,7 +365,14 @@ export default function LessonEditorPage() {
           </Button>
         )}
         {!isNew && (
-          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={handleDelete}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive"
+            onClick={handleDelete}
+            title="移入垃圾箱"
+            aria-label="移入垃圾箱"
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         )}

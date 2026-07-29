@@ -22,6 +22,7 @@ import {
   History,
   Star,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ const navItems = [
   { href: "/review", label: "回顾", icon: History },
   { href: "/stats", label: "统计", icon: BarChart3 },
   { href: "/plugins", label: "插件", icon: Puzzle },
+  { href: "/trash", label: "垃圾箱", icon: Trash2 },
   { href: "/settings", label: "设置", icon: Settings },
 ];
 

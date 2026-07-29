@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { mutateTrash } from "@/lib/trash/client";
 
 type FilterStatus = "all" | ReadingStatus;
 type SmartSortOption = "smart" | "newest" | "oldest" | "reading" | "progress";
@@ -286,10 +287,18 @@ export default function LibraryPage() {
   };
 
   const deleteItem = async (id: string) => {
-    const { error } = await supabase.from("reading_items").delete().eq("id", id);
-    if (!error) {
+    if (!confirm("将这篇文章移入垃圾箱？之后可以恢复。")) return;
+    try {
+      await mutateTrash("reading_item", [id], "soft_delete");
       setItems((prev) => prev.filter((it) => it.id !== id));
       fetchStats();
+      toast({ title: "文章已移入垃圾箱" });
+    } catch (error) {
+      toast({
+        title: "删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
   };
 
@@ -386,18 +395,20 @@ export default function LibraryPage() {
   const batchDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!confirm(`确定删除选中的 ${ids.length} 条？此操作不可撤销。`)) return;
+    if (!confirm(`将选中的 ${ids.length} 篇文章移入垃圾箱？`)) return;
     const count = ids.length;
-    const res = await fetch("/api/reading-items/batch", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, action: "delete" }),
-    });
-    if (res.ok) {
+    try {
+      await mutateTrash("reading_item", ids, "soft_delete");
       setItems((prev) => prev.filter((it) => !selectedIds.has(it.id)));
       exitSelection();
       fetchStats();
-      toast({ title: `已删除 ${count} 篇文章`, variant: "destructive" });
+      toast({ title: `${count} 篇文章已移入垃圾箱` });
+    } catch (error) {
+      toast({
+        title: "批量删除失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
   };
 

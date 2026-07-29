@@ -65,6 +65,7 @@ import {
 } from "@organize/shared";
 import { FavoriteButton } from "@/components/favorite-button";
 import { TagBadge } from "@/components/tags/tag-badge";
+import { mutateTrash } from "@/lib/trash/client";
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -228,11 +229,8 @@ export default function TaskDetailPage() {
   async function handleDelete() {
     if (!task) return;
     try {
-      await supabase.from("task_tags").delete().eq("task_id", task.id);
-      await supabase.from("task_checklists").delete().eq("task_id", task.id);
-      const { error } = await supabase.from("tasks").delete().eq("id", task.id);
-      if (error) throw error;
-      toast({ title: "已删除" });
+      await mutateTrash("task", [task.id], "soft_delete");
+      toast({ title: "任务已移入垃圾箱" });
       router.push("/tasks");
     } catch (err) {
       console.error("删除任务失败:", err);
@@ -370,6 +368,8 @@ export default function TaskDetailPage() {
             size="sm"
             onClick={togglePin}
             disabled={saving}
+            title={task.is_pinned ? "取消置顶" : "置顶"}
+            aria-label={task.is_pinned ? "取消置顶" : "置顶"}
           >
             <Pin className={cn("h-4 w-4", task.is_pinned && "fill-primary text-primary")} />
           </Button>
@@ -388,6 +388,8 @@ export default function TaskDetailPage() {
             size="sm"
             onClick={() => setDeleteDialogOpen(true)}
             className="text-destructive hover:text-destructive"
+            title="移入垃圾箱"
+            aria-label="移入垃圾箱"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -602,7 +604,7 @@ export default function TaskDetailPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
             <DialogDescription>
-              确定要删除任务「{task.title}」吗？此操作不可撤销。
+              将任务「{task.title}」移入垃圾箱？任务清单和标签会保留，之后可以恢复。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -610,7 +612,7 @@ export default function TaskDetailPage() {
               取消
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
-              删除
+              移入垃圾箱
             </Button>
           </DialogFooter>
         </DialogContent>

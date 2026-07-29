@@ -66,9 +66,9 @@ export async function PATCH(
   return NextResponse.json(data);
 }
 
-// DELETE /api/notes/[id] - 删除笔记
+// DELETE /api/notes/[id] - 将笔记移入垃圾箱
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const supabase = await createClient();
@@ -80,15 +80,22 @@ export async function DELETE(
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const { error } = await supabase
-    .from("notes")
-    .delete()
-    .eq("id", params.id)
-    .eq("user_id", user.id);
+  const { data, error } = await supabase.rpc("mutate_trash", {
+    p_action: "soft_delete",
+    p_resource_type: "note",
+    p_ids: [params.id],
+  });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Note soft delete failed:", error.message);
+    return NextResponse.json(
+      { error: "删除笔记失败", code: "TRASH_MUTATION_FAILED" },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    affected: typeof data === "number" ? data : 0,
+  });
 }
