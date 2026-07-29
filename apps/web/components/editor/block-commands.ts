@@ -90,16 +90,34 @@ export function buildBlockReplacement(
     : addTextToFirstTextContainer(content);
 }
 
+const JOINABLE_LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
+
 export function replaceBlock(editor: Editor, pos: number, content: JSONContent) {
   const node = editor.state.doc.nodeAt(pos);
   if (!node) return;
   const replacement = buildBlockReplacement(node, content);
   const replacementNode = editor.schema.nodeFromJSON(replacement);
-  editor.view.dispatch(
-    editor.state.tr
-      .replaceWith(pos, pos + node.nodeSize, replacementNode)
-      .scrollIntoView()
-  );
+  const tr = editor.state.tr
+    .replaceWith(pos, pos + node.nodeSize, replacementNode)
+    .scrollIntoView();
+  // 替换出的列表若与前后相邻列表同类型，合并成一个列表，
+  // 否则「转换成列表」会造出两个紧挨着却各自独立的列表（渲染成两段、编号断裂）
+  if (JOINABLE_LIST_TYPES.has(replacementNode.type.name)) {
+    const $pos = tr.doc.resolve(pos);
+    if ($pos.depth === 0 && $pos.nodeBefore && $pos.nodeBefore.type.name === replacementNode.type.name) {
+      tr.join(pos);
+      pos -= $pos.nodeBefore.nodeSize;
+    }
+    const merged = tr.doc.nodeAt(pos);
+    if (merged) {
+      const end = pos + merged.nodeSize;
+      const $end = tr.doc.resolve(end);
+      if ($end.depth === 0 && $end.nodeAfter && $end.nodeAfter.type.name === merged.type.name) {
+        tr.join(end);
+      }
+    }
+  }
+  editor.view.dispatch(tr);
 }
 
 function textBlock(type: "paragraph" | "heading", attrs?: Record<string, unknown>): JSONContent {

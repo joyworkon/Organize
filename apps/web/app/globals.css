@@ -772,6 +772,8 @@
 .editor-popover {
   position: fixed;
   z-index: 100;
+  display: flex;
+  flex-direction: column;
   width: min(330px, calc(100vw - 24px));
   overflow: hidden;
   border: 1px solid hsl(var(--border) / 0.5);
@@ -784,6 +786,10 @@
 }
 .dark .editor-popover {
   box-shadow: 0 8px 28px hsl(0 0% 0% / 0.4), 0 1px 4px hsl(0 0% 0% / 0.2);
+}
+/* 弹层限高（内联 maxHeight）时，搜索框 / 标题 / 底部栏保持自然高度，只有列表区伸缩 */
+.editor-popover > :not(.editor-menu-scroll) {
+  flex-shrink: 0;
 }
 @keyframes editor-popover-in {
   from { opacity: 0; transform: translateY(-4px) scale(.985); }
@@ -825,6 +831,8 @@
   color: inherit;
 }
 .editor-menu-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: min(470px, calc(100vh - 130px));
   padding: 2px 8px 8px;
   overflow-y: auto;

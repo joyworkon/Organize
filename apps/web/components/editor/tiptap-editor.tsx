@@ -646,23 +646,72 @@ function nodePosForElement(editor: Editor, element: HTMLElement) {
   return $pos.depth > 0 ? $pos.before($pos.depth) : domPos;
 }
 
-function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement) {
+function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement, clientY: number) {
   const listItem = target.closest("li");
   if (listItem instanceof HTMLElement && editorDom.contains(listItem)) return listItem;
+
+  // 指针落在列表的标记区 / 项目间隙（事件目标是 ul/ol 而不是 li）时，
+  // 按垂直方向找最近的列表项。否则手柄会对准整个列表（列表节点没有块 id），
+  // 表现为手柄上下乱跳、点击 6 点菜单毫无反应。
+  const list = target.closest("ul, ol");
+  if (list instanceof HTMLElement && editorDom.contains(list)) {
+    const items = Array.from(list.querySelectorAll(":scope > li"));
+    let best: HTMLElement | null = null;
+    let bestDistance = Infinity;
+    for (const item of items) {
+      if (!(item instanceof HTMLElement)) continue;
+      const rect = item.getBoundingClientRect();
+      const distance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = item;
+      }
+    }
+    if (best) return best;
+  }
 
   let block: HTMLElement | null = target;
   while (block?.parentElement && block.parentElement !== editorDom) block = block.parentElement;
   return block?.parentElement === editorDom ? block : null;
 }
 
+/** 计算块手柄的垂直位置：列表项按首行文字坐标，其它块按首行行高居中。 */
+function handleTopForBlock(
+  editor: Editor,
+  node: ProseMirrorNode,
+  pos: number,
+  block: HTMLElement,
+  shellRect: DOMRect
+): number {
+  const blockRect = block.getBoundingClientRect();
+  const nodeName = node.type.name;
+  if (nodeName === "listItem" || nodeName === "taskItem") {
+    // 列表项 / 待办项的 <li> 外框会因外边距折叠而比首行文字更高，
+    // 用 blockRect.top 定位手柄会偏上、叠到上一块，导致点不上、悬停跳到上一块前。
+    // 改用首行文字的实际坐标定位，让手柄稳定对准 6 点。
+    try {
+      const lineCoords = editor.view.coordsAtPos(pos + 1);
+      const lineHeight = Math.max(20, lineCoords.bottom - lineCoords.top);
+      return lineCoords.top - shellRect.top + (lineHeight - 28) / 2;
+    } catch {
+      return blockRect.top - shellRect.top;
+    }
+  }
+  const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
+  const firstLineHeight = Number.isFinite(parsedLineHeight)
+    ? Math.min(parsedLineHeight, blockRect.height)
+    : Math.min(28, blockRect.height);
+  return blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
+}
+
 function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number): EditorMenuPoint {
   const blockDom = editor.view.nodeDOM(pos);
   if (blockDom instanceof HTMLElement) {
     const rect = blockDom.getBoundingClientRect();
-    return { left: rect.left, top: rect.bottom + 6 };
+    return { left: rect.left, top: rect.bottom + 6, anchorTop: rect.top };
   }
   const coords = editor.view.coordsAtPos(selectionPos);
-  return { left: coords.left, top: coords.bottom + 6 };
+  return { left: coords.left, top: coords.bottom + 6, anchorTop: coords.top };
 }
 
 export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady }: EditorProps) {
@@ -772,7 +821,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           const coords = view.coordsAtPos($from.pos);
           view.dispatch(view.state.tr.setSelection(view.state.selection));
           setActionMenu(null);
-          setCommandMenu({ pos, point: { left: Math.max(12, coords.left), top: coords.bottom + 8 } });
+          setCommandMenu({ pos, point: { left: Math.max(12, coords.left), top: coords.bottom + 8, anchorTop: coords.top } });
           return true;
         }
         return false;
@@ -1021,7 +1070,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const target = event.target as HTMLElement | null;
 
     if (!target || !editorDom.contains(target)) return;
-    const block = blockElementAtTarget(editorDom, target);
+    const block = blockElementAtTarget(editorDom, target, event.clientY);
     if (!block) return;
 
     const pos = nodePosForElement(editor, block);
@@ -1029,28 +1078,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const shell = rootRef.current;
     if (!node || !shell) return;
 
-    const blockRect = block.getBoundingClientRect();
-    const shellRect = shell.getBoundingClientRect();
-    const nodeName = node.type.name;
-    let top: number;
-    if (nodeName === "listItem" || nodeName === "taskItem") {
-      // 列表项 / 待办项的 <li> 外框会因外边距折叠而比首行文字更高，
-      // 用 blockRect.top 定位手柄会偏上、叠到上一块，导致点不上、悬停跳到上一块前。
-      // 改用首行文字的实际坐标定位，让手柄稳定对准 6 点。
-      try {
-        const lineCoords = editor.view.coordsAtPos(pos + 1);
-        const lineHeight = Math.max(20, lineCoords.bottom - lineCoords.top);
-        top = lineCoords.top - shellRect.top + (lineHeight - 28) / 2;
-      } catch {
-        top = blockRect.top - shellRect.top;
-      }
-    } else {
-      const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
-      const firstLineHeight = Number.isFinite(parsedLineHeight)
-        ? Math.min(parsedLineHeight, blockRect.height)
-        : Math.min(28, blockRect.height);
-      top = blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
-    }
+    const top = handleTopForBlock(editor, node, pos, block, shell.getBoundingClientRect());
     const next = { editor, node, pos, top, element: block };
 
     hoveredRef.current = next;
@@ -1058,6 +1086,53 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       previous?.pos === pos && Math.abs(previous.top - top) < 0.5 ? previous : next
     ));
   }, [editor, isDraggingBlock]);
+
+  // 文档可能已被菜单操作改写（转换成列表、拖拽移动等），而鼠标未再移动：
+  // 此时 hoveredRef 里的 pos / node 已过期。点击 + / 6 点前按块 id 重新定位，
+  // 避免插入点算错（新块插进当前内容里）或菜单作用到错误的块上。
+  const resolveHoveredBlock = useCallback((): HoveredBlock | null => {
+    const current = hoveredRef.current;
+    if (!editor || !current) return current;
+    const id = String(current.node.attrs?.id || "");
+    if (!id) return current;
+    const found = findBlockById(editor.state.doc, id);
+    if (!found) {
+      hoveredRef.current = null;
+      setHoveredBlock(null);
+      return null;
+    }
+    if (found.pos === current.pos) {
+      // 位置没变：刷新 node 引用即可，避免重排手柄
+      const next = { ...current, node: found.node };
+      hoveredRef.current = next;
+      return next;
+    }
+    const element = editor.view.nodeDOM(found.pos);
+    const shell = rootRef.current;
+    if (!(element instanceof HTMLElement) || !shell) return current;
+    const next: HoveredBlock = {
+      editor,
+      node: found.node,
+      pos: found.pos,
+      top: handleTopForBlock(editor, found.node, found.pos, element, shell.getBoundingClientRect()),
+      element,
+    };
+    hoveredRef.current = next;
+    setHoveredBlock(next);
+    return next;
+  }, [editor]);
+
+  // 文档变化后（输入 / 菜单操作）刷新一次手柄位置，避免手柄停留在过期位置
+  useEffect(() => {
+    if (!editor) return;
+    const refresh = () => {
+      if (hoveredRef.current) resolveHoveredBlock();
+    };
+    editor.on("update", refresh);
+    return () => {
+      editor.off("update", refresh);
+    };
+  }, [editor, resolveHoveredBlock]);
 
   const hideHoveredBlock = useCallback(() => {
     if (commandMenu || actionMenu || isDraggingBlock) return;
@@ -1085,7 +1160,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   const insertBlockBelow = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    const current = hoveredRef.current;
+    const current = resolveHoveredBlock();
     if (!current || current.pos < 0) return;
 
     const insertPos = current.pos + current.node.nodeSize;
@@ -1104,12 +1179,19 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       .insertContentAt(insertPos, emptyBlock)
       .setTextSelection(textSelectionPos)
       .run();
+    // 新块可能插在视口外（比如页底）。PM 的 tr.scrollIntoView 在编辑器尚无
+    // DOM 焦点时不生效（TipTap 的 focus 命令是 rAF 异步的），这里直接滚到新块，
+    // 再按它的真实位置锚定菜单
+    const newBlockDom = current.editor.view.nodeDOM(insertPos);
+    if (newBlockDom instanceof HTMLElement) {
+      newBlockDom.scrollIntoView({ block: "nearest" });
+    }
     setActionMenu(null);
     setCommandMenu({
       pos: insertPos,
       point: menuPointBelowBlock(current.editor, insertPos, textSelectionPos),
     });
-  }, []);
+  }, [resolveHoveredBlock]);
 
   const openBlockActions = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1118,7 +1200,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       suppressGripClickRef.current = false;
       return;
     }
-    const current = hoveredRef.current;
+    const current = resolveHoveredBlock();
     if (!current || current.pos < 0) return;
     const id = String(current.node.attrs?.id || "");
     if (!id) return;
@@ -1147,12 +1229,13 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       point: {
         left: rect.left - 338,
         top: rect.top,
+        anchorTop: current.element.getBoundingClientRect().top,
       },
     });
-  }, [editor]);
+  }, [editor, resolveHoveredBlock]);
 
   const beginBlockPointerDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const current = hoveredRef.current;
+    const current = resolveHoveredBlock();
     if (!current || event.button !== 0) return;
     suppressGripClickRef.current = false;
     pointerDragRef.current = {
@@ -1162,7 +1245,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       source: current,
       active: false,
     };
-  }, []);
+  }, [resolveHoveredBlock]);
 
   const moveBlockPointerDrag = useCallback((event: PointerEvent) => {
     const drag = pointerDragRef.current;
