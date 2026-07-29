@@ -357,19 +357,31 @@
 }
 
 /* 选中块高亮：只设置背景色 + 移除浏览器默认 outline，完全不改变 margin/padding，
-   彻底解决点击块时元素向前/向后挪动的布局抖动问题 */
+   彻底解决点击块时元素向前/向后挪动的布局抖动问题。
+   颜色与 Notion 块选中一致（浅蓝）。 */
 :root {
-  --organize-selected-bg: hsl(16 80% 94%);
-  --organize-selected-bg-dark: hsl(16 30% 20%);
+  --organize-selected-bg: rgba(35, 131, 226, 0.14);
+  --organize-selected-bg-dark: rgba(35, 131, 226, 0.28);
+  /* gutter 宽度：列表标记 / checkbox / 折叠箭头所在区域（与负 margin 值对应） */
+  --organize-gutter: 24px;
 }
 .dark {
   --organize-selected-bg: var(--organize-selected-bg-dark);
 }
 .organize-editor.prose .ProseMirror-selectednode,
-.organize-editor.prose .organize-transformed-block {
+.organize-editor.prose .organize-transformed-block,
+.organize-editor.prose .organize-block-selected {
   background-color: var(--organize-selected-bg);
   border-radius: 4px;
   outline: none;
+}
+/* 选中背景向左延伸到 gutter，把列表标记 / 序号也包进背景，且与待办项、
+   折叠列表、引用（本身已用负 margin 占住 gutter）的选中宽度保持一致。
+   用 box-shadow 延伸而不是改动 margin/padding，避免布局抖动。 */
+.organize-editor.prose .ProseMirror-selectednode:not(li[data-checked]):not(div[data-type="details"]):not(blockquote),
+.organize-editor.prose .organize-transformed-block:not(li[data-checked]):not(div[data-type="details"]):not(blockquote),
+.organize-editor.prose .organize-block-selected:not(li[data-checked]):not(div[data-type="details"]):not(blockquote) {
+  box-shadow: calc(-1 * var(--organize-gutter)) 0 0 0 var(--organize-selected-bg);
 }
 .organize-editor.prose [data-block-background] {
   margin-block: 2px;
@@ -504,6 +516,15 @@
 }
 .organize-editor.prose div[data-type="detailsContent"] {
   margin-top: 0.25rem;
+}
+/* 折叠列表空白提示：内容区只有一个空段落时显示浅色引导文字（Notion 风格） */
+.organize-editor.prose div[data-type="detailsContent"] > p:only-child:is(:empty, :has(> br:only-child))::before {
+  content: "空白折叠区块。点击或拖动区块到这里。";
+  float: left;
+  height: 0;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.6;
+  pointer-events: none;
 }
 .organize-editor.prose div[data-type="details"]:not(.is-open) div[data-type="detailsContent"] {
   display: none;
@@ -747,6 +768,39 @@
   background: currentColor;
   opacity: 0.8;
 }
+
+/* 手柄按钮的悬停提示（Notion 风格深色 tooltip，悬停约 400ms 后出现） */
+.organize-block-handle button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: hsl(0 0% 15% / 0.95);
+  color: hsl(0 0% 100% / 0.95);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-line;
+  box-shadow: 0 4px 14px hsl(0 0% 0% / 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.organize-block-handle button[data-tooltip]:hover::after,
+.organize-block-handle button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 400ms;
+}
+/* 拖拽移动块时不显示提示 */
+.organize-block-handle[data-dragging="true"] button[data-tooltip]::after {
+  content: none;
+}
 .organize-block-drop-indicator {
   position: absolute;
   left: 60px;
@@ -756,6 +810,10 @@
   border-radius: 999px;
   background: hsl(var(--primary));
   pointer-events: none;
+}
+/* 块多选激活时隐藏文本光标，避免「块高亮 + 远处光标闪烁」的双重焦点错觉 */
+.organize-editor-shell[data-block-selecting="true"] .organize-editor {
+  caret-color: transparent;
 }
 .organize-block-drop-indicator::before {
   content: "";
@@ -1302,6 +1360,7 @@
 @media (max-width: 640px) {
   .organize-editor.prose { padding-left: 40px !important; }
   /* 移动端 gutter 只有 40px：手柄收到最左端 1..17px，让出 20px 起的标记区 */
+  :root { --organize-gutter: 20px; }
   .organize-block-handle { left: 1px; height: 20px; gap: 0; }
   .organize-block-handle button { width: 16px; height: 18px; }
   .organize-block-add { display: none !important; }

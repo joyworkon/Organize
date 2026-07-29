@@ -10,6 +10,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { describe, expect, it } from "vitest";
 import { BLOCK_COMMANDS, replaceBlock } from "./block-commands";
+import { Columns, Column } from "./extensions/columns";
 
 function createEditor(content: JSONContent) {
   const element = document.createElement("div");
@@ -20,6 +21,8 @@ function createEditor(content: JSONContent) {
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      Columns,
+      Column,
     ],
     content,
   });
@@ -100,6 +103,38 @@ describe("replaceBlock 相邻同类列表合并", () => {
     replaceBlock(editor, pos, { type: "heading", attrs: { level: 2 }, content: [] });
     expect(editor.state.doc.childCount).toBe(2);
     expect(editor.state.doc.child(1).type.name).toBe("heading");
+    editor.destroy();
+  });
+
+  it("转换成 2 列：原文本进入第一列", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "栏里的文字" }] }],
+    });
+    const pos = topLevelPosOf(editor, (text) => text.includes("栏里的文字"));
+    BLOCK_COMMANDS.find((item) => item.id === "columns-2")!.run(editor, pos);
+    const columns = editor.state.doc.firstChild!;
+    expect(columns.type.name).toBe("columns");
+    expect(columns.attrs.cols).toBe(2);
+    expect(columns.childCount).toBe(2);
+    expect(columns.child(0).textContent).toBe("栏里的文字");
+    expect(columns.child(1).textContent).toBe("");
+    editor.destroy();
+  });
+
+  it("转换成 5 列：创建 5 个列", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }],
+    });
+    const pos = topLevelPosOf(editor, (text) => text.includes("甲"));
+    const command = BLOCK_COMMANDS.find((item) => item.id === "columns-5");
+    expect(command).toBeDefined();
+    command!.run(editor, pos);
+    const columns = editor.state.doc.firstChild!;
+    expect(columns.type.name).toBe("columns");
+    expect(columns.attrs.cols).toBe(5);
+    expect(columns.childCount).toBe(5);
     editor.destroy();
   });
 });

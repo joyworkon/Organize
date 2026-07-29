@@ -31,9 +31,11 @@ import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
+import { BlockMultiSelect, getMultiSelectedBlocks, setMultiSelectedBlocks } from "./extensions/block-multi-select";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
+import { BLOCK_COMMANDS } from "./block-commands";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
 import { EditorDialogs } from "./editor-dialogs";
@@ -74,6 +76,7 @@ import {
   Undo2,
   Redo2,
   RemoveFormatting,
+  Columns as ColumnsIcon,
   Columns2,
   Columns3,
   Columns4,
@@ -182,25 +185,23 @@ const blockOptions: BlockOption[] = [
       if (latex) e.chain().focus().insertMathBlock(latex).run();
     },
   },
-  {
-    label: "2 列",
-    icon: Columns2,
-    isActive: (e) => e.isActive("columns", { cols: 2 }),
-    action: (e) => e.chain().focus().insertColumns(2).run(),
-  },
-  {
-    label: "3 列",
-    icon: Columns3,
-    isActive: (e) => e.isActive("columns", { cols: 3 }),
-    action: (e) => e.chain().focus().insertColumns(3).run(),
-  },
-  {
-    label: "4 列",
-    icon: Columns4,
-    isActive: (e) => e.isActive("columns", { cols: 4 }),
-    action: (e) => e.chain().focus().insertColumns(4).run(),
-  },
+  ...([2, 3, 4, 5] as const).map((cols) => ({
+    label: `${cols} 列`,
+    icon: [Columns2, Columns3, Columns4, ColumnsIcon][cols - 2],
+    isActive: (e: Editor) => e.isActive("columns", { cols }),
+    action: (e: Editor) => convertToColumns(e, cols),
+  })),
 ];
+
+/** 「转换成 N 列」：把当前顶层块的内容转入第一列（与 6 点菜单的「转换成」同语义） */
+function convertToColumns(editor: Editor, cols: number) {
+  const command = BLOCK_COMMANDS.find((item) => item.id === `columns-${cols}`);
+  if (!command) return;
+  const { $from } = editor.state.selection;
+  // 仅转换顶层块；嵌套块（列表项 / callout / 引用内）不转换，避免吞掉整个容器
+  if ($from.depth !== 1) return;
+  command.run(editor, $from.before(1));
+}
 
 function getActiveBlock(editor: Editor): BlockOption {
   return blockOptions.find((b) => b.isActive(editor)) || blockOptions[0];
@@ -675,33 +676,25 @@ function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement, clien
   return block?.parentElement === editorDom ? block : null;
 }
 
-/** 计算块手柄的垂直位置：列表项按首行文字坐标，其它块按首行行高居中。 */
-function handleTopForBlock(
-  editor: Editor,
-  node: ProseMirrorNode,
-  pos: number,
-  block: HTMLElement,
-  shellRect: DOMRect
-): number {
-  const blockRect = block.getBoundingClientRect();
-  const nodeName = node.type.name;
-  if (nodeName === "listItem" || nodeName === "taskItem") {
-    // 列表项 / 待办项的 <li> 外框会因外边距折叠而比首行文字更高，
-    // 用 blockRect.top 定位手柄会偏上、叠到上一块，导致点不上、悬停跳到上一块前。
-    // 改用首行文字的实际坐标定位，让手柄稳定对准 6 点。
-    try {
-      const lineCoords = editor.view.coordsAtPos(pos + 1);
-      const lineHeight = Math.max(20, lineCoords.bottom - lineCoords.top);
-      return lineCoords.top - shellRect.top + (lineHeight - 28) / 2;
-    } catch {
-      return blockRect.top - shellRect.top;
-    }
-  }
-  const parsedLineHeight = Number.parseFloat(window.getComputedStyle(block).lineHeight);
+/** 计算块手柄的垂直位置：与块内第一个文本块的首行居中对齐。 */
+const HANDLE_HEIGHT = 22;
+
+const TEXTBLOCK_SELECTOR = "p, h1, h2, h3, h4, h5, h6, summary, pre";
+
+function handleTopForBlock(block: HTMLElement, shellRect: DOMRect): number {
+  // 锚定到块内第一个文本块：列表项 / 待办项 / 折叠列表的外框会因外边距折叠、
+  // 内边距而偏离首行文字，直接用外框会让手柄偏上几像素。
+  const anchor = (block.matches(TEXTBLOCK_SELECTOR)
+    ? block
+    : block.querySelector(TEXTBLOCK_SELECTOR)) ?? block;
+  const anchorRect = anchor.getBoundingClientRect();
+  const anchorStyle = window.getComputedStyle(anchor);
+  const parsedLineHeight = Number.parseFloat(anchorStyle.lineHeight);
+  const paddingTop = Number.parseFloat(anchorStyle.paddingTop) || 0;
   const firstLineHeight = Number.isFinite(parsedLineHeight)
-    ? Math.min(parsedLineHeight, blockRect.height)
-    : Math.min(28, blockRect.height);
-  return blockRect.top - shellRect.top + Math.max(0, (firstLineHeight - 28) / 2);
+    ? Math.min(parsedLineHeight, anchorRect.height)
+    : Math.min(HANDLE_HEIGHT + 6, anchorRect.height);
+  return anchorRect.top + paddingTop - shellRect.top + Math.max(0, (firstLineHeight - HANDLE_HEIGHT) / 2);
 }
 
 function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number): EditorMenuPoint {
@@ -733,6 +726,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   const [dialog, setDialog] = useState<EditorDialog>(null);
   const [presentationStart, setPresentationStart] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [blockSelectCount, setBlockSelectCount] = useState(0);
+  const selectDragRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null);
   const activePlugins = usePluginStore((state) => Array.from(state.activePlugins.entries()));
   const pluginContexts = usePluginStore((state) => state.contexts);
 
@@ -777,6 +772,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
+      BlockMultiSelect,
       BlockStyle,
       ListBackspaceFix,
       UniqueID.configure({ types: BLOCK_ID_TYPES }),
@@ -1065,7 +1061,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   }, [activePlugins, editor, noteId, noteTitle, pluginContexts]);
 
   const updateHoveredBlock = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!editor || isDraggingBlock) return;
+    if (!editor || isDraggingBlock || selectDragRef.current?.active) return;
     const editorDom = editor.view.dom;
     const target = event.target as HTMLElement | null;
 
@@ -1078,7 +1074,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const shell = rootRef.current;
     if (!node || !shell) return;
 
-    const top = handleTopForBlock(editor, node, pos, block, shell.getBoundingClientRect());
+    const top = handleTopForBlock(block, shell.getBoundingClientRect());
     const next = { editor, node, pos, top, element: block };
 
     hoveredRef.current = next;
@@ -1114,7 +1110,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       editor,
       node: found.node,
       pos: found.pos,
-      top: handleTopForBlock(editor, found.node, found.pos, element, shell.getBoundingClientRect()),
+      top: handleTopForBlock(element, shell.getBoundingClientRect()),
       element,
     };
     hoveredRef.current = next;
@@ -1163,7 +1159,6 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     const current = resolveHoveredBlock();
     if (!current || current.pos < 0) return;
 
-    const insertPos = current.pos + current.node.nodeSize;
     const isListItem = current.node.type.name === "listItem" || current.node.type.name === "taskItem";
     const emptyBlock = isListItem
       ? {
@@ -1172,6 +1167,9 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           content: [{ type: "paragraph" }],
         }
       : { type: "paragraph" };
+    // 按住 Option/Alt 点击：在上方插入（Notion 风格），只插入不弹菜单
+    const above = event.altKey;
+    const insertPos = above ? current.pos : current.pos + current.node.nodeSize;
     const textSelectionPos = insertPos + (isListItem ? 2 : 1);
     current.editor
       .chain()
@@ -1179,6 +1177,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       .insertContentAt(insertPos, emptyBlock)
       .setTextSelection(textSelectionPos)
       .run();
+    if (above) {
+      setActionMenu(null);
+      setCommandMenu(null);
+      return;
+    }
     // 新块可能插在视口外（比如页底）。PM 的 tr.scrollIntoView 在编辑器尚无
     // DOM 焦点时不生效（TipTap 的 focus 命令是 rAF 异步的），这里直接滚到新块，
     // 再按它的真实位置锚定菜单
@@ -1344,6 +1347,88 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     };
   }, [cancelBlockPointerDrag, finishBlockPointerDrag, moveBlockPointerDrag]);
 
+  /* ------------------------- 拖拽块多选 ------------------------- */
+
+  // 从「非文字区域」（编辑器空白、块间隙 margin、左侧 gutter）按下才算框选起点；
+  // 落在文字上的按下保持原生文本选择。
+  const beginSelectDrag = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor || event.button !== 0) return;
+    if (commandMenu || actionMenu) return;
+    const target = event.target as HTMLElement;
+    if (target.closest(".organize-block-handle")) return;
+    if (target !== editor.view.dom) return;
+    // 阻止浏览器开始文本选择 / 放置光标（拖动期间的选区同步会清掉多选状态）
+    event.preventDefault();
+    selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false };
+  }, [actionMenu, commandMenu, editor]);
+
+  const moveSelectDrag = useCallback((event: MouseEvent) => {
+    const drag = selectDragRef.current;
+    if (!drag || !editor) return;
+    if (!drag.active) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
+      drag.active = true;
+      hoveredRef.current = null;
+      setHoveredBlock(null);
+    }
+    const top = Math.min(drag.startY, event.clientY);
+    const bottom = Math.max(drag.startY, event.clientY);
+    const positions: number[] = [];
+    for (const child of Array.from(editor.view.dom.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      const rect = child.getBoundingClientRect();
+      if (rect.bottom < top || rect.top > bottom) continue;
+      positions.push(nodePosForElement(editor, child));
+    }
+    setMultiSelectedBlocks(editor, positions);
+  }, [editor]);
+
+  const finishSelectDrag = useCallback((event: MouseEvent) => {
+    const drag = selectDragRef.current;
+    selectDragRef.current = null;
+    if (!editor || !drag) return;
+    if (drag.active) return;
+    // 只是点击（没拖起来）：清空多选
+    setMultiSelectedBlocks(editor, []);
+    // Notion 风格：点击正文末尾下方的空白区域，把光标放到最后一行；
+    // 最后一个块不是文本块（图片/表格等）时先补一个空段落
+    const editorDom = editor.view.dom;
+    const lastChild = editorDom.lastElementChild;
+    if (lastChild && event.clientY > lastChild.getBoundingClientRect().bottom) {
+      const lastNode = editor.state.doc.lastChild;
+      if (lastNode && !lastNode.isTextblock) {
+        const end = editor.state.doc.content.size;
+        editor
+          .chain()
+          .focus()
+          .insertContentAt(end, { type: "paragraph" })
+          .setTextSelection(end + 1)
+          .run();
+      } else {
+        editor.commands.focus("end");
+      }
+    }
+  }, [editor]);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", moveSelectDrag, true);
+    window.addEventListener("mouseup", finishSelectDrag, true);
+    return () => {
+      window.removeEventListener("mousemove", moveSelectDrag, true);
+      window.removeEventListener("mouseup", finishSelectDrag, true);
+    };
+  }, [finishSelectDrag, moveSelectDrag]);
+
+  // 多选状态同步到 React（隐藏光标用）；插件在输入/点击时会自动清空，这里跟随
+  useEffect(() => {
+    if (!editor) return;
+    const sync = () => setBlockSelectCount(getMultiSelectedBlocks(editor).length);
+    editor.on("transaction", sync);
+    return () => {
+      editor.off("transaction", sync);
+    };
+  }, [editor]);
+
   if (!editor) return null;
 
   return (
@@ -1351,6 +1436,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       className="relative organize-editor-shell"
       ref={rootRef}
       onMouseMove={updateHoveredBlock}
+      onMouseDown={beginSelectDrag}
+      data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
     >
       <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
         <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
@@ -1367,7 +1454,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           type="button"
           className="organize-block-add"
           aria-label="在下方添加区块"
-          title="点击在下方添加区块"
+          data-tooltip={"点击以在下方添加块\n按住 Option 键点击以在上方添加块"}
           tabIndex={hoveredBlock ? 0 : -1}
           onMouseDown={(event) => event.preventDefault()}
           onClick={insertBlockBelow}
@@ -1378,7 +1465,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           type="button"
           className="organize-block-grip"
           aria-label="拖动区块或打开菜单"
-          title="拖动以移动；点击打开菜单"
+          data-tooltip={"拖动以移动\n点击 或 ⌘/ 打开菜单"}
           tabIndex={hoveredBlock ? 0 : -1}
           draggable={false}
           onClick={openBlockActions}
