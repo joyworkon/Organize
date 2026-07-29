@@ -28,6 +28,10 @@ export interface Note {
   title: string | null;
   content: Record<string, unknown> | null;
   reading_item_id: string | null;
+  icon?: string | null;
+  cover_url?: string | null;
+  cover_position?: number;
+  parent_note_id?: string | null;
   deleted_at?: string | null;
   created_at: string;
   updated_at: string;

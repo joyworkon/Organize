@@ -12,6 +12,7 @@ import {
   Copy,
   FileInput,
   Link2,
+  List as ListIcon,
   MessageSquare,
   Palette,
   PlaySquare,
@@ -24,6 +25,11 @@ import { useMemo, useState } from "react";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { stripBlockIds } from "./block-utils";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
+import {
+  findListParent,
+  setListStyle,
+  type ListStyle,
+} from "./extensions/list-style";
 import { EditorPopover } from "./editor-popover";
 import type { EditorBlockTarget, EditorMenuPoint } from "./types";
 
@@ -192,7 +198,9 @@ export function BlockActionMenu({
   onClose: () => void;
   onPresent: (target: EditorBlockTarget) => void;
 }) {
-  const [view, setView] = useState<"main" | "transform" | "color" | "skills">("main");
+  const [view, setView] = useState<
+    "main" | "transform" | "color" | "list-style" | "skills"
+  >("main");
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<{ commandId: string; top: number; left: number } | null>(null);
   const transformCommands = useMemo(
@@ -205,6 +213,7 @@ export function BlockActionMenu({
     [query, target.json.attrs?.level, target.type]
   );
   const canTransformTarget = TEXT_TRANSFORMABLE_TYPES.has(target.type);
+  const listParent = findListParent(editor.state.doc, target.pos);
   // moveBlock 只收集顶层块，对嵌套的 listItem/taskItem 永远找不到目标，
   // 「上移 / 下移」会静默无效，因此对这两类块直接隐藏
   const canMoveTarget = target.type !== "listItem" && target.type !== "taskItem";
@@ -278,6 +287,52 @@ export function BlockActionMenu({
     );
   }
 
+  if (view === "list-style" && listParent) {
+    const options: Array<{ label: string; value: ListStyle }> =
+      listParent.type === "orderedList"
+        ? [
+            { label: "默认", value: "default" },
+            { label: "数字", value: "decimal" },
+            { label: "字母", value: "lower-alpha" },
+            { label: "罗马数字", value: "lower-roman" },
+          ]
+        : [
+            { label: "默认", value: "default" },
+            { label: "盘型", value: "disc" },
+            { label: "圆形", value: "circle" },
+            { label: "方形", value: "square" },
+          ];
+    return (
+      <EditorPopover point={point} onClose={onClose} className="block-action-popover">
+        <MenuHeader
+          title="列表格式"
+          query=""
+          onQuery={() => {}}
+          onBack={() => setView("main")}
+          hideSearch
+        />
+        <div className="editor-menu-scroll compact">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={listParent.style === option.value ? "is-active" : ""}
+              onClick={() =>
+                finish(() => {
+                  setListStyle(editor, target.pos, option.value);
+                })
+              }
+            >
+              <ListStylePreview type={listParent.type} style={option.value} />
+              <span>{option.label}</span>
+              {listParent.style === option.value && <Check className="h-4 w-4" />}
+            </button>
+          ))}
+        </div>
+      </EditorPopover>
+    );
+  }
+
   if (view === "skills") {
     return (
       <EditorPopover point={point} onClose={onClose} className="block-action-popover">
@@ -309,6 +364,15 @@ export function BlockActionMenu({
         <div className="editor-menu-label">文本</div>
         <Action icon={FileInput} label="转换成" suffix={<ChevronRight />} onClick={() => setView("transform")} query={query} />
         <Action icon={Palette} label="颜色" suffix={<ChevronRight />} onClick={() => setView("color")} query={query} />
+        {listParent && (
+          <Action
+            icon={ListIcon}
+            label="列表格式"
+            suffix={<ChevronRight />}
+            onClick={() => setView("list-style")}
+            query={query}
+          />
+        )}
         <div className="editor-menu-separator" />
         <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onClick={() => finish(copyLink)} query={query} />
         <Action icon={Copy} label="创建副本" shortcut="⌘D" onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
@@ -326,6 +390,32 @@ export function BlockActionMenu({
       </div>
       <div className="editor-menu-meta">当前块 · {target.type}</div>
     </EditorPopover>
+  );
+}
+
+function ListStylePreview({
+  type,
+  style,
+}: {
+  type: "bulletList" | "orderedList";
+  style: ListStyle;
+}) {
+  const marker =
+    type === "bulletList"
+      ? style === "circle"
+        ? "○"
+        : style === "square"
+          ? "▪"
+          : "•"
+      : style === "lower-alpha"
+        ? "a."
+        : style === "lower-roman"
+          ? "i."
+          : "1.";
+  return (
+    <span className="list-style-preview" aria-hidden="true">
+      {marker}
+    </span>
   );
 }
 

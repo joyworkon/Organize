@@ -11,7 +11,6 @@ import {
   FileText,
   Puzzle,
   Tag as TagIcon,
-  BarChart3,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -19,19 +18,23 @@ import {
   X,
   ListChecks,
   Lightbulb,
-  History,
   Star,
   Settings,
   Trash2,
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
 import { useThemeColor } from "@/hooks/use-theme-color";
+import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
 
 const navItems = [
-  { href: "/", label: "今日", icon: Home },
+  { href: "/", label: "工作台", icon: Home },
   { href: "/inbox", label: "收集箱", icon: Inbox },
   { href: "/library", label: "阅读库", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
@@ -39,8 +42,6 @@ const navItems = [
   { href: "/lessons", label: "经验", icon: Lightbulb },
   { href: "/tags", label: "标签", icon: TagIcon },
   { href: "/favorites", label: "收藏夹", icon: Star },
-  { href: "/review", label: "回顾", icon: History },
-  { href: "/stats", label: "统计", icon: BarChart3 },
   { href: "/plugins", label: "插件", icon: Puzzle },
   { href: "/trash", label: "垃圾箱", icon: Trash2 },
   { href: "/settings", label: "设置", icon: Settings },
@@ -51,23 +52,109 @@ export function Sidebar() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const supabase = useMemo(() => createClient(), []);
   useThemeColor();
 
   useEffect(() => {
     const stored = localStorage.getItem("organize-sidebar-collapsed") === "true";
     setCollapsed(stored);
+    const storedNotesExpanded =
+      localStorage.getItem("organize-sidebar-notes-expanded") === "true";
+    setNotesExpanded(storedNotesExpanded || pathname.startsWith("/notes/"));
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
     };
-  }, []);
+  }, [pathname]);
+
+  const loadNoteTree = useCallback(async () => {
+    setNotesLoading(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("notes")
+        .select("id, title, icon, parent_note_id, updated_at")
+        .eq("user_id", user.id)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false });
+      setNoteTree(
+        buildNoteTree(
+          (data || []).map((note) => ({
+            id: note.id,
+            title: note.title || null,
+            icon: note.icon || null,
+            parent_note_id: note.parent_note_id || null,
+            updated_at: note.updated_at,
+          }))
+        )
+      );
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (notesExpanded) void loadNoteTree();
+  }, [loadNoteTree, notesExpanded, pathname]);
+
+  useEffect(() => {
+    const reload = () => {
+      if (notesExpanded) void loadNoteTree();
+    };
+    window.addEventListener("organize:notes-changed", reload);
+    return () => window.removeEventListener("organize:notes-changed", reload);
+  }, [loadNoteTree, notesExpanded]);
 
   const toggleCollapsed = () => {
     const next = !collapsed;
     setCollapsed(next);
     localStorage.setItem("organize-sidebar-collapsed", String(next));
     document.documentElement.dataset.sidebarCollapsed = String(next);
+  };
+
+  const toggleNotesExpanded = () => {
+    const next = !notesExpanded;
+    setNotesExpanded(next);
+    localStorage.setItem("organize-sidebar-notes-expanded", String(next));
+  };
+
+  const createNote = async () => {
+    if (creatingNote) return;
+    setCreatingNote(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: user.id,
+          title: "无标题笔记",
+          content: { type: "doc", content: [{ type: "paragraph" }] },
+          icon: null,
+          cover_url: null,
+          cover_position: 50,
+          parent_note_id: null,
+        })
+        .select()
+        .single();
+      if (error || !data) return;
+      setNotesExpanded(true);
+      localStorage.setItem("organize-sidebar-notes-expanded", "true");
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      setMobileOpen(false);
+      router.push(`/notes/${data.id}`);
+    } finally {
+      setCreatingNote(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -141,6 +228,73 @@ export function Sidebar() {
           const isActive = item.href === "/"
             ? pathname === "/"
             : pathname.startsWith(item.href);
+          if (item.href === "/notes" && !compact) {
+            return (
+              <div key={item.href}>
+                <div
+                  className={cn(
+                    "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <Link
+                    href="/notes"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
+                  >
+                    <FileText className="h-4 w-4 shrink-0" />
+                    <span className="truncate">笔记</span>
+                  </Link>
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                    title="快速新建笔记"
+                    aria-label="快速新建笔记"
+                    onClick={() => void createNote()}
+                    disabled={creatingNote}
+                  >
+                    {creatingNote ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                    title={notesExpanded ? "收起笔记列表" : "展开笔记列表"}
+                    aria-label={notesExpanded ? "收起笔记列表" : "展开笔记列表"}
+                    aria-expanded={notesExpanded}
+                    onClick={toggleNotesExpanded}
+                  >
+                    {notesExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                {notesExpanded && (
+                  <div className="mt-1">
+                    {notesLoading && noteTree.length === 0 ? (
+                      <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        加载笔记...
+                      </div>
+                    ) : (
+                      <SidebarNoteTree
+                        nodes={noteTree}
+                        pathname={pathname}
+                        onNavigate={() => setMobileOpen(false)}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          }
           return (
             <Link
               key={item.href}
@@ -232,4 +386,78 @@ export function Sidebar() {
       )}
     </>
   );
+}
+
+function SidebarNoteTree({
+  nodes,
+  pathname,
+  onNavigate,
+}: {
+  nodes: NoteTreeNode[];
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  const toggle = (id: string) => {
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const renderNodes = (branch: NoteTreeNode[], depth: number): React.ReactNode =>
+    branch.map((note) => {
+      const hasChildren = note.children.length > 0;
+      const childrenOpen = !collapsedIds.has(note.id);
+      const active = pathname === `/notes/${note.id}`;
+      return (
+        <div key={note.id}>
+          <div
+            className={cn(
+              "group flex min-w-0 items-center rounded-md text-xs",
+              active
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/70 hover:text-accent-foreground"
+            )}
+            style={{ paddingLeft: `${8 + Math.min(depth, 6) * 14}px` }}
+          >
+            {hasChildren ? (
+              <button
+                type="button"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-background/50"
+                onClick={() => toggle(note.id)}
+                aria-label={childrenOpen ? "收起子页面" : "展开子页面"}
+                aria-expanded={childrenOpen}
+              >
+                {childrenOpen ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+              </button>
+            ) : (
+              <span className="h-6 w-6 shrink-0" />
+            )}
+            <Link
+              href={`/notes/${note.id}`}
+              onClick={onNavigate}
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2"
+              title={note.title || "无标题笔记"}
+            >
+              <span className="shrink-0">{note.icon || "📄"}</span>
+              <span className="truncate">{note.title || "无标题笔记"}</span>
+            </Link>
+          </div>
+          {hasChildren && childrenOpen && renderNodes(note.children, depth + 1)}
+        </div>
+      );
+    });
+
+  if (nodes.length === 0) {
+    return <p className="px-4 py-2 text-xs text-muted-foreground">还没有笔记</p>;
+  }
+  return <>{renderNodes(nodes, 0)}</>;
 }

@@ -52,8 +52,8 @@ export function GlobalHotkeys() {
       { sequence: ["g", "e"], handler: () => go("/lessons") },
       { sequence: ["g", "f"], handler: () => go("/favorites") },
       { sequence: ["g", "t"], handler: () => go("/tags") },
-      { sequence: ["g", "r"], handler: () => go("/review") },
-      { sequence: ["g", "s"], handler: () => go("/stats") },
+      { sequence: ["g", "r"], handler: () => go("/?view=review") },
+      { sequence: ["g", "s"], handler: () => go("/?view=stats") },
       { sequence: ["g", "p"], handler: () => go("/plugins") },
     ],
     {

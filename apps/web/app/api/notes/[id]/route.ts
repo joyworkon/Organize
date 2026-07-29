@@ -44,12 +44,33 @@ export async function PATCH(
   }
 
   const body = await request.json();
-  const { title, content, reading_item_id } = body;
+  const {
+    title,
+    content,
+    reading_item_id,
+    icon,
+    cover_url,
+    cover_position,
+    parent_note_id,
+  } = body;
 
   const updateData: Record<string, unknown> = {};
   if (title !== undefined) updateData.title = title;
   if (content !== undefined) updateData.content = content;
   if (reading_item_id !== undefined) updateData.reading_item_id = reading_item_id;
+  if (icon === null || typeof icon === "string") updateData.icon = icon;
+  if (cover_url === null || typeof cover_url === "string") {
+    updateData.cover_url = cover_url;
+  }
+  if (typeof cover_position === "number") {
+    updateData.cover_position = Math.max(
+      0,
+      Math.min(100, Math.round(cover_position))
+    );
+  }
+  if (parent_note_id === null || typeof parent_note_id === "string") {
+    updateData.parent_note_id = parent_note_id;
+  }
 
   const { data, error } = await supabase
     .from("notes")

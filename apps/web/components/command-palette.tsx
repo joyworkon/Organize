@@ -24,6 +24,7 @@ import {
   Lightbulb,
   Tag,
   BarChart3,
+  CalendarDays,
   Puzzle,
   Plus,
   Link as LinkIcon,
@@ -62,14 +63,15 @@ const MAX_RECENT_SEARCHES = 5;
 const SEARCH_LIMIT = 8;
 
 const NAV_ITEMS = [
-  { label: "首页", path: "/", icon: Home, shortcut: "G H" },
+  { label: "工作台", path: "/", icon: Home, shortcut: "G H" },
   { label: "收集箱", path: "/inbox", icon: Inbox, shortcut: "G I" },
   { label: "阅读库", path: "/library", icon: BookOpen, shortcut: "G L" },
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
   { label: "经验", path: "/lessons", icon: Lightbulb, shortcut: "G E" },
   { label: "标签", path: "/tags", icon: Tag, shortcut: "G T" },
-  { label: "统计", path: "/stats", icon: BarChart3, shortcut: "G S" },
+  { label: "回顾", path: "/?view=review", icon: CalendarDays, shortcut: "G R" },
+  { label: "统计", path: "/?view=stats", icon: BarChart3, shortcut: "G S" },
   { label: "插件", path: "/plugins", icon: Puzzle, shortcut: "G P" },
   { label: "设置", path: "/settings", icon: Settings, shortcut: "" },
 ];
