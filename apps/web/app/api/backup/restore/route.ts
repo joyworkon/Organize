@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data, error } = await supabase.rpc("restore_backup_v2", {
+  const { data, error } = await supabase.rpc("restore_backup_v2_with_pages", {
     p_payload: payload,
   });
   if (error) {

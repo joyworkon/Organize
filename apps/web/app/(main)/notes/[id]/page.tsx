@@ -8,25 +8,31 @@ import { Button } from "@/components/ui/button";
 import { TipTapEditor } from "@/components/editor/tiptap-editor";
 import { NotePageMenu, type NoteFont } from "@/components/notes/note-page-menu";
 import { Backlinks } from "@/components/notes/backlinks";
+import { NotePageVisuals } from "@/components/notes/note-page-visuals";
+import { NotePageComments } from "@/components/notes/note-page-comments";
+import { NoteHierarchyBar } from "@/components/notes/note-hierarchy-bar";
+import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
+import type { NoteTreeItem } from "@/lib/notes/tree";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
 const fontKey = (id: string) => `organize:note:${id}:font`;
 const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
+
+interface NoteDraft {
+  title: string;
+  content: Record<string, unknown> | null;
+  icon: string | null;
+  cover_url: string | null;
+  cover_position: number;
+  parent_note_id: string | null;
+}
 
 export default function NoteEditorPage() {
   const params = useParams();
@@ -38,6 +44,13 @@ export default function NoteEditorPage() {
   const [content, setContent] = useState<Record<string, unknown> | null>(null);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   const [readingItemId, setReadingItemId] = useState<string | null>(null);
+  const [icon, setIcon] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [coverPosition, setCoverPosition] = useState(50);
+  const [parentNoteId, setParentNoteId] = useState<string | null>(null);
+  const [allNotes, setAllNotes] = useState<NoteTreeItem[]>([]);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [pageCommentCount, setPageCommentCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -50,11 +63,40 @@ export default function NoteEditorPage() {
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const draftRef = useRef<{ title: string; content: Record<string, unknown> | null }>({ title: "", content: null });
+  const draftRef = useRef<NoteDraft>({
+    title: "",
+    content: null,
+    icon: null,
+    cover_url: null,
+    cover_position: 50,
+    parent_note_id: null,
+  });
   const dirtyRef = useRef(false);
   const savingPromiseRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+
+  const loadNoteTree = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("notes")
+      .select("id, title, icon, parent_note_id, updated_at")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false });
+    setAllNotes(
+      (data || []).map((note) => ({
+        id: note.id,
+        title: note.title || null,
+        icon: note.icon || null,
+        parent_note_id: note.parent_note_id || null,
+        updated_at: note.updated_at,
+      }))
+    );
+  }, [supabase]);
 
   // 加载笔记
   useEffect(() => {
@@ -82,12 +124,48 @@ export default function NoteEditorPage() {
         setContent(loadedContent);
         setCreatedAt(data.created_at || null);
         setReadingItemId(data.reading_item_id || null);
-        draftRef.current = { title: loadedTitle, content: loadedContent };
+        setIcon(data.icon || null);
+        setCoverUrl(data.cover_url || null);
+        setCoverPosition(Number(data.cover_position ?? 50));
+        setParentNoteId(data.parent_note_id || null);
+        draftRef.current = {
+          title: loadedTitle,
+          content: loadedContent,
+          icon: data.icon || null,
+          cover_url: data.cover_url || null,
+          cover_position: Number(data.cover_position ?? 50),
+          parent_note_id: data.parent_note_id || null,
+        };
       }
       setLoading(false);
+      void loadNoteTree();
     }
     void loadNote();
     return () => { active = false; };
+  }, [loadNoteTree, noteId, supabase]);
+
+  useEffect(() => {
+    const reload = () => void loadNoteTree();
+    window.addEventListener("organize:notes-changed", reload);
+    return () => window.removeEventListener("organize:notes-changed", reload);
+  }, [loadNoteTree]);
+
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .from("note_comment_threads")
+      .select("id, resolved_at")
+      .eq("note_id", noteId)
+      .eq("block_id", "__page__")
+      .then(({ data }) => {
+        if (!active) return;
+        setPageCommentCount(
+          (data || []).filter((thread) => !thread.resolved_at).length
+        );
+      });
+    return () => {
+      active = false;
+    };
   }, [noteId, supabase]);
 
   // 读取该笔记的页面级展示偏好（全宽 / 字体 / 小字号）
@@ -124,6 +202,7 @@ export default function NoteEditorPage() {
           break;
         }
         setLastSaved(new Date());
+        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       }
     })().finally(() => {
       setSaving(false);
@@ -139,6 +218,32 @@ export default function NoteEditorPage() {
     saveTimerRef.current = setTimeout(() => void flushSave(), 900);
   }, [flushSave]);
 
+  const updatePageMetadata = useCallback(
+    (patch: Partial<Pick<NoteDraft, "icon" | "cover_url" | "cover_position" | "parent_note_id">>) => {
+      if ("icon" in patch) setIcon(patch.icon ?? null);
+      if ("cover_url" in patch) setCoverUrl(patch.cover_url ?? null);
+      if ("cover_position" in patch) setCoverPosition(patch.cover_position ?? 50);
+      if ("parent_note_id" in patch) setParentNoteId(patch.parent_note_id ?? null);
+      Object.assign(draftRef.current, patch);
+      setAllNotes((notes) =>
+        notes.map((note) =>
+          note.id === noteId
+            ? {
+                ...note,
+                icon: "icon" in patch ? patch.icon ?? null : note.icon,
+                parent_note_id:
+                  "parent_note_id" in patch
+                    ? patch.parent_note_id ?? null
+                    : note.parent_note_id,
+              }
+            : note
+        )
+      );
+      queueSave();
+    },
+    [noteId, queueSave]
+  );
+
   useEffect(() => {
     const handlePageHide = () => void flushSave();
     window.addEventListener("pagehide", handlePageHide);
@@ -153,6 +258,9 @@ export default function NoteEditorPage() {
     const newTitle = raw.replace(/\s*\n\s*/g, " ");
     setTitle(newTitle);
     draftRef.current.title = newTitle;
+    setAllNotes((notes) =>
+      notes.map((note) => (note.id === noteId ? { ...note, title: newTitle } : note))
+    );
     queueSave();
   };
 
@@ -183,6 +291,9 @@ export default function NoteEditorPage() {
 
     setTitle(before);
     draftRef.current.title = before;
+    setAllNotes((notes) =>
+      notes.map((note) => (note.id === noteId ? { ...note, title: before } : note))
+    );
 
     const editor = editorRef.current;
     if (editor) {
@@ -288,6 +399,10 @@ export default function NoteEditorPage() {
           user_id: user.id,
           title: title ? `${title} 副本` : "无标题笔记 副本",
           content: draftRef.current.content ?? content,
+          icon,
+          cover_url: coverUrl,
+          cover_position: coverPosition,
+          parent_note_id: parentNoteId,
         })
         .select()
         .single();
@@ -300,7 +415,18 @@ export default function NoteEditorPage() {
     } catch {
       showToast("创建副本失败");
     }
-  }, [flushSave, supabase, title, content, router, showToast]);
+  }, [
+    flushSave,
+    supabase,
+    title,
+    content,
+    icon,
+    coverUrl,
+    coverPosition,
+    parentNoteId,
+    router,
+    showToast,
+  ]);
 
   const handleContentUpdate = (newContent: Record<string, unknown>) => {
     setContent(newContent);
@@ -334,117 +460,143 @@ export default function NoteEditorPage() {
     );
   }
 
+  const contentClassName = fullWidth
+    ? "mx-auto w-full max-w-none md:px-10"
+    : "mx-auto w-full max-w-3xl";
+
   return (
     <div
       className={cn(
-        "note-page mx-auto space-y-4",
-        fullWidth ? "max-w-none md:px-10" : "max-w-3xl",
+        "note-page mx-auto max-w-none",
         font === "serif" && "note-page-serif",
         font === "mono" && "note-page-mono",
         smallFont && "note-page-small"
       )}
     >
-      {/* 面包屑 */}
-      <Breadcrumb className="pt-2">
-        <BreadcrumbList>
-          <BreadcrumbItem className="hidden sm:inline-flex">
-            <BreadcrumbLink href="/">首页</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator className="hidden sm:block" />
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/notes">笔记</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem className="min-w-0">
-            <BreadcrumbPage
-              className="max-w-[20ch] sm:max-w-[40ch]"
-              title={title || undefined}
-            >
-              {title || "无标题笔记"}
-            </BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <div className={cn(contentClassName, "space-y-3 pt-2")}>
+        <NoteHierarchyBar
+          noteId={noteId}
+          title={title}
+          icon={icon}
+          parentNoteId={parentNoteId}
+          notes={allNotes}
+          onParentChange={(nextParentId) =>
+            updatePageMetadata({ parent_note_id: nextParentId })
+          }
+        />
 
-      {/* 顶栏 */}
-      <div className="flex items-center justify-between">
-        <Link href="/notes">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            返回
-          </Button>
-        </Link>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {saveError ? (
-              <span className="text-destructive">{saveError}</span>
-            ) : saving ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                保存中...
-              </>
-            ) : lastSaved ? (
-              <>
-                <Check className="h-3 w-3 text-green-500" />
-                已保存 {lastSaved.toLocaleTimeString("zh-CN")}
-              </>
-            ) : null}
+        {/* 顶栏 */}
+        <div className="flex items-center justify-between">
+          <Link href="/notes">
+            <Button variant="ghost" size="sm" className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              返回
+            </Button>
+          </Link>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {saveError ? (
+                <span className="text-destructive">{saveError}</span>
+              ) : saving ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  保存中...
+                </>
+              ) : lastSaved ? (
+                <>
+                  <Check className="h-3 w-3 text-green-500" />
+                  已保存 {lastSaved.toLocaleTimeString("zh-CN")}
+                </>
+              ) : null}
+            </div>
+            <FavoriteButton targetType="note" targetId={noteId} />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShareDialogOpen(true)}
+              title="分享"
+            >
+              <Share2 className="h-4 w-4" />
+            </Button>
+            <NotePageMenu
+              fullWidth={fullWidth}
+              onToggleFullWidth={toggleFullWidth}
+              font={font}
+              onFontChange={changeFont}
+              smallFont={smallFont}
+              onToggleSmallFont={toggleSmallFont}
+              onCopyLink={copyLink}
+              onCopyContent={copyContent}
+              onDuplicate={duplicateNote}
+            />
           </div>
-          <FavoriteButton targetType="note" targetId={noteId} />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShareDialogOpen(true)}
-            title="分享"
-          >
-            <Share2 className="h-4 w-4" />
-          </Button>
-          <NotePageMenu
-            fullWidth={fullWidth}
-            onToggleFullWidth={toggleFullWidth}
-            font={font}
-            onFontChange={changeFont}
-            smallFont={smallFont}
-            onToggleSmallFont={toggleSmallFont}
-            onCopyLink={copyLink}
-            onCopyContent={copyContent}
-            onDuplicate={duplicateNote}
-          />
         </div>
       </div>
 
-      {/* 标题：自动增高、不限长度；回车执行 T1/T2 而非插入换行 */}
-      <textarea
-        ref={titleRef}
-        value={title}
-        onChange={(e) => handleTitleChange(e.target.value)}
-        onKeyDown={handleTitleKeyDown}
-        onInput={autoGrowTitle}
-        placeholder="笔记标题"
-        rows={1}
-        className="note-title w-full resize-none overflow-hidden break-words bg-transparent px-0 py-2 text-2xl font-bold leading-tight outline-none placeholder:text-muted-foreground"
-      />
-
-      {/* 创建时间 */}
-      {createdAt && (
-        <div className="note-meta-row flex items-center gap-1.5 text-xs text-muted-foreground -mt-2">
-          <Calendar className="h-3 w-3" />
-          创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
-        </div>
-      )}
-
-      {/* 编辑器 */}
-      <TipTapEditor
-        key={noteId}
+      <NotePageVisuals
         noteId={noteId}
-        noteTitle={title}
-        content={content}
-        onUpdate={handleContentUpdate}
-        onEditorReady={(editor) => { editorRef.current = editor; }}
+        contentClassName={contentClassName}
+        icon={icon}
+        coverUrl={coverUrl}
+        coverPosition={coverPosition}
+        commentsOpen={commentsOpen}
+        commentCount={pageCommentCount}
+        onIconChange={(nextIcon) => updatePageMetadata({ icon: nextIcon })}
+        onCoverChange={(nextCover) =>
+          updatePageMetadata({ cover_url: nextCover })
+        }
+        onCoverPositionChange={(nextPosition) =>
+          updatePageMetadata({ cover_position: nextPosition })
+        }
+        onToggleComments={() => setCommentsOpen((open) => !open)}
+        onError={showToast}
       />
 
-      {/* 反向链接 & 关联阅读 */}
-      <Backlinks noteId={noteId} readingItemId={readingItemId} />
+      <div className={cn(contentClassName, "note-page-main")}>
+        {/* 标题：自动增高、不限长度；回车执行 T1/T2 而非插入换行 */}
+        <textarea
+          ref={titleRef}
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          onKeyDown={handleTitleKeyDown}
+          onInput={autoGrowTitle}
+          placeholder="笔记标题"
+          rows={1}
+          className="note-title w-full resize-none overflow-hidden break-words bg-transparent px-0 py-2 text-2xl font-bold leading-tight outline-none placeholder:text-muted-foreground"
+        />
+
+        {/* 创建时间 */}
+        {createdAt && (
+          <div className="note-meta-row flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Calendar className="h-3 w-3" />
+            创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
+          </div>
+        )}
+
+        {commentsOpen && (
+          <NotePageComments
+            noteId={noteId}
+            onCountChange={setPageCommentCount}
+          />
+        )}
+
+        {/* 编辑器 */}
+        <TipTapEditor
+          key={noteId}
+          noteId={noteId}
+          noteTitle={title}
+          content={content}
+          onUpdate={handleContentUpdate}
+          onEditorReady={(editor) => {
+            editorRef.current = editor;
+          }}
+        />
+
+        <NoteChildPages noteId={noteId} notes={allNotes} />
+
+        {/* 反向链接 & 关联阅读 */}
+        <Backlinks noteId={noteId} readingItemId={readingItemId} />
+      </div>
 
       {/* 轻量内联提示 */}
       {toast && (

@@ -66,6 +66,13 @@ export function prepareRestorePayload(
   data.notes = backup.data.notes.map((row) => ({
     ...withId(row, maps.notes),
     reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
+    parent_note_id:
+      row.parent_note_id == null
+        ? null
+        : remap(row.parent_note_id, maps.notes),
+    icon: row.icon ?? null,
+    cover_url: row.cover_url ?? null,
+    cover_position: row.cover_position ?? 50,
     content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
   }));
   data.tags = backup.data.tags.map((row) => withId(row, maps.tags));

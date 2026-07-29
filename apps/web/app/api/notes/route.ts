@@ -58,7 +58,15 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { title, content, reading_item_id } = body;
+  const {
+    title,
+    content,
+    reading_item_id,
+    icon,
+    cover_url,
+    cover_position,
+    parent_note_id,
+  } = body;
 
   const { data, error } = await supabase
     .from("notes")
@@ -67,6 +75,14 @@ export async function POST(request: NextRequest) {
       title: title || "无标题笔记",
       content: content || { type: "doc", content: [{ type: "paragraph" }] },
       reading_item_id: reading_item_id || null,
+      icon: typeof icon === "string" ? icon : null,
+      cover_url: typeof cover_url === "string" ? cover_url : null,
+      cover_position:
+        typeof cover_position === "number"
+          ? Math.max(0, Math.min(100, Math.round(cover_position)))
+          : 50,
+      parent_note_id:
+        typeof parent_note_id === "string" ? parent_note_id : null,
     })
     .select()
     .single();

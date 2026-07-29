@@ -27,6 +27,7 @@ import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
 import { BlockStyle } from "./extensions/block-style";
 import { ListBackspaceFix } from "./extensions/list-backspace";
+import { ListStyleExtension } from "./extensions/list-style";
 import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
@@ -793,6 +794,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   const extensions = useMemo(() => {
     return [
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+      ListStyleExtension,
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
@@ -998,7 +1000,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title, parent_note_id: noteId }),
       });
       if (!response.ok) {
         console.warn("[editor] 转换成页面失败", response.status);
@@ -1022,7 +1024,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     } catch (error) {
       console.warn("[editor] 转换成页面失败", error);
     }
-  }, [editor]);
+  }, [editor, noteId]);
 
   useEffect(() => {
     if (!editor) return;

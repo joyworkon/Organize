@@ -85,6 +85,12 @@ const isNullableUuid: Validator = (value) => value === null || isUuid(value);
 const isJsonObject: Validator = (value) => isRecord(value);
 const isNullableJsonObject: Validator = (value) =>
   value === null || isJsonObject(value);
+const optional =
+  (validator: Validator): Validator =>
+  (value) =>
+    value === undefined || validator(value);
+const isCoverPosition: Validator = (value) =>
+  Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 100;
 const oneOf =
   (...values: string[]): Validator =>
   (value) =>
@@ -115,6 +121,10 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       title: isNullableString,
       content: isNullableJsonObject,
       reading_item_id: isNullableUuid,
+      icon: optional(isNullableString),
+      cover_url: optional(isNullableString),
+      cover_position: optional(isCoverPosition),
+      parent_note_id: optional(isNullableUuid),
       is_pinned: isBoolean,
       created_at: isTimestamp,
       updated_at: isTimestamp,
@@ -497,6 +507,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   };
 
   checkOptionalRefs(data.notes, "reading_item_id", ids.reading, "notes", issues);
+  checkOptionalRefs(data.notes, "parent_note_id", ids.notes, "notes", issues);
   checkRefs(data.item_tags, "item_id", ids.reading, "item_tags", issues);
   checkRefs(data.item_tags, "tag_id", ids.tags, "item_tags", issues);
   checkRefs(data.note_tags, "note_id", ids.notes, "note_tags", issues);
