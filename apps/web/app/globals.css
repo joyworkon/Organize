@@ -174,8 +174,8 @@
 .organize-editor.prose blockquote {
   border-left: 3px solid hsl(var(--border));
   margin: 0.75rem 0 !important;
-  margin-left: -24px !important;
-  padding-left: 21px !important;
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
+  padding-left: calc(var(--organize-gutter) - 3px) !important;
   color: hsl(var(--muted-foreground));
   font-style: italic;
 }
@@ -235,10 +235,7 @@
 .organize-editor.prose > h4,
 .organize-editor.prose > h5,
 .organize-editor.prose > h6,
-.organize-editor.prose > blockquote,
 .organize-editor.prose > div[data-callout],
-.organize-editor.prose > div[data-type="details"],
-.organize-editor.prose > details,
 .organize-editor.prose > div[data-columns],
 .organize-editor.prose > hr,
 .organize-editor.prose > p.is-editor-empty,
@@ -265,12 +262,11 @@
   margin-bottom: 0.5rem;
 }
 
-/* 顶层列表：使用负 margin-left + padding-left 让标记落在 gutter 区域
-   list-style-position: outside + margin-left: -24px 把标记拉到 gutter，padding-left: 24px 保持内容对齐 */
+/* 顶层列表：统一把标记放进 gutter，列表正文仍落在普通段落的内容轴上。 */
 .organize-editor.prose > ul,
 .organize-editor.prose > ol {
-  padding-left: 24px !important;
-  margin-left: -24px !important;
+  padding-left: var(--organize-gutter) !important;
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
   list-style-position: outside;
 }
 .organize-editor.prose > ul {
@@ -278,8 +274,10 @@
 }
 .organize-editor.prose > ol {
   list-style-type: decimal;
-  padding-left: 28px !important;
-  margin-left: -28px !important;
+}
+.organize-editor.prose > ul:not([data-type="taskList"]) > li,
+.organize-editor.prose > ol > li {
+  padding-left: 0 !important;
 }
 
 /* 嵌套列表：正常缩进 */
@@ -301,8 +299,8 @@
 }
 .organize-editor.prose ul[data-type="taskList"] li {
   position: relative;
-  padding-left: 24px !important;
-  margin-left: -24px !important;
+  padding-left: var(--organize-gutter) !important;
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
 }
@@ -383,6 +381,14 @@
 .organize-editor.prose .organize-block-selected:not(li[data-checked]):not(div[data-type="details"]):not(blockquote) {
   box-shadow: calc(-1 * var(--organize-gutter)) 0 0 0 var(--organize-selected-bg);
 }
+.organize-editor.prose > ul:not([data-type="taskList"]).ProseMirror-selectednode,
+.organize-editor.prose > ul:not([data-type="taskList"]).organize-transformed-block,
+.organize-editor.prose > ul:not([data-type="taskList"]).organize-block-selected,
+.organize-editor.prose > ol.ProseMirror-selectednode,
+.organize-editor.prose > ol.organize-transformed-block,
+.organize-editor.prose > ol.organize-block-selected {
+  box-shadow: none !important;
+}
 .organize-editor.prose [data-block-background] {
   margin-block: 2px;
   padding-block: 2px;
@@ -424,8 +430,8 @@
 .organize-editor.prose div[data-type="details"] {
   position: relative;
   margin: 0.5rem 0 !important;
-  margin-left: -24px !important;
-  padding-left: 24px !important;
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
+  padding-left: var(--organize-gutter) !important;
 }
 .organize-editor.prose div[data-type="details"] > button {
   position: absolute;
@@ -534,8 +540,8 @@
 .organize-editor.prose details {
   position: relative;
   margin: 0.5rem 0 !important;
-  margin-left: -24px !important;
-  padding-left: 24px !important;
+  margin-left: calc(-1 * var(--organize-gutter)) !important;
+  padding-left: var(--organize-gutter) !important;
 }
 .organize-editor.prose details summary {
   display: block;
@@ -663,14 +669,86 @@
 }
 
 /* ------------------------- 列布局（Columns） ------------------------- */
+.organize-editor {
+  --organize-columns-gap: 24px;
+}
 .organize-editor div[data-columns] {
   margin: 0.75rem 0;
+  overflow-x: auto;
 }
+.organize-columns-layout {
+  position: relative;
+}
+.organize-columns-content,
+.organize-column-resizers {
+  display: grid;
+  gap: 0;
+}
+.organize-columns-content > [data-node-view-content-react] {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: inherit;
+}
+.organize-columns-content > [data-node-view-content-react] > div[data-column],
 .organize-editor div[data-columns] > div[data-column] {
   min-width: 0;
 }
+.organize-columns-content > [data-node-view-content-react] > div[data-column]:nth-child(1) { grid-column: 1; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column]:nth-child(2) { grid-column: 3; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column]:nth-child(3) { grid-column: 5; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column]:nth-child(4) { grid-column: 7; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column]:nth-child(5) { grid-column: 9; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column] { grid-row: 1; }
+.organize-columns-content > [data-node-view-content-react] > div[data-column] > *,
 .organize-editor div[data-columns] > div[data-column] > * {
   margin-top: 0;
+}
+.organize-column-resizers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.organize-column-resizer {
+  position: relative;
+  z-index: 2;
+  min-width: var(--organize-columns-gap);
+  cursor: col-resize;
+  pointer-events: auto;
+  touch-action: none;
+  outline: none;
+}
+.organize-column-resizer > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--border));
+  opacity: 0.55;
+  transform: translateX(-50%);
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+.organize-column-resizer:hover > span,
+.organize-column-resizer:focus-visible > span,
+.organize-column-resizer[data-active="true"] > span {
+  background: hsl(var(--primary));
+  opacity: 1;
+}
+.node-columns:is(.ProseMirror-selectednode, .organize-transformed-block, .organize-block-selected),
+.organize-columns:is(.ProseMirror-selectednode, .organize-transformed-block, .organize-block-selected) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.node-columns:is(.ProseMirror-selectednode, .organize-transformed-block, .organize-block-selected)
+  .organize-columns-content > [data-node-view-content-react] > div[data-column] > *,
+.organize-columns:is(.ProseMirror-selectednode, .organize-transformed-block, .organize-block-selected)
+  .organize-columns-content > [data-node-view-content-react] > div[data-column] > * {
+  background: var(--organize-selected-bg);
+  border-radius: 4px;
+}
+.organize-columns .is-empty::before {
+  content: none;
 }
 
 /* ------------------------- 模块化块手柄 ------------------------- */
@@ -1374,13 +1452,7 @@
   .organize-block-handle button { width: 16px; height: 18px; }
   .organize-block-add { display: none !important; }
   .organize-block-drop-indicator { left: 40px; }
-  .organize-editor.prose > ul,
-  .organize-editor.prose > ol { margin-left: -20px !important; padding-left: 20px !important; }
-  .organize-editor.prose > ol { margin-left: -24px !important; padding-left: 24px !important; }
-  .organize-editor.prose ul[data-type="taskList"] li { margin-left: -20px !important; padding-left: 20px !important; }
-  .organize-editor.prose blockquote { margin-left: -20px !important; padding-left: 17px !important; }
-  .organize-editor.prose div[data-type="details"] { margin-left: -20px !important; padding-left: 20px !important; }
-  .organize-editor.prose details { margin-left: -20px !important; padding-left: 20px !important; }
+  .organize-editor { --organize-columns-gap: 18px; }
   .editor-popover { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; width: auto; max-height: 78vh; }
   .editor-dialog-backdrop { align-items: end; padding: 0; }
   .editor-dialog { width: 100% !important; max-height: 88vh; border-radius: 16px 16px 0 0; }

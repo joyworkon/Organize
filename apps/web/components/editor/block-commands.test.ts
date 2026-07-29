@@ -116,7 +116,9 @@ describe("replaceBlock 相邻同类列表合并", () => {
     const columns = editor.state.doc.firstChild!;
     expect(columns.type.name).toBe("columns");
     expect(columns.attrs.cols).toBe(2);
+    expect(columns.attrs.widths).toEqual([50, 50]);
     expect(columns.childCount).toBe(2);
+    expect(columns.child(0).firstChild!.type.name).toBe("paragraph");
     expect(columns.child(0).textContent).toBe("栏里的文字");
     expect(columns.child(1).textContent).toBe("");
     editor.destroy();
@@ -134,7 +136,52 @@ describe("replaceBlock 相邻同类列表合并", () => {
     const columns = editor.state.doc.firstChild!;
     expect(columns.type.name).toBe("columns");
     expect(columns.attrs.cols).toBe(5);
+    expect(columns.attrs.widths).toEqual([20, 20, 20, 20, 20]);
     expect(columns.childCount).toBe(5);
+    editor.destroy();
+  });
+
+  it("列表转换成分栏时保留原列表结构，而不是压成一段纯文本", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [
+          { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "甲" }] }] },
+          { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "乙" }] }] },
+        ],
+      }],
+    });
+    BLOCK_COMMANDS.find((item) => item.id === "columns-3")!.run(editor, 0);
+    const columns = editor.state.doc.firstChild!;
+    expect(columns.type.name).toBe("columns");
+    expect(columns.child(0).firstChild!.type.name).toBe("bulletList");
+    expect(columns.child(0).firstChild!.childCount).toBe(2);
+    expect(columns.child(0).textContent).toBe("甲乙");
+    editor.destroy();
+  });
+
+  it("已有 4 列切换成 2 列时不嵌套，溢出内容并入最后一列", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [{
+        type: "columns",
+        attrs: { cols: 4, widths: [25, 25, 25, 25] },
+        content: ["甲", "乙", "丙", "丁"].map((text) => ({
+          type: "column",
+          content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+        })),
+      }],
+    });
+    BLOCK_COMMANDS.find((item) => item.id === "columns-2")!.run(editor, 0);
+    const columns = editor.state.doc.firstChild!;
+    expect(columns.type.name).toBe("columns");
+    expect(columns.attrs.cols).toBe(2);
+    expect(columns.attrs.widths).toEqual([50, 50]);
+    expect(columns.child(0).textContent).toBe("甲");
+    expect(columns.child(1).textContent).toBe("乙丙丁");
+    expect(columns.child(1).childCount).toBe(3);
+    expect(columns.child(1).firstChild!.type.name).toBe("paragraph");
     editor.destroy();
   });
 });

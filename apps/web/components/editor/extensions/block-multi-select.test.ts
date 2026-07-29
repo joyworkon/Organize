@@ -9,7 +9,13 @@ import StarterKit from "@tiptap/starter-kit";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { describe, expect, it } from "vitest";
-import { BlockMultiSelect, getMultiSelectedBlocks, setMultiSelectedBlocks } from "./block-multi-select";
+import {
+  BlockMultiSelect,
+  calculateBlockSelectionBounds,
+  getMultiSelectedBlocks,
+  pointIsInsideBlockSelectionBounds,
+  setMultiSelectedBlocks,
+} from "./block-multi-select";
 
 function createEditor() {
   const element = document.createElement("div");
@@ -48,6 +54,29 @@ function pressKey(editor: Editor, key: string) {
 }
 
 describe("BlockMultiSelect 拖拽块多选", () => {
+  it("框选边界从蓝色块背景左缘开始，而不是从编辑器 padding 外缘开始", () => {
+    const bounds = calculateBlockSelectionBounds(
+      { left: 100, right: 900, top: 200, bottom: 700 },
+      60,
+      24
+    );
+    expect(bounds).toEqual({ left: 136, right: 900, top: 200, bottom: 700 });
+    expect(pointIsInsideBlockSelectionBounds(bounds, 135, 300)).toBe(false);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 136, 300)).toBe(true);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 500, 701)).toBe(false);
+  });
+
+  it("移动端 padding/gutter 也按同一公式约束框选区域", () => {
+    const bounds = calculateBlockSelectionBounds(
+      { left: 12, right: 360, top: 80, bottom: 640 },
+      40,
+      20
+    );
+    expect(bounds.left).toBe(32);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 20, 200)).toBe(false);
+    expect(pointIsInsideBlockSelectionBounds(bounds, 32, 200)).toBe(true);
+  });
+
   it("设置选中后可以通过 getMultiSelectedBlocks 读到", () => {
     const editor = createEditor();
     const [first, , third] = blockPositions(editor);
