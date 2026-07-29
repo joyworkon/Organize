@@ -75,24 +75,29 @@ function MoveDialog({ editor, noteId, target, onClose }: { editor: Editor; noteI
   const move = async (targetNoteId: string) => {
     setMoving(targetNoteId);
     setError("");
-    const response = await fetch(`/api/notes/${noteId}/move-block`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetNoteId, blockId: target.id }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error || "移动失败");
+    try {
+      const response = await fetch(`/api/notes/${noteId}/move-block`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetNoteId, blockId: target.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "移动失败");
+        return;
+      }
+      const node = editor.state.doc.nodeAt(target.pos);
+      if (node) {
+        const tr = editor.state.tr.delete(target.pos, target.pos + node.nodeSize);
+        if (tr.doc.childCount === 0) tr.insert(0, editor.schema.nodes.paragraph.create());
+        editor.view.dispatch(tr);
+      }
+      onClose();
+    } catch {
+      setError("网络异常，移动失败");
+    } finally {
       setMoving(null);
-      return;
     }
-    const node = editor.state.doc.nodeAt(target.pos);
-    if (node) {
-      const tr = editor.state.tr.delete(target.pos, target.pos + node.nodeSize);
-      if (tr.doc.childCount === 0) tr.insert(0, editor.schema.nodes.paragraph.create());
-      editor.view.dispatch(tr);
-    }
-    onClose();
   };
 
   return (
@@ -129,15 +134,20 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
     if (!text.trim()) return;
     setSubmitting(true);
     setError("");
-    const response = await fetch(`/api/notes/${noteId}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blockId: target.id, body: text, threadId: replyTo }),
-    });
-    const data = await response.json();
-    if (!response.ok) setError(data.error || "评论失败");
-    else { setText(""); setReplyTo(null); await reload(); }
-    setSubmitting(false);
+    try {
+      const response = await fetch(`/api/notes/${noteId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blockId: target.id, body: text, threadId: replyTo }),
+      });
+      const data = await response.json();
+      if (!response.ok) setError(data.error || "评论失败");
+      else { setText(""); setReplyTo(null); await reload(); }
+    } catch {
+      setError("网络异常，评论失败");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const mutate = async (method: "PATCH" | "DELETE", body: Record<string, unknown>) => {
@@ -197,11 +207,16 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
   const create = async () => {
     if (!supported || !draft.trim() || draft === target.text) return;
     setBusy(true);
-    const proposed = withProposedText(target.json, draft.trim());
-    const response = await fetch(`/api/notes/${noteId}/suggestions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blockId: target.id, originalBlock: target.json, proposedBlock: proposed }) });
-    const data = await response.json();
-    if (!response.ok) setError(data.error || "建议保存失败"); else await reload();
-    setBusy(false);
+    try {
+      const proposed = withProposedText(target.json, draft.trim());
+      const response = await fetch(`/api/notes/${noteId}/suggestions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blockId: target.id, originalBlock: target.json, proposedBlock: proposed }) });
+      const data = await response.json();
+      if (!response.ok) setError(data.error || "建议保存失败"); else await reload();
+    } catch {
+      setError("网络异常，建议保存失败");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const decide = async (suggestion: EditSuggestion, status: "accepted" | "rejected") => {
@@ -236,10 +251,15 @@ function AskAIDialog({ editor, target, onClose }: { editor: Editor; target: Edit
   const [error, setError] = useState("");
   const run = async () => {
     setLoading(true); setError(""); setResult("");
-    const response = await fetch("/api/ai/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction, text: target.text || JSON.stringify(target.json) }) });
-    const data = await response.json();
-    if (!response.ok) setError(data.error || "AI 请求失败"); else setResult(data.text);
-    setLoading(false);
+    try {
+      const response = await fetch("/api/ai/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction, text: target.text || JSON.stringify(target.json) }) });
+      const data = await response.json();
+      if (!response.ok) setError(data.error || "AI 请求失败"); else setResult(data.text);
+    } catch {
+      setError("网络异常，AI 请求失败");
+    } finally {
+      setLoading(false);
+    }
   };
   const insert = (replace: boolean) => {
     const node = editor.state.doc.nodeAt(target.pos);
@@ -283,10 +303,14 @@ function AINotesDialog({ editor, pos, onClose }: { editor: Editor; pos: number; 
   const stop = useCallback(() => recorderRef.current?.state === "recording" && recorderRef.current.stop(), []);
   useEffect(() => {
     if (status !== "recording") return;
-    const timer = setInterval(() => setSeconds((value) => { if (value >= 3599) { stop(); return 3600; } return value + 1; }), 1000);
+    const timer = setInterval(() => setSeconds((value) => Math.min(value + 1, 3600)), 1000);
     return () => clearInterval(timer);
-  }, [status, stop]);
-  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  }, [status]);
+  useEffect(() => { if (seconds >= 3600) stop(); }, [seconds, stop]);
+  useEffect(() => () => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const start = async () => {
     setError("");
@@ -315,16 +339,21 @@ function AINotesDialog({ editor, pos, onClose }: { editor: Editor; pos: number; 
   const process = async () => {
     if (!audio) return;
     setStatus("processing"); setError("");
-    const form = new FormData();
-    const extension = audio.type.includes("mp4") ? "m4a" : audio.type.includes("ogg") ? "ogg" : "webm";
-    form.append("audio", audio, `recording.${extension}`);
-    const response = await fetch("/api/ai/notes", { method: "POST", body: form });
-    const data = await response.json();
-    if (!response.ok) { setError(data.error || "AI 速记失败"); setStatus("ready"); return; }
-    const node = editor.state.doc.nodeAt(pos);
-    const range = node ? { from: pos, to: pos + node.nodeSize } : pos;
-    editor.chain().focus().insertContentAt(range, aiResultBlocks(data)).run();
-    onClose();
+    try {
+      const form = new FormData();
+      const extension = audio.type.includes("mp4") ? "m4a" : audio.type.includes("ogg") ? "ogg" : "webm";
+      form.append("audio", audio, `recording.${extension}`);
+      const response = await fetch("/api/ai/notes", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) { setError(data.error || "AI 速记失败"); setStatus("ready"); return; }
+      const node = editor.state.doc.nodeAt(pos);
+      const range = node ? { from: pos, to: pos + node.nodeSize } : pos;
+      editor.chain().focus().insertContentAt(range, aiResultBlocks(data)).run();
+      onClose();
+    } catch {
+      setError("网络异常，AI 速记失败");
+      setStatus("ready");
+    }
   };
 
   const time = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;

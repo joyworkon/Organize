@@ -123,8 +123,11 @@ export function buildPresentationSlides(
   startBlockId?: string
 ): PresentationSlide[] {
   const blocks = doc.content || [];
+  // 起始块可能嵌套在列表等顶层块内部；此时从包含它的顶层块开始演示。
+  const containsBlockId = (node: JSONContent): boolean =>
+    node.attrs?.id === startBlockId || Boolean(node.content?.some(containsBlockId));
   const startIndex = startBlockId
-    ? Math.max(0, blocks.findIndex((block) => block.attrs?.id === startBlockId))
+    ? Math.max(0, blocks.findIndex(containsBlockId))
     : 0;
   const selected = blocks.slice(startIndex);
   const slides: PresentationSlide[] = [];

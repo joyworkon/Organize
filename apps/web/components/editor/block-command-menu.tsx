@@ -11,11 +11,14 @@ export function BlockCommandMenu({
   editor,
   pos,
   point,
+  clearTrigger = false,
   onClose,
 }: {
   editor: Editor;
   pos: number;
   point: EditorMenuPoint;
+  /** 由 "/" 触发时为 true：执行/关闭时需清掉块里的触发字符；⌘/ 打开时为 false，块内容必须保留 */
+  clearTrigger?: boolean;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -26,9 +29,29 @@ export function BlockCommandMenu({
   useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => setActiveIndex(0), [query]);
 
+  // 删除唤出菜单时输入的触发字符（"/" 及可能跟随输入的字符）。
+  // pos 是触发块（顶层段落）的起始位置，删除块内字符不影响 pos 本身。
+  // 仅 slash 触发时调用：⌘/ 打开的菜单作用于已有内容，不能清。
+  const clearTriggerText = () => {
+    if (!clearTrigger) return;
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node || !node.isTextblock || !node.content.size) return;
+    editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+  };
+
+  const handleClose = () => {
+    // 直接关闭（Esc / 点外部）时，块里若只剩触发字符也一并删掉
+    const node = editor.state.doc.nodeAt(pos);
+    if (clearTrigger && node?.isTextblock && node.textContent === "/") {
+      editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+    }
+    onClose();
+  };
+
   const execute = (index: number) => {
     const command = options[index];
     if (!command) return;
+    clearTriggerText();
     command.run(editor, pos);
     onClose();
   };
@@ -36,7 +59,7 @@ export function BlockCommandMenu({
   const categories = ["建议", "基本区块", "媒体", "布局"] as const;
 
   return (
-    <EditorPopover point={point} onClose={onClose} className="block-command-popover">
+    <EditorPopover point={point} onClose={handleClose} className="block-command-popover">
       <div className="editor-menu-search">
         <Search className="h-4 w-4" />
         <input
@@ -91,7 +114,7 @@ export function BlockCommandMenu({
           );
         })}
       </div>
-      <button className="editor-menu-close" type="button" onClick={onClose}><span>关闭菜单</span><kbd>esc</kbd></button>
+      <button className="editor-menu-close" type="button" onClick={handleClose}><span>关闭菜单</span><kbd>esc</kbd></button>
     </EditorPopover>
   );
 }
