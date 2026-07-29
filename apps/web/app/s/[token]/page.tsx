@@ -1,12 +1,10 @@
-import { createClient } from "@/lib/supabase/server";
 import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
+import { getPublicShare } from "@/lib/share/public-share";
 import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import type { Metadata } from "next";
 
-// 公开分享页：匿名可访问，不走 (main) 路由组
-// RLS 已在 006 迁移放行（带有效 token 的 share 对应资源可读）
 export const dynamic = "force-dynamic";
 
 interface PageProps {
@@ -15,47 +13,23 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
-  const supabase = await createClient();
-  const { data: share } = await supabase
-    .from("shares")
-    .select("resource_type, resource_id")
-    .eq("token", token)
-    .eq("is_public", true)
-    .maybeSingle();
-
-  if (!share) return { title: "分享不存在" };
-
-  const table = share.resource_type === "note" ? "notes" : "reading_items";
-  const { data: resource } = await supabase
-    .from(table)
-    .select("title")
-    .eq("id", share.resource_id)
-    .maybeSingle();
+  const share = await getPublicShare(token);
+  if (share.state !== "active") return { title: "分享不存在" };
 
   return {
-    title: resource?.title || "分享内容",
+    title: share.resource.title || "分享内容",
     description: "通过 Organize 分享的内容",
   };
 }
 
 export default async function SharePage({ params }: PageProps) {
   const { token } = await params;
-  const supabase = await createClient();
-
-  // 查 share 记录（anon 可读公开的）
-  const { data: share } = await supabase
-    .from("shares")
-    .select("id, resource_type, resource_id, expires_at, created_at")
-    .eq("token", token)
-    .eq("is_public", true)
-    .maybeSingle();
-
-  if (!share) {
+  const share = await getPublicShare(token);
+  if (share.state === "missing") {
     notFound();
   }
 
-  // 检查过期
-  if (share.expires_at && new Date(share.expires_at) < new Date()) {
+  if (share.state === "expired") {
     return (
       <Shell>
         <div className="text-center py-20">
@@ -67,51 +41,22 @@ export default async function SharePage({ params }: PageProps) {
   }
 
   if (share.resource_type === "note") {
-    const { data: note } = await supabase
-      .from("notes")
-      .select("title, content")
-      .eq("id", share.resource_id)
-      .maybeSingle();
-
-    if (!note) {
-      return (
-        <Shell>
-          <div className="text-center py-20">
-            <h1 className="text-2xl font-bold mb-2">笔记已被删除</h1>
-          </div>
-        </Shell>
-      );
-    }
-
     const html = sanitizeContent(
-      tiptapJsonToHtml(note.content as Record<string, unknown> | null)
+      tiptapJsonToHtml(share.resource.content)
     );
     return (
       <Shell>
         <article className="organize-editor max-w-3xl mx-auto">
-          {note.title && <h1 className="text-3xl font-bold mb-6">{note.title}</h1>}
+          {share.resource.title && (
+            <h1 className="text-3xl font-bold mb-6">{share.resource.title}</h1>
+          )}
           <div dangerouslySetInnerHTML={{ __html: html }} />
         </article>
       </Shell>
     );
   }
 
-  // reading_item
-  const { data: item } = await supabase
-    .from("reading_items")
-    .select("title, content, excerpt, cover_image, url")
-    .eq("id", share.resource_id)
-    .maybeSingle();
-
-  if (!item) {
-    return (
-      <Shell>
-        <div className="text-center py-20">
-          <h1 className="text-2xl font-bold mb-2">文章已被删除</h1>
-        </div>
-      </Shell>
-    );
-  }
+  const item = share.resource;
 
   return (
     <Shell>

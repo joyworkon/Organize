@@ -12,6 +12,9 @@ export interface ReadingItem {
   cover_image: string | null;
   reading_status: ReadingStatus;
   reading_progress: number;
+  started_reading_at: string | null;
+  completed_reading_at: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
   tags?: Tag[];
@@ -25,6 +28,7 @@ export interface Note {
   title: string | null;
   content: Record<string, unknown> | null;
   reading_item_id: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
   reading_item?: ReadingItem;
@@ -177,6 +181,7 @@ export interface Task {
   is_pinned: boolean;
   sort_order: number;
   completed_at: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
   tags?: Tag[];
@@ -230,6 +235,7 @@ export interface Lesson {
   task_id: string | null;
   reading_item_id: string | null;
   note_id: string | null;
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
   tags?: Tag[];
