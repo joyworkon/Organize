@@ -25,6 +25,8 @@ export interface BlockCommandDefinition {
   keywords: string[];
   shortcut?: string;
   canTransform?: boolean;
+  /** 「转换成」菜单悬停时的小预览 */
+  preview?: { sample: string; caption: string };
   run: (editor: Editor, pos: number) => void;
 }
 
