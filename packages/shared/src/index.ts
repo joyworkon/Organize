@@ -21,6 +21,9 @@ export interface ReadingItem {
   is_pinned?: boolean;
 }
 
+// 笔记字体选项
+export type NoteFont = "default" | "serif" | "mono";
+
 // 笔记
 export interface Note {
   id: string;
@@ -32,6 +35,9 @@ export interface Note {
   cover_url?: string | null;
   cover_position?: number;
   parent_note_id?: string | null;
+  full_width?: boolean;
+  font_family?: NoteFont;
+  small_font?: boolean;
   deleted_at?: string | null;
   created_at: string;
   updated_at: string;

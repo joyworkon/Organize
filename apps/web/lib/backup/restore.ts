@@ -73,6 +73,14 @@ export function prepareRestorePayload(
     icon: row.icon ?? null,
     cover_url: row.cover_url ?? null,
     cover_position: row.cover_position ?? 50,
+    full_width: row.full_width === true,
+    font_family:
+      (["default", "serif", "mono"] as const).includes(
+        row.font_family as "default" | "serif" | "mono"
+      )
+        ? (row.font_family as "default" | "serif" | "mono")
+        : "default",
+    small_font: row.small_font === true,
     content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
   }));
   data.tags = backup.data.tags.map((row) => withId(row, maps.tags));

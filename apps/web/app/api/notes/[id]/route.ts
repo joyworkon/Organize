@@ -52,6 +52,9 @@ export async function PATCH(
     cover_url,
     cover_position,
     parent_note_id,
+    full_width,
+    font_family,
+    small_font,
   } = body;
 
   const updateData: Record<string, unknown> = {};
@@ -71,6 +74,11 @@ export async function PATCH(
   if (parent_note_id === null || typeof parent_note_id === "string") {
     updateData.parent_note_id = parent_note_id;
   }
+  if (typeof full_width === "boolean") updateData.full_width = full_width;
+  if (font_family === "default" || font_family === "serif" || font_family === "mono") {
+    updateData.font_family = font_family;
+  }
+  if (typeof small_font === "boolean") updateData.small_font = small_font;
 
   const { data, error } = await supabase
     .from("notes")
