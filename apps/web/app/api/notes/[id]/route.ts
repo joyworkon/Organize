@@ -84,7 +84,18 @@ export async function PATCH(
       const { data: ancestors } = await supabase
         .from("notes")
         .select("id, parent_note_id")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .is("deleted_at", null);
+      // 额外校验：候选父页面必须存在且未被删除
+      const parentExists = (ancestors || []).some(
+        (n: { id: string }) => n.id === parent_note_id
+      );
+      if (!parentExists) {
+        return NextResponse.json(
+          { error: "父页面不存在或已被删除" },
+          { status: 400 }
+        );
+      }
       const byId = new Map(
         (ancestors || []).map((n: { id: string; parent_note_id: string | null }) => [
           n.id,
