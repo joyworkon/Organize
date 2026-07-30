@@ -8,6 +8,7 @@ import {
   ArrowUpToLine,
   Check,
   Columns3,
+  Copy,
   Maximize2,
   Merge,
   Minimize2,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   TABLE_COLOR_SCHEMES,
   TABLE_GRID_SIZE,
+  duplicateActiveTable,
   equalizeActiveTableColumns,
   getActiveTable,
   setActiveTableAttributes,
@@ -282,14 +284,18 @@ export function TableToolbar({
         <span>自适应宽度</span>
       </button>
       <span className="table-toolbar-separator" />
-      <button
-        type="button"
-        title="平均分布列宽"
-        aria-label="平均分布列宽"
-        onClick={() => run(() => equalizeActiveTableColumns(editor))}
-      >
-        <Columns3 aria-hidden="true" />
-      </button>
+      {table.hasCustomColumnWidths && (
+        <button
+          type="button"
+          className="table-toolbar-text"
+          title="平均分布列宽"
+          aria-label="平均分布列宽"
+          onClick={() => run(() => equalizeActiveTableColumns(editor))}
+        >
+          <Columns3 aria-hidden="true" />
+          <span>列等宽</span>
+        </button>
+      )}
       <button
         type="button"
         title={fullscreen ? "退出全屏表格" : "全屏编辑表格"}
@@ -395,6 +401,25 @@ export function TableToolbar({
           </div>
         )}
       </ToolbarDropdown>
+
+      <span className="table-toolbar-separator" />
+      <button
+        type="button"
+        title="复制表格"
+        aria-label="复制表格"
+        onClick={() => run(() => duplicateActiveTable(editor))}
+      >
+        <Copy aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="table-toolbar-danger"
+        title="删除表格"
+        aria-label="删除表格"
+        onClick={() => run(() => editor.commands.deleteTable())}
+      >
+        <Trash2 aria-hidden="true" />
+      </button>
     </div>
   );
 }
