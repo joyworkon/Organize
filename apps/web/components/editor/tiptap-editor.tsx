@@ -656,6 +656,10 @@ interface OpenMenuState {
   point: EditorMenuPoint;
   /** 由 "/" 触发时为 true：菜单执行/关闭时需清掉块里的触发字符 */
   slash?: boolean;
+  /** 嵌套场景（表格/列表内等）：在当前位置插入而非替换顶层块 */
+  nested?: boolean;
+  /** 斜杠命令触发时的文本范围，用于删除 "/" 字符 */
+  range?: { from: number; to: number };
 }
 
 interface OpenActionState extends OpenMenuState {
@@ -1027,13 +1031,18 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     }
   }, [editor]);
 
-  const insertImage = useCallback((url: string, pos?: number) => {
+  const insertImage = useCallback((url: string, pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
     if (!editor) return;
-    if (pos === undefined) editor.chain().focus().setImage({ src: url }).run();
-    else replaceAt(editor, pos, { type: "image", attrs: { src: url } });
+    if (nested && range) {
+      editor.chain().focus().deleteRange(range).insertContent({ type: "image", attrs: { src: url } }).run();
+    } else if (pos === undefined) {
+      editor.chain().focus().setImage({ src: url }).run();
+    } else {
+      replaceAt(editor, pos, { type: "image", attrs: { src: url } });
+    }
   }, [editor]);
 
-  const uploadImage = useCallback((pos?: number) => {
+  const uploadImage = useCallback((pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
     if (!editor) return;
     const input = document.createElement("input");
     input.type = "file";
@@ -1047,10 +1056,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         const response = await fetch("/api/upload", { method: "POST", body: formData });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "上传失败");
-        insertImage(data.url, pos);
+        insertImage(data.url, pos, nested, range);
       } catch {
         const reader = new FileReader();
-        reader.onload = () => insertImage(String(reader.result), pos);
+        reader.onload = () => insertImage(String(reader.result), pos, nested, range);
         reader.readAsDataURL(file);
       }
     };
@@ -1128,26 +1137,62 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     if (!editor) return;
     const root = rootRef.current;
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint };
+      const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint; nested?: boolean; range?: { from: number; to: number } };
       if (typeof detail.pos === "number") {
         if (detail.type === "slash-menu" && detail.point) {
           setActionMenu(null);
           setTablePicker(null);
-          setCommandMenu({ pos: detail.pos, point: detail.point, slash: true });
-        } else if (detail.type === "html") replaceAt(editor, detail.pos, { type: "htmlEmbed" });
+          setCommandMenu({ pos: detail.pos, point: detail.point, slash: true, nested: detail.nested, range: detail.range });
+        } else if (detail.type === "html") {
+          if (detail.nested && detail.range) {
+            editor.chain().focus().deleteRange(detail.range).insertContent({ type: "htmlEmbed" }).run();
+          } else {
+            replaceAt(editor, detail.pos, { type: "htmlEmbed" });
+          }
+        }
         else if (detail.type === "ai-notes") setDialog({ type: "ai-notes", pos: detail.pos });
-        else if (detail.type === "image") uploadImage(detail.pos);
+        else if (detail.type === "image") {
+          uploadImage(detail.pos, detail.nested, detail.range);
+        }
         else if (detail.type === "math") {
           const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
-          if (latex) replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
-        } else if (detail.type === "reference") addReadingReference(detail.pos);
-        else if (detail.type === "table") {
-          setTablePicker({
-            pos: detail.pos,
-            point: menuPointBelowBlock(editor, detail.pos, detail.pos + 1),
-          });
+          if (latex) {
+            if (detail.nested && detail.range) {
+              editor.chain().focus().deleteRange(detail.range).insertContent({ type: "mathBlock", attrs: { latex } }).run();
+            } else {
+              replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
+            }
+          }
+        } else if (detail.type === "reference") {
+          if (detail.nested && detail.range) {
+            const url = window.prompt("输入要引用的阅读条目 URL");
+            if (url) {
+              editor.chain().focus().deleteRange(detail.range).insertContent({
+                type: "paragraph",
+                content: [
+                  { type: "text", text: "📖 参考: " },
+                  { type: "text", marks: [{ type: "link", attrs: { href: url } }], text: url },
+                ],
+              }).run();
+            }
+          } else {
+            addReadingReference(detail.pos);
+          }
         }
-        else if (detail.type === "page") void convertBlockToPage(detail.pos);
+        else if (detail.type === "table") {
+          // 表格不允许在嵌套块内插入（表格内不能再套表格）
+          if (!detail.nested) {
+            setTablePicker({
+              pos: detail.pos,
+              point: menuPointBelowBlock(editor, detail.pos, detail.pos + 1),
+            });
+          }
+        }
+        else if (detail.type === "page") {
+          if (!detail.nested) {
+            void convertBlockToPage(detail.pos);
+          }
+        }
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });
         if (detail.type === "comment") setDialog({ type: "comment", target: detail.target });
@@ -1794,7 +1839,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
       )}
       {selectRect && <div className="organize-select-rect" style={selectRect} aria-hidden="true" />}
-      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} onClose={closeMenus} />}
+      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} nested={commandMenu.nested} range={commandMenu.range} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       {tablePicker && (
         <EditorPopover

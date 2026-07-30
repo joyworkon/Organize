@@ -213,9 +213,12 @@ function listBlock(type: "bulletList" | "orderedList"): JSONContent {
   };
 }
 
-function emit(editor: Editor, type: string, pos: number) {
+function emit(editor: Editor, type: string, pos: number, options?: { nested?: boolean; range?: { from: number; to: number } }) {
   editor.view.dom.dispatchEvent(
-    new CustomEvent("organize-editor-action", { bubbles: true, detail: { type, pos } })
+    new CustomEvent("organize-editor-action", {
+      bubbles: true,
+      detail: { type, pos, ...(options || {}) },
+    })
   );
 }
 

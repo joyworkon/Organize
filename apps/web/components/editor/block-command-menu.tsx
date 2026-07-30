@@ -7,11 +7,16 @@ import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
 import type { EditorMenuPoint } from "./types";
 
+// 不允许在嵌套块（表格/列表/分栏内）使用的命令
+const NESTED_BLOCKED_COMMANDS = new Set(["table", "page", "ai-notes", "columns-2", "columns-3", "columns-4", "columns-5"]);
+
 export function BlockCommandMenu({
   editor,
   pos,
   point,
   clearTrigger = false,
+  nested = false,
+  range,
   onClose,
 }: {
   editor: Editor;
@@ -19,31 +24,55 @@ export function BlockCommandMenu({
   point: EditorMenuPoint;
   /** 由 "/" 触发时为 true：执行/关闭时需清掉块里的触发字符；⌘/ 打开时为 false，块内容必须保留 */
   clearTrigger?: boolean;
+  /** 嵌套场景（表格/列表内等） */
+  nested?: boolean;
+  /** 斜杠触发文本的范围 */
+  range?: { from: number; to: number };
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const options = useMemo(() => BLOCK_COMMANDS.filter((item) => commandMatches(item, query)), [query]);
+
+  // 嵌套场景下过滤掉不适用的命令
+  const availableCommands = useMemo(() => {
+    if (!nested) return BLOCK_COMMANDS;
+    return BLOCK_COMMANDS.filter((cmd) => !NESTED_BLOCKED_COMMANDS.has(cmd.id));
+  }, [nested]);
+
+  const options = useMemo(() => availableCommands.filter((item) => commandMatches(item, query)), [availableCommands, query]);
 
   useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => setActiveIndex(0), [query]);
 
-  // 删除唤出菜单时输入的触发字符（"/" 及可能跟随输入的字符）。
-  // pos 是触发块（顶层段落）的起始位置，删除块内字符不影响 pos 本身。
-  // 仅 slash 触发时调用：⌘/ 打开的菜单作用于已有内容，不能清。
+  // 删除唤出菜单时输入的触发字符（"/" 及可能跟随输入的字符）
   const clearTriggerText = () => {
     if (!clearTrigger) return;
-    const node = editor.state.doc.nodeAt(pos);
-    if (!node || !node.isTextblock || !node.content.size) return;
-    editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+    if (nested && range) {
+      // 嵌套场景：精确删除 "/" 及后续输入的字符
+      editor.chain().deleteRange(range).run();
+    } else {
+      // 顶层场景：删除块内触发字符及后续内容
+      const node = editor.state.doc.nodeAt(pos);
+      if (!node || !node.isTextblock || !node.content.size) return;
+      editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+    }
   };
 
   const handleClose = () => {
-    // 直接关闭（Esc / 点外部）时，块里若只剩触发字符也一并删掉
-    const node = editor.state.doc.nodeAt(pos);
-    if (clearTrigger && node?.isTextblock && node.textContent === "/") {
-      editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+    if (clearTrigger) {
+      if (nested && range) {
+        // 检查是否还有未处理的触发文本
+        const textBetween = editor.state.doc.textBetween(range.from, range.to, "");
+        if (textBetween.startsWith("/")) {
+          editor.chain().deleteRange(range).run();
+        }
+      } else {
+        const node = editor.state.doc.nodeAt(pos);
+        if (node?.isTextblock && node.textContent === "/") {
+          editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+        }
+      }
     }
     onClose();
   };
@@ -51,8 +80,15 @@ export function BlockCommandMenu({
   const execute = (index: number) => {
     const command = options[index];
     if (!command) return;
-    clearTriggerText();
-    command.run(editor, pos);
+
+    if (nested && range) {
+      // 嵌套场景：在一个 chain 中删除触发文本并插入内容
+      executeNestedCommand(editor, command.id, range);
+    } else {
+      clearTriggerText();
+      command.run(editor, pos);
+    }
+
     onClose();
   };
 
@@ -117,4 +153,124 @@ export function BlockCommandMenu({
       <button className="editor-menu-close" type="button" onClick={handleClose}><span>关闭菜单</span><kbd>esc</kbd></button>
     </EditorPopover>
   );
+}
+
+// 在嵌套场景（如表格单元格内）执行命令：在一个 chain 中删除触发文本并插入内容
+function executeNestedCommand(editor: Editor, commandId: string, range: { from: number; to: number }) {
+  // 对于 emit 类命令，派发事件让编辑器处理（事件处理器会负责删除 range 和插入内容）
+  const emitCommands = ["image", "html", "math", "reference"];
+  if (emitCommands.includes(commandId)) {
+    editor.view.dom.dispatchEvent(
+      new CustomEvent("organize-editor-action", {
+        bubbles: true,
+        detail: {
+          type: commandId,
+          pos: range.from,
+          nested: true,
+          range,
+        },
+      })
+    );
+    return;
+  }
+
+  // 直接插入内容的命令：先删除触发文本，再在当前光标位置插入内容
+  // （deleteRange 后光标自动定位到删除位置，使用 insertContent 比 insertContentAt 更安全）
+  let chain = editor.chain().focus().deleteRange(range);
+
+  switch (commandId) {
+    case "paragraph":
+      chain = chain.insertContent({ type: "paragraph", content: [] });
+      break;
+    case "heading-1":
+      chain = chain.insertContent({ type: "heading", attrs: { level: 1 }, content: [] });
+      break;
+    case "heading-2":
+      chain = chain.insertContent({ type: "heading", attrs: { level: 2 }, content: [] });
+      break;
+    case "heading-3":
+      chain = chain.insertContent({ type: "heading", attrs: { level: 3 }, content: [] });
+      break;
+    case "heading-4":
+      chain = chain.insertContent({ type: "heading", attrs: { level: 4 }, content: [] });
+      break;
+    case "bullet-list":
+      chain = chain.insertContent({
+        type: "bulletList",
+        content: [{ type: "listItem", content: [{ type: "paragraph", content: [] }] }],
+      });
+      break;
+    case "ordered-list":
+      chain = chain.insertContent({
+        type: "orderedList",
+        content: [{ type: "listItem", content: [{ type: "paragraph", content: [] }] }],
+      });
+      break;
+    case "task-list":
+      chain = chain.insertContent({
+        type: "taskList",
+        content: [{ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] }],
+      });
+      break;
+    case "details":
+      chain = chain.insertContent({
+        type: "details",
+        content: [
+          { type: "detailsSummary", content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      });
+      break;
+    case "quote":
+      chain = chain.insertContent({ type: "blockquote", content: [{ type: "paragraph" }] });
+      break;
+    case "code":
+      chain = chain.insertContent({ type: "codeBlock", content: [] });
+      break;
+    case "callout":
+      chain = chain.insertContent({ type: "callout", attrs: { emoji: "💡" }, content: [{ type: "paragraph" }] });
+      break;
+    case "toggle-heading-1":
+      chain = chain.insertContent({
+        type: "details",
+        content: [
+          { type: "detailsSummary", attrs: { level: 1 }, content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      });
+      break;
+    case "toggle-heading-2":
+      chain = chain.insertContent({
+        type: "details",
+        content: [
+          { type: "detailsSummary", attrs: { level: 2 }, content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      });
+      break;
+    case "toggle-heading-3":
+      chain = chain.insertContent({
+        type: "details",
+        content: [
+          { type: "detailsSummary", attrs: { level: 3 }, content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      });
+      break;
+    case "toggle-heading-4":
+      chain = chain.insertContent({
+        type: "details",
+        content: [
+          { type: "detailsSummary", attrs: { level: 4 }, content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      });
+      break;
+    case "divider":
+      chain = chain.insertContent({ type: "horizontalRule" });
+      break;
+    default:
+      break;
+  }
+  chain.run();
 }

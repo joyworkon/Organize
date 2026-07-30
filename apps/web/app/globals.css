@@ -530,15 +530,16 @@
   width: 100%;
   margin: var(--organize-block-large-gap, 0.5rem) 0;
   overflow-x: auto;
+  overflow-y: hidden;
   border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
 }
 .organize-editor table {
   width: 100%;
   border-collapse: collapse;
-  margin: var(--organize-block-large-gap, 0.5rem) 0;
+  margin: 0;
   table-layout: fixed;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
 }
 .organize-editor .tableWrapper > table {
   margin: 0;
@@ -596,9 +597,11 @@
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
-.organize-editor table[data-table-borderless="true"],
 .organize-editor table[data-table-borderless="true"] th,
 .organize-editor table[data-table-borderless="true"] td {
+  border-color: transparent;
+}
+.organize-editor .tableWrapper:has(> table[data-table-borderless="true"]) {
   border-color: transparent;
 }
 .organize-editor table[data-table-color="gray"] {
@@ -1452,6 +1455,11 @@
   background-color: var(--organize-selected-bg);
   border-radius: 4px;
   outline: none;
+}
+/* 选中表格时 .tableWrapper 的背景色直接由选中规则设置 */
+.organize-editor.prose .tableWrapper.organize-block-selected,
+.organize-editor.prose .tableWrapper.ProseMirror-selectednode {
+  background-color: var(--organize-selected-bg);
 }
 /* 选中背景向左延伸到 gutter，把列表标记 / 序号也包进背景，且与待办项、
    折叠列表、引用（本身已用负 margin 占住 gutter）的选中宽度保持一致。

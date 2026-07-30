@@ -9,31 +9,41 @@ export const SlashCommand = Extension.create({
       Suggestion({
         editor: this.editor,
         char: "/",
-        startOfLine: true,
+        startOfLine: false,
         allow: ({ state, range }) => {
           const $from = state.doc.resolve(range.from);
-          // 只允许顶层段落触发：嵌套场景（列表项 / callout / 引用内的段落）里
-          // 菜单拿到的是顶层块位置，选命令会替换整个顶层容器导致数据丢失
-          return (
-            $from.depth === 1 &&
-            $from.parent.type.name === "paragraph" &&
-            $from.parent.textContent.length <= 1
-          );
+          // 允许在任何段落中触发，但限制为段落开头附近（最多跟一个字符），
+          // 避免普通文本中出现 "/" 时频繁弹出菜单。
+          const node = $from.parent;
+          if (node.type.name !== "paragraph") return false;
+          const textBefore = node.textContent.slice(0, range.from - $from.start());
+          return textBefore.length <= 1;
         },
         items: () => [],
         command: () => {},
         render: () => ({
           onStart: ({ editor, range, clientRect }) => {
             const $from = editor.state.doc.resolve(range.from);
-            const pos = $from.depth > 0 ? $from.before(1) : 0;
+            // 找到最近的块级节点位置
+            let blockPos = range.from;
+            let blockDepth = $from.depth;
+            while (blockDepth > 0) {
+              const node = $from.node(blockDepth);
+              if (node.type.isBlock) {
+                blockPos = $from.before(blockDepth);
+                break;
+              }
+              blockDepth--;
+            }
             const rect = clientRect?.();
             editor.view.dom.dispatchEvent(
               new CustomEvent("organize-editor-action", {
                 bubbles: true,
                 detail: {
                   type: "slash-menu",
-                  pos,
+                  pos: blockPos,
                   range,
+                  nested: $from.depth > 1,
                   point: rect ? { left: rect.left, top: rect.bottom + 8, anchorTop: rect.top } : { left: 20, top: 80 },
                 },
               })
