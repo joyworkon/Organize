@@ -5,8 +5,9 @@ import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react
 import StarterKit from "@tiptap/starter-kit";
 import UniqueID from "@tiptap/extension-unique-id";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
+import type { EditorView } from "@tiptap/pm/view";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
@@ -16,7 +17,6 @@ import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import Details from "@tiptap/extension-details";
@@ -32,7 +32,9 @@ import {
   createTableContent,
   getActiveTable,
   OrganizeTable,
+  OrganizeTableRow,
   OrganizeTableView,
+  topLevelBlockPlaceholder,
 } from "./extensions/table-style";
 import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
@@ -57,6 +59,7 @@ import { EditorDialogs } from "./editor-dialogs";
 import { EditorPopover } from "./editor-popover";
 import { PresentationMode } from "./presentation-mode";
 import { TableGridPicker, TableToolbar } from "./table-controls";
+import { TableDirectControls } from "./table-direct-controls";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
 import { usePluginStore } from "@/lib/plugin/store";
 import type { AIActionExtension, PluginContext, ToolbarActionExtension } from "@organize/plugin-sdk";
@@ -796,6 +799,48 @@ function menuPointBelowBlock(editor: Editor, pos: number, selectionPos: number):
   return { left: coords.left, top: coords.bottom + 6, anchorTop: coords.top };
 }
 
+function activeTableReferenceRect(editor: Editor) {
+  const table = getActiveTable(editor);
+  if (!table) return editor.view.dom.getBoundingClientRect();
+  const dom = editor.view.nodeDOM(table.pos);
+  const tableElement = dom instanceof HTMLTableElement
+    ? dom
+    : dom instanceof HTMLElement
+      ? dom.querySelector("table")
+      : null;
+  return tableElement?.getBoundingClientRect()
+    ?? editor.view.dom.getBoundingClientRect();
+}
+
+function shouldShowTextToolbar({
+  editor,
+  element,
+  view,
+  state,
+  from,
+  to,
+}: {
+  editor: Editor;
+  element: HTMLElement;
+  view: EditorView;
+  state: EditorState;
+  from: number;
+  to: number;
+}) {
+  const { doc, selection } = state;
+  if (selection instanceof CellSelection) return false;
+
+  const isEmptyTextBlock = !doc.textBetween(from, to).length
+    && selection instanceof TextSelection;
+  const isChildOfMenu = element.contains(document.activeElement);
+  const hasEditorFocus = view.hasFocus() || isChildOfMenu;
+
+  return hasEditorFocus
+    && !selection.empty
+    && !isEmptyTextBlock
+    && editor.isEditable;
+}
+
 export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const onEditorReadyRef = useRef(onEditorReady);
@@ -842,7 +887,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       Underline,
       Image.configure({ inline: false, allowBase64: true }),
       Link.configure({ openOnClick: false }),
-      Placeholder.configure({ placeholder: "输入内容，或按 ⌘/ 打开区块菜单…" }),
+      Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
       OrganizeTable.configure({
@@ -851,7 +896,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         lastColumnResizable: true,
         View: OrganizeTableView,
       }),
-      TableRow,
+      OrganizeTableRow,
       TableCell,
       TableHeader,
       Details,
@@ -1532,6 +1577,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     if (!(target instanceof HTMLElement)) return;
     if (target.closest(
       ".organize-block-handle, .organize-column-resizer, .editor-popover, "
+      + ".table-direct-controls, "
       + "button, input, textarea, select, a, [contenteditable='false']"
     )) return;
     const editorDom = editor.view.dom;
@@ -1680,7 +1726,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
       data-table-fullscreen={tableFullscreen ? "true" : "false"}
     >
-      <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
+      <BubbleMenu
+        editor={editor}
+        shouldShow={shouldShowTextToolbar}
+        tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}
+      >
         <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
       <BubbleMenu
@@ -1690,7 +1740,13 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           currentEditor.isActive("table")
           && (from === to || currentEditor.state.selection instanceof CellSelection)
         }
-        tippyOptions={{ duration: 120, maxWidth: "none", zIndex: 140, placement: "top" }}
+        tippyOptions={{
+          duration: 120,
+          maxWidth: "none",
+          zIndex: 140,
+          placement: "top",
+          getReferenceClientRect: () => activeTableReferenceRect(editor),
+        }}
       >
         <TableToolbar
           editor={editor}
@@ -1699,6 +1755,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         />
       </BubbleMenu>
       <EditorContent editor={editor} />
+      <TableDirectControls editor={editor} />
       <div
         className="organize-block-handle"
         data-visible={hoveredBlock ? "true" : "false"}
