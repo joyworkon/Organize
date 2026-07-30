@@ -13,6 +13,7 @@ import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
 import { NoteHierarchyBar } from "@/components/notes/note-hierarchy-bar";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
+import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2 } from "lucide-react";
 import Link from "next/link";
@@ -64,6 +65,7 @@ export default function NoteEditorPage() {
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -458,6 +460,46 @@ export default function NoteEditorPage() {
     showToast,
   ]);
 
+  /** 移动笔记：乐观更新本地树+面包屑+状态，失败回滚。 */
+  const handleMove = useCallback(
+    async (nextParentId: string | null) => {
+      if (nextParentId === parentNoteId) return;
+      const oldParentId = parentNoteId;
+      // 乐观更新：本地状态、allNotes 树、draftRef 全部同步
+      setParentNoteId(nextParentId);
+      draftRef.current.parent_note_id = nextParentId;
+      setAllNotes((notes) =>
+        notes.map((n) =>
+          n.id === noteId ? { ...n, parent_note_id: nextParentId } : n
+        )
+      );
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      // 也走一次常规队列保存，保证正文/标题等其他改动一并落库
+      queueSave();
+      try {
+        const { error } = await supabase
+          .from("notes")
+          .update({ parent_note_id: nextParentId })
+          .eq("id", noteId);
+        if (error) throw error;
+      } catch (err) {
+        // 回滚
+        setParentNoteId(oldParentId);
+        draftRef.current.parent_note_id = oldParentId;
+        setAllNotes((notes) =>
+          notes.map((n) =>
+            n.id === noteId ? { ...n, parent_note_id: oldParentId } : n
+          )
+        );
+        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+        throw new Error(
+          err instanceof Error ? err.message : "移动失败，请重试"
+        );
+      }
+    },
+    [supabase, noteId, parentNoteId, queueSave]
+  );
+
   const handleContentUpdate = (newContent: Record<string, unknown>) => {
     setContent(newContent);
     draftRef.current.content = newContent;
@@ -558,6 +600,7 @@ export default function NoteEditorPage() {
               onCopyLink={copyLink}
               onCopyContent={copyContent}
               onDuplicate={duplicateNote}
+              onMove={() => setMoveDialogOpen(true)}
             />
           </div>
         </div>
@@ -640,6 +683,16 @@ export default function NoteEditorPage() {
         resourceId={noteId}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
+      />
+
+      <NoteMoveDialog
+        open={moveDialogOpen}
+        onOpenChange={setMoveDialogOpen}
+        noteId={noteId}
+        noteTitle={title}
+        currentParentId={parentNoteId}
+        notes={allNotes}
+        onConfirm={handleMove}
       />
     </div>
   );
