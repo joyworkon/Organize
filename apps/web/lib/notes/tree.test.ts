@@ -47,4 +47,31 @@ describe("note tree", () => {
       "b",
     ]);
   });
+
+  it("excludes deep descendants from parent candidates", () => {
+    const deep: NoteTreeItem[] = [
+      { id: "r", title: "R", icon: null, parent_note_id: null },
+      { id: "a", title: "A", icon: null, parent_note_id: "r" },
+      { id: "b", title: "B", icon: null, parent_note_id: "a" },
+      { id: "c", title: "C", icon: null, parent_note_id: "b" },
+      { id: "sibling", title: "S", icon: null, parent_note_id: null },
+    ];
+    // 对中间节点 'a' 来说，候选必须排除它自己和后代(b, c)
+    const candidates = getParentCandidates(deep, "a").map((n) => n.id).sort();
+    expect(candidates).toEqual(["r", "sibling"]);
+  });
+
+  it("treats notes whose parent is missing (soft-deleted) as roots", () => {
+    const broken: NoteTreeItem[] = [
+      { id: "orphan", title: "O", icon: null, parent_note_id: "gone" },
+      { id: "ok", title: "K", icon: null, parent_note_id: null },
+    ];
+    const tree = buildNoteTree(broken);
+    expect(tree.map((n) => n.id).sort()).toEqual(["ok", "orphan"]);
+  });
+
+  it("returns empty descendant set for a leaf note with no children", () => {
+    expect(getDescendantIds(notes, "leaf").size).toBe(0);
+    expect(getDescendantIds(notes, "other").size).toBe(0);
+  });
 });

@@ -12,8 +12,10 @@ import { useSelection } from "@/hooks/use-selection";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { NoteWithTags } from "@organize/shared";
+import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
+import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
@@ -42,6 +44,8 @@ export default function NotesPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [mdImportOpen, setMdImportOpen] = useState(false);
+  const [allNotes, setAllNotes] = useState<NoteTreeItem[]>([]);
+  const [moveDialogNoteId, setMoveDialogNoteId] = useState<string | null>(null);
 
   const selection = useSelection<NoteWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
@@ -104,6 +108,41 @@ export default function NotesPage() {
     const timer = setTimeout(fetchNotes, 300);
     return () => clearTimeout(timer);
   }, [fetchNotes]);
+
+  const loadAllNotes = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("notes")
+      .select("id, title, icon, parent_note_id, updated_at")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false });
+    setAllNotes(
+      (data || []).map((n) => ({
+        id: n.id,
+        title: n.title || null,
+        icon: n.icon || null,
+        parent_note_id: n.parent_note_id || null,
+        updated_at: n.updated_at,
+      }))
+    );
+  }, [supabase]);
+
+  useEffect(() => {
+    void loadAllNotes();
+  }, [loadAllNotes]);
+
+  useEffect(() => {
+    const reload = () => {
+      void loadAllNotes();
+      void fetchNotes();
+    };
+    window.addEventListener("organize:notes-changed", reload);
+    return () => window.removeEventListener("organize:notes-changed", reload);
+  }, [loadAllNotes, fetchNotes]);
 
   const exitSelection = useCallback(() => {
     clear();
@@ -226,7 +265,49 @@ export default function NotesPage() {
     onTogglePin: togglePin,
     onDelete: deleteNote,
     onTagsApplied: () => fetchNotes(),
+    onMove: (id: string) => setMoveDialogNoteId(id),
   });
+
+  const moveTargetNote = useMemo(
+    () => (moveDialogNoteId ? notes.find((n) => n.id === moveDialogNoteId) ?? allNotes.find((n) => n.id === moveDialogNoteId) : null),
+    [moveDialogNoteId, notes, allNotes]
+  );
+
+  const handleConfirmMove = useCallback(
+    async (noteId: string, nextParentId: string | null, oldParentId: string | null) => {
+      if (nextParentId === oldParentId) return;
+      setNotes((prev) =>
+        prev.map((n) => (n.id === noteId ? { ...n, parent_note_id: nextParentId } : n))
+      );
+      setAllNotes((prev) =>
+        prev.map((n) => (n.id === noteId ? { ...n, parent_note_id: nextParentId } : n))
+      );
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      try {
+        const { error } = await supabase
+          .from("notes")
+          .update({ parent_note_id: nextParentId })
+          .eq("id", noteId);
+        if (error) throw error;
+        toast({ title: "已移动" });
+      } catch (err) {
+        setNotes((prev) =>
+          prev.map((n) => (n.id === noteId ? { ...n, parent_note_id: oldParentId } : n))
+        );
+        setAllNotes((prev) =>
+          prev.map((n) => (n.id === noteId ? { ...n, parent_note_id: oldParentId } : n))
+        );
+        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+        toast({
+          title: "移动失败",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "destructive",
+        });
+        throw err;
+      }
+    },
+    [supabase]
+  );
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -390,6 +471,24 @@ export default function NotesPage() {
             <NoteCard key={note.id} {...noteCardProps(note)} />
           ))}
         </div>
+      )}
+
+      {moveTargetNote && (
+        <NoteMoveDialog
+          open={!!moveDialogNoteId}
+          onOpenChange={(o) => { if (!o) setMoveDialogNoteId(null); }}
+          noteId={moveTargetNote.id}
+          noteTitle={moveTargetNote.title || "无标题笔记"}
+          currentParentId={moveTargetNote.parent_note_id ?? null}
+          notes={allNotes}
+          onConfirm={(parentId) =>
+            handleConfirmMove(
+              moveTargetNote.id,
+              parentId,
+              moveTargetNote.parent_note_id ?? null
+            )
+          }
+        />
       )}
     </div>
   );

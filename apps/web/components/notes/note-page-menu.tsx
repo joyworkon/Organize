@@ -17,6 +17,7 @@ import {
   Type,
   Check,
   Search,
+  FolderInput,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NoteFont } from "@organize/shared";
@@ -31,6 +32,7 @@ interface NotePageMenuProps {
   onCopyLink: () => void;
   onCopyContent: () => void;
   onDuplicate: () => void;
+  onMove?: () => void;
 }
 
 /** 菜单项类型 */
@@ -84,6 +86,7 @@ export function NotePageMenu({
   onCopyLink,
   onCopyContent,
   onDuplicate,
+  onMove,
 }: NotePageMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -130,6 +133,14 @@ export function NotePageMenu({
     {
       label: "",
       items: [
+        ...(onMove ? [{
+          id: "move",
+          type: "action" as const,
+          label: "移动到",
+          keywords: ["move", "移动", "yi dong", "父页面", "parent"],
+          icon: FolderInput,
+          onSelect: onMove,
+        }] : []),
         {
           id: "copy-link",
           type: "action" as const,
@@ -158,7 +169,7 @@ export function NotePageMenu({
         },
       ],
     },
-  ], [font, smallFont, fullWidth, onFontChange, onToggleSmallFont, onToggleFullWidth, onCopyLink, onCopyContent, onDuplicate]);
+  ], [font, smallFont, fullWidth, onFontChange, onToggleSmallFont, onToggleFullWidth, onCopyLink, onCopyContent, onDuplicate, onMove]);
 
   /** 打平的可选项列表（用于键盘导航和过滤） */
   const flatItems = useMemo(() => {

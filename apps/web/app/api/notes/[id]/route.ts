@@ -72,6 +72,39 @@ export async function PATCH(
     );
   }
   if (parent_note_id === null || typeof parent_note_id === "string") {
+    // 循环防护：不能把自己设为自己的父页面，也不能移动到自己的后代下
+    if (typeof parent_note_id === "string") {
+      if (parent_note_id === params.id) {
+        return NextResponse.json(
+          { error: "不能将笔记移动到自身下面" },
+          { status: 400 }
+        );
+      }
+      // 从候选 parent 向上遍历祖先链，若命中自己则构成循环
+      const { data: ancestors } = await supabase
+        .from("notes")
+        .select("id, parent_note_id")
+        .eq("user_id", user.id);
+      const byId = new Map(
+        (ancestors || []).map((n: { id: string; parent_note_id: string | null }) => [
+          n.id,
+          n.parent_note_id,
+        ])
+      );
+      const seen = new Set<string>();
+      let cursor: string | null = parent_note_id;
+      while (cursor) {
+        if (cursor === params.id) {
+          return NextResponse.json(
+            { error: "不能将笔记移动到它自己的子孙页面下" },
+            { status: 400 }
+          );
+        }
+        if (seen.has(cursor)) break; // 已存在的循环（数据异常），跳出避免死循环
+        seen.add(cursor);
+        cursor = byId.get(cursor) ?? null;
+      }
+    }
     updateData.parent_note_id = parent_note_id;
   }
   if (typeof full_width === "boolean") updateData.full_width = full_width;

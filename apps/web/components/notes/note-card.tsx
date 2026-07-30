@@ -24,6 +24,7 @@ import {
   Trash2,
   Link2,
   Star,
+  FolderInput,
 } from "lucide-react";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
@@ -47,6 +48,7 @@ interface NoteCardProps {
   onTogglePin?: (id: string, pinned: boolean) => void;
   onDelete?: (id: string) => void;
   onTagsApplied?: (id: string, names: string[]) => void;
+  onMove?: (id: string) => void;
 }
 
 function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120): string {
@@ -65,6 +67,7 @@ export function NoteCard({
   onTogglePin,
   onDelete,
   onTagsApplied,
+  onMove,
 }: NoteCardProps) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -278,6 +281,18 @@ export function NoteCard({
           <History className="h-3.5 w-3.5 mr-2" />
           历史版本
         </DropdownMenuItem>
+
+        {onMove && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onMove(note.id);
+            }}
+          >
+            <FolderInput className="h-3.5 w-3.5 mr-2" />
+            移动到
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuItem
           onClick={(e) => {
