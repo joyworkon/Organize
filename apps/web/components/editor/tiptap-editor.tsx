@@ -6,6 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import UniqueID from "@tiptap/extension-unique-id";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
@@ -15,7 +16,6 @@ import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import Table from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
@@ -28,6 +28,12 @@ import { Columns, Column } from "./extensions/columns";
 import { BlockStyle } from "./extensions/block-style";
 import { ListBackspaceFix } from "./extensions/list-backspace";
 import { ListStyleExtension } from "./extensions/list-style";
+import {
+  createTableContent,
+  getActiveTable,
+  OrganizeTable,
+  OrganizeTableView,
+} from "./extensions/table-style";
 import { HtmlEmbed } from "./extensions/html-embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
@@ -48,7 +54,9 @@ import { BLOCK_COMMANDS } from "./block-commands";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
 import { EditorDialogs } from "./editor-dialogs";
+import { EditorPopover } from "./editor-popover";
 import { PresentationMode } from "./presentation-mode";
+import { TableGridPicker, TableToolbar } from "./table-controls";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
 import { usePluginStore } from "@/lib/plugin/store";
 import type { AIActionExtension, PluginContext, ToolbarActionExtension } from "@organize/plugin-sdk";
@@ -354,7 +362,7 @@ function BubbleToolbar({
   editor: Editor;
   onUploadImage: () => void;
   onAddImageUrl: () => void;
-  onAddTable: () => void;
+  onAddTable: (rows: number, cols: number) => void;
   onAddReference: () => void;
 }) {
   const activeBlock = getActiveBlock(editor);
@@ -515,40 +523,24 @@ function BubbleToolbar({
         )}
       >
         {(close) => (
-          <>
-            <MenuItem
-              icon={Upload}
-              label="上传图片"
-              onClick={() => {
-                onUploadImage();
-                close();
-              }}
-            />
-            <MenuItem
-              icon={ImageIcon}
-              label="图片 URL"
-              onClick={() => {
-                onAddImageUrl();
-                close();
-              }}
-            />
-            <MenuItem
-              icon={TableIcon}
-              label="表格"
-              onClick={() => {
-                onAddTable();
-                close();
-              }}
-            />
-            <MenuItem
-              icon={Bookmark}
-              label="引用阅读条目"
-              onClick={() => {
-                onAddReference();
-                close();
-              }}
-            />
-          </>
+          <InsertMenu
+            onUploadImage={() => {
+              onUploadImage();
+              close();
+            }}
+            onAddImageUrl={() => {
+              onAddImageUrl();
+              close();
+            }}
+            onAddTable={(rows, cols) => {
+              onAddTable(rows, cols);
+              close();
+            }}
+            onAddReference={() => {
+              onAddReference();
+              close();
+            }}
+          />
         )}
       </Dropdown>
 
@@ -609,6 +601,51 @@ function BubbleToolbar({
   );
 }
 
+function InsertMenu({
+  onUploadImage,
+  onAddImageUrl,
+  onAddTable,
+  onAddReference,
+}: {
+  onUploadImage: () => void;
+  onAddImageUrl: () => void;
+  onAddTable: (rows: number, cols: number) => void;
+  onAddReference: () => void;
+}) {
+  const [view, setView] = useState<"main" | "table">("main");
+  if (view === "table") {
+    return (
+      <div className="table-grid-submenu">
+        <button
+          type="button"
+          className="table-grid-back"
+          onClick={() => setView("main")}
+        >
+          <ChevronDown className="h-4 w-4 rotate-90" />
+          <span>返回插入菜单</span>
+        </button>
+        <TableGridPicker onSelect={onAddTable} />
+      </div>
+    );
+  }
+  return (
+    <>
+      <MenuItem icon={Upload} label="上传图片" onClick={onUploadImage} />
+      <MenuItem icon={ImageIcon} label="图片 URL" onClick={onAddImageUrl} />
+      <button
+        type="button"
+        className="table-insert-menu-item"
+        onClick={() => setView("table")}
+      >
+        <TableIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span>表格</span>
+        <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
+      </button>
+      <MenuItem icon={Bookmark} label="引用阅读条目" onClick={onAddReference} />
+    </>
+  );
+}
+
 /* ------------------------------- 编辑器 ------------------------------- */
 
 interface OpenMenuState {
@@ -621,6 +658,8 @@ interface OpenMenuState {
 interface OpenActionState extends OpenMenuState {
   target: EditorBlockTarget;
 }
+
+type OpenTablePickerState = OpenMenuState;
 
 interface HoveredBlock {
   editor: Editor;
@@ -773,6 +812,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   const [dropTarget, setDropTarget] = useState<BlockDropTarget | null>(null);
   const [commandMenu, setCommandMenu] = useState<OpenMenuState | null>(null);
   const [actionMenu, setActionMenu] = useState<OpenActionState | null>(null);
+  const [tablePicker, setTablePicker] = useState<OpenTablePickerState | null>(null);
+  const [tableFullscreen, setTableFullscreen] = useState(false);
   const [dialog, setDialog] = useState<EditorDialog>(null);
   const [presentationStart, setPresentationStart] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
@@ -804,7 +845,12 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       Placeholder.configure({ placeholder: "输入内容，或按 ⌘/ 打开区块菜单…" }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Table.configure({ resizable: true }),
+      OrganizeTable.configure({
+        resizable: true,
+        allowTableNodeSelection: true,
+        lastColumnResizable: true,
+        View: OrganizeTableView,
+      }),
       TableRow,
       TableCell,
       TableHeader,
@@ -984,8 +1030,14 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     pos === undefined ? editor.chain().focus().insertContent(paragraph).run() : replaceAt(editor, pos, paragraph);
   }, [editor]);
 
-  const addTable = useCallback(() => {
-    editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  const addTable = useCallback((rows: number, cols: number) => {
+    editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+  }, [editor]);
+
+  const addTableAt = useCallback((pos: number, rows: number, cols: number) => {
+    if (!editor) return;
+    replaceAt(editor, pos, createTableContent(rows, cols));
+    setTablePicker(null);
   }, [editor]);
 
   // 「转换成 → 页面」：以块文本为标题创建子笔记，并把块替换为指向它的链接段落
@@ -1034,6 +1086,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       if (typeof detail.pos === "number") {
         if (detail.type === "slash-menu" && detail.point) {
           setActionMenu(null);
+          setTablePicker(null);
           setCommandMenu({ pos: detail.pos, point: detail.point, slash: true });
         } else if (detail.type === "html") replaceAt(editor, detail.pos, { type: "htmlEmbed" });
         else if (detail.type === "ai-notes") setDialog({ type: "ai-notes", pos: detail.pos });
@@ -1042,6 +1095,12 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
           if (latex) replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
         } else if (detail.type === "reference") addReadingReference(detail.pos);
+        else if (detail.type === "table") {
+          setTablePicker({
+            pos: detail.pos,
+            point: menuPointBelowBlock(editor, detail.pos, detail.pos + 1),
+          });
+        }
         else if (detail.type === "page") void convertBlockToPage(detail.pos);
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });
@@ -1053,6 +1112,43 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     root?.addEventListener("organize-editor-action", handler);
     return () => root?.removeEventListener("organize-editor-action", handler);
   }, [addReadingReference, convertBlockToPage, editor, uploadImage]);
+
+  useEffect(() => {
+    if (!editor || !tableFullscreen) return;
+    const shell = rootRef.current;
+    if (!shell) return;
+
+    const syncFullscreenTable = () => {
+      shell
+        .querySelectorAll(".organize-table-fullscreen")
+        .forEach((element) => element.classList.remove("organize-table-fullscreen"));
+      const table = getActiveTable(editor);
+      if (!table) {
+        setTableFullscreen(false);
+        return;
+      }
+      const dom = editor.view.nodeDOM(table.pos);
+      if (!(dom instanceof HTMLElement)) return;
+      const tableElement = dom.matches("table")
+        ? dom
+        : dom.querySelector("table");
+      tableElement?.classList.add("organize-table-fullscreen");
+    };
+
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTableFullscreen(false);
+    };
+    syncFullscreenTable();
+    editor.on("transaction", syncFullscreenTable);
+    window.addEventListener("keydown", exitOnEscape);
+    return () => {
+      editor.off("transaction", syncFullscreenTable);
+      window.removeEventListener("keydown", exitOnEscape);
+      shell
+        .querySelectorAll(".organize-table-fullscreen")
+        .forEach((element) => element.classList.remove("organize-table-fullscreen"));
+    };
+  }, [editor, tableFullscreen]);
 
   useEffect(() => {
     let active = true;
@@ -1203,10 +1299,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   }, [editor, resolveHoveredBlock]);
 
   const hideHoveredBlock = useCallback(() => {
-    if (commandMenu || actionMenu || isDraggingBlock) return;
+    if (commandMenu || actionMenu || tablePicker || isDraggingBlock) return;
     hoveredRef.current = null;
     setHoveredBlock(null);
-  }, [actionMenu, commandMenu, isDraggingBlock]);
+  }, [actionMenu, commandMenu, isDraggingBlock, tablePicker]);
 
   useEffect(() => {
     const hideWhenPointerLeavesEditor = (event: MouseEvent) => {
@@ -1262,6 +1358,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       newBlockDom.scrollIntoView({ block: "nearest" });
     }
     setActionMenu(null);
+    setTablePicker(null);
     setCommandMenu({
       pos: insertPos,
       point: menuPointBelowBlock(current.editor, insertPos, textSelectionPos),
@@ -1298,6 +1395,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       json: current.node.toJSON(),
     };
     setCommandMenu(null);
+    setTablePicker(null);
     setActionMenu({
       pos: current.pos,
       target,
@@ -1428,7 +1526,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   //    纵向范围就切换为块多选（清掉文本选区、画选择矩形）。
   const beginSelectDrag = useCallback((event: MouseEvent) => {
     if (!editor || event.button !== 0) return;
-    if (commandMenu || actionMenu) return;
+    if (commandMenu || actionMenu || tablePicker) return;
     if (event.defaultPrevented) return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -1460,7 +1558,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       blockBottom: fromText ? rect.bottom : 0,
       bounds,
     };
-  }, [actionMenu, commandMenu, editor]);
+  }, [actionMenu, commandMenu, editor, tablePicker]);
 
   useEffect(() => {
     document.addEventListener("mousedown", beginSelectDrag);
@@ -1580,9 +1678,25 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       ref={rootRef}
       onMouseMove={updateHoveredBlock}
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
+      data-table-fullscreen={tableFullscreen ? "true" : "false"}
     >
       <BubbleMenu editor={editor} tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}>
         <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
+      </BubbleMenu>
+      <BubbleMenu
+        editor={editor}
+        pluginKey="organizeTableToolbar"
+        shouldShow={({ editor: currentEditor, from, to }) =>
+          currentEditor.isActive("table")
+          && (from === to || currentEditor.state.selection instanceof CellSelection)
+        }
+        tippyOptions={{ duration: 120, maxWidth: "none", zIndex: 140, placement: "top" }}
+      >
+        <TableToolbar
+          editor={editor}
+          fullscreen={tableFullscreen}
+          onToggleFullscreen={() => setTableFullscreen((value) => !value)}
+        />
       </BubbleMenu>
       <EditorContent editor={editor} />
       <div
@@ -1624,6 +1738,20 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       {selectRect && <div className="organize-select-rect" style={selectRect} aria-hidden="true" />}
       {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
+      {tablePicker && (
+        <EditorPopover
+          point={tablePicker.point}
+          onClose={() => {
+            setTablePicker(null);
+            editor.commands.focus();
+          }}
+          className="table-picker-popover"
+        >
+          <TableGridPicker
+            onSelect={(rows, cols) => addTableAt(tablePicker.pos, rows, cols)}
+          />
+        </EditorPopover>
+      )}
       <EditorDialogs editor={editor} noteId={noteId} dialog={dialog} onClose={() => setDialog(null)} />
       {presentationStart && <PresentationMode doc={editor.getJSON()} startBlockId={presentationStart} onClose={() => setPresentationStart(null)} />}
     </div>
