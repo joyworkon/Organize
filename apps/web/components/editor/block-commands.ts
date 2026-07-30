@@ -213,19 +213,6 @@ function listBlock(type: "bulletList" | "orderedList"): JSONContent {
   };
 }
 
-function makeTable(): JSONContent {
-  return {
-    type: "table",
-    content: Array.from({ length: 3 }, (_, row) => ({
-      type: "tableRow",
-      content: Array.from({ length: 3 }, () => ({
-        type: row === 0 ? "tableHeader" : "tableCell",
-        content: [{ type: "paragraph", content: [] }],
-      })),
-    })),
-  };
-}
-
 function emit(editor: Editor, type: string, pos: number) {
   editor.view.dom.dispatchEvent(
     new CustomEvent("organize-editor-action", { bubbles: true, detail: { type, pos } })
@@ -418,10 +405,11 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
   {
     id: "table",
     label: "表格",
+    description: "拖动选择行列数",
     category: "媒体",
     icon: TableIcon,
     keywords: ["table", "表格"],
-    run: (editor, pos) => replaceBlock(editor, pos, makeTable()),
+    run: (editor, pos) => emit(editor, "table", pos),
   },
   {
     id: "math",

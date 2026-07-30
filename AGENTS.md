@@ -84,14 +84,14 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（001–017 增量迁移：001 建表 + RLS、002 存储桶、003 GRANT 权限，其后 004–017 陆续加入笔记评论/建议、标签扩展与颜色、分享、置顶、全文搜索、笔记版本、任务与课程、清单、高亮、收藏等功能）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–024；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除和笔记页面层级）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
 ### 后端（Supabase）
 - 核心表（001）：`reading_items`（阅读条目）、`notes`（笔记，content 为 jsonb）、`tags`、`item_tags`（多对多）、`plugins`（插件配置）
 - 后续迁移新增的表：`note_comment_threads` / `note_comments` / `note_suggestions`（004 笔记评论与建议）、`note_tags`（005 笔记-标签）、`shares`（006 分享）、`note_versions`（010 笔记历史版本）、`tasks` / `lessons` / `task_tags` / `lesson_tags`（012 任务与课程）、`task_checklists`（013 任务清单）、`highlights`（014 高亮）、`favorites`（016 收藏）
-- 部分迁移是对既有表的 `alter`/索引而非建表：008 给 `notes`/`reading_items` 加 `is_pinned`、009 加全文搜索 trigram 索引、011 给 `tags` 加 `created_at`、015 给 `tasks` 加 `sort_order`、017 给 `tags` 加 `color`
+- 018–024 继续加固公开分享、阅读生命周期、备份恢复、软删除及子资源可见性，并为笔记增加 `icon`、`cover_url`、`cover_position`、`parent_note_id` 和相关备份恢复逻辑
 - 所有表启用 RLS（按 `auth.uid() = user_id` 行级隔离）；此外**每张新表都必须**额外 GRANT 表级权限（003 覆盖初始表，004+ 各自迁移内 GRANT），否则写入报 `permission denied for table`
 - `reading_items.reading_status` 为三态枚举：`unread` / `reading` / `read`
 
@@ -101,12 +101,12 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 
 ### 笔记编辑器
 `components/editor/tiptap-editor.tsx` 是 Notion 风格编辑器：无边框、无顶部工具栏，选中文字弹出 BubbleMenu（文本格式 + 块类型二级菜单 + 插入菜单 + 表情选择器 + 更多菜单）。
-自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。
+自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色持久化）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。
 
 ### 插件系统
 - 插件用 `definePlugin()` 声明，提供扩展点：`toolbar-action` / `sidebar-panel` / `content-processor`（抓取后处理）/ `ai-action`
 - `lib/plugin/loader.tsx` 动态 import 内置插件并激活；`lib/plugin/store.ts`（zustand）管理注册 / 激活状态；配置持久化到 `plugins` 表
-- 注意：loader 里的 `getConfig` / `setConfig` 目前是 stub（返回空对象 / 空操作），插件配置尚未真正接通存储
+- `PluginLoader` 启动时读取 `/api/plugins`，`getConfig` 返回当前配置，`setConfig` 通过 `PATCH /api/plugins/[id]` 持久化；修改这里时要同时覆盖初始化失败、未启用插件和保存失败
 
 ### 认证与路由
 Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登录重定向到 `(auth)/login`；`app/auth/callback` 处理回调。Supabase 客户端封装在 `lib/supabase/client.ts`（浏览器）与 `lib/supabase/server.ts`（服务端，@supabase/ssr）。
