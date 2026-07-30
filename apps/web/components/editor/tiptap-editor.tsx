@@ -894,6 +894,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         resizable: true,
         allowTableNodeSelection: true,
         lastColumnResizable: true,
+        cellMinWidth: 48,
         View: OrganizeTableView,
       }),
       OrganizeTableRow,
