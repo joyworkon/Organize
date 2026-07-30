@@ -1,10 +1,13 @@
 /**
  * TipTap / ProseMirror JSON → HTML 的极简渲染器。
- * 只覆盖公开分享页展示所需的常见节点，不做完整 ProseMirror schema 还原。
- * 不引入 @tiptap 依赖（这是给公开页/导出用的独立工具）。
+ * 只覆盖公开分享页和剪贴板导出所需的常见节点，不做完整 ProseMirror schema 还原。
+ * 不引入 @tiptap 依赖（这是给公开页/导出/剪贴板用的独立工具）。
+ *
+ * 安全保证：所有文本内容通过 escapeHtml 转义；htmlEmbed 节点直接跳过（禁止脚本/iframe）；
+ * a 标签的 href 经过转义。绝不写入 on* 事件属性或 <script> 标签。
  */
 
-interface PMNode {
+export interface PMNode {
   type: string;
   attrs?: Record<string, unknown>;
   content?: PMNode[];
@@ -41,6 +44,20 @@ function renderMarks(inner: string, marks?: PMNode["marks"]): string {
       case "underline":
         out = `<u>${out}</u>`;
         break;
+      case "highlight": {
+        const color = m.attrs?.color ? String(m.attrs.color) : null;
+        out = color
+          ? `<mark style="background-color:${escapeHtml(color)}">${out}</mark>`
+          : `<mark>${out}</mark>`;
+        break;
+      }
+      case "textStyle": {
+        const color = m.attrs?.color ? String(m.attrs.color) : null;
+        if (color) {
+          out = `<span style="color:${escapeHtml(color)}">${out}</span>`;
+        }
+        break;
+      }
       case "link": {
         const href = String(m.attrs?.href || "#");
         out = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${out}</a>`;
@@ -53,27 +70,56 @@ function renderMarks(inner: string, marks?: PMNode["marks"]): string {
   return out;
 }
 
+function renderChildren(node: PMNode): string {
+  return (node.content || []).map(renderNode).join("");
+}
+
 function renderNode(node: PMNode): string {
   switch (node.type) {
     case "doc":
-      return (node.content || []).map(renderNode).join("");
+      return renderChildren(node);
     case "paragraph":
-      return `<p>${(node.content || []).map(renderNode).join("")}</p>`;
+      return `<p>${renderChildren(node)}</p>`;
     case "heading": {
       const level = Number(node.attrs?.level) || 2;
       const lv = Math.min(Math.max(level, 1), 6);
-      return `<h${lv}>${(node.content || []).map(renderNode).join("")}</h${lv}>`;
+      return `<h${lv}>${renderChildren(node)}</h${lv}>`;
     }
     case "bulletList":
-      return `<ul>${(node.content || []).map(renderNode).join("")}</ul>`;
-    case "orderedList":
-      return `<ol>${(node.content || []).map(renderNode).join("")}</ol>`;
+      return `<ul>${renderChildren(node)}</ul>`;
+    case "orderedList": {
+      const start = node.attrs?.start ? ` start="${Number(node.attrs.start)}"` : "";
+      return `<ol${start}>${renderChildren(node)}</ol>`;
+    }
     case "listItem":
-      return `<li>${(node.content || []).map(renderNode).join("")}</li>`;
+      return `<li>${renderChildren(node)}</li>`;
+    case "taskList":
+      return `<ul class="task-list">${renderChildren(node)}</ul>`;
+    case "taskItem": {
+      const checked = node.attrs?.checked ? " checked" : "";
+      const box = node.attrs?.checked ? "\u2611" : "\u2610";
+      // 第一个子块（通常是 paragraph）作为条目文本；其余子块作为嵌套内容
+      const firstChild = (node.content || [])[0];
+      const restChildren = (node.content || []).slice(1);
+      const labelContent = firstChild
+        ? firstChild.type === "paragraph"
+          ? renderChildren(firstChild)
+          : renderNode(firstChild)
+        : "";
+      const restHtml = restChildren.map(renderNode).join("");
+      return `<li class="task-item"${checked} data-checked="${node.attrs?.checked ? "true" : "false"}">${box} ${labelContent}${restHtml}</li>`;
+    }
     case "blockquote":
-      return `<blockquote>${(node.content || []).map(renderNode).join("")}</blockquote>`;
-    case "codeBlock":
-      return `<pre><code>${escapeHtml((node.content || []).map((c) => c.text || "").join(""))}</code></pre>`;
+      return `<blockquote>${renderChildren(node)}</blockquote>`;
+    case "callout": {
+      const emoji = String(node.attrs?.emoji || "\uD83D\uDCA1");
+      return `<blockquote class="callout" data-emoji="${escapeHtml(emoji)}"><p>${emoji}</p>${renderChildren(node)}</blockquote>`;
+    }
+    case "codeBlock": {
+      const lang = node.attrs?.language ? ` data-language="${escapeHtml(String(node.attrs.language))}"` : "";
+      const code = escapeHtml((node.content || []).map((c) => c.text || "").join(""));
+      return `<pre${lang}><code>${code}</code></pre>`;
+    }
     case "horizontalRule":
       return "<hr />";
     case "hardBreak":
@@ -81,13 +127,57 @@ function renderNode(node: PMNode): string {
     case "image": {
       const src = String(node.attrs?.src || "");
       const alt = String(node.attrs?.alt || "");
-      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" />`;
+      const title = node.attrs?.title ? ` title="${escapeHtml(String(node.attrs.title))}"` : "";
+      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${title} />`;
+    }
+    case "table":
+      return `<table>${renderChildren(node)}</table>`;
+    case "tableRow":
+      return `<tr>${renderChildren(node)}</tr>`;
+    case "tableHeader": {
+      const colspan = node.attrs?.colspan && Number(node.attrs.colspan) > 1
+        ? ` colspan="${Number(node.attrs.colspan)}"`
+        : "";
+      const rowspan = node.attrs?.rowspan && Number(node.attrs.rowspan) > 1
+        ? ` rowspan="${Number(node.attrs.rowspan)}"`
+        : "";
+      return `<th${colspan}${rowspan}>${renderChildren(node)}</th>`;
+    }
+    case "tableCell": {
+      const colspan = node.attrs?.colspan && Number(node.attrs.colspan) > 1
+        ? ` colspan="${Number(node.attrs.colspan)}"`
+        : "";
+      const rowspan = node.attrs?.rowspan && Number(node.attrs.rowspan) > 1
+        ? ` rowspan="${Number(node.attrs.rowspan)}"`
+        : "";
+      return `<td${colspan}${rowspan}>${renderChildren(node)}</td>`;
+    }
+    case "details":
+      return `<details>${renderChildren(node)}</details>`;
+    case "detailsSummary":
+      return `<summary>${renderChildren(node)}</summary>`;
+    case "detailsContent":
+      return renderChildren(node);
+    case "columns":
+      return `<div class="columns" style="display:flex;gap:1em">${renderChildren(node)}</div>`;
+    case "column":
+      return `<div class="column" style="flex:1">${renderChildren(node)}</div>`;
+    case "inlineMath": {
+      const expr = String(node.attrs?.expr || node.text || "");
+      return `<code class="math inline">${escapeHtml(expr)}</code>`;
+    }
+    case "mathBlock": {
+      const expr = String(node.attrs?.expr || (node.content || []).map((c) => c.text || "").join(""));
+      return `<pre class="math block"><code>${escapeHtml(expr)}</code></pre>`;
     }
     case "text":
       return renderMarks(escapeHtml(node.text || ""), node.marks);
+    case "htmlEmbed":
+      // 安全：htmlEmbed 可能包含脚本/iframe，直接跳过，不写入剪贴板
+      return "";
     default:
-      // 未知节点：尽量递归渲染其 content，避免内容丢失
-      return node.content ? (node.content.map(renderNode).join("")) : "";
+      // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
+      return renderChildren(node);
   }
 }
 
@@ -98,4 +188,96 @@ export function tiptapJsonToHtml(json: Record<string, unknown> | null | undefine
   } catch {
     return "";
   }
+}
+
+/**
+ * 从 TipTap JSON 提取纯文本（段落间用空行分隔）。
+ * 不依赖编辑器实例，可在 Node 环境测试。
+ */
+export function tiptapJsonToPlainText(json: Record<string, unknown> | null | undefined): string {
+  if (!json) return "";
+  try {
+    return extractPlainText(json as unknown as PMNode).trim();
+  } catch {
+    return "";
+  }
+}
+
+function extractPlainText(node: PMNode): string {
+  switch (node.type) {
+    case "doc":
+      return (node.content || []).map(extractPlainText).join("\n\n");
+    case "paragraph":
+    case "heading":
+      return (node.content || []).map(extractPlainText).join("");
+    case "blockquote":
+    case "callout":
+    case "detailsContent":
+      return (node.content || []).map(extractPlainText).join("\n\n");
+    case "bulletList":
+    case "orderedList":
+    case "taskList":
+      return (node.content || []).map((c, i) => {
+        const text = extractPlainText(c);
+        return node.type === "orderedList" ? `${i + 1}. ${text}` : `- ${text}`;
+      }).join("\n");
+    case "listItem":
+    case "taskItem": {
+      const parts = (node.content || []).map(extractPlainText);
+      const main = parts[0] || "";
+      const nested = parts.slice(1).join("\n").replace(/^/gm, "  ");
+      return nested ? `${main}\n${nested}` : main;
+    }
+    case "codeBlock": {
+      return (node.content || []).map((c) => c.text || "").join("");
+    }
+    case "hardBreak":
+      return "\n";
+    case "horizontalRule":
+      return "---";
+    case "image": {
+      const alt = String(node.attrs?.alt || "");
+      return alt ? `[${alt}]` : "[image]";
+    }
+    case "table":
+      return (node.content || []).map(extractPlainText).join("\n");
+    case "tableRow":
+      return (node.content || []).map(extractPlainText).join(" | ");
+    case "tableHeader":
+    case "tableCell":
+      return (node.content || []).map(extractPlainText).join("");
+    case "details": {
+      const summary = (node.content || []).find((c) => c.type === "detailsSummary");
+      const rest = (node.content || []).filter((c) => c.type !== "detailsSummary");
+      const summaryText = summary ? extractPlainText(summary) : "";
+      const restText = rest.map(extractPlainText).join("\n\n");
+      return restText ? `${summaryText}\n${restText}` : summaryText;
+    }
+    case "detailsSummary":
+      return (node.content || []).map(extractPlainText).join("");
+    case "columns":
+      return (node.content || []).map(extractPlainText).join("\n\n");
+    case "column":
+      return (node.content || []).map(extractPlainText).join("");
+    case "inlineMath":
+    case "mathBlock":
+      return String(node.attrs?.expr || node.text || "");
+    case "text":
+      return node.text || "";
+    case "htmlEmbed":
+      return "";
+    default:
+      return (node.content || []).map(extractPlainText).join("");
+  }
+}
+
+/**
+ * 将 HTML 包裹为完整文档（带 charset meta 和基本样式），
+ * 粘贴到 Word / Google Docs / 邮件等富文本环境时保留结构。
+ */
+export function wrapClipboardHtml(bodyHtml: string, title?: string): string {
+  const titleHtml = title && title.trim()
+    ? `<h1>${escapeHtml(title.trim())}</h1>`
+    : "";
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${titleHtml}${bodyHtml}</body></html>`;
 }

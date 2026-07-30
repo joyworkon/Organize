@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
 import type { NoteTreeItem } from "@/lib/notes/tree";
+import { copyNoteContent } from "@/lib/export/clipboard";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
@@ -371,16 +372,15 @@ export default function NoteEditorPage() {
   }, [showToast]);
 
   const copyContent = useCallback(async () => {
-    // 标题 + 正文纯文本；正文取自编辑器实例的 getText（保留段落换行）。
-    const bodyText = editorRef.current?.getText({ blockSeparator: "\n\n" }) ?? "";
-    const full = [title.trim(), bodyText.trim()].filter(Boolean).join("\n\n");
-    try {
-      await navigator.clipboard.writeText(full);
-      showToast("已复制页面内容");
-    } catch {
+    // 优先使用编辑器当前内容（draftRef 由 onUpdate 实时同步），回退到初始 content
+    const json = editorRef.current?.getJSON?.() ?? draftRef.current.content ?? content ?? null;
+    const result = await copyNoteContent(title, json);
+    if (result.success) {
+      showToast(result.usedFallback ? "已复制页面内容（纯文本）" : "已复制页面内容");
+    } else {
       showToast("复制失败");
     }
-  }, [title, showToast]);
+  }, [title, content, showToast]);
 
   const duplicateNote = useCallback(async () => {
     // 创建副本前先把当前改动落库，保证副本拿到最新内容。
