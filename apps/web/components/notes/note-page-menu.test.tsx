@@ -3,7 +3,8 @@
 import React, { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NotePageMenu, type NoteFont } from "./note-page-menu";
+import { NotePageMenu } from "./note-page-menu";
+import type { NoteFont } from "@organize/shared";
 
 // jsdom 没有 PointerEvent，用 MouseEvent 做最小 polyfill
 if (typeof globalThis.PointerEvent === "undefined") {

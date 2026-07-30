@@ -63,6 +63,9 @@ function fixtureData(): BackupData {
         },
         reading_item_id: ids.reading,
         is_pinned: false,
+        full_width: false,
+        font_family: "default",
+        small_font: false,
         created_at: timestamp,
         updated_at: timestamp,
       },
@@ -243,5 +246,48 @@ describe("Backup V2", () => {
     );
     expect(JSON.stringify(payload)).not.toContain(ids.note);
     expect(JSON.stringify(payload)).not.toContain(ids.reading);
+  });
+
+  it("accepts legacy backups that omit full_width / font_family / small_font", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    const data = backup.data as Record<string, Array<Record<string, unknown>>>;
+    delete data.notes[0].full_width;
+    delete data.notes[0].font_family;
+    delete data.notes[0].small_font;
+
+    const result = inspectBackupV2(backup);
+    expect(result.ok).toBe(true);
+
+    const payload = prepareRestorePayload(backup as any);
+    expect(payload.data.notes[0].full_width).toBe(false);
+    expect(payload.data.notes[0].font_family).toBe("default");
+    expect(payload.data.notes[0].small_font).toBe(false);
+  });
+
+  it("rejects invalid font_family values and preserves valid ones", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    const bad = JSON.parse(JSON.stringify(backup));
+    (bad.data as any).notes[0].font_family = "comic-sans";
+    expect(inspectBackupV2(bad).ok).toBe(false);
+
+    const good = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    (good.data as any).notes[0].font_family = "serif";
+    (good.data as any).notes[0].full_width = true;
+    (good.data as any).notes[0].small_font = true;
+    expect(inspectBackupV2(good).ok).toBe(true);
+
+    const payload = prepareRestorePayload(good as any);
+    expect(payload.data.notes[0].font_family).toBe("serif");
+    expect(payload.data.notes[0].full_width).toBe(true);
+    expect(payload.data.notes[0].small_font).toBe(true);
   });
 });

@@ -6,7 +6,8 @@ import type { Editor } from "@tiptap/react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TipTapEditor } from "@/components/editor/tiptap-editor";
-import { NotePageMenu, type NoteFont } from "@/components/notes/note-page-menu";
+import { NotePageMenu } from "@/components/notes/note-page-menu";
+import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
 import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
@@ -33,6 +34,9 @@ interface NoteDraft {
   cover_url: string | null;
   cover_position: number;
   parent_note_id: string | null;
+  full_width: boolean;
+  font_family: NoteFont;
+  small_font: boolean;
 }
 
 export default function NoteEditorPage() {
@@ -71,6 +75,9 @@ export default function NoteEditorPage() {
     cover_url: null,
     cover_position: 50,
     parent_note_id: null,
+    full_width: false,
+    font_family: "default",
+    small_font: false,
   });
   const dirtyRef = useRef(false);
   const savingPromiseRef = useRef<Promise<void> | null>(null);
@@ -121,6 +128,10 @@ export default function NoteEditorPage() {
       if (!error && data) {
         const loadedTitle = data.title || "";
         const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
+        const dbFullWidth = data.full_width === true;
+        const dbFont: NoteFont =
+          data.font_family === "serif" || data.font_family === "mono" ? data.font_family : "default";
+        const dbSmallFont = data.small_font === true;
         setTitle(loadedTitle);
         setContent(loadedContent);
         setCreatedAt(data.created_at || null);
@@ -129,6 +140,9 @@ export default function NoteEditorPage() {
         setCoverUrl(data.cover_url || null);
         setCoverPosition(Number(data.cover_position ?? 50));
         setParentNoteId(data.parent_note_id || null);
+        setFullWidth(dbFullWidth);
+        setFont(dbFont);
+        setSmallFont(dbSmallFont);
         draftRef.current = {
           title: loadedTitle,
           content: loadedContent,
@@ -136,7 +150,43 @@ export default function NoteEditorPage() {
           cover_url: data.cover_url || null,
           cover_position: Number(data.cover_position ?? 50),
           parent_note_id: data.parent_note_id || null,
+          full_width: dbFullWidth,
+          font_family: dbFont,
+          small_font: dbSmallFont,
         };
+
+        // 一次性幂等迁移：DB 是默认值且 localStorage 有旧值时，搬入 DB。
+        // 成功后 DB 非默认，下次加载条件自动不成立，不会重复迁移。
+        try {
+          const lw = localStorage.getItem(fullWidthKey(noteId));
+          const f = localStorage.getItem(fontKey(noteId));
+          const sf = localStorage.getItem(smallFontKey(noteId));
+          const hasLocal = lw !== null || f !== null || sf !== null;
+          const dbIsDefault = !dbFullWidth && dbFont === "default" && !dbSmallFont;
+          if (hasLocal && dbIsDefault) {
+            const patch: Partial<Pick<NoteDraft, "full_width" | "font_family" | "small_font">> = {};
+            if (lw !== null) {
+              const v = lw === "1";
+              patch.full_width = v;
+              setFullWidth(v);
+            }
+            if (f === "serif" || f === "mono" || f === "default") {
+              patch.font_family = f;
+              setFont(f);
+            }
+            if (sf !== null) {
+              const v = sf === "1";
+              patch.small_font = v;
+              setSmallFont(v);
+            }
+            Object.assign(draftRef.current, patch);
+            dirtyRef.current = true;
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = setTimeout(() => void flushSave(), 500);
+          }
+        } catch {
+          /* localStorage 不可用时跳过迁移 */
+        }
       }
       setLoading(false);
       void loadNoteTree();
@@ -168,20 +218,6 @@ export default function NoteEditorPage() {
       active = false;
     };
   }, [noteId, supabase]);
-
-  // 读取该笔记的页面级展示偏好（全宽 / 字体 / 小字号）
-  useEffect(() => {
-    try {
-      setFullWidth(localStorage.getItem(fullWidthKey(noteId)) === "1");
-      const savedFont = localStorage.getItem(fontKey(noteId));
-      if (savedFont === "serif" || savedFont === "mono" || savedFont === "default") {
-        setFont(savedFont);
-      }
-      setSmallFont(localStorage.getItem(smallFontKey(noteId)) === "1");
-    } catch {
-      /* localStorage 不可用时用默认展示偏好 */
-    }
-  }, [noteId]);
 
   // 保存始终写入同一时刻的完整快照，并串行排空后续改动。
   const flushSave = useCallback(async () => {
@@ -323,30 +359,21 @@ export default function NoteEditorPage() {
   const toggleFullWidth = () => {
     const next = !fullWidth;
     setFullWidth(next);
-    try {
-      localStorage.setItem(fullWidthKey(noteId), next ? "1" : "0");
-    } catch {
-      /* 忽略：无法持久化时仍保留本次会话内的切换效果 */
-    }
+    draftRef.current.full_width = next;
+    queueSave();
   };
 
   const changeFont = (next: NoteFont) => {
     setFont(next);
-    try {
-      localStorage.setItem(fontKey(noteId), next);
-    } catch {
-      /* 忽略持久化失败 */
-    }
+    draftRef.current.font_family = next;
+    queueSave();
   };
 
   const toggleSmallFont = () => {
     const next = !smallFont;
     setSmallFont(next);
-    try {
-      localStorage.setItem(smallFontKey(noteId), next ? "1" : "0");
-    } catch {
-      /* 忽略持久化失败 */
-    }
+    draftRef.current.small_font = next;
+    queueSave();
   };
 
   // 轻量内联提示：显示一条短消息，2 秒后自动消失。
@@ -403,6 +430,9 @@ export default function NoteEditorPage() {
           cover_url: coverUrl,
           cover_position: coverPosition,
           parent_note_id: parentNoteId,
+          full_width: fullWidth,
+          font_family: font,
+          small_font: smallFont,
         })
         .select()
         .single();

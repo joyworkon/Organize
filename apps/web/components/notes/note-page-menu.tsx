@@ -19,9 +19,7 @@ import {
   Search,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-
-/** 笔记页字体族选项 */
-export type NoteFont = "default" | "serif" | "mono";
+import type { NoteFont } from "@organize/shared";
 
 interface NotePageMenuProps {
   fullWidth: boolean;

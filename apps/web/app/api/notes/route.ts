@@ -66,6 +66,9 @@ export async function POST(request: NextRequest) {
     cover_url,
     cover_position,
     parent_note_id,
+    full_width,
+    font_family,
+    small_font,
   } = body;
 
   const { data, error } = await supabase
@@ -83,6 +86,10 @@ export async function POST(request: NextRequest) {
           : 50,
       parent_note_id:
         typeof parent_note_id === "string" ? parent_note_id : null,
+      full_width: typeof full_width === "boolean" ? full_width : false,
+      font_family:
+        font_family === "serif" || font_family === "mono" ? font_family : "default",
+      small_font: typeof small_font === "boolean" ? small_font : false,
     })
     .select()
     .single();
