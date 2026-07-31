@@ -17,6 +17,7 @@ export const BLOCK_ID_TYPES = [
   "mathBlock",
   "columns",
   "htmlEmbed",
+  "fileAttachment",
 ];
 
 export const ALLOWED_AI_NODE_TYPES = new Set([

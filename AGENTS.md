@@ -84,14 +84,14 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–024；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除和笔记页面层级）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–026；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置和附件存储 bucket）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
 ### 后端（Supabase）
 - 核心表（001）：`reading_items`（阅读条目）、`notes`（笔记，content 为 jsonb）、`tags`、`item_tags`（多对多）、`plugins`（插件配置）
 - 后续迁移新增的表：`note_comment_threads` / `note_comments` / `note_suggestions`（004 笔记评论与建议）、`note_tags`（005 笔记-标签）、`shares`（006 分享）、`note_versions`（010 笔记历史版本）、`tasks` / `lessons` / `task_tags` / `lesson_tags`（012 任务与课程）、`task_checklists`（013 任务清单）、`highlights`（014 高亮）、`favorites`（016 收藏）
-- 018–024 继续加固公开分享、阅读生命周期、备份恢复、软删除及子资源可见性，并为笔记增加 `icon`、`cover_url`、`cover_position`、`parent_note_id` 和相关备份恢复逻辑
+- 018–024 继续加固公开分享、阅读生命周期、备份恢复、软删除及子资源可见性，并为笔记增加 `icon`、`cover_url`、`cover_position`、`parent_note_id` 和相关备份恢复逻辑；025 为笔记增加页面设置（`full_width` / `font_family` / `small_font`）；026 新增 `attachments` 存储 bucket（笔记内拖入的非图片附件；图片仍走 002 的 `images` bucket，`/api/upload` 按类型分流）
 - 所有表启用 RLS（按 `auth.uid() = user_id` 行级隔离）；此外**每张新表都必须**额外 GRANT 表级权限（003 覆盖初始表，004+ 各自迁移内 GRANT），否则写入报 `permission denied for table`
 - `reading_items.reading_status` 为三态枚举：`unread` / `reading` / `read`
 
@@ -101,7 +101,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 
 ### 笔记编辑器
 `components/editor/tiptap-editor.tsx` 是 Notion 风格编辑器：无边框、无顶部工具栏，选中文字弹出 BubbleMenu（文本格式 + 块类型二级菜单 + 插入菜单 + 表情选择器 + 更多菜单）。
-自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色持久化）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。
+自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色/单元格背景持久化，含 `OrganizeTableCell` / `OrganizeTableHeader`）、`resizable-image.tsx`（图片宽度拖拽手柄）、`file-attachment.tsx`（附件块：视频/音频内联播放、其余文件卡片）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。外部文件可通过拖入 / 粘贴 / 插入菜单「上传附件」进入笔记（`/api/upload` 上传，图片失败回退 base64）。
 
 ### 插件系统
 - 插件用 `definePlugin()` 声明，提供扩展点：`toolbar-action` / `sidebar-panel` / `content-processor`（抓取后处理）/ `ai-action`

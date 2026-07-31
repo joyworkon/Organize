@@ -1,5 +1,7 @@
 import type { Editor, JSONContent } from "@tiptap/core";
 import Table, { TableView } from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
 import TableRow from "@tiptap/extension-table-row";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Selection, Transaction } from "@tiptap/pm/state";
@@ -30,12 +32,34 @@ export const TABLE_COLOR_SCHEMES = [
 export type TableColorScheme = (typeof TABLE_COLOR_SCHEMES)[number];
 export type TableWidthMode = "fit" | "content";
 
+/** 表格边框 / 单元格背景共用的预设色板（default = 不加色，走主题默认边框） */
+export const TABLE_PRESET_COLORS = [
+  "default",
+  "gray",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+] as const;
+
+export type TablePresetColor = (typeof TABLE_PRESET_COLORS)[number];
+
+function normalizePresetColor(value: unknown): TablePresetColor {
+  return TABLE_PRESET_COLORS.includes(value as TablePresetColor)
+    ? (value as TablePresetColor)
+    : "default";
+}
+
 export interface ActiveTable {
   node: ProseMirrorNode;
   pos: number;
   widthMode: TableWidthMode;
   borderless: boolean;
   colorScheme: TableColorScheme;
+  borderColor: TablePresetColor;
   hasHeaderRow: boolean;
   hasHeaderColumn: boolean;
   hasCustomColumnWidths: boolean;
@@ -87,6 +111,39 @@ export const OrganizeTableRow = TableRow.extend({
   },
 });
 
+/** 单元格背景色属性（data-cell-bg 持久化；null = 无背景） */
+function cellBackgroundAttribute() {
+  return {
+    default: null as TablePresetColor | null,
+    parseHTML: (element: HTMLElement) => {
+      const value = element.getAttribute("data-cell-bg");
+      return value ? normalizePresetColor(value) : null;
+    },
+    renderHTML: (attributes: Record<string, unknown>) => {
+      const value = attributes.background as TablePresetColor | null;
+      return value && value !== "default" ? { "data-cell-bg": value } : {};
+    },
+  };
+}
+
+export const OrganizeTableCell = TableCell.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      background: cellBackgroundAttribute(),
+    };
+  },
+});
+
+export const OrganizeTableHeader = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      background: cellBackgroundAttribute(),
+    };
+  },
+});
+
 export const OrganizeTable = Table.extend({
   addAttributes() {
     return {
@@ -111,6 +168,13 @@ export const OrganizeTable = Table.extend({
           "data-table-color": normalizeColorScheme(attributes.colorScheme),
         }),
       },
+      borderColor: {
+        default: "default",
+        parseHTML: (element) => normalizePresetColor(element.getAttribute("data-table-border-color")),
+        renderHTML: (attributes) => ({
+          "data-table-border-color": normalizePresetColor(attributes.borderColor),
+        }),
+      },
     };
   },
 });
@@ -118,6 +182,7 @@ export const OrganizeTable = Table.extend({
 function syncTableDomAttributes(table: HTMLTableElement, node: ProseMirrorNode) {
   table.setAttribute("data-table-width", normalizeWidthMode(node.attrs.widthMode));
   table.setAttribute("data-table-color", normalizeColorScheme(node.attrs.colorScheme));
+  table.setAttribute("data-table-border-color", normalizePresetColor(node.attrs.borderColor));
   if (node.attrs.borderless) {
     table.setAttribute("data-table-borderless", "true");
   } else {
@@ -198,6 +263,8 @@ export class OrganizeTableView extends TableView {
   constructor(node: ProseMirrorNode, cellMinWidth: number) {
     super(node, cellMinWidth);
     syncTableDomAttributes(this.table, node);
+    // 外框 div.tableWrapper 也带上边框色：CSS 变量沿 DOM 向下继承到单元格边框
+    this.dom.setAttribute("data-table-border-color", normalizePresetColor(node.attrs.borderColor));
     clearStaleColumnDomStyles(this.colgroup, node);
   }
 
@@ -205,6 +272,7 @@ export class OrganizeTableView extends TableView {
     const updated = super.update(node);
     if (updated) {
       syncTableDomAttributes(this.table, node);
+      this.dom.setAttribute("data-table-border-color", normalizePresetColor(node.attrs.borderColor));
       clearStaleColumnDomStyles(this.colgroup, node);
     }
     return updated;
@@ -272,6 +340,7 @@ export function getActiveTable(editor: Editor): ActiveTable | null {
       widthMode: normalizeWidthMode(node.attrs.widthMode),
       borderless: Boolean(node.attrs.borderless),
       colorScheme: normalizeColorScheme(node.attrs.colorScheme),
+      borderColor: normalizePresetColor(node.attrs.borderColor),
       hasHeaderRow,
       hasHeaderColumn,
       hasCustomColumnWidths,
@@ -282,7 +351,7 @@ export function getActiveTable(editor: Editor): ActiveTable | null {
 
 export function setActiveTableAttributes(
   editor: Editor,
-  attributes: Partial<Pick<ActiveTable, "widthMode" | "borderless" | "colorScheme">>
+  attributes: Partial<Pick<ActiveTable, "widthMode" | "borderless" | "colorScheme" | "borderColor">>
 ) {
   const table = getActiveTable(editor);
   if (!table) return false;
@@ -312,6 +381,41 @@ export function equalizeActiveTableColumns(editor: Editor) {
   });
   editor.view.dispatch(transaction);
   return true;
+}
+
+/** 设置单元格背景色：有单元格选区时作用于全部选中格，否则作用于光标所在格；"default" 清除 */
+export function setSelectedCellsBackground(
+  editor: Editor,
+  background: TablePresetColor
+) {
+  const value = background === "default" ? null : background;
+  const { selection } = editor.state;
+  if (selection instanceof CellSelection) {
+    let transaction = editor.state.tr;
+    selection.forEachCell((node, pos) => {
+      transaction = transaction.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        background: value,
+      });
+    });
+    editor.view.dispatch(transaction);
+    return true;
+  }
+  const { $from } = selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    const role = String(node.type.spec.tableRole);
+    if (role === "cell" || role === "header_cell") {
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup($from.before(depth), undefined, {
+          ...node.attrs,
+          background: value,
+        })
+      );
+      return true;
+    }
+  }
+  return false;
 }
 
 interface TableContext {

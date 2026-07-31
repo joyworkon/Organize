@@ -8,17 +8,15 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeSelection, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import type { EditorView } from "@tiptap/pm/view";
+import type { JSONContent } from "@tiptap/core";
 import TextStyle from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
-import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import TableCell from "@tiptap/extension-table-cell";
-import TableHeader from "@tiptap/extension-table-header";
 import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
@@ -32,11 +30,15 @@ import {
   createTableContent,
   getActiveTable,
   OrganizeTable,
+  OrganizeTableCell,
+  OrganizeTableHeader,
   OrganizeTableRow,
   OrganizeTableView,
   topLevelBlockPlaceholder,
 } from "./extensions/table-style";
 import { HtmlEmbed } from "./extensions/html-embed";
+import { ResizableImage } from "./extensions/resizable-image";
+import { FileAttachment } from "./extensions/file-attachment";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -50,6 +52,7 @@ import {
   type BlockSelectionRect,
 } from "./extensions/block-multi-select";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BLOCK_COMMANDS } from "./block-commands";
@@ -93,6 +96,7 @@ import {
   Smile,
   MoreHorizontal,
   Minus,
+  Paperclip,
   Undo2,
   Redo2,
   RemoveFormatting,
@@ -359,12 +363,14 @@ function BubbleToolbar({
   editor,
   onUploadImage,
   onAddImageUrl,
+  onUploadAttachment,
   onAddTable,
   onAddReference,
 }: {
   editor: Editor;
   onUploadImage: () => void;
   onAddImageUrl: () => void;
+  onUploadAttachment: () => void;
   onAddTable: (rows: number, cols: number) => void;
   onAddReference: () => void;
 }) {
@@ -535,6 +541,10 @@ function BubbleToolbar({
               onAddImageUrl();
               close();
             }}
+            onUploadAttachment={() => {
+              onUploadAttachment();
+              close();
+            }}
             onAddTable={(rows, cols) => {
               onAddTable(rows, cols);
               close();
@@ -607,11 +617,13 @@ function BubbleToolbar({
 function InsertMenu({
   onUploadImage,
   onAddImageUrl,
+  onUploadAttachment,
   onAddTable,
   onAddReference,
 }: {
   onUploadImage: () => void;
   onAddImageUrl: () => void;
+  onUploadAttachment: () => void;
   onAddTable: (rows: number, cols: number) => void;
   onAddReference: () => void;
 }) {
@@ -635,6 +647,7 @@ function InsertMenu({
     <>
       <MenuItem icon={Upload} label="上传图片" onClick={onUploadImage} />
       <MenuItem icon={ImageIcon} label="图片 URL" onClick={onAddImageUrl} />
+      <MenuItem icon={Paperclip} label="上传附件" onClick={onUploadAttachment} />
       <button
         type="button"
         className="table-insert-menu-item"
@@ -745,6 +758,16 @@ function firstTextblockElement(block: HTMLElement): HTMLElement {
 }
 
 function handleTopForBlock(block: HTMLElement, shellRect: DOMRect): number {
+  // 标注块（callout）：手柄与块上边对齐（锚定顶部 emoji 图标），
+  // 不随多行内容垂直居中。
+  const callout = block.matches("[data-callout]")
+    ? block
+    : block.querySelector("[data-callout]");
+  if (callout instanceof HTMLElement) {
+    const emoji = callout.querySelector(".callout-emoji");
+    const iconRect = (emoji instanceof HTMLElement ? emoji : callout).getBoundingClientRect();
+    return iconRect.top - shellRect.top + Math.max(0, (iconRect.height - HANDLE_HEIGHT) / 2);
+  }
   // 锚定到块内第一个文本块：列表项 / 待办项 / 折叠列表的外框会因外边距折叠、
   // 内边距而偏离首行文字，直接用外框会让手柄偏上几像素。
   const anchor = firstTextblockElement(block);
@@ -847,6 +870,7 @@ function shouldShowTextToolbar({
 
 export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
   const initialContentRef = useRef(content);
@@ -889,7 +913,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       Color,
       Highlight.configure({ multicolor: true }),
       Underline,
-      Image.configure({ inline: false, allowBase64: true }),
+      ResizableImage.configure({ inline: false, allowBase64: true }),
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
       TaskList,
@@ -902,8 +926,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         View: OrganizeTableView,
       }),
       OrganizeTableRow,
-      TableCell,
-      TableHeader,
+      OrganizeTableCell,
+      OrganizeTableHeader,
       Details,
       DetailsContent,
       // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
@@ -926,6 +950,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       Columns,
       Column,
       HtmlEmbed,
+      FileAttachment,
       SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
@@ -980,18 +1005,40 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         return false;
       },
       handleClickOn: (_view, _pos, _node, _nodePos, event) => {
+        const anchor = (event.target as HTMLElement)?.closest("a");
+        if (!(anchor instanceof HTMLAnchorElement)) return false;
+        const href = anchor.getAttribute("href");
+        if (!href) return false;
         if (event.metaKey || event.ctrlKey) {
-          const anchor = (event.target as HTMLElement)?.closest("a");
-          if (anchor instanceof HTMLAnchorElement) {
-            const href = anchor.getAttribute("href");
-            if (href) {
-              event.preventDefault();
-              window.open(href, "_blank", "noopener,noreferrer");
-              return true;
-            }
-          }
+          event.preventDefault();
+          window.open(href, "_blank", "noopener,noreferrer");
+          return true;
+        }
+        // 站内链接（如「转换成页面」/ 拖入子页面产生的 /notes/<id>）单击直接跳转
+        if (href.startsWith("/")) {
+          event.preventDefault();
+          router.push(href);
+          return true;
         }
         return false;
+      },
+      // 从编辑器外拖入文件（图片 / 视频 / 音频 / 附件）
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) return false;
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return false;
+        event.preventDefault();
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        void insertFilesRef.current(files, coords?.pos);
+        return true;
+      },
+      // 粘贴文件（截图、从文件管理器复制的文件）
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (!files.length) return false;
+        event.preventDefault();
+        void insertFilesRef.current(files);
+        return true;
       },
     },
   });
@@ -1065,6 +1112,78 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     };
     input.click();
   }, [editor, insertImage]);
+
+  // 从外部拖入 / 粘贴 / 菜单选择的文件：图片插入图片块，其余作为附件块（视频/音频内联播放）
+  const insertFiles = useCallback(async (files: File[], pos?: number) => {
+    if (!editor || !files.length) return;
+    const nodes: JSONContent[] = [];
+    for (const file of files) {
+      const isImage = file.type.startsWith("image/");
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "上传失败");
+        nodes.push(
+          isImage
+            ? { type: "image", attrs: { src: data.url as string } }
+            : {
+                type: "fileAttachment",
+                attrs: {
+                  src: data.url as string,
+                  name: (data.name as string) || file.name,
+                  size: typeof data.size === "number" ? data.size : file.size,
+                  mime: (data.mime as string) || file.type,
+                },
+              }
+        );
+      } catch (error) {
+        if (isImage) {
+          // 上传接口不可用时图片回退为 base64 内联（与 uploadImage 一致）
+          const dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => resolve("");
+            reader.readAsDataURL(file);
+          });
+          if (dataUrl) nodes.push({ type: "image", attrs: { src: dataUrl } });
+        } else {
+          console.warn("[editor] 附件上传失败", error);
+          window.alert(
+            `「${file.name}」上传失败：${error instanceof Error ? error.message : "请稍后重试"}`
+          );
+        }
+      }
+    }
+    if (!nodes.length) return;
+    if (pos === undefined) {
+      editor.chain().focus().insertContent(nodes).run();
+      return;
+    }
+    try {
+      editor.chain().focus().insertContentAt(pos, nodes).run();
+    } catch {
+      // 落点放不下块级内容（如表格单元格内）时追加到文末
+      editor.chain().focus("end").insertContent(nodes).run();
+    }
+  }, [editor]);
+
+  // editorProps 在编辑器初始化时定型，通过 ref 拿到最新的 insertFiles
+  const insertFilesRef = useRef(insertFiles);
+  insertFilesRef.current = insertFiles;
+
+  const uploadAttachment = useCallback(() => {
+    if (!editor) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.onchange = () => {
+      const files = Array.from(input.files ?? []);
+      if (files.length) void insertFiles(files);
+    };
+    input.click();
+  }, [editor, insertFiles]);
 
   const addImageUrl = useCallback(() => {
     const url = window.prompt("输入图片 URL");
@@ -1777,7 +1896,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         shouldShow={shouldShowTextToolbar}
         tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}
       >
-        <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onAddTable={addTable} onAddReference={() => addReadingReference()} />
+        <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onUploadAttachment={uploadAttachment} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
       <BubbleMenu
         editor={editor}

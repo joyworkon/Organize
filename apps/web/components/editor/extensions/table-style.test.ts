@@ -11,6 +11,8 @@ import { CellSelection, TableMap } from "@tiptap/pm/tables";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   OrganizeTable,
+  OrganizeTableCell,
+  OrganizeTableHeader,
   OrganizeTableRow,
   TOP_LEVEL_BLOCK_PLACEHOLDER,
   createTableContent,
@@ -27,6 +29,7 @@ import {
   selectTableRow,
   selectWholeTable,
   setActiveTableAttributes,
+  setSelectedCellsBackground,
   setTableRowHeight,
   tableHasMergedCells,
   topLevelBlockPlaceholder,
@@ -760,5 +763,100 @@ describe("OrganizeTable", () => {
       isRowSelection: true,
       isColumnSelection: true,
     });
+  });
+});
+
+
+describe("表格颜色（边框色 / 单元格背景）", () => {
+  function colorExtensions() {
+    return [
+      StarterKit,
+      OrganizeTable,
+      OrganizeTableRow,
+      OrganizeTableCell,
+      OrganizeTableHeader,
+    ];
+  }
+
+  function colorEditor(content?: JSONContent) {
+    editor = new Editor({
+      extensions: colorExtensions(),
+      content: content ?? { type: "doc", content: [matrixTable(2, 2)] },
+    });
+    editor.commands.setTextSelection(4);
+    return editor;
+  }
+
+  function cellBackgrounds(e: Editor): (string | null)[] {
+    const table = getActiveTable(e);
+    if (!table) return [];
+    const backgrounds: (string | null)[] = [];
+    table.node.forEach((row) => {
+      row.forEach((cell) => {
+        backgrounds.push((cell.attrs.background as string | null) ?? null);
+      });
+    });
+    return backgrounds;
+  }
+
+  it("设置并读取表格边框颜色，非法值回退为 default", () => {
+    const e = colorEditor();
+    expect(setActiveTableAttributes(e, { borderColor: "blue" })).toBe(true);
+    expect(getActiveTable(e)?.borderColor).toBe("blue");
+    expect(
+      setActiveTableAttributes(e, { borderColor: "not-a-color" as never })
+    ).toBe(true);
+    expect(getActiveTable(e)?.borderColor).toBe("default");
+  });
+
+  it("无边框色时 getActiveTable 返回 default", () => {
+    const e = colorEditor();
+    expect(getActiveTable(e)?.borderColor).toBe("default");
+  });
+
+  it("光标所在单元格设置背景色", () => {
+    const e = colorEditor();
+    expect(setSelectedCellsBackground(e, "green")).toBe(true);
+    expect(cellBackgrounds(e)).toEqual(["green", null, null, null]);
+  });
+
+  it("单元格选区批量设置背景色，default 清除", () => {
+    const e = colorEditor();
+    expect(selectWholeTable(e, 0)).toBe(true);
+    expect(setSelectedCellsBackground(e, "red")).toBe(true);
+    expect(cellBackgrounds(e)).toEqual(["red", "red", "red", "red"]);
+    expect(setSelectedCellsBackground(e, "default")).toBe(true);
+    expect(cellBackgrounds(e)).toEqual([null, null, null, null]);
+  });
+
+  it("背景色随 HTML 渲染/解析持久化", () => {
+    const e = colorEditor();
+    expect(setSelectedCellsBackground(e, "blue")).toBe(true);
+    const html = e.getHTML();
+    expect(html).toContain('data-cell-bg="blue"');
+    e.destroy();
+    editor = new Editor({ extensions: colorExtensions(), content: html });
+    editor.commands.setTextSelection(4);
+    expect(cellBackgrounds(editor)).toEqual(["blue", null, null, null]);
+  });
+
+  it("表格边框色随 HTML 渲染/解析持久化", () => {
+    const e = colorEditor();
+    setActiveTableAttributes(e, { borderColor: "pink" });
+    const html = e.getHTML();
+    expect(html).toContain('data-table-border-color="pink"');
+    e.destroy();
+    editor = new Editor({ extensions: colorExtensions(), content: html });
+    editor.commands.setTextSelection(4);
+    expect(getActiveTable(editor)?.borderColor).toBe("pink");
+  });
+
+  it("光标不在单元格内时设置背景返回 false", () => {
+    editor = new Editor({
+      extensions: colorExtensions(),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    editor.commands.setTextSelection(1);
+    expect(setSelectedCellsBackground(editor, "red")).toBe(false);
   });
 });

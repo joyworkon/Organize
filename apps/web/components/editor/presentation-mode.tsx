@@ -92,7 +92,17 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "horizontalRule") return <hr />;
   // 演示模式需原样支持用户粘贴的 data URL 与任意远端图片，不能套用 next/image 域名约束。
   // eslint-disable-next-line @next/next/no-img-element
-  if (block.type === "image") return <img src={String(block.attrs?.src || "")} alt={String(block.attrs?.alt || "")} />;
+  if (block.type === "image") {
+    const width = Number(block.attrs?.width) || null;
+    return <img src={String(block.attrs?.src || "")} alt={String(block.attrs?.alt || "")} style={width ? { width: `${width}px`, maxWidth: "100%" } : undefined} />;
+  }
+  if (block.type === "fileAttachment") {
+    const mime = String(block.attrs?.mime || "");
+    const name = String(block.attrs?.name || "附件");
+    if (mime.startsWith("video/")) return <video src={String(block.attrs?.src || "")} controls />;
+    if (mime.startsWith("audio/")) return <audio src={String(block.attrs?.src || "")} controls />;
+    return <p>📎 {name}</p>;
+  }
   if (block.type === "callout") return <aside style={style}><span>{String(block.attrs?.emoji || "💡")}</span><p><InlineContent block={block} /></p></aside>;
   if (["bulletList", "orderedList", "taskList"].includes(block.type || "")) {
     const Tag = block.type === "orderedList" ? "ol" : "ul";

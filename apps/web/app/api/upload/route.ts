@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-// POST /api/upload - 上传图片到 Supabase Storage
+// 图片走 images bucket（保持原有白名单与 5MB 限制）
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+// 其余类型（视频 / 音频 / 文档等附件）走 attachments bucket，上限 50MB
+const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
+
+// POST /api/upload - 上传文件到 Supabase Storage（图片 → images，其他 → attachments）
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -19,28 +25,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未提供文件" }, { status: 400 });
   }
 
-  // 验证文件类型
-  const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"];
-  if (!allowedTypes.includes(file.type)) {
+  const mime = file.type || "application/octet-stream";
+  const isImage = IMAGE_TYPES.includes(mime);
+
+  // 图片沿用严格白名单；非图片按通用附件放行（大小受限、按用户目录隔离）
+  if (mime.startsWith("image/") && !isImage) {
     return NextResponse.json(
-      { error: "仅支持 JPEG、PNG、GIF、WebP、SVG 格式" },
+      { error: "仅支持 JPEG、PNG、GIF、WebP、SVG 图片格式" },
       { status: 400 }
     );
   }
 
-  // 验证文件大小 (最大 5MB)
-  if (file.size > 5 * 1024 * 1024) {
-    return NextResponse.json({ error: "文件大小不能超过 5MB" }, { status: 400 });
+  const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_ATTACHMENT_SIZE;
+  if (file.size > maxSize) {
+    return NextResponse.json(
+      { error: isImage ? "图片大小不能超过 5MB" : "附件大小不能超过 50MB" },
+      { status: 400 }
+    );
   }
 
-  const ext = file.name.split(".").pop() || "png";
+  const bucket = isImage ? "images" : "attachments";
+  // 附件名可能含中文等字符，扩展名提取后统一用 ASCII 随机名存储
+  const ext = (file.name.split(".").pop() || "bin").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
   const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
-    .from("images")
+    .from(bucket)
     .upload(fileName, file, {
       cacheControl: "3600",
       upsert: false,
+      contentType: mime,
     });
 
   if (uploadError) {
@@ -49,7 +63,12 @@ export async function POST(request: NextRequest) {
 
   const {
     data: { publicUrl },
-  } = supabase.storage.from("images").getPublicUrl(fileName);
+  } = supabase.storage.from(bucket).getPublicUrl(fileName);
 
-  return NextResponse.json({ url: publicUrl });
+  return NextResponse.json({
+    url: publicUrl,
+    name: file.name,
+    size: file.size,
+    mime,
+  });
 }
