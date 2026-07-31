@@ -4215,3 +4215,17 @@ mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; paddi
 .organize-db-admin-empty-icon { width: 32px; height: 32px; opacity: .5; }
 .organize-db-admin-empty .organize-db-admin-add-row { margin-top: 4px; }
 .organize-db-admin-hint { font-size: 11px; color: hsl(var(--muted-foreground) / .6); }
+
+/* ------------------------- 数据库动态视图 ------------------------- */
+.organize-db-dynamic-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.organize-db-dynamic-time {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground) / .8);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
