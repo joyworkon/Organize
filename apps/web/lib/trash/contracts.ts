@@ -3,6 +3,7 @@ export const TRASH_RESOURCE_TYPES = [
   "reading_item",
   "task",
   "lesson",
+  "database",
 ] as const;
 export const TRASH_ACTIONS = [
   "soft_delete",
