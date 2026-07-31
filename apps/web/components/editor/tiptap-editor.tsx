@@ -41,6 +41,7 @@ import { ResizableImage } from "./extensions/resizable-image";
 import { FileAttachment } from "./extensions/file-attachment";
 import { TableOfContents } from "./extensions/table-of-contents";
 import { Breadcrumb } from "./extensions/breadcrumb";
+import { ButtonBlock } from "./extensions/button-node";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -957,6 +958,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     FileAttachment,
     TableOfContents,
     Breadcrumb,
+    ButtonBlock,
     SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,

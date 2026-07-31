@@ -119,5 +119,8 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "breadcrumb") {
     return <div className="presentation-embed">📑 路径栏（编辑模式中显示父级链）</div>;
   }
+  if (block.type === "buttonBlock") {
+    return <button type="button" className="organize-button" style={style}>{String(block.attrs?.label || "按钮")}</button>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

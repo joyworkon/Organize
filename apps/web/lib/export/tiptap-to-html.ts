@@ -180,6 +180,8 @@ function renderNode(node: PMNode): string {
       return "<p>📑 目录</p>";
     case "breadcrumb":
       return "<p>📑 路径栏</p>";
+    case "buttonBlock":
+      return `<button type="button">${escapeHtml(String(node.attrs?.label || "按钮"))}</button>`;
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -275,6 +277,8 @@ function extractPlainText(node: PMNode): string {
       return "📑 目录";
     case "breadcrumb":
       return "📑 路径栏";
+    case "buttonBlock":
+      return `[按钮] ${String(node.attrs?.label || "按钮")}`;
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

@@ -28,6 +28,7 @@ import {
   TextCursorInput,
   ListTree,
   Route,
+  MousePointerClick,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -456,6 +457,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Route,
     keywords: ["breadcrumb", "path", "crumb", "路径", "面包屑"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "breadcrumb", attrs: {} }),
+  },
+  {
+    id: "button",
+    label: "按钮",
+    description: "点击执行动作（打开链接或插入预设内容）",
+    category: "基本区块",
+    icon: MousePointerClick,
+    keywords: ["button", "action", "按钮", "动作"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "buttonBlock", attrs: {} }),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,
