@@ -107,6 +107,41 @@ export async function insertPageDatabase(editor: Editor, noteId: string | null |
   }
 }
 
+/**
+ * 插入「链接的视图」：
+ * 1) GET /api/databases 拉取用户所有数据库
+ * 2) 用 prompt 让用户选择
+ * 3) 插入 databaseBlock（同一 databaseId，新 viewId）
+ */
+export async function insertLinkedDatabase(editor: Editor, pos?: number): Promise<void> {
+  let databases: { id: string; title: string }[] = [];
+  try {
+    const res = await fetch("/api/databases");
+    if (res.ok) databases = await res.json();
+  } catch { /* ignore */ }
+
+  if (!databases.length) {
+    insertDbBlock(editor, pos, { type: "paragraph", content: [{ type: "text", text: "⚠️ 还没有可链接的数据库，请先创建一个数据库。" }] }, null);
+    return;
+  }
+
+  // 构建选择列表
+  const list = databases.map((db, i) => `${i + 1}. ${db.title || "未命名数据库"}`).join("\n");
+  const choice = window.prompt(`选择要链接的数据库：\n${list}\n\n输入序号：`);
+  if (!choice) return;
+  const idx = parseInt(choice, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= databases.length) return;
+
+  const selected = databases[idx];
+  const viewId = `view_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const block: JSONContent = {
+    type: "databaseBlock",
+    attrs: { databaseId: selected.id, viewId },
+  };
+  insertDbBlock(editor, pos, block, null);
+}
+
 function insertDbBlock(editor: Editor, pos: number | undefined, block: JSONContent, fallbackText: string | null) {
   if (!editor) return;
   const finalBlock = fallbackText

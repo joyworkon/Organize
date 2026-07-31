@@ -48,7 +48,7 @@ import { Embed } from "./extensions/embed";
 import { SyncedBlock } from "./extensions/synced-block";
 import { createSyncedBlockAt } from "./extensions/synced-block-client";
 import { DatabaseBlock } from "./extensions/database-block";
-import { insertInlineDatabase, insertPageDatabase } from "./extensions/database-block-client";
+import { insertInlineDatabase, insertPageDatabase, insertLinkedDatabase } from "./extensions/database-block-client";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -1357,6 +1357,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           if (!detail.nested) {
             void insertPageDatabase(editor, noteId, detail.pos, router);
           }
+        }
+        else if (detail.type === "database-linked") {
+          // 链接的视图：选择已有数据库，插入新视图引用
+          void insertLinkedDatabase(editor, detail.nested ? undefined : detail.pos);
         }
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });

@@ -538,6 +538,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["database", "db", "数据库", "整页", "full-page", "base"],
     run: (editor, pos) => emit(editor, "database-page", pos),
   },
+  {
+    id: "database-linked",
+    label: "链接的视图",
+    description: "在当前位置嵌入已有数据库的另一个视图",
+    category: "基本区块",
+    icon: DatabaseIcon,
+    keywords: ["linked", "link", "视图", "链接", "embed", "嵌入", "database"],
+    run: (editor, pos) => emit(editor, "database-linked", pos),
+  },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,
     label: `${cols} 列`,
