@@ -4104,3 +4104,114 @@ mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; paddi
   font-style: italic;
   font-size: 13px;
 }
+
+/* ------------------------- 数据库管理面板视图 ------------------------- */
+.organize-db-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 8px;
+}
+.organize-db-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.organize-db-admin-card {
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--background));
+  overflow: hidden;
+  cursor: grab;
+  transition: box-shadow .15s, border-color .15s, opacity .15s;
+}
+.organize-db-admin-card:hover { box-shadow: 0 1px 4px hsl(var(--foreground) / .08); }
+.organize-db-admin-card.is-dragging { opacity: .4; }
+.organize-db-admin-card.is-drag-over { border-color: hsl(var(--primary)); box-shadow: 0 0 0 2px hsl(var(--primary) / .25); }
+.organize-db-admin-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid hsl(var(--border) / .6);
+  background: hsl(var(--muted) / .25);
+}
+.organize-db-admin-grip { color: hsl(var(--muted-foreground)); cursor: grab; flex-shrink: 0; }
+.organize-db-admin-card-type { color: hsl(var(--muted-foreground)); display: inline-flex; flex-shrink: 0; }
+.organize-db-admin-card-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.organize-db-admin-card-actions { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.organize-db-admin-card-actions button {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 5px;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.organize-db-admin-card-actions button:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.organize-db-admin-card-body { padding: 12px 10px; min-height: 120px; }
+.organize-db-admin-card-body svg { max-width: 100%; height: auto; }
+.organize-db-admin-metric { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px 8px; }
+.organize-db-admin-metric-num { font-size: 36px; font-weight: 700; color: hsl(var(--foreground)); line-height: 1.1; }
+.organize-db-admin-metric-label { font-size: 12px; color: hsl(var(--muted-foreground)); }
+.organize-db-admin-placeholder {
+  padding: 28px 8px;
+  text-align: center;
+  color: hsl(var(--muted-foreground) / .7);
+  font-style: italic;
+  font-size: 12px;
+}
+.organize-db-admin-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.organize-db-admin-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.organize-db-admin-field > span { white-space: nowrap; }
+.organize-db-admin-field input,
+.organize-db-admin-field select {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.organize-db-admin-field select:disabled { opacity: .5; }
+.organize-db-admin-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.organize-db-admin-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1px dashed hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.organize-db-admin-add-btn:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); border-color: hsl(var(--accent)); }
+.organize-db-admin-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 16px;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+.organize-db-admin-empty-icon { width: 32px; height: 32px; opacity: .5; }
+.organize-db-admin-empty .organize-db-admin-add-row { margin-top: 4px; }
+.organize-db-admin-hint { font-size: 11px; color: hsl(var(--muted-foreground) / .6); }
