@@ -21,6 +21,7 @@ export const BACKUP_TABLES = [
   "note_comment_threads",
   "note_comments",
   "note_suggestions",
+  "synced_blocks",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -275,6 +276,15 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       original_block: isJsonObject,
       proposed_block: isJsonObject,
       status: oneOf("pending", "accepted", "rejected"),
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  synced_blocks: {
+    fields: {
+      id: isUuid,
+      content: isJsonObject,
       created_at: isTimestamp,
       updated_at: isTimestamp,
     },
@@ -558,6 +568,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     [data.note_versions, "content", "note_versions"],
     [data.note_suggestions, "original_block", "note_suggestions"],
     [data.note_suggestions, "proposed_block", "note_suggestions"],
+    [data.synced_blocks, "content", "synced_blocks"],
   ];
   for (const [rows, field, table] of jsonFields) {
     rows.forEach((row, index) => {

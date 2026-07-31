@@ -32,6 +32,7 @@ import {
   PanelTop,
   GitGraph,
   Link2,
+  Repeat2,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -508,6 +509,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
       const url = source ? blockTextForReplacement(source).trim() : "";
       replaceBlock(editor, pos, { type: "embed", attrs: { url } });
     },
+  },
+  {
+    id: "synced-block",
+    label: "同步区块",
+    description: "一处编辑、多处同步的引用块",
+    category: "基本区块",
+    icon: Repeat2,
+    keywords: ["synced", "sync", "同步", "引用块", "transclude"],
+    run: (editor, pos) => emit(editor, "synced-block", pos),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

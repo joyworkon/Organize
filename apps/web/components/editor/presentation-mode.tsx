@@ -139,5 +139,8 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
     const title = String(block.attrs?.title || url);
     return <a href={url} target="_blank" rel="noopener noreferrer" className="presentation-embed">{title}</a>;
   }
+  if (block.type === "syncedBlock") {
+    return <div className="presentation-synced">{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

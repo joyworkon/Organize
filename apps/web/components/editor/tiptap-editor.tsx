@@ -45,6 +45,8 @@ import { ButtonBlock } from "./extensions/button-node";
 import { Tabs, Tab } from "./extensions/tabs-node";
 import { Mermaid } from "./extensions/mermaid-node";
 import { Embed } from "./extensions/embed";
+import { SyncedBlock } from "./extensions/synced-block";
+import { createSyncedBlockAt } from "./extensions/synced-block-client";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -966,6 +968,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     Tab,
     Mermaid,
     Embed,
+    SyncedBlock,
     SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
@@ -1337,6 +1340,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           if (!detail.nested) {
             void convertBlockToPage(detail.pos);
           }
+        }
+        else if (detail.type === "synced-block") {
+          // 同步区块：异步创建服务端记录拿到 id，再插入带 syncedId 的块
+          void createSyncedBlockAt(editor, detail.nested ? undefined : detail.pos);
         }
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });

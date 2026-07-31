@@ -26,6 +26,7 @@ const ID_TABLES = [
   "note_comment_threads",
   "note_comments",
   "note_suggestions",
+  "synced_blocks",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -81,7 +82,7 @@ export function prepareRestorePayload(
         ? (row.font_family as "default" | "serif" | "mono")
         : "default",
     small_font: row.small_font === true,
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks),
   }));
   data.tags = backup.data.tags.map((row) => withId(row, maps.tags));
   data.item_tags = backup.data.item_tags.map((row) => ({
@@ -148,12 +149,23 @@ export function prepareRestorePayload(
     original_block: rewriteInternalLinks(
       row.original_block,
       maps.notes,
-      maps.reading_items
+      maps.reading_items,
+      maps.synced_blocks
     ),
     proposed_block: rewriteInternalLinks(
       row.proposed_block,
       maps.notes,
-      maps.reading_items
+      maps.reading_items,
+      maps.synced_blocks
+    ),
+  }));
+  data.synced_blocks = backup.data.synced_blocks.map((row) => ({
+    ...withId(row, maps.synced_blocks),
+    content: rewriteInternalLinks(
+      row.content,
+      maps.notes,
+      maps.reading_items,
+      maps.synced_blocks
     ),
   }));
 
