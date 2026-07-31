@@ -161,6 +161,19 @@ export default function SettingsPage() {
           userOwned: true,
           order: ["id"],
         },
+        {
+          table: "db_databases",
+          columns:
+            "id, parent_note_id, title, icon, schema, views, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "db_rows",
+          columns: "id, database_id, sort, values, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
       ] as const;
 
       const pageSize = 500;

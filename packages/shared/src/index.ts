@@ -302,3 +302,81 @@ export interface Favorite {
   note?: string | null;
   created_at: string;
 }
+
+// ---- 数据库（M3+）----
+// 属性（列）类型
+export type DatabasePropertyType =
+  | "text"
+  | "number"
+  | "select"
+  | "multi_select"
+  | "checkbox"
+  | "date"
+  | "file"
+  | "url";
+
+// 单个属性定义（schema 数组项）
+export interface DatabaseProperty {
+  id: string;
+  name: string;
+  type: DatabasePropertyType;
+  options?: { id: string; name: string; color?: string }[]; // select / multi_select 选项
+}
+
+// 视图类型
+export type DatabaseViewType =
+  | "table"
+  | "board"
+  | "list"
+  | "gallery"
+  | "calendar"
+  | "timeline"
+  | "chart"
+  | "dynamic"
+  | "admin";
+
+// 视图配置（M3 只用到 table 的 columnWidths；其他字段预留 M4/M5 用）
+export interface DatabaseView {
+  id: string;
+  name?: string;
+  type: DatabaseViewType;
+  config: {
+    columnWidths?: Record<string, number>;
+    filters?: unknown[];
+    sorts?: unknown[];
+    groupBy?: string | null;
+    hiddenProps?: string[];
+    cardSize?: "small" | "medium" | "large";
+    datePropertyId?: string | null;
+    startPropertyId?: string | null;
+    endPropertyId?: string | null;
+    chartType?: "bar_h" | "bar_v" | "line" | "donut" | "pivot";
+    [key: string]: unknown;
+  };
+}
+
+// 数据库（一张逻辑表）
+export interface Database {
+  id: string;
+  user_id: string;
+  parent_note_id: string | null;
+  title: string;
+  icon?: string | null;
+  schema: DatabaseProperty[];
+  views: DatabaseView[];
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 数据库行（单条记录）
+export interface DatabaseRow {
+  id: string;
+  user_id: string;
+  database_id: string;
+  sort: number;
+  values: Record<string, unknown>; // propertyId -> value
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}

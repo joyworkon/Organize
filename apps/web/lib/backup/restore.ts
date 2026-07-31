@@ -27,6 +27,8 @@ const ID_TABLES = [
   "note_comments",
   "note_suggestions",
   "synced_blocks",
+  "db_databases",
+  "db_rows",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -163,6 +165,25 @@ export function prepareRestorePayload(
     ...withId(row, maps.synced_blocks),
     content: rewriteInternalLinks(
       row.content,
+      maps.notes,
+      maps.reading_items,
+      maps.synced_blocks
+    ),
+  }));
+  data.db_databases = backup.data.db_databases.map((row) => ({
+    ...withId(row, maps.db_databases),
+    parent_note_id:
+      row.parent_note_id == null ? null : remap(row.parent_note_id, maps.notes),
+    // schema/views 是数据库结构定义，内部不含笔记/阅读 ID，不需要重写链接
+    schema: row.schema,
+    views: row.views,
+  }));
+  data.db_rows = backup.data.db_rows.map((row) => ({
+    ...withId(row, maps.db_rows),
+    database_id: remap(row.database_id, maps.db_databases),
+    // values 里可能含富文本/链接（text 类属性的 href mark），递归重写内部链接
+    values: rewriteInternalLinks(
+      row.values,
       maps.notes,
       maps.reading_items,
       maps.synced_blocks
