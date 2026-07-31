@@ -108,6 +108,8 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
   const [saving, setSaving] = useState(false);
   const [activeColumnMenu, setActiveColumnMenu] = useState<string | null>(null);
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
+  // canvas 2d 上下文 ref，用于双击自适应列宽时离屏测量文本宽度（缓存复用）
+  const measureCanvasRef = useRef<CanvasRenderingContext2D | null>(null);
   // 拖拽中的列宽（本地乐观，松手才落库）
   const [dragWidths, setDragWidths] = useState<Record<string, number> | null>(null);
 
@@ -140,6 +142,54 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
+  };
+
+  /** 双击列手柄：按「这一列所有单元格 + 表头」的实际内容宽度自适应。
+   *  实现：临时取消该列所有 td/th 的固定宽（不靠 colgroup，靠测内容 scrollWidth），
+   *  取各单元内容 scrollWidth 的最大值 + padding，作为新列宽。
+   *  纯 DOM 测量，不触发重排外的副作用；测完落库持久化。
+   */
+  const autoFitColumn = (propId: string) => {
+    if (readOnly || !onUpdateColumnWidths) return;
+
+    // 收集这一列的表头名 + 所有单元格的文本内容，用 canvas 离屏量字宽（最快且不抖动）
+    const prop = schema.find((p) => p.id === propId);
+    if (!prop) return;
+    const headerText = prop.name;
+    const cells = rows.map((r) => {
+      const v = (r.values || {})[propId];
+      // 复用 formatCellDisplay 的字符串化逻辑（select→选项名、multi→逗号串、其余 String）
+      if (v === null || v === undefined || v === "") return "";
+      if (prop.type === "select") {
+        const opt = (prop.options || []).find((o) => o.id === v);
+        return opt?.name || String(v);
+      }
+      if (prop.type === "multi_select") {
+        const ids = Array.isArray(v) ? (v as string[]) : [];
+        return ids.map((id) => (prop.options || []).find((o) => o.id === id)?.name || id).join(", ");
+      }
+      return String(v);
+    });
+
+    // canvas 离屏测宽（表头用 12px，单元格用 13px，对齐 CSS）
+    if (!measureCanvasRef.current) {
+      measureCanvasRef.current = document.createElement("canvas").getContext("2d");
+    }
+    const ctx = measureCanvasRef.current;
+    if (!ctx) return;
+    const padX = 20; // .organize-db-cell 左右 padding 10+10
+    const measure = (text: string, font: string) => {
+      ctx.font = font;
+      return Math.ceil(ctx.measureText(text || " ").width) + padX;
+    };
+    const headerW = measure(headerText, "500 12px system-ui, sans-serif");
+    let maxCellW = 0;
+    for (const text of cells) {
+      maxCellW = Math.max(maxCellW, measure(text, "13px system-ui, sans-serif"));
+    }
+    const fitted = Math.max(MIN_COL_WIDTH, Math.max(headerW, maxCellW));
+    const base = { ...(columnWidths || {}), ...(dragWidths || {}) };
+    onUpdateColumnWidths({ ...base, [propId]: fitted });
   };
 
   const load = useCallback(async () => {
@@ -415,7 +465,8 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
                     <div
                       className={`organize-db-th-resizer ${dragWidths?.[prop.id] ? "is-resizing" : ""}`}
                       onMouseDown={(e) => startResize(e, prop.id)}
-                      title="拖动调整列宽"
+                      onDoubleClick={(e) => { e.stopPropagation(); autoFitColumn(prop.id); }}
+                      title="拖动调整列宽 · 双击自适应内容"
                     />
                   )}
                 </th>
