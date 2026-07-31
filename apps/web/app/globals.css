@@ -2926,6 +2926,89 @@
 .organize-button:active { transform: translateY(1px); }
 .organize-button-warn { margin: 0; font-size: 12px; color: hsl(var(--destructive)); }
 
+/* ------------------------- 选项卡（Tabs） ------------------------- */
+.organize-editor .organize-tabs {
+  margin: var(--organize-block-gap, 1rem) 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.organize-tabs-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / .3);
+  padding: 0 4px;
+}
+.organize-tabs-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px 6px 10px;
+  border-bottom: 2px solid transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  max-width: 12rem;
+  cursor: pointer;
+}
+.organize-tabs-title > button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+  cursor: pointer;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.organize-tabs-title > input {
+  font: inherit;
+  padding: 2px 4px;
+  border: 1px solid hsl(var(--ring) / .4);
+  border-radius: 4px;
+  max-width: 10rem;
+}
+.organize-tabs-title.is-active {
+  color: hsl(var(--foreground));
+  border-bottom-color: hsl(var(--primary));
+  background: hsl(var(--background));
+}
+.organize-tabs-close {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  opacity: 0;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.organize-tabs-title:hover .organize-tabs-close,
+.organize-tabs-title.is-active .organize-tabs-close { opacity: 1; }
+.organize-tabs-close:hover { background: hsl(var(--destructive) / .12); color: hsl(var(--destructive)); }
+.organize-tabs-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.organize-tabs-add:hover { color: hsl(var(--foreground)); }
+.organize-tabs-content { padding: 12px 14px; }
+.organize-tabs-content > div {
+  /* 只有活动 tab 显示；非活动 tab 由 data-active=false 隐藏 */
+}
+.organize-editor .organize-tabs-content > div[data-active="false"] {
+  display: none;
+}
+
 /* AI 录音 */
 .recording-state { display: grid; justify-items: center; gap: 8px; padding: 28px 20px 10px; text-align: center; }
 .recording-state p { margin: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }

@@ -182,6 +182,15 @@ function renderNode(node: PMNode): string {
       return "<p>📑 路径栏</p>";
     case "buttonBlock":
       return `<button type="button">${escapeHtml(String(node.attrs?.label || "按钮"))}</button>`;
+    case "tabs": {
+      // 导出时展开所有页签，避免内容丢失
+      const tabs = (node.content || []).map((tab, i) =>
+        `<h4>${escapeHtml(String(tab.attrs?.title || `标签页 ${i + 1}`))}</h4>${renderChildren(tab)}`
+      );
+      return tabs.join("");
+    }
+    case "tab":
+      return renderChildren(node);
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -279,6 +288,12 @@ function extractPlainText(node: PMNode): string {
       return "📑 路径栏";
     case "buttonBlock":
       return `[按钮] ${String(node.attrs?.label || "按钮")}`;
+    case "tabs":
+      return (node.content || []).map((tab, i) =>
+        `[${String(tab.attrs?.title || `标签页 ${i + 1}`)}]\n${extractPlainText(tab)}`
+      ).join("\n\n");
+    case "tab":
+      return (node.content || []).map(extractPlainText).join("\n\n");
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

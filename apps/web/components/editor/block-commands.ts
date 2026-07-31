@@ -29,6 +29,7 @@ import {
   ListTree,
   Route,
   MousePointerClick,
+  PanelTop,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -466,6 +467,17 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: MousePointerClick,
     keywords: ["button", "action", "按钮", "动作"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "buttonBlock", attrs: {} }),
+  },
+  {
+    id: "tabs",
+    label: "选项卡",
+    description: "Tab 容器，多页签切换内容",
+    category: "布局",
+    icon: PanelTop,
+    keywords: ["tabs", "tab", "选项卡", "标签页"],
+    canTransform: true,
+    preview: { sample: "▢▢ 选项卡", caption: "可切换页签的容器" },
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "tabs", attrs: { activeIndex: 0 } }),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

@@ -122,5 +122,14 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "buttonBlock") {
     return <button type="button" className="organize-button" style={style}>{String(block.attrs?.label || "按钮")}</button>;
   }
+  if (block.type === "tabs") {
+    const activeIndex = Number(block.attrs?.activeIndex || 0);
+    const tabs = block.content || [];
+    const active = tabs[Math.max(0, Math.min(tabs.length - 1, activeIndex))];
+    return <div className="presentation-tabs">{active ? (active.content || []).map((child, index) => <RenderBlock key={index} block={child} />) : null}</div>;
+  }
+  if (block.type === "tab") {
+    return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

@@ -21,6 +21,7 @@ export const BLOCK_ID_TYPES = [
   "tableOfContents",
   "breadcrumb",
   "buttonBlock",
+  "tabs",
 ];
 
 export const ALLOWED_AI_NODE_TYPES = new Set([
