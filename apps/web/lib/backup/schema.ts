@@ -22,6 +22,8 @@ export const BACKUP_TABLES = [
   "note_comments",
   "note_suggestions",
   "synced_blocks",
+  "db_databases",
+  "db_rows",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -294,6 +296,30 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  db_databases: {
+    fields: {
+      id: isUuid,
+      parent_note_id: isNullableUuid,
+      title: isString,
+      icon: optional(isNullableString),
+      schema: isJsonArray,
+      views: isJsonArray,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  db_rows: {
+    fields: {
+      id: isUuid,
+      database_id: isUuid,
+      sort: isInteger,
+      values: isJsonObject,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 const REQUIRED_EXCLUSIONS = [
@@ -521,6 +547,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     tasks: idSet(data.tasks),
     lessons: idSet(data.lessons),
     threads: idSet(data.note_comment_threads),
+    databases: idSet(data.db_databases),
   };
 
   checkOptionalRefs(data.notes, "reading_item_id", ids.reading, "notes", issues);
@@ -550,6 +577,14 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   );
   checkRefs(data.note_comments, "thread_id", ids.threads, "note_comments", issues);
   checkRefs(data.note_suggestions, "note_id", ids.notes, "note_suggestions", issues);
+  checkOptionalRefs(
+    data.db_databases,
+    "parent_note_id",
+    ids.notes,
+    "db_databases",
+    issues
+  );
+  checkRefs(data.db_rows, "database_id", ids.databases, "db_rows", issues);
 
   data.favorites.forEach((favorite, index) => {
     const targetSet =
@@ -573,6 +608,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     [data.note_suggestions, "original_block", "note_suggestions"],
     [data.note_suggestions, "proposed_block", "note_suggestions"],
     [data.synced_blocks, "content", "synced_blocks"],
+    [data.db_rows, "values", "db_rows"],
   ];
   for (const [rows, field, table] of jsonFields) {
     rows.forEach((row, index) => {

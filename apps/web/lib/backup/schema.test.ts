@@ -21,6 +21,8 @@ const ids = {
   comment: "b0000000-0000-4000-8000-000000000001",
   suggestion: "c0000000-0000-4000-8000-000000000001",
   synced: "d0000000-0000-4000-8000-000000000001",
+  database: "e0000000-0000-4000-8000-000000000001",
+  dbRow: "f0000000-0000-4000-8000-000000000001",
 };
 const timestamp = "2026-07-29T12:00:00.000Z";
 
@@ -210,6 +212,37 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    db_databases: [
+      {
+        id: ids.database,
+        // 挂在 fixture note 下，模拟整页数据库
+        parent_note_id: ids.note,
+        title: "书籍清单",
+        icon: "📚",
+        schema: [
+          { id: "prop_name", name: "书名", type: "text" },
+          { id: "prop_status", name: "状态", type: "select", options: [{ id: "opt_reading", name: "在读" }] },
+          { id: "prop_done", name: "读完", type: "checkbox" },
+        ],
+        views: [{ id: "default_view", type: "table", config: {} }],
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    db_rows: [
+      {
+        id: ids.dbRow,
+        database_id: ids.database,
+        sort: 0,
+        values: {
+          prop_name: "深入理解计算机系统",
+          prop_status: "opt_reading",
+          prop_done: false,
+        },
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
   };
 }
 
@@ -358,5 +391,59 @@ describe("Backup V2", () => {
     // 改回数组合法
     const good = createBackupV2(fixtureData(), timestamp);
     expect(inspectBackupV2(good).ok).toBe(true);
+  });
+
+  it("db_databases/db_rows 通过校验，parent_note_id 与 database_id 引用正确", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    expect(inspectBackupV2(backup).ok).toBe(true);
+    expect(backup.data.db_databases).toHaveLength(1);
+    expect(backup.data.db_rows).toHaveLength(1);
+    expect(backup.data.db_databases[0].parent_note_id).toBe(ids.note);
+    expect(backup.data.db_rows[0].database_id).toBe(ids.database);
+  });
+
+  it("db_databases.parent_note_id 必须引用存在的笔记", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as any;
+    backup.data.db_databases[0].parent_note_id = "00000000-0000-4000-8000-000000000000";
+    expect(inspectBackupV2(backup).ok).toBe(false);
+
+    // parent_note_id = null（行内数据库）合法
+    const good = createBackupV2(fixtureData(), timestamp) as any;
+    good.data.db_databases[0].parent_note_id = null;
+    expect(inspectBackupV2(good).ok).toBe(true);
+  });
+
+  it("db_rows.database_id 必须引用存在的 db_databases", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as any;
+    backup.data.db_rows[0].database_id = "00000000-0000-4000-8000-000000000000";
+    expect(inspectBackupV2(backup).ok).toBe(false);
+  });
+
+  it("prepareRestorePayload 重映射 db 相关 id 与 parent_note_id，且不污染 schema/views", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    let sequence = 1;
+    const payload = prepareRestorePayload(backup, () => {
+      const suffix = String(sequence++).padStart(12, "0");
+      return `a0000000-0000-4000-8000-${suffix}`;
+    });
+
+    const newDbId = String(payload.data.db_databases[0].id);
+    const newRowId = String(payload.data.db_rows[0].id);
+    const newNoteId = String(payload.data.notes[0].id);
+    expect(newDbId).not.toBe(ids.database);
+    expect(newRowId).not.toBe(ids.dbRow);
+    // parent_note_id 指向重映射后的 note
+    expect(payload.data.db_databases[0].parent_note_id).toBe(newNoteId);
+    // database_id 指向重映射后的 database
+    expect(payload.data.db_rows[0].database_id).toBe(newDbId);
+    // schema/views 原样保留，id 是属性 id（不是数据库主键），不重映射
+    expect((payload.data.db_databases[0].schema as any[])[0].id).toBe("prop_name");
+    expect((payload.data.db_databases[0].views as any[])[0].id).toBe("default_view");
+    // values 原样保留（属性 key 不是 UUID）
+    expect((payload.data.db_rows[0].values as any).prop_name).toBe("深入理解计算机系统");
+    // 直接验证旧 id 没出现在 db 行里（避免字符串 contains 误伤其他重映射后的 id）
+    expect(payload.data.db_databases[0].id).not.toBe(ids.database);
+    expect(payload.data.db_rows[0].id).not.toBe(ids.dbRow);
+    expect(payload.data.db_rows[0].database_id).not.toBe(ids.database);
   });
 });
