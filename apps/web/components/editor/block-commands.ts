@@ -26,6 +26,7 @@ import {
   Table as TableIcon,
   Text,
   TextCursorInput,
+  ListTree,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -436,6 +437,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Bookmark,
     keywords: ["reference", "bookmark", "阅读", "引用"],
     run: (editor, pos) => emit(editor, "reference", pos),
+  },
+  {
+    id: "table-of-contents",
+    label: "目录",
+    description: "自动列出当前页标题大纲，点击跳转",
+    category: "基本区块",
+    icon: ListTree,
+    keywords: ["toc", "table of contents", "outline", "目录", "大纲"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "tableOfContents", attrs: {} }),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

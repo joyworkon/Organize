@@ -175,6 +175,9 @@ function renderNode(node: PMNode): string {
     case "htmlEmbed":
       // 安全：htmlEmbed 可能包含脚本/iframe，直接跳过，不写入剪贴板
       return "";
+    case "tableOfContents":
+      // 目录是文档内自动生成的视图，粘贴到外部无意义，输出占位文本
+      return "<p>📑 目录</p>";
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -266,6 +269,8 @@ function extractPlainText(node: PMNode): string {
       return node.text || "";
     case "htmlEmbed":
       return "";
+    case "tableOfContents":
+      return "📑 目录";
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

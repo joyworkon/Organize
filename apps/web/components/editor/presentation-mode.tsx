@@ -112,5 +112,9 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "columns") return <div className="presentation-columns">{(block.content || []).map((column, index) => <div key={index}>{(column.content || []).map((child, childIndex) => <RenderBlock key={childIndex} block={child} />)}</div>)}</div>;
   if (block.type === "table") return <table><tbody>{(block.content || []).map((row, rowIndex) => <tr key={rowIndex}>{(row.content || []).map((cell, cellIndex) => <td key={cellIndex}>{(cell.content || []).map((child, childIndex) => <RenderBlock key={childIndex} block={child} />)}</td>)}</tr>)}</tbody></table>;
   if (block.type === "htmlEmbed") return <div className="presentation-embed">HTML 嵌入内容请在编辑模式中交互</div>;
+  if (block.type === "tableOfContents") {
+    // 演示模式只读：展示目录占位，跳转交互请在编辑模式中使用
+    return <div className="presentation-embed">📑 目录（编辑模式中可点击跳转）</div>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

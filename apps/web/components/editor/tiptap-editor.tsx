@@ -39,6 +39,7 @@ import {
 import { HtmlEmbed } from "./extensions/html-embed";
 import { ResizableImage } from "./extensions/resizable-image";
 import { FileAttachment } from "./extensions/file-attachment";
+import { TableOfContents } from "./extensions/table-of-contents";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -949,9 +950,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       MathCommands,
       Columns,
       Column,
-      HtmlEmbed,
-      FileAttachment,
-      SlashCommand,
+    HtmlEmbed,
+    FileAttachment,
+    TableOfContents,
+    SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
       BlockMultiSelect,

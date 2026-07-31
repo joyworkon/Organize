@@ -2787,6 +2787,49 @@
 .html-embed iframe { display: block; width: 100%; border: 0; background: hsl(var(--background)); }
 .html-editor-dialog textarea { min-height: 360px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+/* ------------------------- 目录（TOC） ------------------------- */
+.organize-editor .organize-toc {
+  margin: var(--organize-block-gap, 1rem) 0;
+  padding: 10px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / .35);
+}
+.organize-toc-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.organize-toc-empty {
+  margin: 4px 0 2px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+.organize-toc-list { list-style: none; margin: 0; padding: 0; }
+.organize-toc-item { margin: 1px 0; }
+.organize-toc-link {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 3px 4px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font: inherit;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.organize-toc-link:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.organize-toc[data-levels] .organize-toc-link { text-decoration: none; }
+.organize-editor.prose .organize-toc.ProseMirror-selectednode {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / .3);
+}
+
 /* AI 录音 */
 .recording-state { display: grid; justify-items: center; gap: 8px; padding: 28px 20px 10px; text-align: center; }
 .recording-state p { margin: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
