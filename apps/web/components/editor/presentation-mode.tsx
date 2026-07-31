@@ -112,5 +112,32 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "columns") return <div className="presentation-columns">{(block.content || []).map((column, index) => <div key={index}>{(column.content || []).map((child, childIndex) => <RenderBlock key={childIndex} block={child} />)}</div>)}</div>;
   if (block.type === "table") return <table><tbody>{(block.content || []).map((row, rowIndex) => <tr key={rowIndex}>{(row.content || []).map((cell, cellIndex) => <td key={cellIndex}>{(cell.content || []).map((child, childIndex) => <RenderBlock key={childIndex} block={child} />)}</td>)}</tr>)}</tbody></table>;
   if (block.type === "htmlEmbed") return <div className="presentation-embed">HTML 嵌入内容请在编辑模式中交互</div>;
+  if (block.type === "tableOfContents") {
+    // 演示模式只读：展示目录占位，跳转交互请在编辑模式中使用
+    return <div className="presentation-embed">📑 目录（编辑模式中可点击跳转）</div>;
+  }
+  if (block.type === "breadcrumb") {
+    return <div className="presentation-embed">📑 路径栏（编辑模式中显示父级链）</div>;
+  }
+  if (block.type === "buttonBlock") {
+    return <button type="button" className="organize-button" style={style}>{String(block.attrs?.label || "按钮")}</button>;
+  }
+  if (block.type === "tabs") {
+    const activeIndex = Number(block.attrs?.activeIndex || 0);
+    const tabs = block.content || [];
+    const active = tabs[Math.max(0, Math.min(tabs.length - 1, activeIndex))];
+    return <div className="presentation-tabs">{active ? (active.content || []).map((child, index) => <RenderBlock key={index} block={child} />) : null}</div>;
+  }
+  if (block.type === "tab") {
+    return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
+  }
+  if (block.type === "mermaid") {
+    return <pre className="presentation-embed"><code>{String(block.attrs?.code || "")}</code></pre>;
+  }
+  if (block.type === "embed") {
+    const url = String(block.attrs?.url || "");
+    const title = String(block.attrs?.title || url);
+    return <a href={url} target="_blank" rel="noopener noreferrer" className="presentation-embed">{title}</a>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

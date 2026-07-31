@@ -26,6 +26,12 @@ import {
   Table as TableIcon,
   Text,
   TextCursorInput,
+  ListTree,
+  Route,
+  MousePointerClick,
+  PanelTop,
+  GitGraph,
+  Link2,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -436,6 +442,72 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Bookmark,
     keywords: ["reference", "bookmark", "阅读", "引用"],
     run: (editor, pos) => emit(editor, "reference", pos),
+  },
+  {
+    id: "table-of-contents",
+    label: "目录",
+    description: "自动列出当前页标题大纲，点击跳转",
+    category: "基本区块",
+    icon: ListTree,
+    keywords: ["toc", "table of contents", "outline", "目录", "大纲"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "tableOfContents", attrs: {} }),
+  },
+  {
+    id: "breadcrumb",
+    label: "路径栏",
+    description: "显示当前页的父级路径面包屑",
+    category: "基本区块",
+    icon: Route,
+    keywords: ["breadcrumb", "path", "crumb", "路径", "面包屑"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "breadcrumb", attrs: {} }),
+  },
+  {
+    id: "button",
+    label: "按钮",
+    description: "点击执行动作（打开链接或插入预设内容）",
+    category: "基本区块",
+    icon: MousePointerClick,
+    keywords: ["button", "action", "按钮", "动作"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "buttonBlock", attrs: {} }),
+  },
+  {
+    id: "tabs",
+    label: "选项卡",
+    description: "Tab 容器，多页签切换内容",
+    category: "布局",
+    icon: PanelTop,
+    keywords: ["tabs", "tab", "选项卡", "标签页"],
+    canTransform: true,
+    preview: { sample: "▢▢ 选项卡", caption: "可切换页签的容器" },
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "tabs", attrs: { activeIndex: 0 } }),
+  },
+  {
+    id: "mermaid",
+    label: "Mermaid 图表",
+    description: "Mermaid 代码实时渲染图表",
+    category: "媒体",
+    icon: GitGraph,
+    keywords: ["mermaid", "diagram", "flowchart", "图表", "流程图"],
+    canTransform: true,
+    preview: { sample: "graph TD\nA-->B", caption: "Mermaid 代码实时渲染图表" },
+    run: (editor, pos) => {
+      const source = editor.state.doc.nodeAt(pos);
+      const code = source ? blockTextForReplacement(source).trim() : "";
+      replaceBlock(editor, pos, { type: "mermaid", attrs: { code: code || undefined } });
+    },
+  },
+  {
+    id: "embed",
+    label: "嵌入",
+    description: "粘贴 URL 生成富预览（视频/地图/社媒）",
+    category: "媒体",
+    icon: Link2,
+    keywords: ["embed", "oembed", "link", "iframe", "嵌入", "视频", "链接"],
+    run: (editor, pos) => {
+      const source = editor.state.doc.nodeAt(pos);
+      const url = source ? blockTextForReplacement(source).trim() : "";
+      replaceBlock(editor, pos, { type: "embed", attrs: { url } });
+    },
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

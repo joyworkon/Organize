@@ -39,6 +39,12 @@ import {
 import { HtmlEmbed } from "./extensions/html-embed";
 import { ResizableImage } from "./extensions/resizable-image";
 import { FileAttachment } from "./extensions/file-attachment";
+import { TableOfContents } from "./extensions/table-of-contents";
+import { Breadcrumb } from "./extensions/breadcrumb";
+import { ButtonBlock } from "./extensions/button-node";
+import { Tabs, Tab } from "./extensions/tabs-node";
+import { Mermaid } from "./extensions/mermaid-node";
+import { Embed } from "./extensions/embed";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -113,6 +119,8 @@ interface EditorProps {
   onUpdate: (content: Record<string, unknown>) => void;
   /** 编辑器实例就绪 / 销毁时回调，供页面标题与正文联动（T1/T2） */
   onEditorReady?: (editor: Editor | null) => void;
+  /** 笔记树（含 parent_note_id），供路径栏(Breadcrumb)块渲染父级链；不传则该块显示占位 */
+  noteTree?: { id: string; title: string | null; icon: string | null; parent_note_id: string | null }[];
 }
 
 /* ----------------------------- 块类型配置 ----------------------------- */
@@ -868,7 +876,7 @@ function shouldShowTextToolbar({
     && editor.isEditable;
 }
 
-export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady }: EditorProps) {
+export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady, noteTree }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const onEditorReadyRef = useRef(onEditorReady);
@@ -949,9 +957,16 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       MathCommands,
       Columns,
       Column,
-      HtmlEmbed,
-      FileAttachment,
-      SlashCommand,
+    HtmlEmbed,
+    FileAttachment,
+    TableOfContents,
+    Breadcrumb,
+    ButtonBlock,
+    Tabs,
+    Tab,
+    Mermaid,
+    Embed,
+    SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
       BlockMultiSelect,
@@ -1054,6 +1069,17 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     onEditorReadyRef.current?.(editor ?? null);
     return () => onEditorReadyRef.current?.(null);
   }, [editor]);
+
+  // 路径栏(Breadcrumb)块通过 editor.storage 读取当前页 id/标题与笔记树，
+  // 避免在块内做网络请求；父级链由编辑器外算好后注入。
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.breadcrumb = {
+      noteId,
+      noteTitle,
+      noteTree: noteTree || [],
+    };
+  }, [editor, noteId, noteTitle, noteTree]);
 
   // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
   useEffect(() => {
