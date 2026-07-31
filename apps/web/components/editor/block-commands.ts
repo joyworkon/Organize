@@ -33,6 +33,7 @@ import {
   GitGraph,
   Link2,
   Repeat2,
+  Database as DatabaseIcon,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -518,6 +519,24 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: Repeat2,
     keywords: ["synced", "sync", "同步", "引用块", "transclude"],
     run: (editor, pos) => emit(editor, "synced-block", pos),
+  },
+  {
+    id: "database-inline",
+    label: "数据库（行内）",
+    description: "在当前笔记嵌入一张可筛选/排序的数据表",
+    category: "基本区块",
+    icon: DatabaseIcon,
+    keywords: ["database", "db", "数据库", "表格", "表", "spreadsheet"],
+    run: (editor, pos) => emit(editor, "database-inline", pos),
+  },
+  {
+    id: "database-page",
+    label: "数据库（整页）",
+    description: "创建一个独立页面的数据库（用于书籍清单/项目追踪等）",
+    category: "基本区块",
+    icon: TableIcon,
+    keywords: ["database", "db", "数据库", "整页", "full-page", "base"],
+    run: (editor, pos) => emit(editor, "database-page", pos),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

@@ -142,5 +142,8 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "syncedBlock") {
     return <div className="presentation-synced">{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
   }
+  if (block.type === "databaseBlock") {
+    return <div className="presentation-embed">🗄️ 数据库（演示模式下不可交互）</div>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }

@@ -3146,6 +3146,63 @@
   color: hsl(var(--muted-foreground) / .5);
 }
 
+/* ------------------------- 数据库块（占位，PR-3 接入表格视图） ------------------------- */
+.organize-editor .organize-database-block {
+  margin: var(--organize-block-gap, 1rem) 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+  background: hsl(var(--background));
+}
+.organize-database-block.ProseMirror-selectednode { box-shadow: 0 0 0 2px hsl(var(--ring) / .3); }
+.organize-database-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  background: hsl(var(--muted) / .35);
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 12px;
+  color: hsl(var(--foreground));
+}
+.organize-database-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--muted-foreground));
+}
+.organize-database-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.organize-database-title {
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+.organize-database-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.organize-database-open:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.organize-database-placeholder {
+  padding: 18px 16px;
+  text-align: center;
+  color: hsl(var(--muted-foreground) / .8);
+  font-size: 12px;
+}
+.organize-database-hint { margin: 0; }
+.organize-database-error { margin: 0; color: hsl(var(--destructive)); }
+
 /* AI 录音 */
 .recording-state { display: grid; justify-items: center; gap: 8px; padding: 28px 20px 10px; text-align: center; }
 .recording-state p { margin: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }

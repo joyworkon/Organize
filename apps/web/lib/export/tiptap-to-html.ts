@@ -201,6 +201,9 @@ function renderNode(node: PMNode): string {
     case "syncedBlock":
       // 同步块导出时展开其内容（不保留同步语义，但内容不丢）
       return renderChildren(node);
+    case "databaseBlock":
+      // 数据库块导出为占位（数据本身不内联）
+      return `<div class="database-block-placeholder">🗄️ 数据库</div>`;
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -310,6 +313,8 @@ function extractPlainText(node: PMNode): string {
       return String(node.attrs?.url || "");
     case "syncedBlock":
       return (node.content || []).map(extractPlainText).join("\n\n");
+    case "databaseBlock":
+      return "🗄️ 数据库";
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

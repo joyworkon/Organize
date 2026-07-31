@@ -616,6 +616,8 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
         row[field],
         ids.notes,
         ids.reading,
+        idSet(data.synced_blocks),
+        ids.databases,
         `$.data.${table}[${index}].${field}`,
         issues
       );
@@ -627,12 +629,14 @@ function inspectInternalLinks(
   value: unknown,
   noteIds: Set<string>,
   readingIds: Set<string>,
+  syncedBlockIds: Set<string>,
+  databaseIds: Set<string>,
   path: string,
   issues: BackupIssue[]
 ) {
   if (Array.isArray(value)) {
     value.forEach((entry, index) =>
-      inspectInternalLinks(entry, noteIds, readingIds, `${path}[${index}]`, issues)
+      inspectInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, `${path}[${index}]`, issues)
     );
     return;
   }
@@ -647,8 +651,15 @@ function inspectInternalLinks(
       checkReference(match[2], targetSet, `${path}.href`, issues);
     }
   }
+  // syncedId/databaseId 是直接 UUID 引用（非 URL），非空时必须在对应表中存在
+  if (typeof value.syncedId === "string" && value.syncedId.length > 0) {
+    checkReference(value.syncedId, syncedBlockIds, `${path}.syncedId`, issues);
+  }
+  if (typeof value.databaseId === "string" && value.databaseId.length > 0) {
+    checkReference(value.databaseId, databaseIds, `${path}.databaseId`, issues);
+  }
   for (const [key, entry] of Object.entries(value)) {
-    inspectInternalLinks(entry, noteIds, readingIds, `${path}.${key}`, issues);
+    inspectInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, `${path}.${key}`, issues);
   }
 }
 

@@ -1,0 +1,131 @@
+"use client";
+
+import type { Editor } from "@tiptap/core";
+import type { JSONContent } from "@tiptap/core";
+
+/**
+ * 在当前笔记 pos 处插入「行内数据库」块：
+ * 1) POST /api/databases 创建数据库（parent_note_id = 当前 noteId）
+ * 2) 在编辑器中插入 databaseBlock 带 databaseId
+ * 失败时回退为普通段落提示。
+ */
+export async function insertInlineDatabase(editor: Editor, noteId: string | null | undefined, pos?: number): Promise<void> {
+  let databaseId = "";
+  try {
+    const res = await fetch("/api/databases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "未命名数据库",
+        parent_note_id: noteId || null,
+      }),
+    });
+    if (res.ok) {
+      const data: { id?: string } = await res.json();
+      databaseId = data.id || "";
+    }
+  } catch {
+    databaseId = "";
+  }
+
+  const block: JSONContent = {
+    type: "databaseBlock",
+    attrs: { databaseId, viewId: "default_view" },
+  };
+
+  insertDbBlock(editor, pos, block, databaseId ? null : "⚠️ 创建数据库失败，请刷新重试");
+}
+
+/**
+ * 插入「整页数据库」：
+ * 1) 客户端生成 databaseId
+ * 2) POST /api/notes 创建子笔记（content 为一个 databaseBlock，title = 数据库标题）
+ * 3) POST /api/databases 创建数据库（id=databaseId, parent_note_id=新笔记 id）
+ * 4) 用一个链接段落替换当前位置块，并跳转到新笔记
+ * 失败时在原位置插入错误段落，不跳转。
+ */
+export async function insertPageDatabase(editor: Editor, noteId: string | null | undefined, pos?: number, router?: { push: (url: string) => void }): Promise<void> {
+  const databaseId = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `db_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  const dbContent: JSONContent = {
+    type: "doc",
+    content: [
+      { type: "databaseBlock", attrs: { databaseId, viewId: "default_view" } },
+    ],
+  };
+
+  let newNoteId = "";
+  try {
+    const noteRes = await fetch("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "未命名数据库",
+        content: dbContent,
+        parent_note_id: noteId || null,
+      }),
+    });
+    if (!noteRes.ok) throw new Error("create note failed");
+    const noteData: { id?: string } = await noteRes.json();
+    newNoteId = noteData.id || "";
+    if (!newNoteId) throw new Error("note id missing");
+
+    const dbRes = await fetch("/api/databases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: databaseId,
+        title: "未命名数据库",
+        parent_note_id: newNoteId,
+      }),
+    });
+    if (!dbRes.ok) throw new Error("create database failed");
+  } catch {
+    insertDbBlock(editor, pos, { type: "paragraph", content: [{ type: "text", text: "⚠️ 创建整页数据库失败，请刷新重试" }] }, null);
+    return;
+  }
+
+  // 在原位置插入指向新笔记的链接段落（模仿 convertBlockToPage）
+  if (!editor) return;
+  const linkBlock: JSONContent = {
+    type: "paragraph",
+    content: [
+      { type: "text", text: "🗄️ " },
+      {
+        type: "text",
+        marks: [{ type: "link", attrs: { href: `/notes/${newNoteId}` } }],
+        text: "未命名数据库",
+      },
+    ],
+  };
+  insertDbBlock(editor, pos, linkBlock, null);
+
+  if (router?.push) {
+    router.push(`/notes/${newNoteId}`);
+  }
+}
+
+function insertDbBlock(editor: Editor, pos: number | undefined, block: JSONContent, fallbackText: string | null) {
+  if (!editor) return;
+  const finalBlock = fallbackText
+    ? { type: "paragraph" as const, content: [{ type: "text" as const, text: fallbackText }] }
+    : block;
+  if (pos === undefined) {
+    editor.chain().focus().insertContent(finalBlock).run();
+  } else {
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node) {
+      editor.chain().focus().insertContent(finalBlock).run();
+      return;
+    }
+    try {
+      editor.view.dispatch(
+        editor.state.tr.replaceWith(pos, pos + node.nodeSize, editor.schema.nodeFromJSON(finalBlock)).scrollIntoView()
+      );
+    } catch {
+      editor.chain().focus().insertContent(finalBlock).run();
+    }
+  }
+}
