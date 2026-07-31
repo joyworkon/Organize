@@ -25,6 +25,7 @@ export const BLOCK_ID_TYPES = [
   "mermaid",
   "embed",
   "syncedBlock",
+  "databaseBlock",
 ];
 
 export const ALLOWED_AI_NODE_TYPES = new Set([

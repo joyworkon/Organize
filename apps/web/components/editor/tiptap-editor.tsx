@@ -47,6 +47,8 @@ import { Mermaid } from "./extensions/mermaid-node";
 import { Embed } from "./extensions/embed";
 import { SyncedBlock } from "./extensions/synced-block";
 import { createSyncedBlockAt } from "./extensions/synced-block-client";
+import { DatabaseBlock } from "./extensions/database-block";
+import { insertInlineDatabase, insertPageDatabase } from "./extensions/database-block-client";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -969,6 +971,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     Mermaid,
     Embed,
     SyncedBlock,
+    DatabaseBlock,
     SlashCommand,
       BlockDeepLink,
       TransformedBlockSelection,
@@ -1345,6 +1348,16 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           // 同步区块：异步创建服务端记录拿到 id，再插入带 syncedId 的块
           void createSyncedBlockAt(editor, detail.nested ? undefined : detail.pos);
         }
+        else if (detail.type === "database-inline") {
+          // 行内数据库：创建 db 记录后在当前位置插入 databaseBlock
+          void insertInlineDatabase(editor, noteId, detail.nested ? undefined : detail.pos);
+        }
+        else if (detail.type === "database-page") {
+          // 整页数据库：创建子笔记 + 数据库 + 在原位置插入链接并跳转
+          if (!detail.nested) {
+            void insertPageDatabase(editor, noteId, detail.pos, router);
+          }
+        }
       } else if (detail.target) {
         if (detail.type === "move") setDialog({ type: "move", target: detail.target });
         if (detail.type === "comment") setDialog({ type: "comment", target: detail.target });
@@ -1354,7 +1367,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     };
     root?.addEventListener("organize-editor-action", handler);
     return () => root?.removeEventListener("organize-editor-action", handler);
-  }, [addReadingReference, convertBlockToPage, editor, uploadImage]);
+  }, [addReadingReference, convertBlockToPage, editor, noteId, router, uploadImage]);
 
   useEffect(() => {
     if (!editor || !tableFullscreen) return;
