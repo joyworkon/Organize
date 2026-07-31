@@ -16,9 +16,9 @@ G0 协议冻结(文档) → G1 数据底座(migration+RPC+测试) → G2 编辑�
 ## 进度
 - [x] G0 ✅ PR#47(协议文档)
 - [x] G1 ✅ 本地全绿:030/031 migration + RPC + 10 例 pgTAP(基本ok/同步/ref对齐/revision冲突/跨用户forbidden/幂等/orphaned回收)。db lint 仅 1 历史 warning(migrate_trash,非本阶段)。前端 43/361 不变、typecheck 0。
-- [ ] G2 编辑器同步
-- [ ] G3 产品闭环
-- [ ] G4 P0 收口
+- [ ] G2 编辑器同步(进行中:TaskItemLinked 加 taskId 属性已接入,默认关闭;事务区分/Realtime/多引用待续)
+- [ ] G3 产品闭环(阻塞:需浏览器双标签页验收)
+- [ ] G4 P0 收口(部分可继续,部分阻塞于浏览器)
 
 ## 架构关键事实（影响设计）
 - 编辑器 autosave 直连 Supabase(page.tsx flushSave，900ms 防抖，绕过 API)；6 条写入口+2 条 DB 侧(move_note_block RPC / save_note_version 触发器)

@@ -17,6 +17,7 @@ import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import { TaskItemLinked } from "./extensions/task-item-linked";
 import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
@@ -929,7 +930,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       Link.configure({ openOnClick: false }),
       Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
       TaskList,
-      TaskItem.configure({ nested: true }),
+      TaskItemLinked.configure({ nested: true }),
       OrganizeTable.configure({
         resizable: true,
         allowTableNodeSelection: true,
