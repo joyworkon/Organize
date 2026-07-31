@@ -20,6 +20,7 @@ const ids = {
   thread: "a0000000-0000-4000-8000-000000000001",
   comment: "b0000000-0000-4000-8000-000000000001",
   suggestion: "c0000000-0000-4000-8000-000000000001",
+  synced: "d0000000-0000-4000-8000-000000000001",
 };
 const timestamp = "2026-07-29T12:00:00.000Z";
 
@@ -50,14 +51,31 @@ function fixtureData(): BackupData {
           type: "doc",
           content: [
             {
-              type: "text",
-              marks: [
+              type: "paragraph",
+              content: [
                 {
-                  type: "link",
-                  attrs: { href: `/library/${ids.reading}#block-a` },
+                  type: "text",
+                  marks: [
+                    {
+                      type: "link",
+                      attrs: { href: `/library/${ids.reading}#block-a` },
+                    },
+                  ],
+                  text: "linked",
                 },
               ],
-              text: "linked",
+            },
+            // 绑定了 syncedId 的同步块：恢复时 syncedId 必须被重映射
+            {
+              type: "syncedBlock",
+              attrs: { syncedId: ids.synced, hydrated: false },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "sync-content" }] }],
+            },
+            // 未绑定的占位同步块：syncedId="" 必须原样保留，不抛错
+            {
+              type: "syncedBlock",
+              attrs: { syncedId: "", hydrated: true },
+              content: [{ type: "paragraph" }],
             },
           ],
         },
@@ -182,6 +200,16 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    synced_blocks: [
+      {
+        id: ids.synced,
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "shared" }] },
+        ],
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
   };
 }
 
@@ -289,5 +317,46 @@ describe("Backup V2", () => {
     expect(payload.data.notes[0].font_family).toBe("serif");
     expect(payload.data.notes[0].full_width).toBe(true);
     expect(payload.data.notes[0].small_font).toBe(true);
+  });
+
+  it("remaps synced_blocks ids and syncedId attrs inside notes, preserving empty syncedId", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    let sequence = 1;
+    const payload = prepareRestorePayload(backup, () => {
+      const suffix = String(sequence++).padStart(12, "0");
+      return `f0000000-0000-4000-8000-${suffix}`;
+    });
+
+    // synced_blocks 表里的 id 被重映射
+    const restoredSyncedId = String(payload.data.synced_blocks[0].id);
+    expect(restoredSyncedId).not.toBe(ids.synced);
+
+    // notes.content 里绑定了 syncedId 的同步块，其 attrs.syncedId 指向新 id
+    const noteContent = payload.data.notes[0].content as any;
+    const bound = noteContent.content.find(
+      (n: any) => n.type === "syncedBlock" && n.attrs.syncedId !== ""
+    );
+    expect(bound.attrs.syncedId).toBe(restoredSyncedId);
+
+    // 未绑定的占位块 syncedId="" 被保留为空字符串，不报错
+    const placeholder = noteContent.content.find(
+      (n: any) => n.type === "syncedBlock" && n.attrs.syncedId === ""
+    );
+    expect(placeholder).toBeDefined();
+    expect(placeholder.attrs.syncedId).toBe("");
+
+    // 整个 payload 里不能再出现旧的 synced id
+    expect(JSON.stringify(payload)).not.toContain(ids.synced);
+  });
+
+  it("synced_blocks 备份要求 content 为数组（节点数组）", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as any;
+    // 把 content 改成对象（非法）
+    backup.data.synced_blocks[0].content = { type: "doc" };
+    expect(inspectBackupV2(backup).ok).toBe(false);
+
+    // 改回数组合法
+    const good = createBackupV2(fixtureData(), timestamp);
+    expect(inspectBackupV2(good).ok).toBe(true);
   });
 });

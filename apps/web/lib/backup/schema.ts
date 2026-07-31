@@ -21,6 +21,7 @@ export const BACKUP_TABLES = [
   "note_comment_threads",
   "note_comments",
   "note_suggestions",
+  "synced_blocks",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -83,7 +84,11 @@ const isNullableTimestamp: Validator = (value) =>
   value === null || isTimestamp(value);
 const isNullableUuid: Validator = (value) => value === null || isUuid(value);
 const isJsonObject: Validator = (value) => isRecord(value);
-const isNullableJsonObject: Validator = (value) =>
+const isJsonArray: Validator = (value) => Array.isArray(value);
+const isJsonStructure: Validator = (value) => isRecord(value) || Array.isArray(value);
+const isNullableJsonObject: Validator = (
+  value
+) =>
   value === null || isJsonObject(value);
 const optional =
   (validator: Validator): Validator =>
@@ -275,6 +280,15 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       original_block: isJsonObject,
       proposed_block: isJsonObject,
       status: oneOf("pending", "accepted", "rejected"),
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  synced_blocks: {
+    fields: {
+      id: isUuid,
+      content: isJsonArray,
       created_at: isTimestamp,
       updated_at: isTimestamp,
     },
@@ -558,6 +572,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     [data.note_versions, "content", "note_versions"],
     [data.note_suggestions, "original_block", "note_suggestions"],
     [data.note_suggestions, "proposed_block", "note_suggestions"],
+    [data.synced_blocks, "content", "synced_blocks"],
   ];
   for (const [rows, field, table] of jsonFields) {
     rows.forEach((row, index) => {

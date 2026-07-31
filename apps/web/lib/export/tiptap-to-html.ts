@@ -198,6 +198,9 @@ function renderNode(node: PMNode): string {
       const title = escapeHtml(String(node.attrs?.title || url));
       return url ? `<a href="${escapeHtml(url)}">${title}</a>` : "";
     }
+    case "syncedBlock":
+      // 同步块导出时展开其内容（不保留同步语义，但内容不丢）
+      return renderChildren(node);
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -305,6 +308,8 @@ function extractPlainText(node: PMNode): string {
       return `[mermaid]\n${String(node.attrs?.code || "")}`;
     case "embed":
       return String(node.attrs?.url || "");
+    case "syncedBlock":
+      return (node.content || []).map(extractPlainText).join("\n\n");
     default:
       return (node.content || []).map(extractPlainText).join("");
   }
