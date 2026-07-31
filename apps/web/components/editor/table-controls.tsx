@@ -13,6 +13,7 @@ import {
   Merge,
   Minimize2,
   MoveHorizontal,
+  Paintbrush,
   Palette,
   Rows3,
   Split,
@@ -25,11 +26,14 @@ import { cn } from "@/lib/utils";
 import {
   TABLE_COLOR_SCHEMES,
   TABLE_GRID_SIZE,
+  TABLE_PRESET_COLORS,
   duplicateActiveTable,
   equalizeActiveTableColumns,
   getActiveTable,
   setActiveTableAttributes,
+  setSelectedCellsBackground,
   type TableColorScheme,
+  type TablePresetColor,
 } from "./extensions/table-style";
 
 const COLOR_SCHEME_LABELS: Record<TableColorScheme, string> = {
@@ -40,6 +44,101 @@ const COLOR_SCHEME_LABELS: Record<TableColorScheme, string> = {
   red: "红色",
   dark: "深色",
 };
+
+const PRESET_COLOR_LABELS: Record<TablePresetColor, string> = {
+  default: "默认",
+  gray: "灰色",
+  red: "红色",
+  orange: "橙色",
+  yellow: "黄色",
+  green: "绿色",
+  blue: "蓝色",
+  purple: "紫色",
+  pink: "粉色",
+};
+
+/** 与 globals.css 中 data-table-border-color / data-cell-bg 预设取色对应 */
+const PRESET_COLOR_SWATCHES: Record<TablePresetColor, string> = {
+  default: "transparent",
+  gray: "hsl(0 0% 55% / 0.35)",
+  red: "hsl(5 80% 60% / 0.55)",
+  orange: "hsl(24 90% 55% / 0.60)",
+  yellow: "hsl(45 95% 55% / 0.65)",
+  green: "hsl(150 60% 45% / 0.55)",
+  blue: "hsl(205 85% 55% / 0.55)",
+  purple: "hsl(265 70% 62% / 0.55)",
+  pink: "hsl(330 75% 62% / 0.55)",
+};
+
+interface ColorOption {
+  label: string;
+  /** null = 默认 / 清除 */
+  value: string | null;
+  swatch: string;
+  /** true = 文字颜色（用彩色 A 示意） */
+  text?: boolean;
+}
+
+const TEXT_COLOR_OPTIONS: ColorOption[] = [
+  { label: "默认", value: null, swatch: "hsl(var(--foreground))", text: true },
+  { label: "灰色", value: "#787774", swatch: "#787774", text: true },
+  { label: "棕色", value: "#9f6b53", swatch: "#9f6b53", text: true },
+  { label: "橙色", value: "#d9730d", swatch: "#d9730d", text: true },
+  { label: "黄色", value: "#cb912f", swatch: "#cb912f", text: true },
+  { label: "绿色", value: "#448361", swatch: "#448361", text: true },
+  { label: "蓝色", value: "#337ea9", swatch: "#337ea9", text: true },
+  { label: "紫色", value: "#9065b0", swatch: "#9065b0", text: true },
+  { label: "粉色", value: "#c14c8a", swatch: "#c14c8a", text: true },
+  { label: "红色", value: "#d44c47", swatch: "#d44c47", text: true },
+];
+
+const PRESET_COLOR_OPTIONS: ColorOption[] = TABLE_PRESET_COLORS.map((color) => ({
+  label: PRESET_COLOR_LABELS[color],
+  value: color === "default" ? null : color,
+  swatch: PRESET_COLOR_SWATCHES[color],
+}));
+
+function ColorSwatchGrid({
+  label,
+  options,
+  activeValue,
+  onSelect,
+}: {
+  label: string;
+  options: ColorOption[];
+  activeValue?: string | null;
+  onSelect: (value: string | null) => void;
+}) {
+  return (
+    <div className="table-color-section">
+      <div className="table-color-section-title">{label}</div>
+      <div className="table-color-grid">
+        {options.map((option) => (
+          <button
+            key={option.label}
+            type="button"
+            title={option.label}
+            aria-label={option.label}
+            className={cn(
+              "table-color-option",
+              activeValue !== undefined && activeValue === option.value && "is-active"
+            )}
+            onClick={() => onSelect(option.value)}
+          >
+            {option.text ? (
+              <span style={{ color: option.swatch }}>A</span>
+            ) : (
+              <span
+                className="table-color-dot"
+                style={{ background: option.swatch }}
+              />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function TableGridPicker({
   onSelect,
@@ -316,6 +415,44 @@ export function TableToolbar({
       >
         <SquareSlash aria-hidden="true" />
       </button>
+
+      <ToolbarDropdown icon={Paintbrush} label="颜色">
+        {() => (
+          <div className="table-settings-menu">
+            <ColorSwatchGrid
+              label="文字颜色"
+              options={TEXT_COLOR_OPTIONS}
+              onSelect={(value) =>
+                run(() => {
+                  if (value) editor.chain().focus().setColor(value).run();
+                  else editor.chain().focus().unsetColor().run();
+                })
+              }
+            />
+            <ColorSwatchGrid
+              label="边框颜色"
+              options={PRESET_COLOR_OPTIONS}
+              activeValue={table.borderColor === "default" ? null : table.borderColor}
+              onSelect={(value) =>
+                run(() =>
+                  setActiveTableAttributes(editor, {
+                    borderColor: (value ?? "default") as TablePresetColor,
+                  })
+                )
+              }
+            />
+            <ColorSwatchGrid
+              label="单元格背景"
+              options={PRESET_COLOR_OPTIONS}
+              onSelect={(value) =>
+                run(() =>
+                  setSelectedCellsBackground(editor, (value ?? "default") as TablePresetColor)
+                )
+              }
+            />
+          </div>
+        )}
+      </ToolbarDropdown>
       <span className="table-toolbar-separator" />
 
       <ToolbarDropdown icon={Rows3} label="行操作">

@@ -69,7 +69,23 @@ export function NoteChildPages({ noteId, notes }: NoteChildPagesProps) {
       <h2>子页面</h2>
       <div>
         {children.map((note) => (
-          <Link key={note.id} href={`/notes/${note.id}`}>
+          <Link
+            key={note.id}
+            href={`/notes/${note.id}`}
+            draggable
+            onDragStart={(event) => {
+              // 拖进笔记正文时给一份干净的链接 HTML，
+              // 避免把列表项里的图标/箭头一起带进去
+              const url = `/notes/${note.id}`;
+              const anchor = document.createElement("a");
+              anchor.href = url;
+              anchor.textContent = `${note.icon || "📄"} ${note.title || "无标题笔记"}`;
+              event.dataTransfer.effectAllowed = "copyLink";
+              event.dataTransfer.setData("text/uri-list", url);
+              event.dataTransfer.setData("text/plain", url);
+              event.dataTransfer.setData("text/html", anchor.outerHTML);
+            }}
+          >
             <span>{note.icon || "📄"}</span>
             <span>{note.title || "无标题笔记"}</span>
             <ChevronRight className="h-4 w-4" />

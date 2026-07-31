@@ -532,7 +532,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   border-radius: 6px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--organize-table-border, hsl(var(--border)));
   background: hsl(var(--background));
 }
 .organize-editor table {
@@ -556,7 +556,7 @@
 .organize-editor th,
 .organize-editor td {
   position: relative;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--organize-table-border, hsl(var(--border)));
   padding: 0.375rem 0.625rem;
   text-align: left;
   vertical-align: top;
@@ -636,8 +636,71 @@
   --organize-table-header: hsl(0 34% 30%);
 }
 
+/* 表格边框颜色预设（data-table-border-color；--organize-table-border 同时作用于外框与单元格边框） */
+.organize-editor table[data-table-border-color="gray"],
+.organize-editor .tableWrapper[data-table-border-color="gray"] {
+  --organize-table-border: hsl(0 0% 68%);
+}
+.organize-editor table[data-table-border-color="red"],
+.organize-editor .tableWrapper[data-table-border-color="red"] {
+  --organize-table-border: hsl(5 68% 60%);
+}
+.organize-editor table[data-table-border-color="orange"],
+.organize-editor .tableWrapper[data-table-border-color="orange"] {
+  --organize-table-border: hsl(24 85% 55%);
+}
+.organize-editor table[data-table-border-color="yellow"],
+.organize-editor .tableWrapper[data-table-border-color="yellow"] {
+  --organize-table-border: hsl(43 88% 52%);
+}
+.organize-editor table[data-table-border-color="green"],
+.organize-editor .tableWrapper[data-table-border-color="green"] {
+  --organize-table-border: hsl(150 50% 45%);
+}
+.organize-editor table[data-table-border-color="blue"],
+.organize-editor .tableWrapper[data-table-border-color="blue"] {
+  --organize-table-border: hsl(205 80% 55%);
+}
+.organize-editor table[data-table-border-color="purple"],
+.organize-editor .tableWrapper[data-table-border-color="purple"] {
+  --organize-table-border: hsl(265 60% 65%);
+}
+.organize-editor table[data-table-border-color="pink"],
+.organize-editor .tableWrapper[data-table-border-color="pink"] {
+  --organize-table-border: hsl(330 65% 65%);
+}
+
+/* 单元格背景色预设（单元格属性 data-cell-bg；半透明取色，明暗主题通用） */
+.organize-editor :is(th, td)[data-cell-bg="gray"] {
+  background: hsl(0 0% 55% / 0.16);
+}
+.organize-editor :is(th, td)[data-cell-bg="red"] {
+  background: hsl(5 85% 60% / 0.20);
+}
+.organize-editor :is(th, td)[data-cell-bg="orange"] {
+  background: hsl(24 95% 55% / 0.20);
+}
+.organize-editor :is(th, td)[data-cell-bg="yellow"] {
+  background: hsl(45 95% 55% / 0.24);
+}
+.organize-editor :is(th, td)[data-cell-bg="green"] {
+  background: hsl(150 65% 45% / 0.20);
+}
+.organize-editor :is(th, td)[data-cell-bg="blue"] {
+  background: hsl(205 90% 55% / 0.20);
+}
+.organize-editor :is(th, td)[data-cell-bg="purple"] {
+  background: hsl(265 75% 62% / 0.20);
+}
+.organize-editor :is(th, td)[data-cell-bg="pink"] {
+  background: hsl(330 80% 62% / 0.20);
+}
+
 /* ProseMirror 表格选择和官方列宽拖动反馈。 */
-.organize-editor :is(th, td).selectedCell::after {
+/* 从表格外框选 / 节点选中整张表格时，给每个单元格叠加选中色：
+   标题行（th）自带不透明背景，不叠加会显得“标题行没被选中”。 */
+.organize-editor :is(th, td).selectedCell::after,
+.organize-editor.prose .tableWrapper:is(.organize-block-selected, .ProseMirror-selectednode) :is(th, td)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -923,6 +986,48 @@
 .table-color-blue { background: hsl(205 60% 86%); }
 .table-color-red { background: hsl(0 61% 90%); }
 .table-color-dark { background: hsl(106 70% 25%); color: white; }
+
+/* 颜色菜单（文字颜色 / 边框颜色 / 单元格背景） */
+.table-color-section + .table-color-section {
+  margin-top: 0.5rem;
+}
+.table-color-section-title {
+  padding: 0.125rem 0.125rem 0.375rem;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+.table-color-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1.5rem);
+  gap: 0.25rem;
+}
+.table-color-option {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: transform 80ms ease, border-color 80ms ease;
+}
+.table-color-option:hover {
+  transform: scale(1.08);
+  border-color: hsl(var(--primary));
+}
+.table-color-option.is-active {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4);
+}
+.table-color-dot {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border));
+}
 
 /* 全屏只放大当前表格，不改变笔记正文的持久化状态。 */
 .organize-editor-shell[data-table-fullscreen="true"]::before {
@@ -1223,6 +1328,115 @@
 .organize-editor img.ProseMirror-selectednode {
   outline: 2px solid hsl(var(--primary) / 0.4);
   outline-offset: 2px;
+}
+
+/* 可调整大小的图片（ResizableImage NodeView） */
+.organize-editor .organize-image {
+  margin: var(--organize-block-large-gap) 0;
+}
+.organize-editor .organize-image .organize-image-frame {
+  position: relative;
+  max-width: 100%;
+  width: 100%;
+}
+.organize-editor .organize-image img {
+  display: block;
+  width: 100%;
+  margin: 0;
+}
+.organize-editor .organize-image.ProseMirror-selectednode img {
+  outline: 2px solid hsl(var(--primary) / 0.4);
+  outline-offset: 2px;
+}
+.organize-editor .organize-image[data-resizing="true"] img {
+  opacity: 0.85;
+}
+.organize-image-resizer {
+  position: absolute;
+  top: 50%;
+  right: -0.3125rem;
+  z-index: 10;
+  width: 0.625rem;
+  height: 3rem;
+  max-height: 60%;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+  border-radius: 6px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 4px hsl(222 47% 11% / 0.18);
+}
+.organize-image-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 2px;
+  height: 40%;
+  border-radius: 2px;
+  background: hsl(var(--muted-foreground));
+}
+.organize-image-resizer:hover {
+  border-color: hsl(var(--primary));
+}
+
+/* 附件块（FileAttachment：视频 / 音频 / 文件卡片） */
+.organize-editor .file-attachment {
+  margin: var(--organize-block-large-gap) 0;
+}
+.file-attachment-media {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+}
+.file-attachment-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.4);
+}
+.file-attachment-audio .file-attachment-media {
+  width: 100%;
+}
+.file-attachment-card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.4);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 100ms ease;
+}
+.file-attachment-card:hover {
+  background: hsl(var(--accent));
+}
+.file-attachment-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.file-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+.file-attachment-size {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
 }
 
 /* 链接 */
@@ -1686,10 +1900,10 @@
 .organize-editor div[data-callout] {
   display: flex;
   align-items: flex-start;
-  gap: 0.625rem;
+  gap: 0.5rem;
   background: hsl(var(--muted));
   border-radius: 8px;
-  padding: 0.875rem 1rem;
+  padding: 0.375rem 0.75rem;
   margin: var(--organize-block-large-gap) 0;
   position: relative;
 }
