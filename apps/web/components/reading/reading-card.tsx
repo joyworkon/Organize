@@ -130,16 +130,17 @@ export function ReadingCard({
                   </button>
                 )}
                 <FavoriteButton targetType="reading" targetId={item.id} className="h-7 w-7" />
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    stop(e);
+                    window.open(item.url, "_blank", "noopener,noreferrer");
+                  }}
                   className="h-7 w-7 p-0 rounded inline-flex items-center justify-center hover:bg-accent"
                   title="打开原文"
-                  onClick={stop}
                 >
                   <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                </a>
+                </button>
                 <AutoTagDialog
                   resourceType="reading_item"
                   resourceId={item.id}
