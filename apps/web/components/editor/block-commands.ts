@@ -30,6 +30,8 @@ import {
   Route,
   MousePointerClick,
   PanelTop,
+  GitGraph,
+  Link2,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -478,6 +480,34 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     canTransform: true,
     preview: { sample: "▢▢ 选项卡", caption: "可切换页签的容器" },
     run: (editor, pos) => replaceBlock(editor, pos, { type: "tabs", attrs: { activeIndex: 0 } }),
+  },
+  {
+    id: "mermaid",
+    label: "Mermaid 图表",
+    description: "Mermaid 代码实时渲染图表",
+    category: "媒体",
+    icon: GitGraph,
+    keywords: ["mermaid", "diagram", "flowchart", "图表", "流程图"],
+    canTransform: true,
+    preview: { sample: "graph TD\nA-->B", caption: "Mermaid 代码实时渲染图表" },
+    run: (editor, pos) => {
+      const source = editor.state.doc.nodeAt(pos);
+      const code = source ? blockTextForReplacement(source).trim() : "";
+      replaceBlock(editor, pos, { type: "mermaid", attrs: { code: code || undefined } });
+    },
+  },
+  {
+    id: "embed",
+    label: "嵌入",
+    description: "粘贴 URL 生成富预览（视频/地图/社媒）",
+    category: "媒体",
+    icon: Link2,
+    keywords: ["embed", "oembed", "link", "iframe", "嵌入", "视频", "链接"],
+    run: (editor, pos) => {
+      const source = editor.state.doc.nodeAt(pos);
+      const url = source ? blockTextForReplacement(source).trim() : "";
+      replaceBlock(editor, pos, { type: "embed", attrs: { url } });
+    },
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

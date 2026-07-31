@@ -191,6 +191,13 @@ function renderNode(node: PMNode): string {
     }
     case "tab":
       return renderChildren(node);
+    case "mermaid":
+      return `<pre><code>${escapeHtml(String(node.attrs?.code || ""))}</code></pre>`;
+    case "embed": {
+      const url = String(node.attrs?.url || "");
+      const title = escapeHtml(String(node.attrs?.title || url));
+      return url ? `<a href="${escapeHtml(url)}">${title}</a>` : "";
+    }
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -294,6 +301,10 @@ function extractPlainText(node: PMNode): string {
       ).join("\n\n");
     case "tab":
       return (node.content || []).map(extractPlainText).join("\n\n");
+    case "mermaid":
+      return `[mermaid]\n${String(node.attrs?.code || "")}`;
+    case "embed":
+      return String(node.attrs?.url || "");
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

@@ -22,6 +22,8 @@ export const BLOCK_ID_TYPES = [
   "breadcrumb",
   "buttonBlock",
   "tabs",
+  "mermaid",
+  "embed",
 ];
 
 export const ALLOWED_AI_NODE_TYPES = new Set([

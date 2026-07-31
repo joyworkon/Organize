@@ -131,5 +131,13 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "tab") {
     return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
   }
+  if (block.type === "mermaid") {
+    return <pre className="presentation-embed"><code>{String(block.attrs?.code || "")}</code></pre>;
+  }
+  if (block.type === "embed") {
+    const url = String(block.attrs?.url || "");
+    const title = String(block.attrs?.title || url);
+    return <a href={url} target="_blank" rel="noopener noreferrer" className="presentation-embed">{title}</a>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }
