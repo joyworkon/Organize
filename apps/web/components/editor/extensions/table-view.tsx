@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Plus, Trash2, GripVertical, Type, Hash, CheckSquare, Calendar, Link, List, ListChecks, ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import {
+  Plus, Trash2, GripVertical, Type, Hash, CheckSquare, Calendar, Link, List,
+  ListChecks, ChevronDown, FileText, Image as FileIcon, X, Check,
+} from "lucide-react";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabasePropertyType } from "@organize/shared";
 
 interface TableViewProps {
   databaseId: string;
+  readOnly?: boolean;
 }
 
 const TYPE_META: Record<DatabasePropertyType, { icon: typeof Type; label: string }> = {
@@ -15,37 +19,61 @@ const TYPE_META: Record<DatabasePropertyType, { icon: typeof Type; label: string
   multi_select: { icon: ListChecks, label: "多选" },
   checkbox: { icon: CheckSquare, label: "复选框" },
   date: { icon: Calendar, label: "日期" },
-  file: { icon: Type, label: "文件" },
+  file: { icon: FileIcon, label: "文件" },
   url: { icon: Link, label: "链接" },
 };
+
+const PROPERTY_TYPE_ORDER: DatabasePropertyType[] = [
+  "text", "number", "select", "multi_select", "checkbox", "date", "url", "file",
+];
 
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function defaultSchema(): DatabaseProperty[] {
-  return [
-    { id: "prop_name", name: "名称", type: "text" },
-  ];
+function randomOptionColor(): string {
+  const palette = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#8b5cf6", "#14b8a6"];
+  return palette[Math.floor(Math.random() * palette.length)];
 }
 
-function renderCellValue(value: unknown, prop: DatabaseProperty): React.ReactNode {
-  if (value === null || value === undefined || value === "") return <span className="organize-db-empty">空</span>;
+function defaultSchema(): DatabaseProperty[] {
+  return [{ id: "prop_name", name: "名称", type: "text" }];
+}
+
+function formatCellDisplay(value: unknown, prop: DatabaseProperty): React.ReactNode {
+  if (value === null || value === undefined || value === "") {
+    return <span className="organize-db-empty">空</span>;
+  }
   switch (prop.type) {
     case "checkbox":
-      return <input type="checkbox" checked={Boolean(value)} readOnly tabIndex={-1} />;
+      return <Check className="h-3.5 w-3.5" style={{ color: Boolean(value) ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / .4)" }} />;
     case "select": {
       const optId = String(value);
       const opt = (prop.options || []).find((o) => o.id === optId);
-      return opt ? <span className="organize-db-tag">{opt.name}</span> : String(value);
+      if (opt) {
+        return (
+          <span
+            className="organize-db-tag"
+            style={opt.color ? { background: `${opt.color}22`, color: opt.color } : undefined}
+          >{opt.name}</span>
+        );
+      }
+      return <span className="organize-db-tag">{optId}</span>;
     }
     case "multi_select": {
-      const ids = Array.isArray(value) ? value : [];
+      const ids = Array.isArray(value) ? (value as string[]) : [];
       return (
         <span className="organize-db-tag-list">
           {ids.map((id) => {
             const opt = (prop.options || []).find((o) => o.id === id);
-            return <span key={String(id)} className="organize-db-tag">{opt ? opt.name : String(id)}</span>;
+            if (!opt) return <span key={id} className="organize-db-tag">{id}</span>;
+            return (
+              <span
+                key={id}
+                className="organize-db-tag"
+                style={opt.color ? { background: `${opt.color}22`, color: opt.color } : undefined}
+              >{opt.name}</span>
+            );
           })}
         </span>
       );
@@ -56,19 +84,23 @@ function renderCellValue(value: unknown, prop: DatabaseProperty): React.ReactNod
       return <a href={String(value)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="organize-db-link">{String(value)}</a>;
     case "number":
       return String(value);
+    case "file":
+      return <span className="organize-db-tag"><FileText className="h-3 w-3" />文件</span>;
     case "text":
     default:
       return String(value);
   }
 }
 
-export function TableView({ databaseId }: TableViewProps) {
+export function TableView({ databaseId, readOnly = false }: TableViewProps) {
   const [db, setDb] = useState<DatabaseRecord | null>(null);
   const [rows, setRows] = useState<DatabaseRowRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowId: string; propId: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [activeColumnMenu, setActiveColumnMenu] = useState<string | null>(null);
+  const columnMenuRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,13 +127,47 @@ export function TableView({ databaseId }: TableViewProps) {
     void load();
   }, [load]);
 
+  // 点击其他地方关闭列菜单
+  useEffect(() => {
+    if (!activeColumnMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setActiveColumnMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [activeColumnMenu]);
+
   const schema = useMemo<DatabaseProperty[]>(() => {
     if (!db || !Array.isArray(db.schema) || db.schema.length === 0) return defaultSchema();
     return db.schema as DatabaseProperty[];
   }, [db]);
 
+  const patchSchema = useCallback(async (newSchema: DatabaseProperty[]) => {
+    if (!db) return;
+    setSaving(true);
+    const prevDb = db;
+    setDb({ ...db, schema: newSchema });
+    try {
+      const res = await fetch(`/api/databases/${databaseId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schema: newSchema }),
+      });
+      if (!res.ok) throw new Error("更新列失败");
+      const updated = (await res.json()) as DatabaseRecord;
+      setDb(updated);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDb(prevDb);
+    } finally {
+      setSaving(false);
+    }
+  }, [db, databaseId]);
+
   const addRow = async () => {
-    if (saving) return;
+    if (saving || readOnly) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/databases/${databaseId}/rows`, {
@@ -120,26 +186,27 @@ export function TableView({ databaseId }: TableViewProps) {
   };
 
   const deleteRow = async (rowId: string) => {
-    if (saving) return;
+    if (saving || readOnly) return;
     if (!window.confirm("确定删除这一行？")) return;
     setSaving(true);
+    const prevRows = rows;
+    setRows((prev) => prev.filter((r) => r.id !== rowId));
     try {
       const res = await fetch(`/api/databases/${databaseId}/rows/${rowId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除行失败");
-      setRows((prev) => prev.filter((r) => r.id !== rowId));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
+      setRows(prevRows);
     } finally {
       setSaving(false);
     }
   };
 
   const updateCell = async (rowId: string, propId: string, value: unknown) => {
-    if (saving) return;
+    if (saving || readOnly) return;
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
     const newValues = { ...(row.values as Record<string, unknown>), [propId]: value };
-    // 乐观更新
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, values: newValues } : r)));
     setEditingCell(null);
     setSaving(true);
@@ -152,60 +219,77 @@ export function TableView({ databaseId }: TableViewProps) {
       if (!res.ok) throw new Error("更新单元格失败");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
-      // 回滚
       void load();
     } finally {
       setSaving(false);
     }
   };
 
-  const addColumn = async () => {
-    if (saving || !db) return;
-    const name = window.prompt("列名（默认文本类型）：");
+  const addColumn = async (type: DatabasePropertyType = "text") => {
+    if (saving || readOnly || !db) return;
+    const name = window.prompt("列名：");
     if (!name) return;
-    const newProp: DatabaseProperty = { id: generateId("prop"), name: name.trim(), type: "text" };
-    const newSchema = [...schema, newProp];
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/databases/${databaseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema: newSchema }),
-      });
-      if (!res.ok) throw new Error("添加列失败");
-      const updated = (await res.json()) as DatabaseRecord;
-      setDb(updated);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+    const newProp: DatabaseProperty = {
+      id: generateId("prop"),
+      name: name.trim(),
+      type,
+      options: (type === "select" || type === "multi_select") ? [] : undefined,
+    };
+    await patchSchema([...schema, newProp]);
   };
 
   const renameColumn = async (prop: DatabaseProperty) => {
-    if (saving || !db) return;
+    if (readOnly) return;
     const name = window.prompt("列名：", prop.name);
     if (!name || name === prop.name) return;
-    const newSchema = schema.map((p) => (p.id === prop.id ? { ...p, name: name.trim() } : p));
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/databases/${databaseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema: newSchema }),
-      });
-      if (!res.ok) throw new Error("重命名列失败");
-      const updated = (await res.json()) as DatabaseRecord;
-      setDb(updated);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+    await patchSchema(schema.map((p) => (p.id === prop.id ? { ...p, name: name.trim() } : p)));
   };
 
-  const toggleColumnTypeMenu = () => {
-    // PR-3 简化：类型切换在 PR-4 做更完善，这里不展开
+  const changeColumnType = async (prop: DatabaseProperty, newType: DatabasePropertyType) => {
+    if (readOnly || newType === prop.type) return;
+    const needsOptions = newType === "select" || newType === "multi_select";
+    const newSchema = schema.map((p) => {
+      if (p.id !== prop.id) return p;
+      return {
+        ...p,
+        type: newType,
+        options: needsOptions ? (p.options || []) : undefined,
+      };
+    });
+    // 如果切到 select/multi_select 且之前不是，扫一下现有值收集成 options
+    if (needsOptions && !(prop.type === "select" || prop.type === "multi_select")) {
+      const opts = new Map<string, { id: string; name: string; color?: string }>();
+      for (const r of rows) {
+        const v = (r.values as Record<string, unknown>)[prop.id];
+        const collect = (val: unknown) => {
+          if (val === null || val === undefined || val === "") return;
+          const s = String(val);
+          if (!opts.has(s)) opts.set(s, { id: generateId("opt"), name: s, color: randomOptionColor() });
+        };
+        if (Array.isArray(v)) v.forEach(collect); else collect(v);
+      }
+      const idx = newSchema.findIndex((p) => p.id === prop.id);
+      if (idx >= 0) newSchema[idx] = { ...newSchema[idx], options: Array.from(opts.values()) };
+    }
+    await patchSchema(newSchema);
+  };
+
+  const deleteColumn = async (prop: DatabaseProperty) => {
+    if (readOnly) return;
+    if (schema.length <= 1) {
+      window.alert("至少保留一列");
+      return;
+    }
+    if (!window.confirm(`确定删除列「${prop.name}」？该列所有数据将被清空。`)) return;
+    const newSchema = schema.filter((p) => p.id !== prop.id);
+    // 同步清空所有行里该字段
+    const newRows = rows.map((r) => {
+      const v = { ...(r.values as Record<string, unknown>) };
+      delete v[prop.id];
+      return { ...r, values: v };
+    });
+    setRows(newRows);
+    await patchSchema(newSchema);
   };
 
   if (loading && !db) {
@@ -224,22 +308,73 @@ export function TableView({ databaseId }: TableViewProps) {
             <th className="organize-db-th organize-db-th-gutter"><GripVertical className="h-3.5 w-3.5" /></th>
             {schema.map((prop) => {
               const Meta = TYPE_META[prop.type] || TYPE_META.text;
+              const isOpen = activeColumnMenu === prop.id;
               return (
-                <th key={prop.id} className="organize-db-th" onDoubleClick={() => renameColumn(prop)}>
-                  <span className="organize-db-th-inner">
+                <th key={prop.id} className="organize-db-th">
+                  <div className="organize-db-th-inner" onDoubleClick={() => !readOnly && renameColumn(prop)}>
                     <Meta.icon className="h-3.5 w-3.5" />
                     <span className="organize-db-th-name">{prop.name}</span>
-                    <button type="button" className="organize-db-th-menu" onClick={toggleColumnTypeMenu} title="列设置">
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className={`organize-db-th-menu ${isOpen ? "is-open" : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveColumnMenu(isOpen ? null : prop.id);
+                        }}
+                        title="列设置"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {isOpen && !readOnly && (
+                    <div
+                      ref={columnMenuRef}
+                      className="organize-db-col-menu"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <button type="button" className="organize-db-menu-item" onClick={() => { renameColumn(prop); setActiveColumnMenu(null); }}>
+                        <Type className="h-3.5 w-3.5" />重命名
+                      </button>
+                      <div className="organize-db-menu-sep" />
+                      <div className="organize-db-menu-label">属性类型</div>
+                      {PROPERTY_TYPE_ORDER.map((t) => {
+                        const TM = TYPE_META[t];
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            className={`organize-db-menu-item ${prop.type === t ? "is-active" : ""}`}
+                            onClick={() => { changeColumnType(prop, t); setActiveColumnMenu(null); }}
+                          >
+                            <TM.icon className="h-3.5 w-3.5" />
+                            {TM.label}
+                            {prop.type === t && <Check className="h-3 w-3" />}
+                          </button>
+                        );
+                      })}
+                      <div className="organize-db-menu-sep" />
+                      <button
+                        type="button"
+                        className="organize-db-menu-item is-danger"
+                        onClick={() => { deleteColumn(prop); setActiveColumnMenu(null); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />删除列
+                      </button>
+                    </div>
+                  )}
                 </th>
               );
             })}
             <th className="organize-db-th organize-db-th-add">
-              <button type="button" className="organize-db-add-col" onClick={addColumn} disabled={saving} title="新增列">
-                <Plus className="h-3.5 w-3.5" />
-              </button>
+              {!readOnly && (
+                <div className="organize-db-add-col-wrap">
+                  <button type="button" className="organize-db-add-col" onClick={() => addColumn("text")} disabled={saving} title="新增文本列">
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </th>
           </tr>
         </thead>
@@ -254,9 +389,11 @@ export function TableView({ databaseId }: TableViewProps) {
             rows.map((row) => (
               <tr key={row.id} className="organize-db-tr">
                 <td className="organize-db-td organize-db-td-gutter">
-                  <button type="button" className="organize-db-row-delete" onClick={() => deleteRow(row.id)} title="删除行">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {!readOnly && (
+                    <button type="button" className="organize-db-row-delete" onClick={() => deleteRow(row.id)} title="删除行">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </td>
                 {schema.map((prop) => {
                   const value = (row.values as Record<string, unknown> | undefined)?.[prop.id];
@@ -264,11 +401,11 @@ export function TableView({ databaseId }: TableViewProps) {
                   return (
                     <td
                       key={prop.id}
-                      className="organize-db-td"
+                      className={`organize-db-td ${prop.type === "checkbox" ? "organize-db-td-checkbox" : ""}`}
                       onClick={() => {
-                        if (prop.type !== "checkbox") {
-                          setEditingCell({ rowId: row.id, propId: prop.id });
-                        }
+                        if (readOnly) return;
+                        if (prop.type === "checkbox") return;
+                        setEditingCell({ rowId: row.id, propId: prop.id });
                       }}
                     >
                       {isEditing ? (
@@ -280,11 +417,12 @@ export function TableView({ databaseId }: TableViewProps) {
                         />
                       ) : prop.type === "checkbox" ? (
                         <CheckboxCell
+                          readOnly={readOnly}
                           checked={Boolean(value)}
                           onToggle={(v) => updateCell(row.id, prop.id, v)}
                         />
                       ) : (
-                        <div className="organize-db-cell">{renderCellValue(value, prop)}</div>
+                        <div className="organize-db-cell">{formatCellDisplay(value, prop)}</div>
                       )}
                     </td>
                   );
@@ -295,19 +433,31 @@ export function TableView({ databaseId }: TableViewProps) {
           )}
         </tbody>
       </table>
-      <div className="organize-db-footer" contentEditable={false}>
-        <button type="button" className="organize-db-add-row" onClick={addRow} disabled={saving}>
-          <Plus className="h-3.5 w-3.5" />新增行
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="organize-db-footer" contentEditable={false}>
+          <button type="button" className="organize-db-add-row" onClick={addRow} disabled={saving}>
+            <Plus className="h-3.5 w-3.5" />新增行
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function CheckboxCell({ checked, onToggle }: { checked: boolean; onToggle: (v: boolean) => void }) {
+function CheckboxCell({ checked, onToggle, readOnly }: { checked: boolean; onToggle: (v: boolean) => void; readOnly?: boolean }) {
   return (
-    <div className="organize-db-cell organize-db-cell-checkbox" onClick={(e) => e.stopPropagation()}>
-      <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+    <div
+      className="organize-db-cell organize-db-cell-checkbox"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!readOnly) onToggle(!checked);
+      }}
+    >
+      {checked ? (
+        <Check className="h-3.5 w-3.5" style={{ color: "hsl(var(--primary))" }} />
+      ) : (
+        <div className="organize-db-checkbox-box" />
+      )}
     </div>
   );
 }
@@ -326,8 +476,18 @@ function CellEditor({
   const [draft, setDraft] = useState<string>(
     initialValue === null || initialValue === undefined ? "" : String(initialValue)
   );
+  const [multiSelectDraft, setMultiSelectDraft] = useState<string[]>(
+    Array.isArray(initialValue) ? (initialValue as string[]) : []
+  );
+  const [selectOpen, setSelectOpen] = useState(prop.type === "select" || prop.type === "multi_select");
+  const [newOptionName, setNewOptionName] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const commit = () => {
+  useEffect(() => {
+    if (inputRef.current && !selectOpen) inputRef.current.focus();
+  }, [selectOpen]);
+
+  const commitText = () => {
     let v: unknown = draft;
     if (prop.type === "number") {
       if (draft === "") v = null;
@@ -335,43 +495,148 @@ function CellEditor({
         const n = Number(draft);
         v = Number.isFinite(n) ? n : draft;
       }
-    } else if (prop.type === "checkbox") {
-      v = draft === "true";
     } else if (draft === "") {
       v = null;
     }
     onCommit(v);
   };
 
-  if (prop.type === "select" || prop.type === "multi_select") {
-    // PR-3 简化：先用 text 输入，用逗号分隔多选
+  const commitMultiSelect = (ids: string[]) => {
+    onCommit(ids.length ? ids : null);
+  };
+
+  const toggleMultiOption = (optId: string) => {
+    const next = multiSelectDraft.includes(optId)
+      ? multiSelectDraft.filter((x) => x !== optId)
+      : [...multiSelectDraft, optId];
+    setMultiSelectDraft(next);
+  };
+
+  const addOption = () => {
+    const name = newOptionName.trim();
+    if (!name) return;
+    // 新增 option 走特殊路径：先改 schema 加 option，再提交值
+    // 但 CellEditor 不知道 schema patching 能力——退而求其次：
+    // 直接提交新值为新 id，并通知父级？简化：用 name 作为临时 id，由上层在列类型切换时规整化。
+    // 这里简化处理：直接把 name 当作值，由上层 changeColumnType 时扫描整理；
+    // 更好的做法需要传 onAddOption——为保持简单，PR-3 先不做 option 动态创建 UI，回车后用文本作为值。
+    setDraft(name);
+    setNewOptionName("");
+    setSelectOpen(false);
+    setTimeout(() => onCommit(name), 0);
+  };
+
+  if ((prop.type === "select" || prop.type === "multi_select")) {
+    const options = prop.options || [];
+    if (prop.type === "multi_select") {
+      return (
+        <div className="organize-db-editor-popup" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="organize-db-editor-tags">
+            {multiSelectDraft.map((id) => {
+              const opt = options.find((o) => o.id === id);
+              return (
+                <span key={id} className="organize-db-tag" style={opt?.color ? { background: `${opt.color}22`, color: opt.color } : undefined}>
+                  {opt ? opt.name : id}
+                  <button type="button" className="organize-db-tag-x" onClick={() => toggleMultiOption(id)}>
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              );
+            })}
+            <input
+              ref={inputRef}
+              className="organize-db-tag-input"
+              value={newOptionName}
+              placeholder={options.length ? "搜索或新增选项" : "输入选项名后回车新增"}
+              onChange={(e) => setNewOptionName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); addOption(); }
+                if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+                if (e.key === "Backspace" && newOptionName === "" && multiSelectDraft.length) {
+                  setMultiSelectDraft(multiSelectDraft.slice(0, -1));
+                }
+              }}
+              onBlur={() => commitMultiSelect(multiSelectDraft)}
+            />
+          </div>
+          {options.length > 0 && (
+            <div className="organize-db-option-list">
+              {options
+                .filter((o) => !newOptionName || o.name.toLowerCase().includes(newOptionName.toLowerCase()))
+                .map((o) => {
+                  const selected = multiSelectDraft.includes(o.id);
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className={`organize-db-option-item ${selected ? "is-selected" : ""}`}
+                      onMouseDown={(e) => { e.preventDefault(); toggleMultiOption(o.id); }}
+                    >
+                      <span className="organize-db-option-dot" style={{ background: o.color || "hsl(var(--muted-foreground))" }} />
+                      {o.name}
+                      {selected && <Check className="h-3 w-3" />}
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      );
+    }
+    // select（单选）
     return (
-      <input
-        autoFocus
-        className="organize-db-input"
-        value={draft}
-        placeholder={prop.type === "multi_select" ? "逗号分隔多个选项" : "选项 ID"}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); commit(); }
-          if (e.key === "Escape") { e.preventDefault(); onCancel(); }
-        }}
-      />
+      <div className="organize-db-editor-popup" onMouseDown={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          className="organize-db-input-inside"
+          value={draft}
+          placeholder="选择或输入新选项"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); onCommit(draft || null); }
+            if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+          }}
+        />
+        <div className="organize-db-option-list">
+          {options
+            .filter((o) => !draft || o.name.toLowerCase().includes(draft.toLowerCase()))
+            .map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className={`organize-db-option-item ${draft === o.id || draft === o.name ? "is-selected" : ""}`}
+                onMouseDown={(e) => { e.preventDefault(); onCommit(o.id); }}
+              >
+                <span className="organize-db-option-dot" style={{ background: o.color || "hsl(var(--muted-foreground))" }} />
+                {o.name}
+              </button>
+            ))}
+          {draft && !options.some((o) => o.name === draft) && (
+            <button
+              type="button"
+              className="organize-db-option-item is-new"
+              onMouseDown={(e) => { e.preventDefault(); onCommit(draft); }}
+            >
+              <Plus className="h-3 w-3" />新建「{draft}」
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
 
   if (prop.type === "date") {
     return (
       <input
+        ref={inputRef}
         autoFocus
         type="date"
         className="organize-db-input"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => onCommit(draft || null)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          if (e.key === "Enter") { e.preventDefault(); onCommit(draft || null); }
           if (e.key === "Escape") { e.preventDefault(); onCancel(); }
         }}
       />
@@ -381,15 +646,16 @@ function CellEditor({
   const inputType = prop.type === "number" ? "number" : prop.type === "url" ? "url" : "text";
   return (
     <input
-      autoFocus
+      ref={inputRef}
+      autoFocus={!selectOpen}
       type={inputType}
       className="organize-db-input"
       value={draft}
       placeholder={`输入${TYPE_META[prop.type]?.label || "值"}`}
       onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
+      onBlur={commitText}
       onKeyDown={(e) => {
-        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        if (e.key === "Enter") { e.preventDefault(); commitText(); }
         if (e.key === "Escape") { e.preventDefault(); onCancel(); }
       }}
     />

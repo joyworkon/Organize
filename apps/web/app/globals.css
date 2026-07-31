@@ -3343,10 +3343,21 @@
   accent-color: hsl(var(--primary));
   cursor: pointer;
 }
+.organize-db-checkbox-box {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid hsl(var(--muted-foreground) / .4);
+  border-radius: 3px;
+  background: hsl(var(--background));
+}
+.organize-db-cell-checkbox:hover .organize-db-checkbox-box {
+  border-color: hsl(var(--primary));
+}
 .organize-db-empty { color: hsl(var(--muted-foreground) / .4); font-style: italic; }
 .organize-db-tag {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   padding: 1px 8px;
   border-radius: 10px;
   background: hsl(var(--muted));
@@ -3354,6 +3365,19 @@
   font-size: 12px;
   line-height: 1.6;
 }
+.organize-db-tag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: .6;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 2px;
+}
+.organize-db-tag-x:hover { opacity: 1; background: rgba(0,0,0,.1); }
 .organize-db-tag-list { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
 .organize-db-link { color: hsl(var(--primary)); text-decoration: none; }
 .organize-db-link:hover { text-decoration: underline; }
@@ -3370,6 +3394,115 @@
   color: hsl(var(--foreground));
   min-height: 32px;
 }
+
+/* 列菜单 */
+.organize-db-th { position: relative; }
+.organize-db-col-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  min-width: 180px;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  padding: 4px;
+}
+.organize-db-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.organize-db-menu-item:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.organize-db-menu-item.is-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); font-weight: 500; }
+.organize-db-menu-item.is-danger { color: hsl(var(--destructive)); }
+.organize-db-menu-item.is-danger:hover { background: hsl(var(--destructive) / .1); color: hsl(var(--destructive)); }
+.organize-db-menu-sep { height: 1px; background: hsl(var(--border)); margin: 4px 2px; }
+.organize-db-menu-label { padding: 4px 10px 2px; font-size: 10px; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: .04em; }
+.organize-db-th-menu.is-open { opacity: 1; background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+
+/* 单元格编辑器弹出层（select/multi_select） */
+.organize-db-td { position: relative; }
+.organize-db-editor-popup {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  padding: 4px;
+}
+.organize-db-input-inside {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: hsl(var(--foreground));
+}
+.organize-db-editor-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+}
+.organize-db-tag-input {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-family: inherit;
+  color: hsl(var(--foreground));
+}
+.organize-db-option-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border-top: 1px solid hsl(var(--border));
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.organize-db-option-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  text-align: left;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.organize-db-option-item:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.organize-db-option-item.is-selected { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); font-weight: 500; }
+.organize-db-option-item.is-new { color: hsl(var(--primary)); }
+.organize-db-option-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.organize-db-td-checkbox { text-align: center; }
 
 .organize-db-empty-row {
   padding: 24px 16px !important;

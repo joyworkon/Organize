@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
+  Database as DatabaseIcon,
   FileText,
   Lightbulb,
   ListChecks,
@@ -29,6 +30,7 @@ const resourceConfig = {
   reading_item: { label: "文章", icon: BookOpen },
   task: { label: "任务", icon: ListChecks },
   lesson: { label: "经验", icon: Lightbulb },
+  database: { label: "数据库", icon: DatabaseIcon },
 } satisfies Record<
   TrashResourceType,
   { label: string; icon: typeof FileText }
@@ -40,6 +42,7 @@ const filters: { value: TrashFilter; label: string }[] = [
   { value: "reading_item", label: "文章" },
   { value: "task", label: "任务" },
   { value: "lesson", label: "经验" },
+  { value: "database", label: "数据库" },
 ];
 
 export default function TrashPage() {
