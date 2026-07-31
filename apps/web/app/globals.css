@@ -4053,3 +4053,54 @@ mark.hl-pink { background-color: rgb(251 207 232 / 0.7); color: inherit; padding
 .dark mark.hl-pink { background-color: rgb(131 24 67 / 0.4); }
 mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
 .dark mark.hl-purple { background-color: rgb(76 29 149 / 0.4); }
+
+/* ------------------------- 数据库图表视图 ------------------------- */
+.organize-db-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 8px;
+}
+.organize-db-chart-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  background: hsl(var(--muted) / .35);
+  border-radius: 8px;
+}
+.organize-db-chart-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.organize-db-chart-field > span { white-space: nowrap; }
+.organize-db-chart-field select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+.organize-db-chart-field select:disabled { opacity: .5; cursor: not-allowed; }
+.organize-db-chart-canvas {
+  width: 100%;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.organize-db-chart-canvas svg { max-width: 100%; height: auto; }
+.organize-db-chart-empty {
+  width: 100%;
+  padding: 40px 16px;
+  text-align: center;
+  color: hsl(var(--muted-foreground) / .7);
+  font-style: italic;
+  font-size: 13px;
+}

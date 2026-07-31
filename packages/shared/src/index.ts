@@ -351,6 +351,12 @@ export interface DatabaseView {
     startPropertyId?: string | null;
     endPropertyId?: string | null;
     chartType?: "bar_h" | "bar_v" | "line" | "donut" | "pivot";
+    /** 图表视图：聚合方式（count/sum/avg） */
+    metric?: "count" | "sum" | "avg";
+    /** 图表视图：分组属性 id */
+    groupByPropId?: string;
+    /** 图表视图：sum/avg 时聚合的数值属性 id */
+    valuePropId?: string;
     [key: string]: unknown;
   };
 }

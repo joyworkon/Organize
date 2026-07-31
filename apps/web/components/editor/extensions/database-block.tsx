@@ -12,6 +12,7 @@ import { ListView } from "@/components/database/list-view";
 import { GalleryView } from "@/components/database/gallery-view";
 import { CalendarView } from "@/components/database/calendar-view";
 import { TimelineView } from "@/components/database/timeline-view";
+import { ChartView } from "@/components/database/chart-view";
 import { applyFilters } from "@/components/database/view-shared/filters";
 import { applySorts } from "@/components/database/view-shared/sorts";
 import type { DatabaseFilter, DatabaseSort } from "@/components/database/view-shared/types";
@@ -113,6 +114,15 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
     setActiveViewId(viewId);
     updateAttributes({ viewId });
   }, [updateAttributes]);
+
+  // 更新当前活动视图的 config（复用 patchViews 持久化路径，乐观更新）
+  const handleUpdateViewConfig = useCallback((patch: Record<string, unknown>) => {
+    if (!activeView) return;
+    const newViews = views.map((v) =>
+      v.id === activeView.id ? { ...v, config: { ...v.config, ...patch } } : v
+    );
+    patchViews(newViews);
+  }, [activeView, views, patchViews]);
 
   // 行操作回调
   const handleAddRow = useCallback(async (defaults?: Record<string, unknown>) => {
@@ -230,6 +240,19 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
             db={record}
             rows={processedRows}
             view={activeView}
+          />
+        );
+      case "chart":
+        return (
+          <ChartView
+            databaseId={databaseId}
+            db={record}
+            rows={processedRows}
+            view={activeView}
+            onUpdateCell={handleUpdateCell}
+            onAddRow={handleAddRow}
+            onUpdateRowSort={handleUpdateRowSort}
+            onUpdateViewConfig={handleUpdateViewConfig}
           />
         );
       case "table":
