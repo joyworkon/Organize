@@ -84,7 +84,11 @@ const isNullableTimestamp: Validator = (value) =>
   value === null || isTimestamp(value);
 const isNullableUuid: Validator = (value) => value === null || isUuid(value);
 const isJsonObject: Validator = (value) => isRecord(value);
-const isNullableJsonObject: Validator = (value) =>
+const isJsonArray: Validator = (value) => Array.isArray(value);
+const isJsonStructure: Validator = (value) => isRecord(value) || Array.isArray(value);
+const isNullableJsonObject: Validator = (
+  value
+) =>
   value === null || isJsonObject(value);
 const optional =
   (validator: Validator): Validator =>
@@ -284,7 +288,7 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
   synced_blocks: {
     fields: {
       id: isUuid,
-      content: isJsonObject,
+      content: isJsonArray,
       created_at: isTimestamp,
       updated_at: isTimestamp,
     },

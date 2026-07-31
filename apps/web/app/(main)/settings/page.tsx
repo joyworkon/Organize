@@ -155,6 +155,12 @@ export default function SettingsPage() {
             "id, note_id, block_id, original_block, proposed_block, status, created_at, updated_at",
           order: ["id"],
         },
+        {
+          table: "synced_blocks",
+          columns: "id, content, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
       ] as const;
 
       const pageSize = 500;

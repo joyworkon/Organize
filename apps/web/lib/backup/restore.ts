@@ -111,7 +111,7 @@ export function prepareRestorePayload(
     task_id: remapOptional(row.task_id, maps.tasks),
     reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
     note_id: remapOptional(row.note_id, maps.notes),
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks),
   }));
   data.lesson_tags = backup.data.lesson_tags.map((row) => ({
     lesson_id: remap(row.lesson_id, maps.lessons),
@@ -133,7 +133,7 @@ export function prepareRestorePayload(
   data.note_versions = backup.data.note_versions.map((row) => ({
     ...withId(row, maps.note_versions),
     note_id: remap(row.note_id, maps.notes),
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks),
   }));
   data.note_comment_threads = backup.data.note_comment_threads.map((row) => ({
     ...withId(row, maps.note_comment_threads),
@@ -192,10 +192,11 @@ function remapOptional(
 function rewriteInternalLinks(
   value: unknown,
   noteIds: Map<string, string>,
-  readingIds: Map<string, string>
+  readingIds: Map<string, string>,
+  syncedBlockIds?: Map<string, string>
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) => rewriteInternalLinks(entry, noteIds, readingIds));
+    return value.map((entry) => rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds));
   }
   if (!isRecord(value)) return value;
 
@@ -211,8 +212,14 @@ function rewriteInternalLinks(
           return `/${kind}/${mapped}`;
         }
       );
+    } else if (key === "syncedId" && typeof entry === "string" && entry.length > 0 && syncedBlockIds) {
+      // 同步区块引用：syncedId 直接引用 synced_blocks 表的主键，需要重映射；
+      // 空字符串（未绑定的占位块）原样保留
+      const mapped = syncedBlockIds.get(entry);
+      if (!mapped) throw new Error(`Unknown synced block reference ${entry}`);
+      rewritten[key] = mapped;
     } else {
-      rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds);
+      rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds);
     }
   }
   return rewritten;
