@@ -14,6 +14,7 @@ import { CalendarView } from "@/components/database/calendar-view";
 import { TimelineView } from "@/components/database/timeline-view";
 import { ChartView } from "@/components/database/chart-view";
 import { AdminView } from "@/components/database/admin-view";
+import { DynamicView } from "@/components/database/dynamic-view";
 import { applyFilters } from "@/components/database/view-shared/filters";
 import { applySorts } from "@/components/database/view-shared/sorts";
 import type { DatabaseFilter, DatabaseSort } from "@/components/database/view-shared/types";
@@ -204,6 +205,18 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
       case "list":
         return (
           <ListView
+            databaseId={databaseId}
+            db={record}
+            rows={processedRows}
+            view={activeView}
+            onAddRow={() => handleAddRow()}
+            onDeleteRow={handleDeleteRow}
+            onUpdateCell={handleUpdateCell}
+          />
+        );
+      case "dynamic":
+        return (
+          <DynamicView
             databaseId={databaseId}
             db={record}
             rows={processedRows}

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
-  Table2, Kanban, List, LayoutGrid, CalendarDays, GanttChart, BarChart3, LayoutDashboard,
+  Table2, Kanban, List, LayoutGrid, CalendarDays, GanttChart, BarChart3, LayoutDashboard, Activity,
   Plus, Trash2,
 } from "lucide-react";
 import type { DatabaseView, DatabaseViewType } from "@organize/shared";
@@ -16,11 +16,12 @@ const VIEW_TYPE_META: Record<string, { icon: typeof Table2; label: string }> = {
   timeline: { icon: GanttChart, label: "时间轴" },
   chart: { icon: BarChart3, label: "图表" },
   admin: { icon: LayoutDashboard, label: "面板" },
+  dynamic: { icon: Activity, label: "动态" },
 };
 
-/** 支持新建的视图类型（M4 基础视图 + M5 图表/管理面板） */
+/** 支持新建的视图类型（M4 基础视图 + M5 图表/管理面板/动态） */
 const CREATABLE_VIEW_TYPES: DatabaseViewType[] = [
-  "table", "board", "list", "gallery", "calendar", "timeline", "chart", "admin",
+  "table", "board", "list", "gallery", "calendar", "timeline", "chart", "admin", "dynamic",
 ];
 
 function generateViewId(): string {
