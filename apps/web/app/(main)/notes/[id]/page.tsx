@@ -660,6 +660,7 @@ export default function NoteEditorPage() {
           noteTitle={title}
           content={content}
           onUpdate={handleContentUpdate}
+          noteTree={allNotes}
           onEditorReady={(editor) => {
             editorRef.current = editor;
           }}

@@ -178,6 +178,8 @@ function renderNode(node: PMNode): string {
     case "tableOfContents":
       // 目录是文档内自动生成的视图，粘贴到外部无意义，输出占位文本
       return "<p>📑 目录</p>";
+    case "breadcrumb":
+      return "<p>📑 路径栏</p>";
     default:
       // 未知节点：尽量递归渲染其 content，避免内容丢失；但不输出未知标签
       return renderChildren(node);
@@ -271,6 +273,8 @@ function extractPlainText(node: PMNode): string {
       return "";
     case "tableOfContents":
       return "📑 目录";
+    case "breadcrumb":
+      return "📑 路径栏";
     default:
       return (node.content || []).map(extractPlainText).join("");
   }

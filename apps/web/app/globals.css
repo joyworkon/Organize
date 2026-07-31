@@ -2830,6 +2830,61 @@
   box-shadow: 0 0 0 2px hsl(var(--ring) / .3);
 }
 
+/* ------------------------- 路径栏（Breadcrumb） ------------------------- */
+.organize-editor .organize-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin: var(--organize-block-gap, 1rem) 0;
+  padding: 8px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / .3);
+  font-size: 13px;
+}
+.organize-breadcrumb-root {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.organize-breadcrumb-root:hover { color: hsl(var(--foreground)); }
+.organize-breadcrumb-crumb { display: inline-flex; align-items: center; min-width: 0; }
+.organize-breadcrumb-sep { color: hsl(var(--muted-foreground) / .5); flex-shrink: 0; }
+.organize-breadcrumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 12rem;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.organize-breadcrumb-link > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.organize-breadcrumb-link:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+.organize-breadcrumb-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 14rem;
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  padding: 2px 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.organize-breadcrumb-current > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.organize-breadcrumb-empty { color: hsl(var(--muted-foreground)); padding: 2px 4px; }
+.organize-editor.prose .organize-breadcrumb.ProseMirror-selectednode {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / .3);
+}
+
 /* AI 录音 */
 .recording-state { display: grid; justify-items: center; gap: 8px; padding: 28px 20px 10px; text-align: center; }
 .recording-state p { margin: 0; color: hsl(var(--muted-foreground)); font-size: 12px; }

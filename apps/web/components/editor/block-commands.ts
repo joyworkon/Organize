@@ -27,6 +27,7 @@ import {
   Text,
   TextCursorInput,
   ListTree,
+  Route,
 } from "lucide-react";
 import type { BlockCommandDefinition } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
@@ -446,6 +447,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: ListTree,
     keywords: ["toc", "table of contents", "outline", "目录", "大纲"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "tableOfContents", attrs: {} }),
+  },
+  {
+    id: "breadcrumb",
+    label: "路径栏",
+    description: "显示当前页的父级路径面包屑",
+    category: "基本区块",
+    icon: Route,
+    keywords: ["breadcrumb", "path", "crumb", "路径", "面包屑"],
+    run: (editor, pos) => replaceBlock(editor, pos, { type: "breadcrumb", attrs: {} }),
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
     id: `columns-${cols}`,

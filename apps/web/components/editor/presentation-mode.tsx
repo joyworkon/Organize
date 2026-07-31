@@ -116,5 +116,8 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
     // 演示模式只读：展示目录占位，跳转交互请在编辑模式中使用
     return <div className="presentation-embed">📑 目录（编辑模式中可点击跳转）</div>;
   }
+  if (block.type === "breadcrumb") {
+    return <div className="presentation-embed">📑 路径栏（编辑模式中显示父级链）</div>;
+  }
   return <div>{(block.content || []).map((child, index) => <RenderBlock key={index} block={child} />)}</div>;
 }
