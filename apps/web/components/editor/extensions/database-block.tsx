@@ -284,7 +284,13 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
         );
       case "table":
       default:
-        return <TableView databaseId={databaseId} />;
+        return (
+          <TableView
+            databaseId={databaseId}
+            columnWidths={(activeView.config.columnWidths as Record<string, number>) || {}}
+            onUpdateColumnWidths={(w) => handleUpdateViewConfig({ columnWidths: w })}
+          />
+        );
     }
   };
 

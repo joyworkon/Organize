@@ -3221,9 +3221,10 @@
 .organize-db-table {
   border-collapse: separate;
   border-spacing: 0;
-  width: 100%;
+  width: max-content;        /* 让宽表格溢出容器，触发横向滚动 */
+  min-width: 100%;           /* 窄表格仍填满容器 */
   font-size: 13px;
-  table-layout: auto;
+  table-layout: fixed;       /* 固定布局：列宽由 colgroup 精确控制 */
 }
 .organize-db-th {
   position: sticky;
@@ -3235,8 +3236,22 @@
   text-align: left;
   font-weight: 500;
   color: hsl(var(--muted-foreground));
-  min-width: 140px;
   vertical-align: middle;
+}
+/* 列宽拖拽手柄：绝对定位在 th 右边缘 */
+.organize-db-th-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  user-select: none;
+}
+.organize-db-th-resizer:hover,
+.organize-db-th-resizer.is-resizing {
+  background: hsl(var(--primary) / .35);
 }
 .organize-db-th-inner {
   display: flex;
@@ -3331,10 +3346,11 @@
   min-height: 32px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;                /* 内容自动换行 */
   line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;            /* 自动换行 */
+  overflow-wrap: break-word;      /* 长单词/URL 可断行 */
+  word-break: break-word;
 }
 .organize-db-cell-checkbox { justify-content: center; cursor: pointer; }
 .organize-db-cell input[type="checkbox"] {

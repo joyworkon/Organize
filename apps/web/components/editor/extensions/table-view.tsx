@@ -10,7 +10,14 @@ import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, Data
 interface TableViewProps {
   databaseId: string;
   readOnly?: boolean;
+  /** 每列宽度（propId → px），持久化在 view.config.columnWidths */
+  columnWidths?: Record<string, number>;
+  /** 列宽变化回调（拖拽松手时触发，持久化由父层负责） */
+  onUpdateColumnWidths?: (widths: Record<string, number>) => void;
 }
+
+const DEFAULT_COL_WIDTH = 160;     // 默认列宽 px
+const MIN_COL_WIDTH = 60;          // 最小列宽 px
 
 const TYPE_META: Record<DatabasePropertyType, { icon: typeof Type; label: string }> = {
   text: { icon: Type, label: "文本" },
@@ -92,7 +99,7 @@ function formatCellDisplay(value: unknown, prop: DatabaseProperty): React.ReactN
   }
 }
 
-export function TableView({ databaseId, readOnly = false }: TableViewProps) {
+export function TableView({ databaseId, readOnly = false, columnWidths, onUpdateColumnWidths }: TableViewProps) {
   const [db, setDb] = useState<DatabaseRecord | null>(null);
   const [rows, setRows] = useState<DatabaseRowRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +108,39 @@ export function TableView({ databaseId, readOnly = false }: TableViewProps) {
   const [saving, setSaving] = useState(false);
   const [activeColumnMenu, setActiveColumnMenu] = useState<string | null>(null);
   const columnMenuRef = useRef<HTMLDivElement | null>(null);
+  // 拖拽中的列宽（本地乐观，松手才落库）
+  const [dragWidths, setDragWidths] = useState<Record<string, number> | null>(null);
+
+  /** 取某列当前生效宽度（拖拽中用 dragWidths，否则用持久化的 columnWidths，否则默认） */
+  const colWidth = (propId: string): number =>
+    (dragWidths?.[propId] ?? columnWidths?.[propId] ?? DEFAULT_COL_WIDTH);
+
+  /** 列宽拖拽：onMouseDown 记录起点，全局监听 mousemove/up（鼠标移出 th 也能拖） */
+  const startResize = (e: React.MouseEvent, propId: string) => {
+    if (readOnly || !onUpdateColumnWidths) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = colWidth(propId);
+    const base = { ...(columnWidths || {}), ...(dragWidths || {}) };
+    // 用 ref 持有最新宽度，松手时读取（避免在 setState updater 里做副作用）
+    const latest = { ...base, [propId]: startW };
+
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(MIN_COL_WIDTH, startW + (ev.clientX - startX));
+      latest[propId] = next;
+      setDragWidths({ ...latest });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      // 副作用放在事件处理器里（不在 updater 内）
+      onUpdateColumnWidths(latest);
+      setDragWidths(null); // 清掉本地乐观，交回 columnWidths（props）驱动
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -303,6 +343,13 @@ export function TableView({ databaseId, readOnly = false }: TableViewProps) {
   return (
     <div className="organize-db-table-wrap">
       <table className="organize-db-table">
+        <colgroup>
+          <col style={{ width: 32 }} />
+          {schema.map((prop) => (
+            <col key={prop.id} style={{ width: colWidth(prop.id) }} />
+          ))}
+          <col style={{ width: 40 }} />
+        </colgroup>
         <thead>
           <tr>
             <th className="organize-db-th organize-db-th-gutter"><GripVertical className="h-3.5 w-3.5" /></th>
@@ -363,6 +410,13 @@ export function TableView({ databaseId, readOnly = false }: TableViewProps) {
                         <Trash2 className="h-3.5 w-3.5" />删除列
                       </button>
                     </div>
+                  )}
+                  {!readOnly && (
+                    <div
+                      className={`organize-db-th-resizer ${dragWidths?.[prop.id] ? "is-resizing" : ""}`}
+                      onMouseDown={(e) => startResize(e, prop.id)}
+                      title="拖动调整列宽"
+                    />
                   )}
                 </th>
               );
