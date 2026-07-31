@@ -5,12 +5,10 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tip
 import { Database as DatabaseIcon, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Database as DatabaseRecord } from "@organize/shared";
+import { TableView } from "./table-view";
 
 /**
  * databaseBlock —— 数据库块（atom）
- *
- * PR-2 阶段：仅作占位 NodeView，拉取数据库标题 / 图标显示为卡片。
- * PR-3 会把表格视图（table-view.tsx）接入这里。
  *
  * attrs:
  *   - databaseId: 关联 db_databases.id（空串 = 未创建的占位）
@@ -57,6 +55,9 @@ function DatabaseBlockView({ node, selected }: NodeViewProps) {
   const title = record?.title || (loading ? "加载中…" : "未命名数据库");
   const icon = record?.icon || "";
   const parentNoteId = record?.parent_note_id;
+  // 行内数据库：parent_note_id 为 null 或等于当前笔记（在当前笔记里编辑）
+  // 整页数据库（嵌套）：parent_note_id 是另一个笔记，显示"打开"跳转链接
+  const isFullPageLinked = Boolean(parentNoteId);
 
   return (
     <NodeViewWrapper
@@ -71,7 +72,7 @@ function DatabaseBlockView({ node, selected }: NodeViewProps) {
           {icon ? <span className="organize-database-icon">{icon}</span> : null}
           <span className="organize-database-title">{title}</span>
         </span>
-        {parentNoteId && (
+        {isFullPageLinked && (
           <a
             className="organize-database-open"
             href={`/notes/${parentNoteId}`}
@@ -82,16 +83,17 @@ function DatabaseBlockView({ node, selected }: NodeViewProps) {
           </a>
         )}
       </div>
-      <div className="organize-database-placeholder" contentEditable={false}>
+      <div className="organize-database-body" contentEditable={false}>
         {error ? (
-          <p className="organize-database-error">⚠️ {error}</p>
-        ) : loading ? (
-          <p>正在加载数据库…</p>
+          <div className="organize-database-placeholder">
+            <p className="organize-database-error">⚠️ {error}</p>
+          </div>
+        ) : loading || !databaseId ? (
+          <div className="organize-database-placeholder">
+            <p>正在加载数据库…</p>
+          </div>
         ) : (
-          <p className="organize-database-hint">
-            数据表格视图将在后续版本提供（M3 PR-3）。
-            {parentNoteId ? " 当前为整页数据库，可点击右上角「打开」跳转。" : ""}
-          </p>
+          <TableView databaseId={databaseId} />
         )}
       </div>
     </NodeViewWrapper>
