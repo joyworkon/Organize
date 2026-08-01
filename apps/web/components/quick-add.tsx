@@ -66,13 +66,14 @@ export function QuickAdd() {
         return;
       }
 
-      await supabase.from("reading_items").insert({
+      const { error } = await supabase.from("reading_items").insert({
         user_id: user.id,
         url: trimmedUrl,
         title: trimmedUrl,
         reading_status: "unread",
         reading_progress: 0,
       });
+      if (error) throw error;
 
       toast({ title: "已添加到收集箱" });
       closePanel();
@@ -95,12 +96,13 @@ export function QuickAdd() {
         return;
       }
 
-      await supabase.from("tasks").insert({
+      const { error: taskErr } = await supabase.from("tasks").insert({
         user_id: user.id,
         title: trimmedTitle,
         status: "todo",
         category: "work",
       });
+      if (taskErr) throw taskErr;
 
       toast({ title: "任务已创建" });
       closePanel();

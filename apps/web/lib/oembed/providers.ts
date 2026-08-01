@@ -19,7 +19,11 @@ interface ProviderRule {
   build: (url: URL, match: readonly string[]) => EmbedResult | null;
 }
 
-const SANDBOX_SCRIPTS = "allow-scripts allow-same-origin allow-popups allow-presentation";
+// 安全约束：srcDoc 嵌入内容禁止 allow-same-origin。
+// 原因：allow-scripts + allow-same-origin 组合会让 sandbox 内容访问父窗口的
+// 存储/cookie/DOM，等于 sandbox 形同虚设。去掉 same-origin 后，嵌入内容
+// 仍可执行脚本（视频播放器等需要），但被隔离在独立 opaque origin，无法读父域数据。
+const SANDBOX_SCRIPTS = "allow-scripts allow-popups allow-presentation";
 
 /** 从各种 YouTube URL 形态抽取 11 位视频 id。 */
 function youtubeId(url: URL): string | null {
@@ -93,7 +97,7 @@ const PROVIDERS: ProviderRule[] = [
       return {
         provider: "Twitter / X",
         title: "推文",
-        sandbox: "allow-scripts allow-same-origin allow-popups",
+        sandbox: "allow-scripts allow-popups",
         html: `<blockquote class="twitter-tweet" data-conversation="none"><a href="${url.href}"></a></blockquote><script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>`,
       };
     },
@@ -107,7 +111,7 @@ const PROVIDERS: ProviderRule[] = [
       return {
         provider: "GitHub Gist",
         title: "GitHub Gist",
-        sandbox: "allow-scripts allow-same-origin",
+        sandbox: "allow-scripts",
         html: `<script src="https://gist.github.com/${m[1]}/${m[2]}.js"></script>`,
       };
     },
@@ -123,7 +127,7 @@ const PROVIDERS: ProviderRule[] = [
       return {
         provider: "Google Maps",
         title: "Google 地图",
-        sandbox: "allow-scripts allow-same-origin allow-popups",
+        sandbox: "allow-scripts allow-popups",
         html: `<iframe src="https://maps.google.com/maps?q=${encodeURIComponent(q)}&output=embed" frameborder="0" loading="lazy"></iframe>`,
       };
     },
