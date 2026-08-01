@@ -117,11 +117,30 @@ import {
   Columns4,
 } from "lucide-react";
 
+/** 事务来源分类（见 docs/g0-protocol.md §4）。 */
+export type TransactionSource =
+  | "user"
+  | "hydrate"
+  | "remote-sync"
+  | "version-restore"
+  | "backup-restore";
+
 interface EditorProps {
   noteId: string;
   noteTitle?: string;
   content: Record<string, unknown>;
-  onUpdate: (content: Record<string, unknown>) => void;
+  /**
+   * 内容变化回调。
+   * @param content 编辑器 JSON
+   * @param source 变更来源：
+   *   - "user":用户主动编辑（键盘/鼠标/命令）——G2/G3 会激活 legacy、生成 task mutation、进 Undo
+   *   - "hydrate":打开笔记初始加载
+   *   - "remote-sync":Realtime 远端推入（G3 引入）
+   *   - "version-restore":版本恢复
+   *   - "backup-restore":备份恢复
+   *   系统事务（非 user）不得激活 legacy、不得生成 mutation、不得进 Undo（见 docs/g0-protocol.md §4）。
+   */
+  onUpdate: (content: Record<string, unknown>, source: TransactionSource) => void;
   /** 编辑器实例就绪 / 销毁时回调，供页面标题与正文联动（T1/T2） */
   onEditorReady?: (editor: Editor | null) => void;
   /** 笔记树（含 parent_note_id），供路径栏(Breadcrumb)块渲染父级链；不传则该块显示占位 */
@@ -987,7 +1006,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     extensions,
     content,
     immediatelyRender: false,
-    onUpdate: ({ editor }) => onUpdateRef.current(editor.getJSON()),
+    onUpdate: ({ editor, transaction }) => {
+      // 从 transaction meta 读来源；无 meta（用户键盘/鼠标操作）= "user"
+      const source = (transaction.getMeta("transactionSource") as TransactionSource) || "user";
+      onUpdateRef.current(editor.getJSON(), source);
+    },
     editorProps: {
       attributes: {
         class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
@@ -1101,13 +1124,16 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       }
     });
     if (transaction.docChanged) {
+      // 系统操作（补 block id）：打 hydrate meta，使 onUpdate 读到非 user 来源，
+      // 不激活 legacy / 不进 Undo（见 docs/g0-protocol.md §4）
+      transaction = transaction.setMeta("transactionSource", "hydrate");
       editor.view.dispatch(transaction);
-      onUpdateRef.current(editor.getJSON());
+      onUpdateRef.current(editor.getJSON(), "hydrate");
       return;
     }
     const upgraded = editor.getJSON();
     if (!isSameNodeSnapshot(upgraded, initialContentRef.current)) {
-      onUpdateRef.current(upgraded);
+      onUpdateRef.current(upgraded, "hydrate");
     }
   }, [editor]);
 

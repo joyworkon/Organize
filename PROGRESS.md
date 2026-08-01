@@ -16,7 +16,7 @@ G0 协议冻结(文档) → G1 数据底座(migration+RPC+测试) → G2 编辑�
 ## 进度
 - [x] G0 ✅ PR#47(协议文档)
 - [x] G1 ✅ 本地全绿:030/031 migration + RPC + 10 例 pgTAP(基本ok/同步/ref对齐/revision冲突/跨用户forbidden/幂等/orphaned回收)。db lint 仅 1 历史 warning(migrate_trash,非本阶段)。前端 43/361 不变、typecheck 0。
-- [ ] G2 编辑器同步(进行中:TaskItemLinked 加 taskId 属性已接入,默认关闭;事务区分/Realtime/多引用待续)
+- [ ] G2 编辑器同步(进行中:①TaskItemLinked 加 taskId ✅#49;②transaction source 区分 + TASK_NOTE_LINK_ENABLED 开关[本 PR];③Realtime/多引用/移动拆分待续)
 - [ ] G3 产品闭环(阻塞:需浏览器双标签页验收)
 - [ ] G4 P0 收口(部分可继续,部分阻塞于浏览器)
 
