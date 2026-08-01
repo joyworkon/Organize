@@ -17,9 +17,9 @@ import { getNoteAncestors, type NoteTreeItem } from "@/lib/notes/tree";
 function BreadcrumbView({ editor }: NodeViewProps) {
   const storage = (editor.storage as { breadcrumb?: BreadcrumbStorage }).breadcrumb;
   const noteId = storage?.noteId || "";
-  const noteTree = storage?.noteTree || [];
 
   const path = useMemo(() => {
+    const noteTree = storage?.noteTree || [];
     if (!noteId || noteTree.length === 0) return [] as NoteTreeItem[];
     const ancestors = getNoteAncestors(noteTree, noteId);
     const current = noteTree.find((n) => n.id === noteId);
@@ -31,7 +31,7 @@ function BreadcrumbView({ editor }: NodeViewProps) {
       parent_note_id: null,
     };
     return [...ancestors, currentEntry];
-  }, [noteId, noteTree, storage?.noteTitle]);
+  }, [noteId, storage]);
 
   return (
     <NodeViewWrapper

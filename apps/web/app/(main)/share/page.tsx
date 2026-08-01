@@ -53,6 +53,7 @@ function ShareContent() {
         // 非 Capacitor 环境，忽略
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSave 非 memoized，加入会触发重渲染循环；此 effect 按设计只在 url 变化时跑
   }, [searchParams]);
 
   const handleSave = async (sharedUrl: string) => {
