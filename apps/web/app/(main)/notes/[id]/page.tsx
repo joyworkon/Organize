@@ -262,9 +262,10 @@ export default function NoteEditorPage() {
       }
     };
 
-    // 加载时一次性对齐：查该笔记涉及的所有 task 状态，回勾。
-    // 这样即使 Realtime 没推到（单标签来回切导致订阅中断），重新进笔记页也能对齐。
-    const syncOnce = async () => {
+    // 反向同步（任务→笔记）：轮询拉取该笔记涉及的 task 状态对齐 checked。
+    // 注意：本地 Supabase dev 的 Realtime 有 signature_error 已知问题（订阅到 SUBSCRIBED 但收不到事件），
+    // 生产环境才稳；故本地用轮询（3秒），保证 dev 和生产都能工作。
+    const syncFromTasks = async () => {
       const { data: refs } = await supabase
         .from("task_item_refs")
         .select("task_id, tasks!inner(status)")
@@ -275,24 +276,10 @@ export default function NoteEditorPage() {
         if (status) applyTaskStatus(r.task_id, status);
       }
     };
-    void syncOnce();
+    void syncFromTasks();
+    const timer = setInterval(() => void syncFromTasks(), 3000);
 
-    // 订阅 tasks 表 UPDATE（只关心本笔记涉及的 task；applyTaskStatus 会过滤无关 task）
-    const channel = supabase
-      .channel(`note-${noteId}-tasks`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "tasks" },
-        (payload) => {
-          const t = payload.new as { id: string; status?: string };
-          if (t.id && t.status) applyTaskStatus(t.id, t.status);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => clearInterval(timer);
   }, [noteId, supabase]);
 
   useEffect(() => {
