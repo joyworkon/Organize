@@ -27,20 +27,21 @@ interface TaskSidebarProps {
   onCreateList: () => void;
 }
 
-function isToday(dateStr: string | null | undefined): boolean {
+/** 导出日期判断纯函数供单测 */
+export function isToday(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;
   const d = new Date(dateStr);
   const now = new Date();
   return d.toDateString() === now.toDateString();
 }
-function isUpcoming(dateStr: string | null | undefined): boolean {
+export function isUpcoming(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;
   const d = new Date(dateStr);
   const now = new Date();
   const diff = (d.getTime() - now.getTime()) / 86400000;
   return diff >= 0 && diff <= 6;
 }
-function isOverdue(dateStr: string | null | undefined): boolean {
+export function isOverdue(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;
   const d = new Date(dateStr);
   const now = new Date();
