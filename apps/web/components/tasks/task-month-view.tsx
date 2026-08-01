@@ -11,21 +11,57 @@ import type { TaskWithTags } from "@organize/shared";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
-interface TaskMonthViewProps {
-  tasks: TaskWithTags[];
-  onTaskClick?: (task: TaskWithTags) => void;
-  onDateClick?: (date: Date) => void;
-}
-
-function getTaskDate(t: TaskWithTags): Date | null {
+/** 导出纯函数供单测（不依赖 React/DOM） */
+export function getTaskDate(t: { schedule_start_at?: string | null; due_date?: string | null }): Date | null {
   const d = t.schedule_start_at || t.due_date;
   if (!d) return null;
   const dt = new Date(d);
   return isNaN(dt.getTime()) ? null : dt;
 }
 
+/** 计算月格 42 格（周一开头） */
+export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] {
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const offset = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: { date: Date; inMonth: boolean }[] = [];
+  for (let i = offset - 1; i >= 0; i--) {
+    cells.push({ date: new Date(year, month, -i), inMonth: false });
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    cells.push({ date: new Date(year, month, i), inMonth: true });
+  }
+  while (cells.length < 42) {
+    const last = cells[cells.length - 1].date;
+    cells.push({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), inMonth: false });
+  }
+  return cells;
+}
+
+/** 按日期分组任务 */
+export function groupTasksByDate(tasks: TaskWithTags[]): Map<string, TaskWithTags[]> {
+  const m = new Map<string, TaskWithTags[]>();
+  for (const t of tasks) {
+    const d = getTaskDate(t);
+    if (!d) continue;
+    const key = d.toDateString();
+    const arr = m.get(key) || [];
+    arr.push(t);
+    m.set(key, arr);
+  }
+  return m;
+}
+
 function sameDay(a: Date, b: Date) {
   return a.toDateString() === b.toDateString();
+}
+
+interface TaskMonthViewProps {
+  tasks: TaskWithTags[];
+  onTaskClick?: (task: TaskWithTags) => void;
+  onDateClick?: (date: Date) => void;
 }
 
 export function TaskMonthView({ tasks, onTaskClick, onDateClick }: TaskMonthViewProps) {
@@ -34,42 +70,8 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick }: TaskMonthView
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  const monthDays = useMemo(() => {
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-    const firstDay = new Date(year, month, 1);
-    // 周一开头：getDay() 周日=0,周一=1...，转成周一=0
-    const offset = (firstDay.getDay() + 6) % 7;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const cells: { date: Date; inMonth: boolean }[] = [];
-    // 上月尾
-    for (let i = offset - 1; i >= 0; i--) {
-      cells.push({ date: new Date(year, month, -i), inMonth: false });
-    }
-    // 本月
-    for (let i = 1; i <= daysInMonth; i++) {
-      cells.push({ date: new Date(year, month, i), inMonth: true });
-    }
-    // 下月头补齐到 42 格（6 行）
-    while (cells.length < 42) {
-      const last = cells[cells.length - 1].date;
-      cells.push({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), inMonth: false });
-    }
-    return cells;
-  }, [cursor]);
-
-  const tasksByDate = useMemo(() => {
-    const m = new Map<string, TaskWithTags[]>();
-    for (const t of tasks) {
-      const d = getTaskDate(t);
-      if (!d) continue;
-      const key = d.toDateString();
-      const arr = m.get(key) || [];
-      arr.push(t);
-      m.set(key, arr);
-    }
-    return m;
-  }, [tasks]);
+  const monthDays = useMemo(() => getMonthCells(cursor), [cursor]);
+  const tasksByDate = useMemo(() => groupTasksByDate(tasks), [tasks]);
 
   const today = new Date();
   const monthLabel = `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`;
