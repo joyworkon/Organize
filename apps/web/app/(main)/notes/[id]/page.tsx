@@ -235,11 +235,10 @@ export default function NoteEditorPage() {
   }, [loadNoteTree]);
 
   // G2 反向同步（任务→笔记）：订阅 tasks 表变更，任务状态变了→回勾笔记里对应块。
-  // 仅双链开启时生效；批量加载该笔记涉及的 task 状态（一次性，无 N+1）+ Realtime 订阅。
+  // 仅双链开启时生效。注意：editorRef 在 onEditorReady 时才赋值，可能晚于本 effect，
+  // 所以不在 effect 顶部 early-return，而是在 applyTaskStatus 内动态读 editorRef.current。
   useEffect(() => {
     if (!isTaskNoteLinkEnabled()) return;
-    const editor = editorRef.current;
-    if (!editor) return;
 
     // 把某 task 状态回写到编辑器里所有同 taskId 的 taskItem（checked = status==='done'）
     const applyTaskStatus = (taskId: string, status: string) => {
@@ -256,14 +255,29 @@ export default function NoteEditorPage() {
         return true;
       });
       if (changed) {
-        // 系统事务：标 hydrate，不激活、不进 Undo
+        // 系统事务：标 remote-sync，不激活、不进 Undo
         tr.setMeta("transactionSource", "remote-sync");
         tr.setMeta("addToHistory", false);
         e.view.dispatch(tr);
       }
     };
 
-    // 订阅 tasks 表 UPDATE（只关心本笔记涉及的 task）
+    // 加载时一次性对齐：查该笔记涉及的所有 task 状态，回勾。
+    // 这样即使 Realtime 没推到（单标签来回切导致订阅中断），重新进笔记页也能对齐。
+    const syncOnce = async () => {
+      const { data: refs } = await supabase
+        .from("task_item_refs")
+        .select("task_id, tasks!inner(status)")
+        .eq("note_id", noteId);
+      if (!refs) return;
+      for (const r of refs as any[]) {
+        const status = r.tasks?.status;
+        if (status) applyTaskStatus(r.task_id, status);
+      }
+    };
+    void syncOnce();
+
+    // 订阅 tasks 表 UPDATE（只关心本笔记涉及的 task；applyTaskStatus 会过滤无关 task）
     const channel = supabase
       .channel(`note-${noteId}-tasks`)
       .on(
