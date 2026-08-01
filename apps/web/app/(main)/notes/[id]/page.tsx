@@ -31,7 +31,13 @@ const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
 // G2/G3 任务↔笔记双链总开关。默认关闭：user-edit 仍走老路径(直接 update snapshot)，
 // 不激活 legacy、不生成 task mutation、不调 save_note_with_tasks RPC。
 // G3 双标签页验收通过后置 true，双链正式启用（见 docs/g0-protocol.md、BLOCKED.md）。
-const TASK_NOTE_LINK_ENABLED = false;
+//
+// 验收期：可临时通过浏览器控制台开启
+//   localStorage.setItem("organize:task-note-link", "1")
+// 然后刷新页面，即可试双链基础功能（不破坏默认行为，清掉 localStorage 即恢复）。
+// 验收通过后改为直接返回 true。
+const TASK_NOTE_LINK_ENABLED =
+  typeof window !== "undefined" && window.localStorage.getItem("organize:task-note-link") === "1";
 
 /**
  * 从笔记 content 递归提取所有「绑定块」（有 taskId 的 taskItem），
