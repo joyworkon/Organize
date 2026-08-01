@@ -35,7 +35,7 @@ describe("isUpcoming", () => {
     expect(isUpcoming(d.toISOString())).toBe(false);
   });
   it("昨天 → false", () => {
-    const d = new Date(Date.now() - 86400000);
+    const d = new Date(Date.now() - 2 * 86400000); // 2 天前（-1 天算今天）
     expect(isUpcoming(d.toISOString())).toBe(false);
   });
   it("null → false", () => {

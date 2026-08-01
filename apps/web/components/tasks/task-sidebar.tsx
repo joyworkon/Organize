@@ -39,7 +39,8 @@ export function isUpcoming(dateStr: string | null | undefined): boolean {
   const d = new Date(dateStr);
   const now = new Date();
   const diff = (d.getTime() - now.getTime()) / 86400000;
-  return diff >= 0 && diff <= 6;
+  // 今天算 upcoming（diff 可能为负的微秒级，用 -1 兜底）
+  return diff >= -1 && diff <= 6;
 }
 export function isOverdue(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;
