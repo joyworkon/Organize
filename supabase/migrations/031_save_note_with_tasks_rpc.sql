@@ -69,12 +69,13 @@ begin
     return jsonb_build_object('status', 'conflict_note', 'current_revision', v_cur_rev);
   end if;
 
-  -- 3) 锁定 + 校验各 task 的 revision(乐观锁)
+  -- 3) 锁定 + 校验各 task 的归属，可选校验 revision(乐观锁)
+  --    p_expected_task_revisions 整体为 null 时跳过 sync_version 校验（单用户本地场景放宽，
+  --    避免前端未维护 sync_version 缓存导致每次都 conflict）。任务存在+归属始终校验。
   if p_task_mutations is not null then
     for v_m in select jsonb_array_elements(p_task_mutations) as elem
     loop
       v_task_id := (v_m.elem->>'task_id')::uuid;
-      v_exp_rev := coalesce((p_expected_task_revisions->>(v_m.elem->>'task_id'))::integer, 0);
       select sync_version into v_task_rev
       from public.tasks
       where id = v_task_id and user_id = v_user
@@ -82,8 +83,11 @@ begin
       if not found then
         return jsonb_build_object('status', 'conflict_task', 'task_id', v_task_id, 'reason', 'not_found_or_forbidden');
       end if;
-      if v_task_rev <> v_exp_rev then
-        return jsonb_build_object('status', 'conflict_task', 'task_id', v_task_id, 'current_sync_version', v_task_rev);
+      if p_expected_task_revisions is not null then
+        v_exp_rev := coalesce((p_expected_task_revisions->>(v_m.elem->>'task_id'))::integer, 0);
+        if v_task_rev <> v_exp_rev then
+          return jsonb_build_object('status', 'conflict_task', 'task_id', v_task_id, 'current_sync_version', v_task_rev);
+        end if;
       end if;
     end loop;
   end if;
