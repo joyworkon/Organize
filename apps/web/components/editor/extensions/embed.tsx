@@ -17,7 +17,8 @@ interface OEmbedData {
   siteName?: string;
 }
 
-const DEFAULT_SANDBOX = "allow-scripts allow-same-origin allow-popups allow-presentation";
+// 安全约束：srcDoc 禁止 allow-same-origin（见 providers.ts SANDBOX_SCRIPTS 注释）。
+const DEFAULT_SANDBOX = "allow-scripts allow-popups allow-presentation";
 
 function EmbedView({ node, updateAttributes, selected }: NodeViewProps) {
   const url = String(node.attrs.url || "");
@@ -27,7 +28,10 @@ function EmbedView({ node, updateAttributes, selected }: NodeViewProps) {
   const cover = String(node.attrs.cover || "");
   const siteName = String(node.attrs.siteName || "");
   const html = String(node.attrs.html || "");
-  const sandbox = String(node.attrs.sandbox || DEFAULT_SANDBOX);
+  // 安全：渲染时强制剔除 allow-same-origin，即使历史持久化的 attrs 里带了。
+  // （srcDoc + allow-scripts + allow-same-origin = sandbox 失效，P0 安全约束）
+  const rawSandbox = String(node.attrs.sandbox || DEFAULT_SANDBOX);
+  const sandbox = rawSandbox.replace(/(^|\s)allow-same-origin(\s|$)/g, " ").trim() || DEFAULT_SANDBOX;
   const hasEmbed = Boolean(html);
 
   const [editing, setEditing] = useState(false);

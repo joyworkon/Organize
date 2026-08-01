@@ -287,15 +287,26 @@ export function CommandPalette() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: inserted } = await supabase
+    const { data: inserted, error: insertErr } = await supabase
       .from("tasks")
       .insert({ ...data, user_id: user.id })
       .select("id")
       .single();
+    if (insertErr || !inserted) {
+      toast({ title: "任务创建失败", variant: "destructive" });
+      return;
+    }
 
-    if (tagIds.length > 0 && inserted) {
+    if (tagIds.length > 0) {
       const links = tagIds.map((tagId) => ({ task_id: inserted.id, tag_id: tagId }));
-      await supabase.from("task_tags").insert(links);
+      const { error: tagErr } = await supabase.from("task_tags").insert(links);
+      if (tagErr) {
+        // 任务已建，仅标签链接失败：提示但不算整体失败
+        toast({ title: "任务已创建（标签添加失败）", variant: "destructive" });
+        setTaskDialogOpen(false);
+        setOpen(false);
+        return;
+      }
     }
 
     toast({ title: "任务已创建" });
@@ -306,50 +317,46 @@ export function CommandPalette() {
   const handlePasteLink = async () => {
     if (!linkUrl.trim()) return;
     setSubmittingLink(true);
+    let scrapeFailed = false;
     try {
       const response = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: linkUrl.trim() }),
       });
-
-      if (!response.ok) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("reading_items").insert({
-            user_id: user.id,
-            url: linkUrl.trim(),
-            title: linkUrl.trim(),
-            reading_status: "unread",
-            reading_progress: 0,
-          });
-        }
-      }
-
-      toast({ title: "链接已添加到收集箱" });
-      setLinkInputOpen(false);
-      setLinkUrl("");
-      setOpen(false);
-      router.push("/inbox");
+      if (!response.ok) scrapeFailed = true;
     } catch {
+      scrapeFailed = true;
+    }
+
+    // 无论抓取成功与否，都尝试入库（抓取失败时用 URL 当标题）
+    try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("reading_items").insert({
-          user_id: user.id,
-          url: linkUrl.trim(),
-          title: linkUrl.trim(),
-          reading_status: "unread",
-          reading_progress: 0,
-        });
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
       }
-      toast({ title: "链接已添加到收集箱" });
-      setLinkInputOpen(false);
-      setLinkUrl("");
-      setOpen(false);
-      router.push("/inbox");
+      const { error } = await supabase.from("reading_items").insert({
+        user_id: user.id,
+        url: linkUrl.trim(),
+        title: linkUrl.trim(),
+        reading_status: "unread",
+        reading_progress: 0,
+      });
+      if (error) throw error;
+    } catch {
+      toast({ title: "添加失败，请重试", variant: "destructive" });
+      return;
     } finally {
       setSubmittingLink(false);
     }
+
+    // 仅在入库成功后提示成功
+    toast({ title: scrapeFailed ? "已添加到收集箱（正文抓取失败）" : "已添加到收集箱" });
+    setLinkInputOpen(false);
+    setLinkUrl("");
+    setOpen(false);
+    router.push("/inbox");
   };
 
   const performSearch = useCallback(async (query: string) => {
