@@ -24,9 +24,16 @@
 
 ## 进度
 - [x] 任务0：基线核实 + worktree + PROGRESS
-- [~] 任务1：数据底座
-  - [x] migration 033（5 新表 + tasks 8 扩列 + 双向 trigger + RLS/GRANT + 默认清单迁入 + 重复任务 RPC + 备份 v3 扩展）—— 本地应用成功、db test 10/10
-  - [ ] shared types + 备份 schema v3 + mock
-- [ ] 任务2：工作台
-- [ ] 任务3：月历
+- [x] 任务1：数据底座（migration 033 + types + 备份 v3 + restore）—— db test 26/26
+- [~] 任务2：工作台
+  - [x] repository（单一数据源 + 乐观回滚）
+  - [x] sidebar（清单/今天/7天/已完成/垃圾桶 + 计数）
+  - [x] 三栏布局接入 tasks/page.tsx（侧栏 + scope 过滤）—— 零回归
+  - [ ] 12 项菜单、日期组件、清单管理 UI、URL 路由
+- [~] 任务3：月历
+  - [x] TaskMonthView（周一开头、月切换、跨月灰日、按清单色、+N）—— typecheck 0、test 不变
+  - [ ] 拖拽改期、触屏日期面板、响应式
+- [~] 任务4：测试
+  - [x] pgTAP 16 断言（033_task_workspace.test.sql）—— db test 26/26 全绿
+  - [ ] ≥30 vitest（repository/month-view/sidebar）、浏览器验收、PR、roadmap
 - [ ] 任务4：验证交付
