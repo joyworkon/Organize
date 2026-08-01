@@ -31,3 +31,29 @@ jobs:
       - name: Test (apps/web)
         working-directory: apps/web
         run: npx vitest run
+
+      - name: Build (apps/web)
+        working-directory: apps/web
+        # build 时 prerender 静态页要创建 Supabase client，需要这两个 PUBLIC env 存在
+        # （值不需要有效，仅满足 build；运行时由各环境自己的 .env 提供）
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+        run: npx next build
+
+  db-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # 启动本地 Postgres 并应用所有迁移（pgTAP 测试只依赖 DB，不需要 auth/realtime）
+      - name: Start local database
+        run: supabase db start
+
+      - name: Run database tests (pgTAP)
+        run: supabase test db
