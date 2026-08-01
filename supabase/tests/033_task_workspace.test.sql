@@ -1,7 +1,7 @@
 -- 033 task_workspace pgTAP 测试
 -- 覆盖：默认清单迁入、RLS 跨用户、双向 trigger、提醒≤3、recurrence 约束、重复 RPC 幂等
 BEGIN;
-SELECT plan(16);
+SELECT plan(20);
 
 -- 公共用户
 DO $$ BEGIN
@@ -153,6 +153,44 @@ SELECT is(
 SELECT is(
   (SELECT proname FROM pg_proc WHERE proname='restore_backup_v2_with_pages' LIMIT 1),
   'restore_backup_v2_with_pages', 'restore_backup_v2_with_pages RPC 已扩展'
+);
+
+-- ========== 11. 附件 RLS 跨用户 ==========
+INSERT INTO task_attachments (user_id, task_id, name, bucket, path) VALUES
+('41000001-0000-0000-0000-000000000001','43000001-0000-0000-0000-000000000001','doc.pdf','attachments','u1/doc.pdf');
+DO $$
+BEGIN
+  set role authenticated;
+  set request.jwt.claim.sub to '42000002-0000-0000-0000-000000000002';
+END $$;
+SELECT is(
+  (SELECT count(*)::int FROM task_attachments WHERE user_id='41000001-0000-0000-0000-000000000001'),
+  0, 'RLS: B 看不到 A 的附件'
+);
+DO $$ BEGIN reset role; END $$;
+
+-- ========== 12. 活动状态变化 ==========
+UPDATE tasks SET status='done' WHERE id='43000001-0000-0000-0000-000000000001';
+SELECT is(
+  (SELECT count(*)::int FROM task_activities WHERE task_id='43000001-0000-0000-0000-000000000001' AND action='status_changed'),
+  1, '任务状态变化 → 产 status_changed 活动'
+);
+
+-- ========== 13. 模板 CRUD ==========
+INSERT INTO task_templates (user_id, name, template) VALUES
+('41000001-0000-0000-0000-000000000001','每日复盘','{"title":"每日复盘"}'::jsonb);
+SELECT is(
+  (SELECT count(*)::int FROM task_templates WHERE user_id='41000001-0000-0000-0000-000000000001'),
+  1, '模板创建成功'
+);
+
+-- ========== 14. 清单排序 ==========
+INSERT INTO task_lists (user_id, name, sort_order) VALUES
+('41000001-0000-0000-0000-000000000001','清单B',1),
+('41000001-0000-0000-0000-000000000001','清单A',0);
+SELECT is(
+  (SELECT name FROM task_lists WHERE user_id='41000001-0000-0000-0000-000000000001' ORDER BY sort_order LIMIT 1),
+  '工作', '清单按 sort_order 排序（工作 sort=0 最前）'
 );
 
 SELECT * FROM finish();
