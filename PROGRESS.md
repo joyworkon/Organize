@@ -15,10 +15,14 @@ G0 协议冻结(文档) → G1 数据底座(migration+RPC+测试) → G2 编辑�
 
 ## 进度
 - [x] G0 ✅ PR#47(协议文档)
-- [x] G1 ✅ 本地全绿:030/031 migration + RPC + 10 例 pgTAP(基本ok/同步/ref对齐/revision冲突/跨用户forbidden/幂等/orphaned回收)。db lint 仅 1 历史 warning(migrate_trash,非本阶段)。前端 43/361 不变、typecheck 0。
-- [ ] G2 编辑器同步(进行中:①TaskItemLinked 加 taskId ✅#49;②transaction source 区分 + TASK_NOTE_LINK_ENABLED 开关[本 PR];③Realtime/多引用/移动拆分待续)
-- [ ] G3 产品闭环(阻塞:需浏览器双标签页验收)
-- [ ] G4 P0 收口(部分可继续,部分阻塞于浏览器)
+- [x] G1 ✅ PR#48(030/031 migration + 原子保存 RPC + 10 例 pgTAP)
+- [~] G2 部分 ✅ PR#49(taskId 属性)+ PR#50(source 标记 + 开关);剩余 Realtime/多引用待续
+- [x] G4-1 ✅ PR#51(Embed sandbox 安全 + 假成功修复)
+- [x] G4-2 ✅ PR#52(CI 加 production build + supabase pgTAP db test,两 job 都绿)
+- [x] G4-3 ✅ PR#53(清 9 警告 → 0 + 路线图 P1/P2 登记)
+- [~] G2 剩余(①save_note_with_tasks RPC 接入 flushSave[本 PR]；②Realtime 订阅/多引用·移动·拆分待续)
+- [ ] G3(代码可做,启用阻塞于浏览器双标签页验收)
+- [ ] G4 剩余(软删除走 mutate_trash RPC 一致性)
 
 ## 架构关键事实（影响设计）
 - 编辑器 autosave 直连 Supabase(page.tsx flushSave，900ms 防抖，绕过 API)；6 条写入口+2 条 DB 侧(move_note_block RPC / save_note_version 触发器)

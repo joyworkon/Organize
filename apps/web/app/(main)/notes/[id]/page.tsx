@@ -33,6 +33,48 @@ const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
 // G3 双标签页验收通过后置 true，双链正式启用（见 docs/g0-protocol.md、BLOCKED.md）。
 const TASK_NOTE_LINK_ENABLED = false;
 
+/**
+ * 从笔记 content 递归提取所有「绑定块」（有 taskId 的 taskItem），
+ * 转成 save_note_with_tasks RPC 所需的 task_mutations。
+ * 标题取 taskItem 内首段纯文本；checked=true → status="done"。
+ * G0 §3 状态机：此函数只读 content，不改动它。
+ */
+function extractTaskMutations(doc: Record<string, unknown> | null): {
+  mutations: { task_id: string; title: string; status: string }[];
+  revisions: Record<string, number>;
+} {
+  if (!doc) return { mutations: [], revisions: {} };
+  const mutations: { task_id: string; title: string; status: string }[] = [];
+  const revisions: Record<string, number> = {};
+  const walk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "taskItem" && node.attrs?.taskId) {
+      const tid = String(node.attrs.taskId);
+      // 标题：内联首段纯文本
+      let title = "";
+      const content = Array.isArray(node.content) ? node.content : [];
+      for (const child of content) {
+        if (child?.type === "paragraph" && Array.isArray(child.content)) {
+          title = child.content.map((t: any) => (typeof t.text === "string" ? t.text : "")).join("");
+          break;
+        }
+      }
+      mutations.push({
+        task_id: tid,
+        title: title || "未命名任务",
+        status: node.attrs.checked === true ? "done" : "todo",
+      });
+      // sync_version 乐观锁值由调用方填（这里先占位 0，实际从 task 缓存取）
+      revisions[tid] = 0;
+      return; // taskItem 的内部段落已处理，不再下钻
+    }
+    const children = Array.isArray(node.content) ? node.content : [];
+    for (const c of children) walk(c);
+  };
+  walk(doc);
+  return { mutations, revisions };
+}
+
 interface NoteDraft {
   title: string;
   content: Record<string, unknown> | null;
@@ -89,6 +131,8 @@ export default function NoteEditorPage() {
   const dirtyRef = useRef(false);
   // 最近一次内容变更的来源（user / hydrate / remote-sync / version-restore / backup-restore）
   const lastSourceRef = useRef<TransactionSource>("user");
+  // notes.content_revision（G1 乐观锁），双链 RPC 保存时用
+  const contentRevisionRef = useRef(0);
   const savingPromiseRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -152,6 +196,7 @@ export default function NoteEditorPage() {
         setFullWidth(dbFullWidth);
         setFont(dbFont);
         setSmallFont(dbSmallFont);
+        contentRevisionRef.current = Number(data.content_revision ?? 0);
         draftRef.current = {
           title: loadedTitle,
           content: loadedContent,
@@ -242,11 +287,42 @@ export default function NoteEditorPage() {
       while (dirtyRef.current) {
         dirtyRef.current = false;
         const snapshot = { ...draftRef.current };
-        const { error } = await supabase.from("notes").update(snapshot).eq("id", noteId);
-        if (error) {
-          dirtyRef.current = true;
-          setSaveError("保存失败，请检查网络后继续编辑");
-          break;
+        // 双链启用且本次是用户编辑 → 走 G1 原子 RPC（同步任务 + 对齐引用）；
+        // 否则（系统事务/开关关）走老的直接 update snapshot（默认路径，零行为变化）。
+        if (TASK_NOTE_LINK_ENABLED && lastSourceRef.current === "user") {
+          const { mutations, revisions } = extractTaskMutations(snapshot.content);
+          const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
+            p_note_id: noteId,
+            p_content: snapshot.content,
+            p_expected_note_revision: contentRevisionRef.current,
+            p_title: snapshot.title ?? null,
+            p_task_mutations: mutations.length > 0 ? mutations : null,
+            p_expected_task_revisions: Object.keys(revisions).length > 0 ? revisions : null,
+            p_mutation_id: null,
+          });
+          if (rpcErr) {
+            // conflict_note/conflict_task 是乐观锁冲突，不算硬错：保留 dirty 让下次重试，
+            // 但不刷屏报错（双标签页并发场景，重试即对齐）。
+            const status = (rpcResult as any)?.status;
+            if (status === "conflict_note" || status === "conflict_task") {
+              dirtyRef.current = true;
+              break; // 等下次编辑触发重试
+            }
+            dirtyRef.current = true;
+            setSaveError("保存失败，请检查网络后继续编辑");
+            break;
+          }
+          // 更新本地 revision（RPC 返回新值）
+          if (rpcResult && typeof (rpcResult as any).note_revision === "number") {
+            contentRevisionRef.current = (rpcResult as any).note_revision;
+          }
+        } else {
+          const { error } = await supabase.from("notes").update(snapshot).eq("id", noteId);
+          if (error) {
+            dirtyRef.current = true;
+            setSaveError("保存失败，请检查网络后继续编辑");
+            break;
+          }
         }
         setLastSaved(new Date());
         window.dispatchEvent(new CustomEvent("organize:notes-changed"));
