@@ -504,7 +504,31 @@ export default function TasksPage() {
         tasks={tasks}
         selection={sidebarSel}
         onSelect={setSidebarSel}
-        onCreateList={() => toast({ title: "清单管理待实现（任务2后续）" })}
+        onCreateList={async () => {
+          const name = window.prompt("清单名称：");
+          if (!name?.trim()) return;
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+          const { data, error } = await supabase.from("task_lists")
+            .insert({ user_id: user.id, name: name.trim(), sort_order: taskLists.length })
+            .select().single();
+          if (error) { toast({ title: "创建清单失败", variant: "destructive" }); return; }
+          setTaskLists((cur) => [...cur, data as import("@organize/shared").TaskList]);
+        }}
+        onRenameList={async (list) => {
+          const name = window.prompt("新名称：", list.name);
+          if (!name?.trim() || name === list.name) return;
+          const { error } = await supabase.from("task_lists").update({ name: name.trim() }).eq("id", list.id);
+          if (error) { toast({ title: "改名失败", variant: "destructive" }); return; }
+          setTaskLists((cur) => cur.map((l) => l.id === list.id ? { ...l, name: name.trim() } : l));
+        }}
+        onDeleteList={async (list) => {
+          await supabase.from("tasks").update({ list_id: null }).eq("list_id", list.id);
+          await supabase.from("task_lists").update({ deleted_at: new Date().toISOString() }).eq("id", list.id);
+          setTaskLists((cur) => cur.filter((l) => l.id !== list.id));
+          if (sidebarSel.listId === list.id) setSidebarSel({ scope: "all", listId: null });
+          toast({ title: `清单「${list.name}」已删除，任务移到未分类` });
+        }}
       />
       {/* 中+右：主内容区 */}
       <div className="flex-1 overflow-y-auto">
