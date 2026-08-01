@@ -20,7 +20,7 @@ G0 协议冻结(文档) → G1 数据底座(migration+RPC+测试) → G2 编辑�
 - [x] G4-1 ✅ PR#51(Embed sandbox 安全 + 假成功修复)
 - [x] G4-2 ✅ PR#52(CI 加 production build + supabase pgTAP db test,两 job 都绿)
 - [x] G4-3 ✅ PR#53(清 9 警告 → 0 + 路线图 P1/P2 登记)
-- [~] G2 剩余(①save_note_with_tasks RPC 接入 flushSave[本 PR]；②Realtime 订阅/多引用·移动·拆分待续)
+- [~] G2 剩余(①RPC 接入#55 ②legacy 激活[本 PR]；③Realtime 订阅/多引用·移动·拆分待续)
 - [ ] G3(代码可做,启用阻塞于浏览器双标签页验收)
 - [ ] G4 剩余(软删除走 mutate_trash RPC 一致性)
 

@@ -594,6 +594,64 @@ export default function NoteEditorPage() {
     // user → 走原子 RPC(激活 legacy / 生成 task mutation)；系统事务 → 跳过任务激活。
     lastSourceRef.current = source;
     queueSave();
+
+    // G2 legacy 激活：双链开 + user-edit 时，给无 taskId 的 taskItem 建任务回填 taskId。
+    // 系统事务(hydrate/远端/版本/备份恢复)不激活——见 docs/g0-protocol.md §4。
+    if (TASK_NOTE_LINK_ENABLED && source === "user") {
+      void activateLegacyTaskItems(newContent);
+    }
+  };
+
+  /** 扫描 content 里无 taskId 的 taskItem，批量建任务并回填 taskId 到编辑器节点。 */
+  const activateLegacyTaskItems = async (doc: Record<string, unknown>) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    // 收集所有 legacy taskItem 的 {pos, blockId, title, checked}
+    const legacy: { pos: number; blockId: string; title: string; checked: boolean }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === "taskItem" && !node.attrs.taskId && node.attrs.id) {
+        // 标题取首段纯文本
+        let title = "";
+        node.forEach((child) => {
+          if (child.type.name === "paragraph") {
+            title = child.textContent || "";
+            return false;
+          }
+          return true;
+        });
+        legacy.push({ pos, blockId: String(node.attrs.id), title: title || "未命名任务", checked: node.attrs.checked === true });
+      }
+      return true;
+    });
+    if (legacy.length === 0) return;
+    // 超 20 项先不自动激活（任务书：超过 20 项先预览确认；此处先跳过，后续 G3 加预览 UI）
+    if (legacy.length > 20) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // 批量建任务，拿回 taskId
+    const inserts = legacy.map((l) => ({
+      user_id: user.id,
+      title: l.title,
+      status: l.checked ? "done" : "todo",
+      reference_managed: true,
+    }));
+    const { data: created, error } = await supabase.from("tasks").insert(inserts).select("id").returns<{ id: string }[]>();
+    if (error || !created || created.length !== legacy.length) return;
+
+    // 回填 taskId 到编辑器节点（setNodeMarkup，触发新一次 onUpdate——此时已有 taskId，
+    // flushSave 的 RPC 会建 task_item_refs）。标 source='hydrate' 避免回填本身再触发激活循环。
+    const tr = editor.state.tr;
+    legacy.forEach((l, i) => {
+      const node = editor.state.doc.nodeAt(l.pos);
+      if (node && node.type.name === "taskItem") {
+        tr.setNodeMarkup(l.pos, undefined, { ...node.attrs, taskId: created[i].id });
+      }
+    });
+    tr.setMeta("transactionSource", "hydrate");
+    tr.setMeta("addToHistory", false); // 激活回填不进 Undo（系统操作）
+    editor.view.dispatch(tr);
   };
 
   if (loading) {
