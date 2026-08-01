@@ -31,3 +31,24 @@ jobs:
       - name: Test (apps/web)
         working-directory: apps/web
         run: npx vitest run
+
+      - name: Build (apps/web)
+        working-directory: apps/web
+        run: npx next build
+
+  db-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # 启动本地 Postgres 并应用所有迁移（pgTAP 测试只依赖 DB，不需要 auth/realtime）
+      - name: Start local database
+        run: supabase db start
+
+      - name: Run database tests (pgTAP)
+        run: supabase test db
