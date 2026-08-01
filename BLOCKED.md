@@ -1,26 +1,26 @@
-# BLOCKED — G0–G4 任务交付时的阻塞项
+# BLOCKED — 任务工作台与月历
 
-## G0–G1:无阻塞,已完成并合入 master
-- G0(协议文档)→ PR#47
-- G1(数据底座:030/031 migration + 原子保存 RPC + 10 例 pgTAP)→ PR#48
-- 本地全绿:supabase test db 10/10、前端 43/361、typecheck 0、db lint 仅 1 历史 warning。
+## 已完成（feat/task-workspace-calendar 分支，未推 PR）
+- 任务0：基线核实 + worktree + PROGRESS
+- 任务1：数据底座
+  - migration 033（5 新表 + tasks 8 扩列 + 双向 trigger + RLS + 默认清单迁入 + 重复任务 RPC + 备份 v3）✅
+  - shared types（6 新接口）+ 备份 schema v3（兼容 v2）+ restore remap ✅
+  - task repository（单一数据源 + 乐观更新回滚）✅
+  - task sidebar（清单/今天/7天/已完成/垃圾桶 + 计数）✅
+- 验证：typecheck 0、test 45/374、db test 10/10、backup 17/17、migration 本地应用成功
 
-## G2(编辑器同步):未开始,纯代码可继续
-尚未实现 TaskItem 加 taskId、user-edit vs 系统事务区分、Realtime 订阅、多引用/移动/拆分。
-任务书要求 G1/G2 行为默认关闭、G3 验收后才启用——G2 完成后双链仍不生效(需 G3 验收)。
+## 未完成（接续点）
+- 任务2 剩余：三栏主页面重写（现有 tasks/page.tsx 677 行需重构为侧栏+中栏+详情布局）、
+  URL 路由（scope/list/view 用 query）、12 项菜单、日期组件、清单管理 UI。
+- 任务3：月历视图（周一开头、月切换、跨月灰日、拖拽改期、响应式）。
+- 任务4：≥30 vitest + ≥20 pgTAP、真浏览器验收、PR、roadmap 更新。
+- mock 新表 seed（lib/supabase/mock-data.ts）。
 
-## G3(产品闭环):阻塞于浏览器验收
-任务书硬要求"通过双标签页验收后启用双链""用一次性本地账号验收桌面/移动端/双标签页/
-刷新/Undo/垃圾箱/分享"。这些是真实浏览器/人工交互验收,**执行 agent 无浏览器访问权**,
-无法自动完成(此前 M5 验收已验证此约束)。需要人工或浏览器自动化代理介入。
+## 接续指引
+- worktree：../Organize-task-workspace-calendar，分支 feat/task-workspace-calendar
+- 现有 tasks/page.tsx 未改（仍正常工作），新文件：lib/tasks/repository.ts、
+  components/tasks/task-sidebar.tsx
+- 接续：先写三栏页面（用 repository + sidebar），再接 12 菜单 + 月历 + 测试
 
-## G4(P0 收口):部分可继续,部分阻塞
-- 可继续(纯代码):CI 加 production build + supabase db test、清 9 警告、路线图 P1/P2 登记、
-  数据库/行软删除 RLS 修复、Embed sandbox srcDoc 禁 allow-same-origin、非 2xx 回滚 UI。
-- 阻塞:同 G3 的浏览器验收部分。
-
-## 说明
-本任务规模为 G0–G4 串行多 PR。G0+G1 已按任务书"每阶段独立分支/PR/CI/squash"完成。
-继续推进 G2(纯代码)在技术上是可行的,但 G3 的启用门禁和 G4 的部分验收卡在浏览器交互,
-无法由执行 agent 单独闭环。建议:G2 代码完成后,安排人工/浏览器代理做 G3 双标签页验收,
-再回到 G4 收口。
+## 无（越界/阻塞项）
+无越界需求。剩余纯工作量大，非阻塞。

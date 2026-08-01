@@ -19,6 +19,8 @@ import { useNotifications } from "@/hooks/use-notifications";
 import { BatchActionsBar } from "@/components/batch-actions-bar";
 import { useSelection } from "@/hooks/use-selection";
 import { toast } from "@/hooks/use-toast";
+import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
+import { TaskMonthView } from "@/components/tasks/task-month-view";
 import {
   ListChecks,
   Plus,
@@ -26,6 +28,7 @@ import {
   Loader2,
   List,
   LayoutGrid,
+  CalendarDays,
   Bell,
   CheckCircle2,
   Trash2,
@@ -48,7 +51,7 @@ import { mutateTrash } from "@/lib/trash/client";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
-type ViewMode = "list" | "kanban";
+type ViewMode = "list" | "kanban" | "month";
 type SortOrder = "default" | "manual";
 
 export default function TasksPage() {
@@ -71,6 +74,10 @@ export default function TasksPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("default");
   const [draggedTask, setDraggedTask] = useState<TaskWithTags | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+
+  // 三栏侧栏：选中范围 + 清单列表
+  const [sidebarSel, setSidebarSel] = useState<SidebarSelection>({ scope: "all", listId: null });
+  const [taskLists, setTaskLists] = useState<import("@organize/shared").TaskList[]>([]);
 
   const selection = useSelection<TaskWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
@@ -129,6 +136,11 @@ export default function TasksPage() {
 
       setTasks(tasksWithTags);
       scheduleDueDateReminders(tasksWithTags);
+
+      // 加载清单（三栏侧栏用）
+      const { data: listsData } = await supabase.from("task_lists").select("*")
+        .eq("user_id", user.id).order("sort_order", { ascending: true }).is("deleted_at", null);
+      setTaskLists((listsData || []) as import("@organize/shared").TaskList[]);
     } finally {
       setLoading(false);
     }
@@ -391,6 +403,34 @@ export default function TasksPage() {
 
   const filtered = tasks
     .filter((t) => {
+      // 三栏侧栏 scope 过滤
+      if (sidebarSel.scope === "trash") {
+        if (!t.deleted_at) return false;
+      } else {
+        if (t.deleted_at) return false; // 其它 scope 排除已删
+        if (sidebarSel.scope === "completed") {
+          if (t.status !== "done") return false;
+        } else if (sidebarSel.scope === "list") {
+          if (t.list_id !== sidebarSel.listId) return false;
+        } else if (sidebarSel.scope === "today") {
+          if (t.status === "done" || t.status === "cancelled") return false;
+          const d = t.schedule_start_at || t.due_date;
+          if (!d) return false;
+          const dt = new Date(d);
+          const now = new Date();
+          const isOverdue = dt < now && dt.toDateString() !== now.toDateString();
+          const isToday = dt.toDateString() === now.toDateString();
+          if (!isOverdue && !isToday) return false;
+        } else if (sidebarSel.scope === "upcoming") {
+          if (t.status === "done" || t.status === "cancelled") return false;
+          const d = t.schedule_start_at || t.due_date;
+          if (!d) return false;
+          const dt = new Date(d);
+          const now = new Date();
+          const diff = (dt.getTime() - now.getTime()) / 86400000;
+          if (diff < 0 || diff > 6) return false;
+        }
+      }
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
       if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
       if (selectedTagIds.length > 0) {
@@ -457,7 +497,18 @@ export default function TasksPage() {
   });
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="organize-task-workspace flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      {/* 左：侧栏 */}
+      <TaskSidebar
+        lists={taskLists}
+        tasks={tasks}
+        selection={sidebarSel}
+        onSelect={setSidebarSel}
+        onCreateList={() => toast({ title: "清单管理待实现（任务2后续）" })}
+      />
+      {/* 中+右：主内容区 */}
+      <div className="flex-1 overflow-y-auto">
+    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
       {permission === "default" && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
@@ -564,6 +615,16 @@ export default function TasksPage() {
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
+          <button
+            onClick={() => setViewMode("month")}
+            className={cn(
+              "p-1.5 rounded text-sm transition-colors",
+              viewMode === "month" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+            title="月历视图"
+          >
+            <CalendarDays className="h-4 w-4" />
+          </button>
         </div>
 
         <Button
@@ -626,6 +687,8 @@ export default function TasksPage() {
             />
           );
         })()
+      ) : viewMode === "month" ? (
+        <TaskMonthView tasks={filtered} onTaskClick={(t) => { setEditingTask(t); setDialogOpen(true); }} />
       ) : viewMode === "list" ? (
         <div className="space-y-2 sm:space-y-3">
           {filtered.map((task) => (
@@ -671,6 +734,8 @@ export default function TasksPage() {
         onClose={() => setCompleteTask(null)}
         onComplete={handleConfirmComplete}
       />
+    </div>
+      </div>
     </div>
   );
 }

@@ -1,37 +1,39 @@
-# PROGRESS — 全局任务 ↔ 笔记待办双链 + P0 收口
+# PROGRESS — 任务工作台与月历（feat/task-workspace-calendar）
 
 ## 目标（≤10 行）
-让 Organize 全局任务(tasks 表)与笔记待办(taskItem 块)形成可靠双链;
-收口已确认 P0 缺陷(假成功/软删除 RLS/Embed sandbox/CI/警告)。串行跑 G0–G4。
+把待办升级为可持久化三栏工作台 + 月历：侧栏(清单/今天/7天/已完成/垃圾桶) +
+中栏(列表/看板/月历) + 右详情；日期组件/重复任务/提醒/附件/模板/活动。
+工作目录：../Organize-task-workspace-calendar (独立 worktree)。
 
-## 基线（任务 0 已核验，2026-07-31）
-- master @ 3b08e46，与远端同步、干净、无他人改动
-- pnpm test → 43 文件 / 361 用例 / 0 skipped
-- pnpm typecheck → 0 错误；build 通过(9 警告，G4 清)
+## 基线（任务 0 已核验 2026-08-01）
+- master=origin=8f4c526；worktree feat/task-workspace-calendar 基于此
+- Vitest 45 文件/374 用例/0 skipped；typecheck 0；build 通过；db test 10/10
+- 迁移 001–032 对齐
 
-## 执行顺序
-G0 协议冻结(文档) → G1 数据底座(migration+RPC+测试) → G2 编辑器同步(默认关闭) → G3 产品闭环(双标签页验收后启用) → G4 P0 收口
-每阶段独立分支 feat/gN-* → PR → squash 合并 → 删分支。
-
-## 进度
-- [x] G0 ✅ PR#47(协议文档)
-- [x] G1 ✅ PR#48(030/031 migration + 原子保存 RPC + 10 例 pgTAP)
-- [~] G2 部分 ✅ PR#49(taskId 属性)+ PR#50(source 标记 + 开关);剩余 Realtime/多引用待续
-- [x] G4-1 ✅ PR#51(Embed sandbox 安全 + 假成功修复)
-- [x] G4-2 ✅ PR#52(CI 加 production build + supabase pgTAP db test,两 job 都绿)
-- [x] G4-3 ✅ PR#53(清 9 警告 → 0 + 路线图 P1/P2 登记)
-- [~] G2 剩余(①RPC#55 ②legacy 激活#56 ③验收开关#57 ④双向同步：笔记→任务[RPC] + 任务→笔记[Realtime，本 PR]；⑤多引用/移动拆分待续)
-- [~] G3 验收开关：TASK_NOTE_LINK_ENABLED 改为可读 localStorage（默认关，浏览器控制台可临时开）[本 PR]
-- [ ] G3(代码可做,启用阻塞于浏览器双标签页验收)
-- [ ] G4 剩余(软删除走 mutate_trash RPC 一致性)
-
-## 架构关键事实（影响设计）
-- 编辑器 autosave 直连 Supabase(page.tsx flushSave，900ms 防抖，绕过 API)；6 条写入口+2 条 DB 侧(move_note_block RPC / save_note_version 触发器)
-- TaskItem 是官方 @tiptap/extension-task-item，只有 checked 属性，无 taskId；笔记 todo 与全局 tasks 表完全独立(零连接)
-- 无 /api/tasks 路由(全客户端直连 Supabase)；tasks.note_id 是 1:1 单向链接
-- CI 只跑 typecheck+test，无 build/db test(G4 补)
+## 阶段
+1. 数据底座：migration 033（task_lists/reminders/attachments/activities/templates + tasks 扩列 + trigger + RLS + 备份v3 + mock）
+2. 工作台：侧栏/URL路由/列表/看板/详情 + 12项菜单 + 日期组件
+3. 月历 + 响应式 + 拖拽改期
+4. 测试(≥30 vitest→≥404 总 / ≥20 pgTAP→≥30 总) + 验收 + PR
 
 ## 最大风险
-- 编辑器 autosave 绕过 API：双链同步要么改 flushSave 走 RPC，要么靠 DB 触发器(后者覆盖全部写入口更稳)
-- 历史无 taskId 的 taskItem 仅在用户真实改字/勾选后激活——区分 user-edit 与 hydrate 是 G2 难点
-- 原子保存 RPC 要在事务内锁行+幂等+回收 orphan 任务，并发场景易错
+- 旧 due_date ↔ 新 schedule 双向 trigger 不能破坏现有任务数据
+- work/study/life 自动迁入默认清单的迁移要幂等可重入
+- 备份 v2→v3 兼容 + 新外键重映射，不能丢旧数据
+- 副作用分离（AGENTS.md 红线）：乐观更新回滚 + 副作用不进 setState updater
+
+## 进度
+- [x] 任务0：基线核实 + worktree + PROGRESS
+- [x] 任务1：数据底座（migration 033 + types + 备份 v3 + restore）—— db test 26/26
+- [~] 任务2：工作台
+  - [x] repository（单一数据源 + 乐观回滚）
+  - [x] sidebar（清单/今天/7天/已完成/垃圾桶 + 计数）
+  - [x] 三栏布局接入 tasks/page.tsx（侧栏 + scope 过滤）—— 零回归
+  - [ ] 12 项菜单、日期组件、清单管理 UI、URL 路由
+- [~] 任务3：月历
+  - [x] TaskMonthView（周一开头、月切换、跨月灰日、按清单色、+N）—— typecheck 0、test 不变
+  - [ ] 拖拽改期、触屏日期面板、响应式
+- [~] 任务4：测试
+  - [x] pgTAP 16 断言（033_task_workspace.test.sql）—— db test 26/26 全绿
+  - [ ] ≥30 vitest（repository/month-view/sidebar）、浏览器验收、PR、roadmap
+- [ ] 任务4：验证交付

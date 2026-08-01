@@ -1,5 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
+/** 备份版本兼容范围：v3 是当前格式，v2（033 前）仍可导入 */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -24,6 +26,12 @@ export const BACKUP_TABLES = [
   "synced_blocks",
   "db_databases",
   "db_rows",
+  // 033 任务工作台新增
+  "task_lists",
+  "task_reminders",
+  "task_attachments",
+  "task_activities",
+  "task_templates",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -320,6 +328,64 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  // 033 任务工作台新增
+  task_lists: {
+    fields: {
+      id: isUuid,
+      name: isString,
+      icon: (v) => v === null || typeof v === "string",
+      color: (v) => v === null || typeof v === "string",
+      sort_order: isInteger,
+      is_default: (v) => v === true || v === false,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  task_reminders: {
+    fields: {
+      id: isUuid,
+      task_id: isUuid,
+      anchor: (v) => v === "start" || v === "end",
+      offset_minutes: isInteger,
+      notified_at: (v) => v === null || typeof v === "string",
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  task_attachments: {
+    fields: {
+      id: isUuid,
+      task_id: isUuid,
+      name: isString,
+      bucket: isString,
+      path: isString,
+      mime_type: (v) => v === null || typeof v === "string",
+      size_bytes: (v) => v === null || typeof v === "number",
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  task_activities: {
+    fields: {
+      id: isUuid,
+      task_id: isUuid,
+      action: isString,
+      detail: (v) => v === null || (typeof v === "object" && v !== null),
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  task_templates: {
+    fields: {
+      id: isUuid,
+      name: isString,
+      template: isJsonObject,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 const REQUIRED_EXCLUSIONS = [
@@ -358,10 +424,20 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   if (value.format !== BACKUP_FORMAT) {
     issues.push(issue("INVALID_FORMAT", "$.format", "备份格式标识不匹配"));
   }
-  if (value.version !== BACKUP_VERSION) {
+  if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3")
     );
+  }
+  // v2 备份没有 033 新表，补空数组（避免后续按缺失报错）
+  if (value.version === 2 && value.data && typeof value.data === "object") {
+    const data = value.data as Record<string, unknown>;
+    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates"];
+    for (const t of v3NewTables) {
+      if (data[t] === undefined) {
+        data[t] = [];
+      }
+    }
   }
   if (!isTimestamp(value.exportedAt)) {
     issues.push(issue("INVALID_FORMAT", "$.exportedAt", "导出时间无效"));
