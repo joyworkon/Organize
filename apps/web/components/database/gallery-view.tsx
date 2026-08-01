@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- 画廊封面是任意远程 URL，无法预配 next/image 域名 */
 "use client";
 
 import { useMemo } from "react";

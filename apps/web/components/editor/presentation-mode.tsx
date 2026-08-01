@@ -91,9 +91,9 @@ function RenderBlock({ block }: { block: JSONContent }): React.ReactNode {
   if (block.type === "codeBlock") return <pre><code><InlineContent block={block} /></code></pre>;
   if (block.type === "horizontalRule") return <hr />;
   // 演示模式需原样支持用户粘贴的 data URL 与任意远端图片，不能套用 next/image 域名约束。
-  // eslint-disable-next-line @next/next/no-img-element
   if (block.type === "image") {
     const width = Number(block.attrs?.width) || null;
+    // eslint-disable-next-line @next/next/no-img-element -- 演示模式渲染任意图片，含 width 手动控制
     return <img src={String(block.attrs?.src || "")} alt={String(block.attrs?.alt || "")} style={width ? { width: `${width}px`, maxWidth: "100%" } : undefined} />;
   }
   if (block.type === "fileAttachment") {

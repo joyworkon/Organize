@@ -156,5 +156,5 @@ export function useHotkeySequence(
       window.removeEventListener("keydown", onKeyDown);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [reset]);
+  }, [reset, notifyBufferChange]);
 }

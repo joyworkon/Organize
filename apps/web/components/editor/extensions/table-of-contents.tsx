@@ -31,7 +31,7 @@ function TocView({ node, editor }: NodeViewProps) {
   const entries = useMemo(() => {
     const doc = editor.state.doc;
     return collectTocEntries(doc, levels);
-  }, [editor, editor.state.doc, levels]);
+  }, [editor, levels]);
 
   const [isEmpty] = useState(false);
   void isEmpty;

@@ -87,6 +87,7 @@ function ResizableImageView({ node, editor, updateAttributes, selected }: NodeVi
         onDoubleClick={resetWidth}
         title={width ? "双击恢复自适应宽度" : undefined}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element -- 编辑器内图片宽度由手柄手动控制，<Image> 的尺寸优化与此冲突 */}
         <img
           src={node.attrs.src as string}
           alt={(node.attrs.alt as string) || ""}

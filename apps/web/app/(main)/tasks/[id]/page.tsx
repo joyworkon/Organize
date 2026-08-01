@@ -91,6 +91,7 @@ export default function TaskDetailPage() {
 
   useEffect(() => {
     loadTask();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadTask 非 memoized，加入会触发重渲染循环；按 taskId 变化加载
   }, [taskId, supabase]);
 
   async function loadTask() {

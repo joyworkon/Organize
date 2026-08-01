@@ -202,6 +202,7 @@ export default function NoteEditorPage() {
     }
     void loadNote();
     return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 仅用于一次性 localStorage→DB 迁移的延迟落盘，加入会导致 mount 重复
   }, [loadNoteTree, noteId, supabase]);
 
   useEffect(() => {
@@ -465,6 +466,9 @@ export default function NoteEditorPage() {
     parentNoteId,
     router,
     showToast,
+    fullWidth,
+    font,
+    smallFont,
   ]);
 
   /** 移动笔记：乐观更新本地树+面包屑+状态，失败回滚。 */
