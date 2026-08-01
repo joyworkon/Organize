@@ -29,6 +29,12 @@ const ID_TABLES = [
   "synced_blocks",
   "db_databases",
   "db_rows",
+  // 033 任务工作台
+  "task_lists",
+  "task_reminders",
+  "task_attachments",
+  "task_activities",
+  "task_templates",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -192,6 +198,28 @@ export function prepareRestorePayload(
       maps.synced_blocks,
       maps.db_databases
     ),
+  }));
+
+  // 033 任务工作台新表（v2 备份无这些 key，用 || [] 兜底）
+  data.task_lists = (backup.data.task_lists || []).map((row) => withId(row, maps.task_lists));
+  data.task_reminders = (backup.data.task_reminders || []).map((row) => ({
+    ...withId(row, maps.task_reminders),
+    task_id: remap(row.task_id, maps.tasks),
+  }));
+  data.task_attachments = (backup.data.task_attachments || []).map((row) => ({
+    ...withId(row, maps.task_attachments),
+    task_id: remap(row.task_id, maps.tasks),
+  }));
+  data.task_activities = (backup.data.task_activities || []).map((row) => ({
+    ...withId(row, maps.task_activities),
+    task_id: remap(row.task_id, maps.tasks),
+  }));
+  data.task_templates = (backup.data.task_templates || []).map((row) => withId(row, maps.task_templates));
+
+  // tasks 新列的外键重映射（list_id → task_lists）
+  data.tasks = data.tasks.map((row) => ({
+    ...row,
+    list_id: row.list_id ? remapOptional(row.list_id as string, maps.task_lists) : null,
   }));
 
   return { restore_payload_version: 1, data };

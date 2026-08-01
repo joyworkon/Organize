@@ -198,6 +198,79 @@ export interface Task {
   reading_item?: ReadingItem;
   note?: Note;
   checklists?: TaskChecklist[];
+  // 033 迁移新增
+  list_id?: string | null;
+  schedule_start_at?: string | null;
+  schedule_end_at?: string | null;
+  all_day?: boolean | null;
+  timezone?: string | null;
+  recurrence_rule?: TaskRecurrenceRule | null;
+  series_id?: string | null;
+  source_id?: string | null;
+}
+
+/** 重复规则（033 迁移） */
+export interface TaskRecurrenceRule {
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  interval: 1; // 固定 1
+}
+
+/** 任务清单（033 迁移） */
+export interface TaskList {
+  id: string;
+  user_id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+  sort_order: number;
+  is_default: boolean;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 任务提醒（033 迁移，每任务 ≤3） */
+export interface TaskReminder {
+  id: string;
+  user_id: string;
+  task_id: string;
+  anchor: "start" | "end";
+  offset_minutes: number;
+  notified_at?: string | null;
+  created_at: string;
+}
+
+/** 任务附件元数据（033 迁移，二进制在 storage） */
+export interface TaskAttachment {
+  id: string;
+  user_id: string;
+  task_id: string;
+  name: string;
+  bucket: string;
+  path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+/** 任务动态（033 迁移，DB 自动产生） */
+export interface TaskActivity {
+  id: string;
+  user_id: string;
+  task_id: string;
+  action: string;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** 任务模板（033 迁移） */
+export interface TaskTemplate {
+  id: string;
+  user_id: string;
+  name: string;
+  template: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskChecklist {

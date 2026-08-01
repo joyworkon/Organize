@@ -23,6 +23,9 @@ const ids = {
   synced: "d0000000-0000-4000-8000-000000000001",
   database: "e0000000-0000-4000-8000-000000000001",
   dbRow: "f0000000-0000-4000-8000-000000000001",
+  // 033 任务工作台
+  taskList: "10000000-0000-4000-8000-000000000002",
+  taskReminder: "20000000-0000-4000-8000-000000000002",
 };
 const timestamp = "2026-07-29T12:00:00.000Z";
 
@@ -243,6 +246,32 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    // 033 任务工作台新增（fixture 用空数组 + 一个 task_list + reminder 示例）
+    task_lists: [
+      {
+        id: ids.taskList,
+        name: "工作",
+        icon: "💼",
+        color: "#3b82f6",
+        sort_order: 0,
+        is_default: true,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    task_reminders: [
+      {
+        id: ids.taskReminder,
+        task_id: ids.task,
+        anchor: "start",
+        offset_minutes: -15,
+        notified_at: null,
+        created_at: timestamp,
+      },
+    ],
+    task_attachments: [],
+    task_activities: [],
+    task_templates: [],
   };
 }
 
