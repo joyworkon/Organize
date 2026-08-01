@@ -57,8 +57,9 @@ export async function PATCH(
   return NextResponse.json(data as DatabaseRecord);
 }
 
-// DELETE /api/databases/[id]  软删除数据库（deleted_at = now()）
-// 子资源 db_rows 依赖 RLS（父库 deleted_at 非空 → 自动不可见），物理删除交给 trash 统一处理
+// DELETE /api/databases/[id]  软删除数据库（进可撤销回收站）
+// 走 mutate_trash RPC（'database' 分支会级联软删其 db_rows），保证回收站一致性
+// 与级联可见性；不再直接 update（之前直接 update 不级联行、不进回收站流程）。
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -68,12 +69,11 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
   const { id } = await params;
-  const { error } = await supabase
-    .from("db_databases")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .is("deleted_at", null);
+  const { error } = await supabase.rpc("mutate_trash", {
+    p_action: "soft_delete",
+    p_resource_type: "database",
+    p_ids: [id],
+  });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
