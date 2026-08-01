@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import type { Editor } from "@tiptap/react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { TipTapEditor } from "@/components/editor/tiptap-editor";
+import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -27,6 +27,11 @@ import { copyNoteContent } from "@/lib/export/clipboard";
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
 const fontKey = (id: string) => `organize:note:${id}:font`;
 const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
+
+// G2/G3 任务↔笔记双链总开关。默认关闭：user-edit 仍走老路径(直接 update snapshot)，
+// 不激活 legacy、不生成 task mutation、不调 save_note_with_tasks RPC。
+// G3 双标签页验收通过后置 true，双链正式启用（见 docs/g0-protocol.md、BLOCKED.md）。
+const TASK_NOTE_LINK_ENABLED = false;
 
 interface NoteDraft {
   title: string;
@@ -82,6 +87,8 @@ export default function NoteEditorPage() {
     small_font: false,
   });
   const dirtyRef = useRef(false);
+  // 最近一次内容变更的来源（user / hydrate / remote-sync / version-restore / backup-restore）
+  const lastSourceRef = useRef<TransactionSource>("user");
   const savingPromiseRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -500,9 +507,12 @@ export default function NoteEditorPage() {
     [supabase, noteId, parentNoteId, queueSave]
   );
 
-  const handleContentUpdate = (newContent: Record<string, unknown>) => {
+  const handleContentUpdate = (newContent: Record<string, unknown>, source: TransactionSource) => {
     setContent(newContent);
     draftRef.current.content = newContent;
+    // 记录本次变更来源，供 flushSave 在 G2 后续逻辑里区分：
+    // user → 走原子 RPC(激活 legacy / 生成 task mutation)；系统事务 → 跳过任务激活。
+    lastSourceRef.current = source;
     queueSave();
   };
 
