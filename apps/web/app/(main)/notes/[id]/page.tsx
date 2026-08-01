@@ -22,6 +22,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { copyNoteContent } from "@/lib/export/clipboard";
+import { extractTaskMutations } from "@/lib/task-link";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
@@ -36,8 +37,15 @@ const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
 //   localStorage.setItem("organize:task-note-link", "1")
 // 然后刷新页面，即可试双链基础功能（不破坏默认行为，清掉 localStorage 即恢复）。
 // 验收通过后改为直接返回 true。
-const TASK_NOTE_LINK_ENABLED =
-  typeof window !== "undefined" && window.localStorage.getItem("organize:task-note-link") === "1";
+// 注意：必须用函数实时读，不能用模块级 const（import 时机/SSR 求值会导致读到 false 且不再更新）。
+function isTaskNoteLinkEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("organize:task-note-link") === "1";
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 从笔记 content 递归提取所有「绑定块」（有 taskId 的 taskItem），
@@ -45,42 +53,6 @@ const TASK_NOTE_LINK_ENABLED =
  * 标题取 taskItem 内首段纯文本；checked=true → status="done"。
  * G0 §3 状态机：此函数只读 content，不改动它。
  */
-function extractTaskMutations(doc: Record<string, unknown> | null): {
-  mutations: { task_id: string; title: string; status: string }[];
-  revisions: Record<string, number>;
-} {
-  if (!doc) return { mutations: [], revisions: {} };
-  const mutations: { task_id: string; title: string; status: string }[] = [];
-  const revisions: Record<string, number> = {};
-  const walk = (node: any) => {
-    if (!node || typeof node !== "object") return;
-    if (node.type === "taskItem" && node.attrs?.taskId) {
-      const tid = String(node.attrs.taskId);
-      // 标题：内联首段纯文本
-      let title = "";
-      const content = Array.isArray(node.content) ? node.content : [];
-      for (const child of content) {
-        if (child?.type === "paragraph" && Array.isArray(child.content)) {
-          title = child.content.map((t: any) => (typeof t.text === "string" ? t.text : "")).join("");
-          break;
-        }
-      }
-      mutations.push({
-        task_id: tid,
-        title: title || "未命名任务",
-        status: node.attrs.checked === true ? "done" : "todo",
-      });
-      // sync_version 乐观锁值由调用方填（这里先占位 0，实际从 task 缓存取）
-      revisions[tid] = 0;
-      return; // taskItem 的内部段落已处理，不再下钻
-    }
-    const children = Array.isArray(node.content) ? node.content : [];
-    for (const c of children) walk(c);
-  };
-  walk(doc);
-  return { mutations, revisions };
-}
-
 interface NoteDraft {
   title: string;
   content: Record<string, unknown> | null;
@@ -265,7 +237,7 @@ export default function NoteEditorPage() {
   // G2 反向同步（任务→笔记）：订阅 tasks 表变更，任务状态变了→回勾笔记里对应块。
   // 仅双链开启时生效；批量加载该笔记涉及的 task 状态（一次性，无 N+1）+ Realtime 订阅。
   useEffect(() => {
-    if (!TASK_NOTE_LINK_ENABLED) return;
+    if (!isTaskNoteLinkEnabled()) return;
     const editor = editorRef.current;
     if (!editor) return;
 
@@ -342,15 +314,16 @@ export default function NoteEditorPage() {
         const snapshot = { ...draftRef.current };
         // 双链启用且本次是用户编辑 → 走 G1 原子 RPC（同步任务 + 对齐引用）；
         // 否则（系统事务/开关关）走老的直接 update snapshot（默认路径，零行为变化）。
-        if (TASK_NOTE_LINK_ENABLED && lastSourceRef.current === "user") {
-          const { mutations, revisions } = extractTaskMutations(snapshot.content);
+        if (isTaskNoteLinkEnabled() && lastSourceRef.current === "user") {
+          const { mutations } = extractTaskMutations(snapshot.content);
           const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
             p_note_id: noteId,
             p_content: snapshot.content,
             p_expected_note_revision: contentRevisionRef.current,
             p_title: snapshot.title ?? null,
             p_task_mutations: mutations.length > 0 ? mutations : null,
-            p_expected_task_revisions: Object.keys(revisions).length > 0 ? revisions : null,
+            // 不传 task revisions：前端未维护 sync_version 缓存，传 null 让 RPC 跳过乐观锁校验
+            p_expected_task_revisions: null,
             p_mutation_id: null,
           });
           if (rpcErr) {
@@ -650,7 +623,7 @@ export default function NoteEditorPage() {
 
     // G2 legacy 激活：双链开 + user-edit 时，给无 taskId 的 taskItem 建任务回填 taskId。
     // 系统事务(hydrate/远端/版本/备份恢复)不激活——见 docs/g0-protocol.md §4。
-    if (TASK_NOTE_LINK_ENABLED && source === "user") {
+    if (isTaskNoteLinkEnabled() && source === "user") {
       void activateLegacyTaskItems(newContent);
     }
   };
