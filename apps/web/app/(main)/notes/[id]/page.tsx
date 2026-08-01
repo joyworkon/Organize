@@ -262,6 +262,53 @@ export default function NoteEditorPage() {
     return () => window.removeEventListener("organize:notes-changed", reload);
   }, [loadNoteTree]);
 
+  // G2 反向同步（任务→笔记）：订阅 tasks 表变更，任务状态变了→回勾笔记里对应块。
+  // 仅双链开启时生效；批量加载该笔记涉及的 task 状态（一次性，无 N+1）+ Realtime 订阅。
+  useEffect(() => {
+    if (!TASK_NOTE_LINK_ENABLED) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    // 把某 task 状态回写到编辑器里所有同 taskId 的 taskItem（checked = status==='done'）
+    const applyTaskStatus = (taskId: string, status: string) => {
+      const e = editorRef.current;
+      if (!e) return;
+      const checked = status === "done";
+      let changed = false;
+      const tr = e.state.tr;
+      e.state.doc.descendants((node, pos) => {
+        if (node.type.name === "taskItem" && node.attrs.taskId === taskId && node.attrs.checked !== checked) {
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, checked });
+          changed = true;
+        }
+        return true;
+      });
+      if (changed) {
+        // 系统事务：标 hydrate，不激活、不进 Undo
+        tr.setMeta("transactionSource", "remote-sync");
+        tr.setMeta("addToHistory", false);
+        e.view.dispatch(tr);
+      }
+    };
+
+    // 订阅 tasks 表 UPDATE（只关心本笔记涉及的 task）
+    const channel = supabase
+      .channel(`note-${noteId}-tasks`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "tasks" },
+        (payload) => {
+          const t = payload.new as { id: string; status?: string };
+          if (t.id && t.status) applyTaskStatus(t.id, t.status);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [noteId, supabase]);
+
   useEffect(() => {
     let active = true;
     void supabase
