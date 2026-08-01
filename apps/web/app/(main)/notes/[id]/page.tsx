@@ -632,11 +632,17 @@ export default function NoteEditorPage() {
   const activateLegacyTaskItems = async (doc: Record<string, unknown>) => {
     const editor = editorRef.current;
     if (!editor) return;
-    // 收集所有 legacy taskItem 的 {pos, blockId, title, checked}
+    // 收集所有 legacy taskItem 的 {pos, blockId, title, checked}。
+    // 注意：运行时新插入的 taskItem 可能 attrs 里没有 id（block id），
+    // UniqueID 扩展只在 mount 时给历史 JSON 补 id，不会给新插入节点补。
+    // 所以这里若无 id，先生成一个，随 taskId 一起回填。
+    const genBlockId = () =>
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const legacy: { pos: number; blockId: string; title: string; checked: boolean }[] = [];
     editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === "taskItem" && !node.attrs.taskId && node.attrs.id) {
-        // 标题取首段纯文本
+      if (node.type.name === "taskItem" && !node.attrs.taskId) {
         let title = "";
         node.forEach((child) => {
           if (child.type.name === "paragraph") {
@@ -645,7 +651,7 @@ export default function NoteEditorPage() {
           }
           return true;
         });
-        legacy.push({ pos, blockId: String(node.attrs.id), title: title || "未命名任务", checked: node.attrs.checked === true });
+        legacy.push({ pos, blockId: String(node.attrs.id || genBlockId()), title: title || "未命名任务", checked: node.attrs.checked === true });
       }
       return true;
     });
@@ -666,13 +672,14 @@ export default function NoteEditorPage() {
     const { data: created, error } = await supabase.from("tasks").insert(inserts).select("id").returns<{ id: string }[]>();
     if (error || !created || created.length !== legacy.length) return;
 
-    // 回填 taskId 到编辑器节点（setNodeMarkup，触发新一次 onUpdate——此时已有 taskId，
-    // flushSave 的 RPC 会建 task_item_refs）。标 source='hydrate' 避免回填本身再触发激活循环。
+    // 回填 taskId（及缺失的 block id）到编辑器节点（setNodeMarkup，触发新一次 onUpdate——
+    // 此时已有 taskId，flushSave 的 RPC 会建 task_item_refs）。标 source='hydrate' 避免回填本身再触发激活循环。
     const tr = editor.state.tr;
     legacy.forEach((l, i) => {
       const node = editor.state.doc.nodeAt(l.pos);
       if (node && node.type.name === "taskItem") {
-        tr.setNodeMarkup(l.pos, undefined, { ...node.attrs, taskId: created[i].id });
+        // 同时补 block id（若无），taskId 来自新建的任务
+        tr.setNodeMarkup(l.pos, undefined, { ...node.attrs, id: l.blockId, taskId: created[i].id });
       }
     });
     tr.setMeta("transactionSource", "hydrate");
