@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,14 @@ type ViewMode = "list" | "kanban" | "month";
 type SortOrder = "default" | "manual";
 
 export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-muted-foreground">加载中…</div>}>
+      <TasksPageInner />
+    </Suspense>
+  );
+}
+
+function TasksPageInner() {
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
   const [allTags, setAllTags] = useState<TagWithCount[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
