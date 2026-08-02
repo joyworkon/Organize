@@ -1,26 +1,34 @@
 # BLOCKED — 任务工作台与月历
 
-## 已完成（feat/task-workspace-calendar 分支，未推 PR）
-- 任务0：基线核实 + worktree + PROGRESS
-- 任务1：数据底座
-  - migration 033（5 新表 + tasks 8 扩列 + 双向 trigger + RLS + 默认清单迁入 + 重复任务 RPC + 备份 v3）✅
-  - shared types（6 新接口）+ 备份 schema v3（兼容 v2）+ restore remap ✅
-  - task repository（单一数据源 + 乐观更新回滚）✅
-  - task sidebar（清单/今天/7天/已完成/垃圾桶 + 计数）✅
-- 验证：typecheck 0、test 45/374、db test 10/10、backup 17/17、migration 本地应用成功
+## 已合入 master 的 PR
+- #65 数据底座（migration 033）+ 三栏布局 + 月历 + 测试（pgTAP 30 + vitest 408）
+- #66 清单管理 UI + 卡片菜单（放弃/恢复/链接/打印）
+- #67 日期组件（单日/时间段/全天/重复规则）
+- #68 详情页更多菜单（副本/便签/模板/打印）
+- #69 附件上传 UI + 任务动态展示
 
-## 未完成（接续点）
-- 任务2 剩余：三栏主页面重写（现有 tasks/page.tsx 677 行需重构为侧栏+中栏+详情布局）、
-  URL 路由（scope/list/view 用 query）、12 项菜单、日期组件、清单管理 UI。
-- 任务3：月历视图（周一开头、月切换、跨月灰日、拖拽改期、响应式）。
-- 任务4：≥30 vitest + ≥20 pgTAP、真浏览器验收、PR、roadmap 更新。
+## 12 项菜单完成度（全部无占位）
+1. ✅ 添加子任务（复用 checklist）
+2. ✅ 置顶
+3. ✅ 放弃/恢复
+4. ✅ 标签（TagSelector）
+5. ✅ 上传附件（storage + 元数据，失败补偿删对象）
+6. ✅ 任务动态（DB trigger 自动产生，详情页展示）
+7. ✅ 保存模板（task_templates）
+8. ✅ 创建副本（todo/未置顶）
+9. ✅ 复制规范链接
+10. ✅ 打开便签（note_id 复用/新建）
+11. ✅ 打印详情
+12. ✅ 软删除
+
+## 未完成（后续 PR）
+- URL 路由：scope/list/view/month 用 URL query（当前用 useState）。
+- 月历拖拽改期 + 触屏日期面板。
+- 响应式 390px 手机布局（侧栏抽屉→列表→全屏详情）。
+- 真浏览器验收（1440×900 和 390×844）+ 截图证据写 PROGRESS.md。
+- 本地两名临时用户验越权。
 - mock 新表 seed（lib/supabase/mock-data.ts）。
-
-## 接续指引
-- worktree：../Organize-task-workspace-calendar，分支 feat/task-workspace-calendar
-- 现有 tasks/page.tsx 未改（仍正常工作），新文件：lib/tasks/repository.ts、
-  components/tasks/task-sidebar.tsx
-- 接续：先写三栏页面（用 repository + sidebar），再接 12 菜单 + 月历 + 测试
+- roadmap 更新。
 
 ## 无（越界/阻塞项）
-无越界需求。剩余纯工作量大，非阻塞。
+无越界需求。剩余为交互完善 + 人工验收，非阻塞。
