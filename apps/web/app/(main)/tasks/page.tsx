@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import { BatchActionsBar } from "@/components/batch-actions-bar";
 import { useSelection } from "@/hooks/use-selection";
 import { toast } from "@/hooks/use-toast";
 import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
+import type { TaskScope } from "@/lib/tasks/repository";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import {
   ListChecks,
@@ -70,13 +72,36 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // URL 路由：scope/list/view 用 query params（刷新/深链保持）
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const viewMode = (searchParams.get("view") as ViewMode) || "list";
+  const setViewMode = (v: ViewMode) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", v);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
+  const sidebarListId = searchParams.get("list");
+  const sidebarSel: SidebarSelection = {
+    scope: sidebarScope,
+    listId: sidebarScope === "list" ? sidebarListId : null,
+  };
+  const setSidebarSel = (sel: SidebarSelection) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("scope", sel.scope);
+    if (sel.scope === "list" && sel.listId) params.set("list", sel.listId);
+    else { params.delete("list"); }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
   const [sortOrder, setSortOrder] = useState<SortOrder>("default");
   const [draggedTask, setDraggedTask] = useState<TaskWithTags | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
-  // 三栏侧栏：选中范围 + 清单列表
-  const [sidebarSel, setSidebarSel] = useState<SidebarSelection>({ scope: "all", listId: null });
+  // 三栏侧栏：清单列表（scope/listId 已从 URL 路由获取）
   const [taskLists, setTaskLists] = useState<import("@organize/shared").TaskList[]>([]);
 
   const selection = useSelection<TaskWithTags>();
