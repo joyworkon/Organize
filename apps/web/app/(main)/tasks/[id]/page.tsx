@@ -48,7 +48,17 @@ import {
   Clock,
   Calendar,
   Share2,
+  MoreHorizontal,
+  Copy,
+  Bookmark,
+  Printer,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type {
@@ -228,6 +238,60 @@ export default function TaskDetailPage() {
     }
   }
 
+  /** 创建副本：todo/未置顶/清单项重置 */
+  async function handleDuplicate() {
+    if (!task) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data, error } = await supabase.from("tasks").insert({
+      user_id: user.id,
+      title: `${task.title} 副本`,
+      description: task.description,
+      status: "todo",
+      priority: task.priority,
+      category: task.category,
+      list_id: task.list_id ?? null,
+      is_pinned: false,
+      sort_order: 0,
+    }).select("id").single();
+    if (error || !data) { toast({ title: "创建副本失败", variant: "destructive" }); return; }
+    toast({ title: "副本已创建" });
+    router.push(`/tasks/${data.id}`);
+  }
+
+  /** 打开便签：复用 note_id；无则建笔记 */
+  async function handleOpenNote() {
+    if (!task) return;
+    if (task.note_id) { router.push(`/notes/${task.note_id}`); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: note, error } = await supabase.from("notes").insert({
+      user_id: user.id,
+      title: `${task.title} - 便签`,
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    }).select("id").single();
+    if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
+    await supabase.from("tasks").update({ note_id: note.id }).eq("id", task.id);
+    router.push(`/notes/${note.id}`);
+  }
+
+  /** 保存为模板 */
+  async function handleSaveTemplate() {
+    if (!task) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("task_templates").insert({
+      user_id: user.id,
+      name: task.title,
+      template: {
+        title: task.title, description: task.description, priority: task.priority,
+        category: task.category, estimated_minutes: task.estimated_minutes,
+      },
+    });
+    if (error) { toast({ title: "保存模板失败", variant: "destructive" }); return; }
+    toast({ title: "模板已保存" });
+  }
+
   async function handleDelete() {
     if (!task) return;
     try {
@@ -365,6 +429,28 @@ export default function TaskDetailPage() {
           >
             <Share2 className="h-4 w-4" />
           </Button>
+          {/* 更多操作菜单 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" title="更多操作">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={handleDuplicate}>
+                <Copy className="h-4 w-4 mr-2" />创建副本
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleOpenNote}>
+                <FileText className="h-4 w-4 mr-2" />打开便签
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleSaveTemplate}>
+                <Bookmark className="h-4 w-4 mr-2" />保存为模板
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.print()}>
+                <Printer className="h-4 w-4 mr-2" />打印详情
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="sm"
