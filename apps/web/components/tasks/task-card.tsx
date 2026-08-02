@@ -15,6 +15,10 @@ import {
   Check,
   CheckSquare,
   GripVertical,
+  Ban,
+  RotateCcw,
+  Link2,
+  Printer,
 } from "lucide-react";
 import { formatDueDate, getDueDateColorClass } from "@/lib/date-utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -339,6 +343,34 @@ export function TaskCard({
                       {task.is_pinned ? "取消置顶" : "置顶"}
                     </DropdownMenuItem>
                   )}
+                  {onToggleStatus && task.status !== "cancelled" && task.status !== "done" && (
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleStatus(task.id, "cancelled"); }}>
+                      <Ban className="h-4 w-4 mr-2 text-muted-foreground" />
+                      放弃
+                    </DropdownMenuItem>
+                  )}
+                  {onToggleStatus && task.status === "cancelled" && (
+                    <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleStatus(task.id, "todo"); }}>
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      恢复
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={(e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    const url = `${window.location.origin}/tasks/${task.id}`;
+                    navigator.clipboard?.writeText(url);
+                  }}>
+                    <Link2 className="h-4 w-4 mr-2" />
+                    复制链接
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    window.open(`/tasks/${task.id}`, "_blank");
+                    setTimeout(() => window.print(), 500);
+                  }}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    打印详情
+                  </DropdownMenuItem>
                   {onEdit && (
                     <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(task); }}>
                       <Pencil className="h-4 w-4 mr-2" />

@@ -25,6 +25,8 @@ interface TaskSidebarProps {
   selection: SidebarSelection;
   onSelect: (sel: SidebarSelection) => void;
   onCreateList: () => void;
+  onRenameList?: (list: TaskList) => void;
+  onDeleteList?: (list: TaskList) => void;
 }
 
 /** 导出日期判断纯函数供单测 */
@@ -49,7 +51,7 @@ export function isOverdue(dateStr: string | null | undefined): boolean {
   return d < now && d.toDateString() !== now.toDateString();
 }
 
-export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList }: TaskSidebarProps) {
+export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList }: TaskSidebarProps) {
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -129,14 +131,27 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList }:
             </button>
           </div>
           {lists.map((list) => (
-            <NavItem
+            <div
               key={list.id}
-              icon={ListIcon}
-              label={list.name}
-              count={listCounts.get(list.id) || 0}
-              sel={{ scope: "list", listId: list.id }}
-              accent={list.color || undefined}
-            />
+              onContextMenu={(e) => {
+                if (onRenameList || onDeleteList) {
+                  e.preventDefault();
+                  const action = window.prompt(`${list.name}\n\n输入 r 改名，d 删除：`);
+                  if (action === "r" && onRenameList) onRenameList(list);
+                  else if (action === "d" && onDeleteList) {
+                    if (window.confirm(`删除清单「${list.name}」？清单内任务会移到未分类。`)) onDeleteList(list);
+                  }
+                }
+              }}
+            >
+              <NavItem
+                icon={ListIcon}
+                label={list.name}
+                count={listCounts.get(list.id) || 0}
+                sel={{ scope: "list", listId: list.id }}
+                accent={list.color || undefined}
+              />
+            </div>
           ))}
 
           <div className="mt-2 border-t pt-1">
