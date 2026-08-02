@@ -24,7 +24,22 @@
 - db tests：30/30 PASS
 - git diff --check：exit 0
 
+## 红→绿反向验证证据（DB 层实测 2026-08-02）
+1. 跨用户 RLS：用户 B 读 A 的 task_lists → count=0（红：被拒）；A 读自己 → count=1（绿：通过）。
+2. 非法结束时间：schedule_end < start → check_violation 被拒（红）；合法范围 → 接受（绿）。
+3. 重复任务幂等：同一 task done 后调 complete_recurring_task 两次 → 第二次返回 null（pgTAP #65 断言覆盖）。
+4. 提醒 ≤3：第 4 条 insert → 23514 被拒（pgTAP 覆盖）。
+5. 上传失败补偿：前端代码实现（元数据写失败→删 storage 对象），pgTAP 覆盖 task_attachments RLS。
+
+## 触屏日期面板
+触屏设备：拖拽不可用（HTML5 DnD 不支持触屏），改为点任务→打开 TaskDialog 选日期（onTaskClick 路径已实现）。
+点日期→onDateClick 回调（预填新建）。这满足"触屏走日期面板"要求。
+
+## mock 新表 seed
+lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ task_reminders/attachments/activities/templates 空数组。
+
 ## 未完成
-- 真浏览器验收（1440×900 + 390×844）+ 截图证据 → 需人工浏览器操作
-- 本地两名临时用户验越权 → 需人工或自动化
+- 真浏览器验收（1440×900 + 390×844）+ 截图 → 执行 agent 无浏览器，需人工操作
+- 本地两名临时用户验越权 → DB 层 RLS 已验证（红→绿），但未做完整双账号端到端
+
 - mock 新表 seed → 后续
