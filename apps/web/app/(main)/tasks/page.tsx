@@ -7,14 +7,11 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   LayoutGrid,
   List,
   ListChecks,
   Loader2,
-  Menu,
   MoreHorizontal,
   Plus,
   Search,
@@ -27,7 +24,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { TaskDialog } from "@/components/tasks/task-dialog";
 import { TaskCard } from "@/components/tasks/task-card";
-import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
+import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
@@ -127,8 +124,6 @@ function TasksPageInner() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [taskNavCollapsed, setTaskNavCollapsed] = useState(false);
 
   const viewMode = (searchParams.get("view") as ViewMode) || "list";
   const selectedTaskId = searchParams.get("task");
@@ -286,39 +281,8 @@ function TasksPageInner() {
 
   return (
     <div className="organize-task-screen flex h-[calc(100vh-8rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-3rem)]">
-      <aside className={cn("organize-task-nav shrink-0 border-r bg-background md:relative md:block md:w-[260px] lg:w-[22vw] lg:min-w-[300px] lg:max-w-[420px]", taskNavCollapsed && "lg:hidden", mobileSidebarOpen ? "fixed inset-y-0 left-0 z-[60] block w-[280px]" : "hidden md:block")}>
-        <div className="flex h-14 items-center gap-3 border-b px-5">
-          <a href="/inbox" className="grid h-7 w-7 place-items-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">O</a>
-          <span className="font-semibold">待办</span>
-          <button type="button" aria-label="关闭任务侧栏" onClick={() => setMobileSidebarOpen(false)} className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted md:hidden"><ChevronLeft className="h-4 w-4" /></button>
-        </div>
-        <TaskSidebar
-          lists={lists}
-          tasks={tasks}
-          hideHeading
-          selection={sidebarSelection}
-          onSelect={(selection) => { updateUrl({ scope: selection.scope, list: selection.scope === "list" ? selection.listId : null, task: null }); setMobileSidebarOpen(false); }}
-          onCreateList={async () => {
-            const name = window.prompt("清单名称：")?.trim();
-            if (!name) return;
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-            const { error } = await supabase.from("task_lists").insert({ user_id: user.id, name, sort_order: lists.length });
-            if (error) toast({ title: "创建清单失败", variant: "destructive" }); else await fetchTasks();
-          }}
-          onRenameList={async (list) => {
-            const name = window.prompt("清单名称：", list.name)?.trim();
-            if (name && name !== list.name) { await supabase.from("task_lists").update({ name }).eq("id", list.id); await fetchTasks(); }
-          }}
-          onDeleteList={async (list) => { await supabase.from("tasks").update({ list_id: null }).eq("list_id", list.id); await supabase.from("task_lists").update({ deleted_at: new Date().toISOString() }).eq("id", list.id); await fetchTasks(); }}
-        />
-      </aside>
-
-      {mobileSidebarOpen && <button type="button" aria-label="关闭任务导航" onClick={() => setMobileSidebarOpen(false)} className="fixed inset-0 z-[55] bg-black/30 md:hidden" />}
-
       <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden md:flex")}>
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
-          <button type="button" aria-label={taskNavCollapsed || !mobileSidebarOpen ? "展开任务导航" : "收起任务导航"} onClick={() => { if (typeof window !== "undefined" && window.innerWidth >= 1024) setTaskNavCollapsed((current) => !current); else setMobileSidebarOpen(true); }} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><Menu className="h-5 w-5" /></button>
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
           <span className="ml-auto flex items-center gap-1">

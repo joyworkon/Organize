@@ -57,9 +57,13 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
+    if (hideHeading) {
+      setExpanded(true);
+      return;
+    }
     const saved = localStorage.getItem(EXPANDED_KEY);
     if (saved !== null) setExpanded(saved === "1");
-  }, []);
+  }, [hideHeading]);
   const toggleExpanded = () => {
     const next = !expanded;
     setExpanded(next);
