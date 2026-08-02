@@ -104,6 +104,7 @@ export function QuickAdd() {
       });
       if (taskErr) throw taskErr;
 
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
       toast({ title: "任务已创建" });
       closePanel();
     } catch {

@@ -298,6 +298,34 @@ export default function TodayView() {
     toast({ title: "清单已创建", duration: 2000 });
   };
 
+  const handleCreateTask = async (data: Partial<Task>, tagIds: string[]) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: inserted, error } = await supabase
+      .from("tasks")
+      .insert({ ...data, user_id: user.id })
+      .select("id")
+      .single();
+    if (error || !inserted) {
+      toast({ title: "创建任务失败", variant: "destructive", duration: 2000 });
+      return;
+    }
+
+    if (tagIds.length > 0) {
+      const { error: tagError } = await supabase
+        .from("task_tags")
+        .insert(tagIds.map((tagId) => ({ task_id: inserted.id as string, tag_id: tagId })));
+      if (tagError) {
+        toast({ title: "任务已创建，但标签关联失败", variant: "destructive", duration: 2500 });
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+    await loadData();
+    toast({ title: "任务已创建", duration: 2000 });
+  };
+
   const handleRecommendNext = () => {
     if (unreadArticles.length === 0) return;
     const randomIndex = Math.floor(Math.random() * unreadArticles.length);
@@ -780,10 +808,7 @@ export default function TodayView() {
         open={taskDialogOpen}
         task={null}
         onClose={() => setTaskDialogOpen(false)}
-        onSave={async () => {
-          setTaskDialogOpen(false);
-          await loadData();
-        }}
+        onSave={handleCreateTask}
       />
     </div>
   );

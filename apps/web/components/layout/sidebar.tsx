@@ -65,7 +65,7 @@ export function Sidebar() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
   const supabase = useMemo(() => createClient(), []);
-  const { tasks, lists, createList } = useTaskRepository();
+  const { tasks, lists, createList, refetch: refetchTasks } = useTaskRepository();
   useThemeColor();
 
   useEffect(() => {
@@ -122,6 +122,12 @@ export function Sidebar() {
     window.addEventListener("organize:notes-changed", reload);
     return () => window.removeEventListener("organize:notes-changed", reload);
   }, [loadNoteTree, notesExpanded]);
+
+  useEffect(() => {
+    const reloadTasks = () => void refetchTasks();
+    window.addEventListener("organize:tasks-changed", reloadTasks);
+    return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
+  }, [refetchTasks]);
 
   const toggleCollapsed = () => {
     const next = !collapsed;

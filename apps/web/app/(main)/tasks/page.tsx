@@ -178,6 +178,12 @@ function TasksPageInner() {
   useEffect(() => { void fetchTasks(); }, [fetchTasks]);
 
   useEffect(() => {
+    const reloadTasks = () => void fetchTasks();
+    window.addEventListener("organize:tasks-changed", reloadTasks);
+    return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
+  }, [fetchTasks]);
+
+  useEffect(() => {
     if (!searchParams.get("scope") && lists[0]) updateUrl({ scope: "list", list: lists[0].id });
   }, [lists, searchParams, updateUrl]);
 
@@ -219,6 +225,7 @@ function TasksPageInner() {
     }
     if (taskId && tagIds.length > 0) await supabase.from("task_tags").insert(tagIds.map((tagId) => ({ task_id: taskId, tag_id: tagId })));
     await fetchTasks();
+    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
   const filteredTasks = useMemo(() => tasks.filter((task) => {
@@ -263,6 +270,7 @@ function TasksPageInner() {
     await supabase.from("tasks").insert({ user_id: user.id, title, status: "todo", priority: "medium", category: "work", list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null });
     event.currentTarget.value = "";
     await fetchTasks();
+    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
   if (viewMode === "month") {
@@ -286,6 +294,14 @@ function TasksPageInner() {
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
           <span className="ml-auto flex items-center gap-1">
+            <Button
+              size="sm"
+              aria-label="新建任务"
+              onClick={() => { setEditingTask(null); setDialogOpen(true); }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              新建任务
+            </Button>
             <button type="button" aria-label="排序任务" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ArrowDownUp className="h-5 w-5" /></button>
             <button type="button" aria-label="任务列表更多操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
           </span>
