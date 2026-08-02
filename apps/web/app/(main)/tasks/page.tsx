@@ -745,7 +745,37 @@ function TasksPageInner() {
           );
         })()
       ) : viewMode === "month" ? (
-        <TaskMonthView tasks={filtered} onTaskClick={(t) => { setEditingTask(t); setDialogOpen(true); }} />
+        <TaskMonthView
+          tasks={filtered}
+          onTaskClick={(t) => { setEditingTask(t); setDialogOpen(true); }}
+          onRescheduleTask={async (taskId, newStartDate) => {
+            // 乐观更新：先改本地，失败回滚
+            const prev = [...tasks];
+            const task = tasks.find((t) => t.id === taskId);
+            if (!task) return;
+            const oldStart = task.schedule_start_at || task.due_date;
+            if (!oldStart) return;
+            const oldEnd = task.schedule_end_at;
+            const duration = oldEnd ? new Date(oldEnd).getTime() - new Date(oldStart).getTime() : 0;
+            const newEnd = duration > 0 ? new Date(newStartDate.getTime() + duration).toISOString() : null;
+            // 乐观更新
+            setTasks((cur) => cur.map((t) => t.id === taskId ? {
+              ...t, schedule_start_at: newStartDate.toISOString(), schedule_end_at: newEnd
+            } : t));
+            try {
+              const updates: Record<string, unknown> = {
+                schedule_start_at: newStartDate.toISOString(),
+                schedule_end_at: newEnd,
+              };
+              const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
+              if (error) throw error;
+            } catch {
+              // 回滚
+              setTasks(prev);
+              toast({ title: "改期失败，已回滚", variant: "destructive" });
+            }
+          }}
+        />
       ) : viewMode === "list" ? (
         <div className="space-y-2 sm:space-y-3">
           {filtered.map((task) => (
