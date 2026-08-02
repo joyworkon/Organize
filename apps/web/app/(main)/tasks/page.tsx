@@ -272,7 +272,7 @@ function TasksPageInner() {
 
   if (viewMode === "month") {
     return (
-      <div className="organize-task-screen fixed inset-0 z-[45] flex min-h-0 flex-col overflow-hidden bg-background text-foreground">
+      <div className="organize-task-screen flex h-[calc(100vh-8rem)] min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-3rem)]">
         <TaskMonthView
           tasks={filteredTasks}
           onTaskClick={(task) => updateUrl({ view: "list", task: task.id })}
@@ -285,7 +285,7 @@ function TasksPageInner() {
   }
 
   return (
-    <div className="organize-task-screen fixed inset-0 z-[45] flex overflow-hidden bg-background text-foreground">
+    <div className="organize-task-screen flex h-[calc(100vh-8rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-3rem)]">
       <aside className={cn("organize-task-nav shrink-0 border-r bg-background md:relative md:block md:w-[260px] lg:w-[22vw] lg:min-w-[300px] lg:max-w-[420px]", taskNavCollapsed && "lg:hidden", mobileSidebarOpen ? "fixed inset-y-0 left-0 z-[60] block w-[280px]" : "hidden md:block")}>
         <div className="flex h-14 items-center gap-3 border-b px-5">
           <a href="/inbox" className="grid h-7 w-7 place-items-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">O</a>

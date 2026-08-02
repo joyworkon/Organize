@@ -28,6 +28,7 @@ interface TaskSidebarProps {
   onRenameList?: (list: TaskList) => void;
   onDeleteList?: (list: TaskList) => void;
   hideHeading?: boolean;
+  active?: boolean;
 }
 
 /** 导出日期判断纯函数供单测 */
@@ -52,7 +53,7 @@ export function isOverdue(dateStr: string | null | undefined): boolean {
   return d < now && d.toDateString() !== now.toDateString();
 }
 
-export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList, hideHeading = false }: TaskSidebarProps) {
+export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList, hideHeading = false, active = true }: TaskSidebarProps) {
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -85,7 +86,7 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   }, [activeTasks]);
 
   const isSelected = (sel: SidebarSelection) =>
-    selection.scope === sel.scope && selection.listId === sel.listId;
+    active && selection.scope === sel.scope && selection.listId === sel.listId;
 
   const NavItem = ({ icon: Icon, label, count, sel, accent }: {
     icon: any; label: string; count?: number; sel: SidebarSelection; accent?: string;

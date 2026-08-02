@@ -17,8 +17,6 @@ const tabs = [
 export function MobileTabBar() {
   const pathname = usePathname();
 
-  if (pathname === "/tasks" || pathname.startsWith("/tasks/")) return null;
-
   return (
     <nav className="fixed bottom-safe left-0 right-0 z-50 border-t bg-background/95 backdrop-blur md:hidden pb-safe">
       <div className="flex items-center justify-between h-14 px-1">
