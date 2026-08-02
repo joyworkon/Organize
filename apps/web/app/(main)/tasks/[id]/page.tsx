@@ -52,6 +52,9 @@ import {
   Copy,
   Bookmark,
   Printer,
+  Upload,
+  Paperclip,
+  Activity,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -87,6 +90,8 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [attachments, setAttachments] = useState<import("@organize/shared").TaskAttachment[]>([]);
+  const [activities, setActivities] = useState<import("@organize/shared").TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -126,7 +131,7 @@ export default function TaskDetailPage() {
       setEditedTitle(loadedTask.title);
       setEditedDescription(loadedTask.description || "");
 
-      const [{ data: checklistData }, { data: tagLinks }, { data: tagsData }] = await Promise.all([
+      const [{ data: checklistData }, { data: tagLinks }, { data: tagsData }, { data: attData }, { data: actData }] = await Promise.all([
         supabase
           .from("task_checklists")
           .select("*")
@@ -134,6 +139,8 @@ export default function TaskDetailPage() {
           .order("sort_order", { ascending: true }),
         supabase.from("task_tags").select("tag_id").eq("task_id", taskId),
         supabase.from("tags").select("*"),
+        supabase.from("task_attachments").select("*").eq("task_id", taskId).order("created_at", { ascending: false }),
+        supabase.from("task_activities").select("*").eq("task_id", taskId).order("created_at", { ascending: false }).limit(20),
       ]);
 
       setChecklists((checklistData as TaskChecklist[]) || []);
@@ -145,6 +152,8 @@ export default function TaskDetailPage() {
         if (tag) taskTags.push(tag);
       }
       setTags(taskTags);
+      setAttachments((attData as import("@organize/shared").TaskAttachment[]) || []);
+      setActivities((actData as import("@organize/shared").TaskActivity[]) || []);
     } catch (err) {
       console.error("加载任务失败:", err);
       setError("加载任务失败");
@@ -647,6 +656,90 @@ export default function TaskDetailPage() {
                     关联笔记
                   </Link>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* 附件区域（12项菜单之上传附件） */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground">附件</h3>
+              <label className="cursor-pointer text-sm text-primary hover:underline flex items-center gap-1">
+                <Upload className="h-3.5 w-3.5" />上传
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !task) return;
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    const path = `${user.id}/tasks/${task.id}/${Date.now()}-${file.name}`;
+                    const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
+                    if (upErr) {
+                      toast({ title: "上传失败", variant: "destructive" });
+                      return;
+                    }
+                    const { error: metaErr } = await supabase.from("task_attachments").insert({
+                      user_id: user.id, task_id: task.id, name: file.name,
+                      bucket: "attachments", path, mime_type: file.type, size_bytes: file.size,
+                    });
+                    if (metaErr) {
+                      // 元数据写失败 → 补偿删除已上传对象（任务书红线）
+                      await supabase.storage.from("attachments").remove([path]);
+                      toast({ title: "附件记录失败，已清理", variant: "destructive" });
+                      return;
+                    }
+                    toast({ title: "附件已上传" });
+                    loadTask();
+                  }}
+                />
+              </label>
+            </div>
+            {attachments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">无附件</p>
+            ) : (
+              <div className="space-y-1">
+                {attachments.map((att) => (
+                  <div key={att.id} className="flex items-center gap-2 text-sm group">
+                    <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${att.bucket}/${att.path}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="flex-1 truncate hover:underline"
+                    >{att.name}</a>
+                    <span className="text-xs text-muted-foreground">{att.size_bytes ? `${Math.round(att.size_bytes / 1024)}KB` : ""}</span>
+                    <button
+                      onClick={async () => {
+                        await supabase.storage.from(att.bucket).remove([att.path]);
+                        await supabase.from("task_attachments").delete().eq("id", att.id);
+                        loadTask();
+                        toast({ title: "附件已删除" });
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-destructive"
+                    ><X className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 任务动态（12项菜单之任务动态） */}
+          {activities.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground">动态</h3>
+              <div className="space-y-1.5">
+                {activities.map((act) => (
+                  <div key={act.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Activity className="h-3 w-3 shrink-0" />
+                    <span>
+                      {act.action === "created" ? "创建任务" :
+                       act.action === "status_changed" ? `状态变更：${(act.detail as any)?.from} → ${(act.detail as any)?.to}` :
+                       act.action}
+                    </span>
+                    <span className="ml-auto">{new Date(act.created_at).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
