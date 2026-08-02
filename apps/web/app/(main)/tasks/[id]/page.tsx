@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CompleteTaskDialog } from "@/components/tasks/complete-task-dialog";
+import { TaskDatePicker } from "@/components/tasks/task-date-picker";
 import {
   ArrowLeft,
   Loader2,
@@ -460,12 +461,44 @@ export default function TaskDetailPage() {
             </Select>
           </div>
 
-          {task.due_date && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {/* 日期组件（可展开设置日程/全天/重复） */}
+          <details className="group">
+            <summary className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer list-none">
               <Calendar className="h-4 w-4" />
-              <span>截止: {formatDate(task.due_date)}</span>
+              <span>
+                {task.schedule_start_at || task.due_date
+                  ? `截止: ${formatDate(task.schedule_start_at || task.due_date || "")}`
+                  : "设置日期"}
+              </span>
+              {task.recurrence_rule && (
+                <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                  {task.recurrence_rule.frequency === "daily" ? "每天" : task.recurrence_rule.frequency === "weekly" ? "每周" : task.recurrence_rule.frequency === "monthly" ? "每月" : "每年"}
+                </span>
+              )}
+            </summary>
+            <div className="mt-2 p-3 border rounded-lg bg-muted/30">
+              <TaskDatePicker
+                value={{
+                  schedule_start_at: task.schedule_start_at || task.due_date,
+                  schedule_end_at: task.schedule_end_at ?? null,
+                  all_day: task.all_day ?? false,
+                  timezone: task.timezone ?? null,
+                  recurrence_rule: task.recurrence_rule ?? null,
+                }}
+                onChange={async (v) => {
+                  const { error } = await supabase.from("tasks").update({
+                    schedule_start_at: v.schedule_start_at,
+                    schedule_end_at: v.schedule_end_at,
+                    all_day: v.all_day,
+                    timezone: v.timezone,
+                    recurrence_rule: v.recurrence_rule as any,
+                  }).eq("id", task.id);
+                  if (error) { toast({ title: "保存日期失败", variant: "destructive" }); return; }
+                  loadTask(); // 刷新
+                }}
+              />
             </div>
-          )}
+          </details>
 
           {(task.estimated_minutes || task.actual_minutes) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
