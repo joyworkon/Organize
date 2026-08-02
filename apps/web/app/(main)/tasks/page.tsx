@@ -111,6 +111,7 @@ function TasksPageInner() {
 
   // 三栏侧栏：清单列表（scope/listId 已从 URL 路由获取）
   const [taskLists, setTaskLists] = useState<import("@organize/shared").TaskList[]>([]);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const selection = useSelection<TaskWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
@@ -531,7 +532,18 @@ function TasksPageInner() {
 
   return (
     <div className="organize-task-workspace flex h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* 左：侧栏 */}
+      {/* 手机侧栏遮罩 */}
+      {mobileSidebarOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setMobileSidebarOpen(false)} />
+      )}
+      {/* 左：侧栏（桌面常驻，手机抽屉） */}
+      <div className={cn(
+        "organize-task-sidebar-wrap shrink-0 z-50 bg-background",
+        "md:relative md:translate-x-0 md:block",
+        mobileSidebarOpen
+          ? "fixed left-0 top-14 bottom-0 w-[260px] block"
+          : "fixed left-0 top-14 bottom-0 w-[260px] hidden md:block"
+      )}>
       <TaskSidebar
         lists={taskLists}
         tasks={tasks}
@@ -563,9 +575,17 @@ function TasksPageInner() {
           toast({ title: `清单「${list.name}」已删除，任务移到未分类` });
         }}
       />
+      </div>
       {/* 中+右：主内容区 */}
       <div className="flex-1 overflow-y-auto">
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
+      {/* 手机侧栏切换按钮 */}
+      <button
+        className="md:hidden flex items-center gap-1.5 text-sm text-muted-foreground mb-2"
+        onClick={() => setMobileSidebarOpen(true)}
+      >
+        <ListChecks className="h-4 w-4" />清单/视图
+      </button>
       {permission === "default" && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
