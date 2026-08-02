@@ -62,13 +62,17 @@ interface TaskMonthViewProps {
   tasks: TaskWithTags[];
   onTaskClick?: (task: TaskWithTags) => void;
   onDateClick?: (date: Date) => void;
+  /** 拖拽改期：把任务移到新日期（保留时长/本地墙钟时间），失败由调用方回滚 */
+  onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
 }
 
-export function TaskMonthView({ tasks, onTaskClick, onDateClick }: TaskMonthViewProps) {
+export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTask }: TaskMonthViewProps) {
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
   const monthDays = useMemo(() => getMonthCells(cursor), [cursor]);
   const tasksByDate = useMemo(() => groupTasksByDate(tasks), [tasks]);
@@ -106,15 +110,35 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick }: TaskMonthView
         {monthDays.map((cell, i) => {
           const dayTasks = tasksByDate.get(cell.date.toDateString()) || [];
           const isToday = sameDay(cell.date, today);
+          const cellKey = cell.date.toDateString();
           return (
             <div
               key={i}
               className={cn(
                 "min-h-[80px] sm:min-h-[100px] p-1 bg-background flex flex-col gap-0.5",
                 !cell.inMonth && "opacity-40",
-                onDateClick && "cursor-pointer hover:bg-muted/50"
+                onDateClick && "cursor-pointer hover:bg-muted/50",
+                dragOverDate === cellKey && "ring-2 ring-primary ring-inset"
               )}
               onClick={() => onDateClick?.(cell.date)}
+              onDragOver={onRescheduleTask ? (e) => { e.preventDefault(); setDragOverDate(cellKey); } : undefined}
+              onDragLeave={() => setDragOverDate(null)}
+              onDrop={onRescheduleTask ? async (e) => {
+                e.preventDefault();
+                setDragOverDate(null);
+                if (!dragTaskId) return;
+                const task = tasks.find((t) => t.id === dragTaskId);
+                if (!task) return;
+                const oldStart = getTaskDate(task);
+                if (!oldStart) return;
+                // 保留时长（如有 end）
+                const oldEnd = task.schedule_end_at ? new Date(task.schedule_end_at) : null;
+                const duration = oldEnd ? oldEnd.getTime() - oldStart.getTime() : 0;
+                // 新开始：目标日期 + 原来的时/分（保留本地墙钟时间）
+                const newStart = new Date(cell.date.getFullYear(), cell.date.getMonth(), cell.date.getDate(), oldStart.getHours(), oldStart.getMinutes());
+                await onRescheduleTask(dragTaskId, newStart);
+                setDragTaskId(null);
+              } : undefined}
             >
               <span className={cn(
                 "text-xs w-6 h-6 flex items-center justify-center rounded-full",
@@ -126,7 +150,13 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick }: TaskMonthView
                 <button
                   key={t.id}
                   onClick={(e) => { e.stopPropagation(); onTaskClick?.(t); }}
-                  className="text-left text-xs px-1.5 py-0.5 rounded truncate border-l-2 hover:bg-muted"
+                  draggable={!!onRescheduleTask}
+                  onDragStart={(e) => { setDragTaskId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => setDragTaskId(null)}
+                  className={cn(
+                    "text-left text-xs px-1.5 py-0.5 rounded truncate border-l-2 hover:bg-muted",
+                    dragTaskId === t.id && "opacity-40"
+                  )}
                   style={{ borderLeftColor: (t as any).list_color || "#3b82f6" }}
                   title={t.title}
                 >
