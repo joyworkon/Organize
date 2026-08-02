@@ -29,7 +29,10 @@ import {
   RefreshCw,
   ThumbsUp,
   Loader2,
+  ListChecks,
+  ChevronDown,
 } from "lucide-react";
+import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -278,6 +281,23 @@ export default function TodayView() {
     }
   };
 
+  const handleCreateTaskList = async () => {
+    const name = window.prompt("清单名称：")?.trim();
+    if (!name) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("task_lists").insert({
+      user_id: user.id,
+      name,
+      sort_order: Date.now(),
+    });
+    if (error) {
+      toast({ title: "创建清单失败", variant: "destructive", duration: 2000 });
+      return;
+    }
+    toast({ title: "清单已创建", duration: 2000 });
+  };
+
   const handleRecommendNext = () => {
     if (unreadArticles.length === 0) return;
     const randomIndex = Math.floor(Math.random() * unreadArticles.length);
@@ -341,10 +361,17 @@ export default function TodayView() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button onClick={() => setTaskDialogOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            任务
-          </Button>
+          <TaskNavigationMenu
+            onCreateTask={() => setTaskDialogOpen(true)}
+            onCreateList={handleCreateTaskList}
+            trigger={(
+              <Button size="sm" aria-label="打开待办菜单">
+                <ListChecks className="h-4 w-4 mr-1.5" />
+                待办
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            )}
+          />
           <Button
             variant="outline"
             size="sm"

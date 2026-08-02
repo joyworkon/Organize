@@ -449,8 +449,9 @@ export const mockDb: Record<string, any[]> = {
   // 033 任务工作台新表
   task_lists: [
     { id: "mock-list-work", user_id: MOCK_USER.id, name: "工作", icon: "💼", color: "#3b82f6", sort_order: 0, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
-    { id: "mock-list-study", user_id: MOCK_USER.id, name: "学习", icon: "📚", color: "#8b5cf6", sort_order: 1, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
-    { id: "mock-list-life", user_id: MOCK_USER.id, name: "生活", icon: "🏠", color: "#10b981", sort_order: 2, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-rls", user_id: MOCK_USER.id, name: "RLS测试", icon: "📋", color: "#8b7d73", sort_order: 1, is_default: false, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-study", user_id: MOCK_USER.id, name: "学习", icon: "📚", color: "#8b5cf6", sort_order: 2, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-life", user_id: MOCK_USER.id, name: "生活", icon: "🏠", color: "#10b981", sort_order: 3, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
   ],
   task_reminders: [],
   task_attachments: [],
