@@ -302,6 +302,23 @@ const tasks = [
   },
 ];
 
+// 让任务预览直接体现工作台的三栏/日历状态：真实数据库由033迁移回填这些字段。
+const mockListByCategory: Record<string, string> = {
+  work: "mock-list-work",
+  study: "mock-list-study",
+  life: "mock-list-life",
+};
+tasks.forEach((task, index) => {
+  (task as any).list_id = mockListByCategory[task.category] || null;
+  (task as any).schedule_start_at = task.due_date;
+  (task as any).schedule_end_at = index === 0 && task.due_date
+    ? new Date(new Date(task.due_date).getTime() + 2 * 86400000).toISOString()
+    : null;
+  (task as any).all_day = false;
+  (task as any).timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  (task as any).recurrence_rule = null;
+});
+
 const taskTags = tasks.flatMap((t) =>
   (t.tags || []).map((tag) => ({ task_id: t.id, tag_id: tag.id }))
 );

@@ -50,6 +50,7 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const isTaskWorkspace = pathname === "/tasks" || pathname.startsWith("/tasks/");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -60,6 +61,12 @@ export function Sidebar() {
   useThemeColor();
 
   useEffect(() => {
+    if (isTaskWorkspace) {
+      document.documentElement.dataset.sidebarCollapsed = "true";
+      return () => {
+        delete document.documentElement.dataset.sidebarCollapsed;
+      };
+    }
     const stored = localStorage.getItem("organize-sidebar-collapsed") === "true";
     setCollapsed(stored);
     const storedNotesExpanded =
@@ -69,7 +76,7 @@ export function Sidebar() {
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
     };
-  }, [pathname]);
+  }, [isTaskWorkspace, pathname]);
 
   const loadNoteTree = useCallback(async () => {
     setNotesLoading(true);
@@ -352,6 +359,8 @@ export function Sidebar() {
       </div>
     </div>
   );
+
+  if (isTaskWorkspace) return null;
 
   return (
     <>
