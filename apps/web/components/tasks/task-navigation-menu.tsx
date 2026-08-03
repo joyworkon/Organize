@@ -27,8 +27,6 @@ interface TaskNavigationMenuProps {
   /** The control that opens the menu. It is kept outside the panel so callers
    * can use the same navigation on the dashboard and in the app sidebar. */
   trigger: ReactNode;
-  /** Run an action such as opening the new-task dialog after the menu closes. */
-  onCreateTask?: () => void;
   /** Create a list from the same menu instead of navigating to a dead query. */
   onCreateList?: () => void | Promise<void>;
   align?: "start" | "center" | "end";
@@ -65,7 +63,6 @@ function taskUrl(selection: SidebarSelection): string {
 
 export function TaskNavigationMenu({
   trigger,
-  onCreateTask,
   onCreateList,
   align = "start",
   side = "bottom",
@@ -107,19 +104,6 @@ export function TaskNavigationMenu({
               <p className="text-xl font-semibold leading-none">待办</p>
               <p className="mt-1 text-xs text-muted-foreground">选择一个范围查看对应任务</p>
             </div>
-            {onCreateTask && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onCreateTask();
-                }}
-                className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-              >
-                <Plus className="h-4 w-4" />
-                新建任务
-              </button>
-            )}
           </div>
         </div>
 

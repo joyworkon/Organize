@@ -13,16 +13,13 @@ import {
   ListChecks,
   Loader2,
   MoreHorizontal,
-  Plus,
   Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagFilter } from "@/components/tags/tag-filter";
-import { TaskDialog } from "@/components/tasks/task-dialog";
 import { TaskCard } from "@/components/tasks/task-card";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
@@ -122,8 +119,6 @@ function TasksPageInner() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const viewMode = (searchParams.get("view") as ViewMode) || "list";
   const selectedTaskId = searchParams.get("task");
@@ -208,26 +203,6 @@ function TasksPageInner() {
     toast({ title: "任务已移入垃圾箱" });
   }, [fetchTasks, supabase, updateUrl]);
 
-  const saveTask = async (data: Partial<Task>, tagIds: string[]) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const patch = { ...data };
-    if (!editingTask && sidebarSelection.scope === "list" && sidebarSelection.listId) patch.list_id = sidebarSelection.listId;
-    if (patch.due_date && !patch.schedule_start_at) patch.schedule_start_at = patch.due_date;
-    let taskId = editingTask?.id;
-    if (editingTask) {
-      await supabase.from("tasks").update(patch).eq("id", editingTask.id);
-      await supabase.from("task_tags").delete().eq("task_id", editingTask.id);
-    } else {
-      const { data: inserted, error } = await supabase.from("tasks").insert({ ...patch, user_id: user.id }).select("id").single();
-      if (error || !inserted) { toast({ title: "创建任务失败", variant: "destructive" }); return; }
-      taskId = inserted.id as string;
-    }
-    if (taskId && tagIds.length > 0) await supabase.from("task_tags").insert(tagIds.map((tagId) => ({ task_id: taskId, tag_id: tagId })));
-    await fetchTasks();
-    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-  };
-
   const filteredTasks = useMemo(() => tasks.filter((task) => {
     if (sidebarSelection.scope === "trash") { if (!task.deleted_at) return false; }
     else {
@@ -279,10 +254,8 @@ function TasksPageInner() {
         <TaskMonthView
           tasks={filteredTasks}
           onTaskClick={(task) => updateUrl({ view: "list", task: task.id })}
-          onDateClick={() => { setEditingTask(null); setDialogOpen(true); }}
           onRescheduleTask={async (taskId, date) => { await updateTask(taskId, { schedule_start_at: date.toISOString(), due_date: date.toISOString() }); }}
         />
-        <TaskDialog open={dialogOpen} task={editingTask} onClose={() => { setDialogOpen(false); setEditingTask(null); }} onSave={saveTask} />
       </div>
     );
   }
@@ -294,14 +267,6 @@ function TasksPageInner() {
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
           <span className="ml-auto flex items-center gap-1">
-            <Button
-              size="sm"
-              aria-label="新建任务"
-              onClick={() => { setEditingTask(null); setDialogOpen(true); }}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              新建任务
-            </Button>
             <button type="button" aria-label="排序任务" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ArrowDownUp className="h-5 w-5" /></button>
             <button type="button" aria-label="任务列表更多操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
           </span>
@@ -323,7 +288,7 @@ function TasksPageInner() {
 
             {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : viewMode === "kanban" ? (
               <div className="grid gap-5 md:grid-cols-3">{(["todo", "in_progress", "done"] as TaskStatus[]).map((status) => <div key={status} className="space-y-3"><div className="flex items-center gap-2 text-sm font-semibold"><span className={cn("h-2 w-2 rounded-full", status === "todo" ? "bg-muted-foreground" : status === "in_progress" ? "bg-primary" : "bg-green-500")} />{TASK_STATUS_CONFIG[status].label}<span className="text-xs text-muted-foreground">{filteredTasks.filter((task) => task.status === status).length}</span></div>{filteredTasks.filter((task) => task.status === status).map((task) => <TaskCard key={task.id} task={task} onOpen={openTask} onToggleStatus={(id, next) => void updateTask(id, { status: next })} onComplete={(item) => void updateTask(item.id, { status: "done", completed_at: new Date().toISOString() })} onTogglePin={(id, pinned) => void updateTask(id, { is_pinned: pinned })} onDelete={deleteTask} />)}</div>)}</div>
-            ) : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="添加你的第一个任务开始规划" action={<Button onClick={() => { setEditingTask(null); setDialogOpen(true); }}><Plus className="mr-2 h-4 w-4" />创建任务</Button>} /> : (
+            ) : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
                 {activeTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
@@ -336,8 +301,6 @@ function TasksPageInner() {
       </section>
 
       {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} />}
-
-      <TaskDialog open={dialogOpen} task={editingTask} onClose={() => { setDialogOpen(false); setEditingTask(null); }} onSave={saveTask} />
     </div>
   );
 }

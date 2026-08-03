@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, MoreHorizontal, Plus } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags } from "@organize/shared";
 
@@ -64,11 +64,10 @@ function timeLabel(task: TaskWithTags) {
 interface TaskMonthViewProps {
   tasks: TaskWithTags[];
   onTaskClick?: (task: TaskWithTags) => void;
-  onDateClick?: (date: Date) => void;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
 }
 
-export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTask }: TaskMonthViewProps) {
+export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMonthViewProps) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -82,7 +81,6 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTas
         <CalendarDays className="h-6 w-6" />
         <h2 className="text-xl font-semibold">{cursor.getFullYear()}年{cursor.getMonth() + 1}月</h2>
         <div className="ml-auto flex items-center gap-1">
-          <button type="button" aria-label="新建任务" onClick={() => onDateClick?.(today)} className="rounded-lg border p-2 hover:bg-muted"><Plus className="h-5 w-5" /></button>
           <button type="button" className="flex items-center gap-1 rounded-lg border px-3 py-2 text-sm hover:bg-muted">月<ChevronRight className="h-3.5 w-3.5 rotate-90" /></button>
           <button type="button" aria-label="上个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded-lg border p-2 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
           <button type="button" onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))} className="rounded-lg border px-4 py-2 text-sm hover:bg-muted">今天</button>
@@ -104,7 +102,6 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTas
           return (
             <div
               key={cellKey}
-              onClick={() => onDateClick?.(cell.date)}
               onDragOver={onRescheduleTask ? (event) => { event.preventDefault(); setDragOverDate(cellKey); } : undefined}
               onDragLeave={() => setDragOverDate(null)}
               onDrop={onRescheduleTask ? async (event) => { event.preventDefault(); const task = monthTasks.find((item) => item.id === dragTaskId); if (!task) return; const start = getTaskDate(task); if (!start) return; const next = new Date(cell.date.getFullYear(), cell.date.getMonth(), cell.date.getDate(), start.getHours(), start.getMinutes()); setDragOverDate(null); setDragTaskId(null); await onRescheduleTask(task.id, next); } : undefined}
@@ -127,7 +124,7 @@ export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTas
                     {timeLabel(task) && <span className="shrink-0 text-[10px] opacity-70">{timeLabel(task)}</span>}
                   </button>
                 ))}
-                {dayTasks.length > 3 && <button type="button" onClick={(event) => { event.stopPropagation(); onDateClick?.(cell.date); }} className="px-1.5 text-xs text-muted-foreground hover:text-foreground">+{dayTasks.length - 3} 更多</button>}
+                {dayTasks.length > 3 && <span className="px-1.5 text-xs text-muted-foreground">+{dayTasks.length - 3} 更多</span>}
               </div>
             </div>
           );
