@@ -182,12 +182,17 @@ function TasksPageInner() {
 
   const quickAdd = async (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
-    const title = event.currentTarget.value.trim();
+    const input = event.currentTarget;
+    const title = input.value.trim();
     if (!title) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase.from("tasks").insert({ user_id: user.id, title, status: "todo", priority: "medium", category: "work", list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null });
-    event.currentTarget.value = "";
+    const { error } = await supabase.from("tasks").insert({ user_id: user.id, title, status: "todo", priority: "medium", category: "work", list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null });
+    if (error) {
+      toast({ title: "创建任务失败", description: error.message, variant: "destructive" });
+      return;
+    }
+    input.value = "";
     await fetchTasks();
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
