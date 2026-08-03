@@ -167,8 +167,7 @@ export function Sidebar() {
     setTasksExpanded(true);
     localStorage.setItem(TASK_NAV_EXPANDED_KEY, "1");
     setMobileOpen(false);
-    const destination = pathname === "/tasks/calendar" ? "/tasks/calendar" : "/tasks";
-    router.push(`${destination}?${params.toString()}`);
+    router.push(`/tasks?${params.toString()}`);
   };
 
   const createTaskList = async () => {
