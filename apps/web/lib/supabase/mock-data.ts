@@ -457,6 +457,28 @@ export const mockDb: Record<string, any[]> = {
   task_attachments: [],
   task_activities: [],
   task_templates: [],
+  countdown_days: [
+    {
+      id: "countdown-release",
+      user_id: MOCK_USER.id,
+      title: "Organize 发布日",
+      target_date: "2026-12-31",
+      repeat_annually: false,
+      deleted_at: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    },
+    {
+      id: "countdown-birthday",
+      user_id: MOCK_USER.id,
+      title: "产品周年纪念日",
+      target_date: "2026-10-18",
+      repeat_annually: true,
+      deleted_at: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    },
+  ],
 };
 
 export { MOCK_USER };

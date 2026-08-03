@@ -57,6 +57,8 @@ export function Sidebar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isTaskWorkspace = pathname === "/tasks" || pathname.startsWith("/tasks/");
+  const isGlobalTaskTool = pathname === "/tasks/countdown" || pathname === "/tasks/search";
+  const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -165,7 +167,8 @@ export function Sidebar() {
     setTasksExpanded(true);
     localStorage.setItem(TASK_NAV_EXPANDED_KEY, "1");
     setMobileOpen(false);
-    router.push(`/tasks?${params.toString()}`);
+    const destination = pathname === "/tasks/calendar" ? "/tasks/calendar" : "/tasks";
+    router.push(`${destination}?${params.toString()}`);
   };
 
   const createTaskList = async () => {
@@ -320,7 +323,7 @@ export function Sidebar() {
                     lists={lists}
                     tasks={tasks}
                     selection={taskSelection}
-                    active={isTaskWorkspace}
+                    active={isTaskListContext}
                     hideHeading
                     onSelect={navigateToTasks}
                     onCreateList={() => void createTaskList()}

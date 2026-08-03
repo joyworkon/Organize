@@ -175,6 +175,18 @@ export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
 export type TaskPriority = "high" | "medium" | "low";
 export type TaskCategory = "work" | "study" | "life";
 
+/** 独立于任务截止日期的日期提醒（target_date 为 date-only 字符串） */
+export interface CountdownDay {
+  id: string;
+  user_id: string;
+  title: string;
+  target_date: string;
+  repeat_annually: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   user_id: string;

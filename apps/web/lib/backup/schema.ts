@@ -32,6 +32,7 @@ export const BACKUP_TABLES = [
   "task_attachments",
   "task_activities",
   "task_templates",
+  "countdown_days",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -386,6 +387,18 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  countdown_days: {
+    fields: {
+      id: isUuid,
+      title: isString,
+      target_date: (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value),
+      repeat_annually: isBoolean,
+      deleted_at: isNullableTimestamp,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 const REQUIRED_EXCLUSIONS = [
@@ -429,10 +442,10 @@ export function inspectBackupV2(input: unknown): BackupInspection {
       issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3")
     );
   }
-  // v2 备份没有 033 新表，补空数组（避免后续按缺失报错）
-  if (value.version === 2 && value.data && typeof value.data === "object") {
+  // 旧 v2 备份没有 033 新表；早期 v3 备份也可能没有倒数日，统一补空数组。
+  if ((value.version === 2 || value.version === 3) && value.data && typeof value.data === "object") {
     const data = value.data as Record<string, unknown>;
-    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates"];
+    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days"];
     for (const t of v3NewTables) {
       if (data[t] === undefined) {
         data[t] = [];

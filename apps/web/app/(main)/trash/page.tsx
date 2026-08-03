@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCcw,
+  Timer,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ const resourceConfig = {
   task: { label: "任务", icon: ListChecks },
   lesson: { label: "经验", icon: Lightbulb },
   database: { label: "数据库", icon: DatabaseIcon },
+  countdown: { label: "倒数日", icon: Timer },
 } satisfies Record<
   TrashResourceType,
   { label: string; icon: typeof FileText }
@@ -43,6 +45,7 @@ const filters: { value: TrashFilter; label: string }[] = [
   { value: "task", label: "任务" },
   { value: "lesson", label: "经验" },
   { value: "database", label: "数据库" },
+  { value: "countdown", label: "倒数日" },
 ];
 
 export default function TrashPage() {

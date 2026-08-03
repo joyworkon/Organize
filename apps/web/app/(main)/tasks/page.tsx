@@ -4,58 +4,36 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDownUp,
-  CalendarDays,
   Check,
   ChevronDown,
   Filter,
-  LayoutGrid,
-  List,
   ListChecks,
   Loader2,
   MoreHorizontal,
-  Search,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagFilter } from "@/components/tags/tag-filter";
-import { TaskCard } from "@/components/tasks/task-card";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
-import { TaskMonthView } from "@/components/tasks/task-month-view";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
 import { toast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
-import type { Tag, TagWithCount, Task, TaskCategory, TaskStatus, TaskWithTags } from "@organize/shared";
+import type { TagWithCount, Task, TaskCategory, TaskStatus, TaskWithTags } from "@organize/shared";
 import { TASK_CATEGORY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
+import {
+  fetchTaskWorkspace,
+  filterTasksByScope,
+  isOverdue,
+  taskDate,
+} from "@/lib/tasks/workspace";
 
-type ViewMode = "list" | "kanban" | "month";
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
 type TaskScope = SidebarSelection["scope"];
-
-function taskDate(task: Task) {
-  return task.schedule_start_at || task.due_date;
-}
-
-function isSameDay(a: Date, b: Date) {
-  return a.toDateString() === b.toDateString();
-}
-
-function isOverdue(value: string | null | undefined) {
-  if (!value) return false;
-  const date = new Date(value);
-  return date < new Date() && !isSameDay(date, new Date());
-}
-
-function isWithinNextSevenDays(value: string | null | undefined) {
-  if (!value) return false;
-  const diff = (new Date(value).getTime() - Date.now()) / 86400000;
-  return diff >= 0 && diff < 7;
-}
 
 interface TaskRowProps {
   task: TaskWithTags;
@@ -115,12 +93,10 @@ function TasksPageInner() {
   const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
-  const viewMode = (searchParams.get("view") as ViewMode) || "list";
   const selectedTaskId = searchParams.get("task");
   const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
   const sidebarListId = searchParams.get("list");
@@ -130,6 +106,7 @@ function TasksPageInner() {
   const updateUrl = useCallback((patch: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
     Object.entries(patch).forEach(([key, value]) => value === null ? params.delete(key) : params.set(key, value));
+    params.delete("view");
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
@@ -137,34 +114,11 @@ function TasksPageInner() {
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }] = await Promise.all([
-        supabase.from("tasks").select("*").eq("user_id", user.id).order("is_pinned", { ascending: false }).order("sort_order", { ascending: true }).order("created_at", { ascending: false }),
-        supabase.from("task_lists").select("*").eq("user_id", user.id).order("sort_order", { ascending: true }).is("deleted_at", null),
-        supabase.from("task_tags").select("task_id, tag_id"),
-        supabase.from("tags").select("id, name, color").eq("user_id", user.id),
-      ]);
-      const loadedLists = (listData || []) as import("@organize/shared").TaskList[];
-      const listByCategory = new Map<string, string>();
-      loadedLists.forEach((list) => {
-        if (list.name === "工作") listByCategory.set("work", list.id);
-        if (list.name === "学习") listByCategory.set("study", list.id);
-        if (list.name === "生活") listByCategory.set("life", list.id);
-      });
-      const tagMap = new Map((tagData || []).map((tag) => [tag.id, tag as Tag]));
-      const links = new Map<string, Tag[]>();
-      (tagLinks || []).forEach((link) => { const tag = tagMap.get(link.tag_id); if (tag) links.set(link.task_id, [...(links.get(link.task_id) || []), tag]); });
-      const loadedTasks = (taskData || []).map((task) => {
-        const row = task as Task;
-        return { ...row, list_id: row.list_id || listByCategory.get(row.category) || null, schedule_start_at: row.schedule_start_at || row.due_date, tags: links.get(row.id) || [] } as TaskWithTags;
-      });
-      const tagCounts = new Map<string, number>();
-      (tagLinks || []).forEach((link) => tagCounts.set(link.tag_id, (tagCounts.get(link.tag_id) || 0) + 1));
-      setTags((tagData || []).map((tag) => ({ ...(tag as Tag), task_count: tagCounts.get(tag.id) || 0 })));
-      setLists(loadedLists);
-      setTasks(loadedTasks);
-      scheduleDueDateReminders(loadedTasks);
+      const workspace = await fetchTaskWorkspace(supabase);
+      setTags(workspace.tags);
+      setLists(workspace.lists);
+      setTasks(workspace.tasks);
+      scheduleDueDateReminders(workspace.tasks);
     } finally {
       setLoading(false);
     }
@@ -177,6 +131,10 @@ function TasksPageInner() {
     window.addEventListener("organize:tasks-changed", reloadTasks);
     return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
   }, [fetchTasks]);
+
+  useEffect(() => {
+    if (searchParams.has("view")) updateUrl({ view: null });
+  }, [searchParams, updateUrl]);
 
   useEffect(() => {
     if (!searchParams.get("scope") && lists[0]) updateUrl({ scope: "list", list: lists[0].id });
@@ -203,35 +161,21 @@ function TasksPageInner() {
     toast({ title: "任务已移入垃圾箱" });
   }, [fetchTasks, supabase, updateUrl]);
 
-  const filteredTasks = useMemo(() => tasks.filter((task) => {
-    if (sidebarSelection.scope === "trash") { if (!task.deleted_at) return false; }
-    else {
-      if (task.deleted_at) return false;
-      if (sidebarSelection.scope === "completed" && task.status !== "done") return false;
-      if (sidebarSelection.scope === "list" && task.list_id !== sidebarSelection.listId) return false;
-      if (sidebarSelection.scope === "today") {
-        if (task.status === "done" || task.status === "cancelled") return false;
-        const value = taskDate(task); if (!value) return false;
-        const date = new Date(value); if (!isSameDay(date, new Date()) && !isOverdue(value)) return false;
-      }
-      if (sidebarSelection.scope === "upcoming") {
-        if (task.status === "done" || task.status === "cancelled") return false;
-        if (!isWithinNextSevenDays(taskDate(task))) return false;
-      }
-    }
+  const filteredTasks = useMemo(() => {
+    const scoped = filterTasksByScope(tasks, sidebarSelection);
+    return scoped.filter((task) => {
     if (statusFilter !== "all" && task.status !== statusFilter) return false;
     if (categoryFilter !== "all" && task.category !== categoryFilter) return false;
     if (selectedTagIds.length && !(task.tags || []).some((tag) => selectedTagIds.includes(tag.id))) return false;
-    if (search.trim()) { const query = search.trim().toLowerCase(); if (!task.title.toLowerCase().includes(query) && !(task.description || "").toLowerCase().includes(query)) return false; }
     return true;
-  }), [categoryFilter, search, selectedTagIds, sidebarSelection, statusFilter, tasks]);
+    });
+  }, [categoryFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
 
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
   const listTitle = sidebarSelection.scope === "list" ? lists.find((list) => list.id === sidebarSelection.listId)?.name || "工作任务" : sidebarSelection.scope === "today" ? "今天" : sidebarSelection.scope === "upcoming" ? "最近7天" : sidebarSelection.scope === "completed" ? "已完成" : sidebarSelection.scope === "trash" ? "垃圾桶" : "全部任务";
   const currentList = lists.find((list) => list.id === sidebarSelection.listId);
 
-  const setView = (view: ViewMode) => updateUrl({ view, task: null });
   const openTask = (task: TaskWithTags) => updateUrl({ task: task.id });
   const closeTask = () => updateUrl({ task: null });
   const toggleStatus = (task: Task) => void updateTask(task.id, { status: task.status === "done" ? "todo" : "done", completed_at: task.status === "done" ? null : new Date().toISOString() });
@@ -248,20 +192,8 @@ function TasksPageInner() {
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
-  if (viewMode === "month") {
-    return (
-      <div className="organize-task-screen flex h-[calc(100vh-8rem)] min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-3rem)]">
-        <TaskMonthView
-          tasks={filteredTasks}
-          onTaskClick={(task) => updateUrl({ view: "list", task: task.id })}
-          onRescheduleTask={async (taskId, date) => { await updateTask(taskId, { schedule_start_at: date.toISOString(), due_date: date.toISOString() }); }}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="organize-task-screen flex h-[calc(100vh-8rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-3rem)]">
+    <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
       <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden md:flex")}>
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
@@ -279,16 +211,12 @@ function TasksPageInner() {
             {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
 
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[180px] flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="搜索任务" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务" className="h-9 pl-9" /></div>
               <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
-              <div className="ml-auto flex items-center gap-1 rounded-md border p-0.5"><button type="button" aria-label="列表视图" onClick={() => setView("list")} className={cn("rounded p-1.5", viewMode === "list" && "bg-muted")}><List className="h-4 w-4" /></button><button type="button" aria-label="看板视图" onClick={() => setView("kanban")} className={cn("rounded p-1.5", viewMode === "kanban" && "bg-muted")}><LayoutGrid className="h-4 w-4" /></button><button type="button" aria-label="月历视图" onClick={() => setView("month")} className="rounded p-1.5"><CalendarDays className="h-4 w-4" /></button></div>
             </div>
 
-            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : viewMode === "kanban" ? (
-              <div className="grid gap-5 md:grid-cols-3">{(["todo", "in_progress", "done"] as TaskStatus[]).map((status) => <div key={status} className="space-y-3"><div className="flex items-center gap-2 text-sm font-semibold"><span className={cn("h-2 w-2 rounded-full", status === "todo" ? "bg-muted-foreground" : status === "in_progress" ? "bg-primary" : "bg-green-500")} />{TASK_STATUS_CONFIG[status].label}<span className="text-xs text-muted-foreground">{filteredTasks.filter((task) => task.status === status).length}</span></div>{filteredTasks.filter((task) => task.status === status).map((task) => <TaskCard key={task.id} task={task} onOpen={openTask} onToggleStatus={(id, next) => void updateTask(id, { status: next })} onComplete={(item) => void updateTask(item.id, { status: "done", completed_at: new Date().toISOString() })} onTogglePin={(id, pinned) => void updateTask(id, { is_pinned: pinned })} onDelete={deleteTask} />)}</div>)}</div>
-            ) : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
+            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
                 {activeTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}

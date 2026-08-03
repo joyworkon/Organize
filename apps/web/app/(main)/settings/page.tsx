@@ -174,6 +174,42 @@ export default function SettingsPage() {
           userOwned: true,
           order: ["id"],
         },
+        {
+          table: "task_lists",
+          columns: "id, name, icon, color, sort_order, is_default, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_reminders",
+          columns: "id, task_id, anchor, offset_minutes, notified_at, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_attachments",
+          columns: "id, task_id, name, bucket, path, mime_type, size_bytes, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_activities",
+          columns: "id, task_id, action, detail, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_templates",
+          columns: "id, name, template, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "countdown_days",
+          columns: "id, title, target_date, repeat_annually, deleted_at, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
       ] as const;
 
       const pageSize = 500;
