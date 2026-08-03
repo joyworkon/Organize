@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskList, TaskWithTags } from "@organize/shared";
-import { searchTasks } from "./workspace";
+import { quickAddDueDate, searchTasks } from "./workspace";
 
 const task = (overrides: Partial<TaskWithTags>): TaskWithTags => ({
   id: "task-1",
@@ -62,5 +62,25 @@ describe("task search", () => {
   it("returns all non-deleted tasks for blank queries", () => {
     const tasks = [task({ id: "active" }), task({ id: "trash", deleted_at: "2026-01-02T00:00:00Z" })];
     expect(searchTasks(tasks, "  ", lists).map((item) => item.id)).toEqual(["active"]);
+  });
+});
+
+describe("quickAddDueDate", () => {
+  const now = new Date("2026-08-03T12:00:00.000Z");
+
+  it("给今天范围生成当天日期", () => {
+    expect(quickAddDueDate("today", now)).toBe(now.toISOString());
+  });
+
+  it("给最近7天范围生成明天上午的日期，避免请求完成时落到过去", () => {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    expect(quickAddDueDate("upcoming", now)).toBe(tomorrow.toISOString());
+  });
+
+  it("普通清单范围保持无日期", () => {
+    expect(quickAddDueDate("all", now)).toBeNull();
+    expect(quickAddDueDate("list", now)).toBeNull();
   });
 });

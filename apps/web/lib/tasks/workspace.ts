@@ -40,6 +40,21 @@ export function isWithinNextSevenDays(value: string | null | undefined): boolean
   return diff >= 0 && diff < 7;
 }
 
+/** 快速添加任务时，日期范围页需要给新任务一个可见的默认日期。 */
+export function quickAddDueDate(
+  scope: SidebarSelection["scope"],
+  now = new Date()
+): string | null {
+  if (scope === "today") return now.toISOString();
+  if (scope === "upcoming") {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return tomorrow.toISOString();
+  }
+  return null;
+}
+
 /** 将任务列表范围应用到一份已经加载的任务数组。 */
 export function filterTasksByScope(
   tasks: TaskWithTags[],

@@ -28,6 +28,7 @@ import {
   fetchTaskWorkspace,
   filterTasksByScope,
   isOverdue,
+  quickAddDueDate,
   taskDate,
 } from "@/lib/tasks/workspace";
 
@@ -187,7 +188,15 @@ function TasksPageInner() {
     if (!title) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from("tasks").insert({ user_id: user.id, title, status: "todo", priority: "medium", category: "work", list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null });
+    const { error } = await supabase.from("tasks").insert({
+      user_id: user.id,
+      title,
+      status: "todo",
+      priority: "medium",
+      category: "work",
+      list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null,
+      due_date: quickAddDueDate(sidebarSelection.scope),
+    });
     if (error) {
       toast({ title: "创建任务失败", description: error.message, variant: "destructive" });
       return;
