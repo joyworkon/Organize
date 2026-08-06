@@ -94,6 +94,7 @@ export function ReadingCard({
                 sizes="80px"
                 className="object-cover"
                 loading="lazy"
+                referrerPolicy="no-referrer"
               />
             </div>
           )}

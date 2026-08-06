@@ -13,6 +13,16 @@ export interface ValidatedUrl {
   addresses: ResolvedAddress[];
 }
 
+export interface UrlSafetyOptions {
+  /**
+   * Some local outbound networks map public DNS names to RFC 2544 benchmark
+   * addresses and route the request through a transparent proxy. This opt-in
+   * only relaxes that synthetic range; private and link-local ranges remain
+   * blocked.
+   */
+  allowSyntheticAddresses?: boolean;
+}
+
 export class UrlSafetyError extends Error {
   constructor(
     public readonly code: "INVALID_URL" | "URL_BLOCKED" | "DNS_FAILED",
@@ -49,7 +59,8 @@ const defaultLookup: AddressLookup = async (hostname) => {
 
 export async function validatePublicUrl(
   input: string | URL,
-  lookup: AddressLookup = defaultLookup
+  lookup: AddressLookup = defaultLookup,
+  options: UrlSafetyOptions = {}
 ): Promise<ValidatedUrl> {
   let url: URL;
   try {
@@ -93,7 +104,14 @@ export async function validatePublicUrl(
 
   for (const result of addresses) {
     const actualFamily = isIP(result.address);
-    if (actualFamily !== result.family || isBlockedAddress(result.address)) {
+    const addressOptions: UrlSafetyOptions = {
+      allowSyntheticAddresses:
+        options.allowSyntheticAddresses && literalFamily === 0,
+    };
+    if (
+      actualFamily !== result.family ||
+      isBlockedAddress(result.address, addressOptions)
+    ) {
       throw new UrlSafetyError("URL_BLOCKED", "该地址不允许抓取");
     }
   }
@@ -101,11 +119,17 @@ export async function validatePublicUrl(
   return { url, addresses };
 }
 
-export function isBlockedAddress(address: string): boolean {
+export function isBlockedAddress(
+  address: string,
+  options: UrlSafetyOptions = {}
+): boolean {
   const normalized = stripIpv6Brackets(address);
   const family = isIP(normalized);
   if (family === 4) {
     const value = ipv4ToNumber(normalized);
+    if (options.allowSyntheticAddresses && isSyntheticIpv4(value)) {
+      return false;
+    }
     return BLOCKED_IPV4_RANGES.some(([base, prefix]) =>
       inIpv4Cidr(value, base, prefix)
     );
@@ -143,6 +167,13 @@ const BLOCKED_IPV4_RANGES: Array<[number, number]> = [
   [ipv4ToNumber("224.0.0.0"), 4],
   [ipv4ToNumber("240.0.0.0"), 4],
 ];
+
+const SYNTHETIC_IPV4_BASE = ipv4ToNumber("198.18.0.0");
+const SYNTHETIC_IPV4_PREFIX = 15;
+
+function isSyntheticIpv4(value: number): boolean {
+  return inIpv4Cidr(value, SYNTHETIC_IPV4_BASE, SYNTHETIC_IPV4_PREFIX);
+}
 
 function stripIpv6Brackets(hostname: string): string {
   return hostname.startsWith("[") && hostname.endsWith("]")

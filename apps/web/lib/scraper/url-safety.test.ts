@@ -35,6 +35,16 @@ describe("SSRF address policy", () => {
     }
   );
 
+  it("allows the synthetic proxy range only when explicitly enabled", () => {
+    expect(isBlockedAddress("198.18.0.168")).toBe(true);
+    expect(
+      isBlockedAddress("198.18.0.168", { allowSyntheticAddresses: true })
+    ).toBe(false);
+    expect(
+      isBlockedAddress("10.0.0.9", { allowSyntheticAddresses: true })
+    ).toBe(true);
+  });
+
   it.each([
     "http://127.0.0.1",
     "http://2130706433",
@@ -103,6 +113,37 @@ describe("safeFetchHtml", () => {
       html: expect.stringContaining("93.184.216.34"),
       finalUrl: new URL("https://public.example/article"),
     });
+  });
+
+  it("supports an explicitly enabled synthetic DNS address", async () => {
+    const request = vi.fn<HttpRequester>(async ({ address }) => ({
+      status: 200,
+      headers: { "content-type": "text/html" },
+      body: `<html><body>${address.address}</body></html>`,
+    }));
+
+    await expect(
+      safeFetchHtml("https://public.example/article", {
+        timeout: 1000,
+        userAgent: "test",
+        allowSyntheticAddresses: true,
+        lookup: async () => [{ address: "198.18.0.168", family: 4 }],
+        request,
+      })
+    ).resolves.toMatchObject({
+      html: expect.stringContaining("198.18.0.168"),
+    });
+  });
+
+  it("still rejects a literal synthetic address when proxy DNS mode is enabled", async () => {
+    await expect(
+      safeFetchHtml("http://198.18.0.168/article", {
+        timeout: 1000,
+        userAgent: "test",
+        allowSyntheticAddresses: true,
+        request: vi.fn<HttpRequester>(),
+      })
+    ).rejects.toMatchObject({ code: "URL_BLOCKED" });
   });
 
   it("rejects non-HTML and oversized responses", async () => {

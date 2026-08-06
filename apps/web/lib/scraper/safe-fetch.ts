@@ -55,6 +55,7 @@ interface SafeFetchOptions {
   lookup?: AddressLookup;
   request?: HttpRequester;
   maxBytes?: number;
+  allowSyntheticAddresses?: boolean;
 }
 
 export async function safeFetchHtml(
@@ -65,13 +66,18 @@ export async function safeFetchHtml(
   const timer = setTimeout(() => controller.abort(), options.timeout);
   const requester = options.request ?? requestOnce;
   const maxBytes = options.maxBytes ?? MAX_RESPONSE_BYTES;
+  const allowSyntheticAddresses =
+    options.allowSyntheticAddresses ??
+    process.env.SCRAPER_ALLOW_SYNTHETIC_DNS === "true";
   let currentUrl: string | URL = input;
 
   try {
     for (let redirectCount = 0; ; redirectCount += 1) {
       let target;
       try {
-        target = await validatePublicUrl(currentUrl, options.lookup);
+        target = await validatePublicUrl(currentUrl, options.lookup, {
+          allowSyntheticAddresses,
+        });
       } catch (error) {
         if (error instanceof UrlSafetyError) {
           throw new SafeFetchError(error.code, error.message);
@@ -144,6 +150,10 @@ function requestOnce(context: RequestContext): Promise<RawHttpResponse> {
   return new Promise((resolve, reject) => {
     const transport = context.url.protocol === "https:" ? https : http;
     const lookup: LookupFunction = (_hostname, _options, callback) => {
+      if (_options.all) {
+        callback(null, [context.address]);
+        return;
+      }
       callback(null, context.address.address, context.address.family);
     };
 

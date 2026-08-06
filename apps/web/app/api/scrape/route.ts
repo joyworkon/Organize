@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeUrl } from "@/lib/scraper";
 import { createClient } from "@/lib/supabase/server";
+import { extractFirstUrl } from "@/lib/inbox/batch-import";
 
 // 内存缓存：避免重复抓取同一 URL（ISR 风格缓存）
 const scrapeCache = new Map<string, { data: unknown; timestamp: number }>();
@@ -16,9 +17,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未授权", code: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    const { url, force } = await request.json();
+    const { url: rawUrl, force } = await request.json();
+    const url = typeof rawUrl === "string" ? extractFirstUrl(rawUrl) : null;
 
-    if (!url || typeof url !== "string") {
+    if (!url) {
       return NextResponse.json({ error: "无效的 URL" }, { status: 400 });
     }
 
