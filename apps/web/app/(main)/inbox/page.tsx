@@ -11,17 +11,9 @@ import { cn } from "@/lib/utils";
 import { Link2, Loader2, Check, AlertCircle, Inbox, ClipboardPaste } from "lucide-react";
 import type { ScrapeResult } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
+import { extractFirstUrl } from "@/lib/inbox/batch-import";
 
 type Mode = "single" | "batch";
-
-function isValidUrl(str: string): boolean {
-  try {
-    const url = new URL(str);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
 
 export default function InboxPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -37,7 +29,11 @@ export default function InboxPage() {
   const [batchResult, setBatchResult] = useState<string | null>(null);
 
   const handleScrape = async () => {
-    if (!url.trim()) return;
+    const normalizedUrl = extractFirstUrl(url);
+    if (!normalizedUrl) {
+      setError("没有找到有效的链接");
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
@@ -47,7 +43,7 @@ export default function InboxPage() {
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ url: normalizedUrl }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "抓取失败");
@@ -99,9 +95,9 @@ export default function InboxPage() {
   const handlePasteFromClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      const trimmed = text.trim();
-      if (isValidUrl(trimmed)) {
-        setUrl(trimmed);
+      const extractedUrl = extractFirstUrl(text);
+      if (extractedUrl) {
+        setUrl(extractedUrl);
         setError(null);
       } else {
         setError("剪贴板中没有找到有效的链接");
@@ -147,7 +143,7 @@ export default function InboxPage() {
                 <div className="relative flex-1">
                   <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="粘贴链接，如 https://example.com/article"
+                    placeholder="粘贴链接或小红书分享文案"
                     value={url}
                     onChange={(e) => {
                       setUrl(e.target.value);
@@ -193,6 +189,7 @@ export default function InboxPage() {
                       fill
                       className="object-cover"
                       unoptimized
+                      referrerPolicy="no-referrer"
                     />
                   </div>
                 )}

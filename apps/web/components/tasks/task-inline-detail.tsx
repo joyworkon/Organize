@@ -1,0 +1,268 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Activity,
+  AlignLeft,
+  Archive,
+  Bookmark,
+  CalendarDays,
+  Check,
+  CheckSquare2,
+  Circle,
+  ClipboardList,
+  Copy,
+  Flag,
+  FileText,
+  Link2,
+  MoreHorizontal,
+  Paperclip,
+  Pin,
+  Plus,
+  Printer,
+  Tag,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { Task, TaskActivity, TaskAttachment, TaskChecklist, TaskList, TaskWithTags, Tag as TagType } from "@organize/shared";
+import { cn } from "@/lib/utils";
+import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
+
+interface TaskInlineDetailProps {
+  task: TaskWithTags;
+  lists: TaskList[];
+  onUpdate: (taskId: string, patch: Partial<Task>) => Promise<void>;
+  onDelete: (taskId: string) => Promise<void>;
+  onClose: () => void;
+}
+
+function statusLabel(status: Task["status"]) {
+  return status === "done" ? "已完成" : status === "in_progress" ? "进行中" : status === "cancelled" ? "已放弃" : "待办";
+}
+
+export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: TaskInlineDetailProps) {
+  const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
+  const [activities, setActivities] = useState<TaskActivity[]>([]);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [tags, setTags] = useState<TagType[]>(task.tags || []);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description || "");
+  const [newChecklist, setNewChecklist] = useState("");
+  const [showActivity, setShowActivity] = useState(false);
+
+  const loadChildren = async () => {
+    const [{ data: checklistData }, { data: activityData }, { data: attachmentData }, { data: tagLinks }, { data: tagData }] = await Promise.all([
+      supabase.from("task_checklists").select("*").eq("task_id", task.id).order("sort_order", { ascending: true }),
+      supabase.from("task_activities").select("*").eq("task_id", task.id).order("created_at", { ascending: false }).limit(30),
+      supabase.from("task_attachments").select("*").eq("task_id", task.id).order("created_at", { ascending: false }),
+      supabase.from("task_tags").select("tag_id").eq("task_id", task.id),
+      supabase.from("tags").select("*").eq("user_id", task.user_id),
+    ]);
+    setChecklists((checklistData || []) as TaskChecklist[]);
+    setActivities((activityData || []) as TaskActivity[]);
+    setAttachments((attachmentData || []) as TaskAttachment[]);
+    const tagMap = new Map((tagData || []).map((item) => [item.id, item as TagType]));
+    setTags((tagLinks || []).map((link) => tagMap.get(link.tag_id)).filter(Boolean) as TagType[]);
+  };
+
+  useEffect(() => {
+    setTitle(task.title);
+    setDescription(task.description || "");
+    setTags(task.tags || []);
+    void loadChildren();
+    // task.id 是唯一加载键；supabase 客户端保持稳定。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id]);
+
+  const saveTitle = async () => {
+    setEditingTitle(false);
+    const next = title.trim();
+    if (next && next !== task.title) await onUpdate(task.id, { title: next });
+  };
+
+  const saveDescription = async () => {
+    const next = description.trim();
+    if (next !== (task.description || "")) await onUpdate(task.id, { description: next || null });
+  };
+
+  const addChecklist = async () => {
+    const content = newChecklist.trim();
+    if (!content) return;
+    const { error } = await supabase.from("task_checklists").insert({ task_id: task.id, content, is_completed: false, sort_order: checklists.length });
+    if (error) toast({ title: "添加子任务失败", variant: "destructive" });
+    else { setNewChecklist(""); await loadChildren(); }
+  };
+
+  const toggleChecklist = async (item: TaskChecklist) => {
+    const { error } = await supabase.from("task_checklists").update({ is_completed: !item.is_completed }).eq("id", item.id);
+    if (error) toast({ title: "更新子任务失败", variant: "destructive" });
+    else setChecklists((current) => current.map((row) => row.id === item.id ? { ...row, is_completed: !row.is_completed } : row));
+  };
+
+  const addTag = async () => {
+    const name = window.prompt("标签名称：")?.trim();
+    if (!name) return;
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return;
+    const { data: tagData, error: tagError } = await supabase.from("tags").upsert({ user_id: userData.user.id, name, color: "blue" }, { onConflict: "user_id,name" }).select().single();
+    if (tagError || !tagData) { toast({ title: "标签保存失败", variant: "destructive" }); return; }
+    const { error } = await supabase.from("task_tags").upsert({ task_id: task.id, tag_id: tagData.id }, { onConflict: "task_id,tag_id" });
+    if (error) toast({ title: "标签关联失败", variant: "destructive" });
+    else await loadChildren();
+  };
+
+  const duplicate = async () => {
+    const { error } = await supabase.from("tasks").insert({
+      user_id: task.user_id,
+      title: `${task.title} 副本`,
+      description: task.description,
+      status: "todo",
+      priority: task.priority,
+      category: task.category,
+      list_id: task.list_id || null,
+      is_pinned: false,
+      sort_order: 0,
+      schedule_start_at: task.schedule_start_at || task.due_date || null,
+      schedule_end_at: task.schedule_end_at || null,
+      all_day: task.all_day || false,
+      timezone: task.timezone || null,
+      recurrence_rule: null,
+      reading_item_id: task.reading_item_id,
+      note_id: null,
+    });
+    if (error) toast({ title: "创建副本失败", variant: "destructive" });
+    else toast({ title: "副本已创建" });
+  };
+
+  const saveTemplate = async () => {
+    const { error } = await supabase.from("task_templates").insert({ user_id: task.user_id, name: task.title, template: { title: task.title, description: task.description, priority: task.priority, category: task.category, list_id: task.list_id || null } });
+    toast(error ? { title: "保存模板失败", variant: "destructive" } : { title: "已保存为模板" });
+  };
+
+  const openNote = async () => {
+    if (task.note_id) { router.push(`/notes/${task.note_id}`); return; }
+    const { data: note, error } = await supabase.from("notes").insert({ user_id: task.user_id, title: `${task.title} - 便签`, content: { type: "doc", content: [{ type: "paragraph" }] } }).select().single();
+    if (error || !note) toast({ title: "创建便签失败", variant: "destructive" });
+    else { await onUpdate(task.id, { note_id: note.id }); router.push(`/notes/${note.id}`); }
+  };
+
+  const uploadAttachment = async (file: File) => {
+    const path = `${task.user_id}/tasks/${task.id}/${Date.now()}-${file.name}`;
+    const { error: uploadError } = await supabase.storage.from("attachments").upload(path, file);
+    if (uploadError) { toast({ title: "上传附件失败", variant: "destructive" }); return; }
+    const { error: metaError } = await supabase.from("task_attachments").insert({ user_id: task.user_id, task_id: task.id, name: file.name, bucket: "attachments", path, mime_type: file.type, size_bytes: file.size });
+    if (metaError) {
+      const storage = supabase.storage.from("attachments") as { remove?: (paths: string[]) => Promise<unknown> };
+      if (storage.remove) await storage.remove([path]);
+      toast({ title: "附件记录失败，已清理上传对象", variant: "destructive" });
+      return;
+    }
+    toast({ title: "附件已上传" });
+    await loadChildren();
+  };
+
+  const dateValue = {
+    schedule_start_at: task.schedule_start_at || task.due_date,
+    schedule_end_at: task.schedule_end_at || null,
+    all_day: Boolean(task.all_day),
+    timezone: task.timezone || null,
+    recurrence_rule: task.recurrence_rule || null,
+  };
+
+  return (
+    <aside className="organize-task-detail flex min-w-0 flex-1 flex-col bg-background md:max-w-[560px] lg:w-[34.5vw] lg:min-w-[420px] lg:max-w-[640px] lg:flex-none">
+      <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
+        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={() => void onUpdate(task.id, { status: task.status === "done" ? "todo" : "done", completed_at: task.status === "done" ? null : new Date().toISOString() })} className={cn("grid h-6 w-6 place-items-center rounded-md border", task.status === "done" ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30 hover:border-primary")}>
+          {task.status === "done" && <Check className="h-4 w-4" />}
+        </button>
+        <span className="h-6 w-px bg-border" />
+        <TaskDatePopover
+          value={dateValue}
+          onChange={(value) => onUpdate(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
+          trigger={<button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md px-2 py-1"><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
+          align="start"
+        />
+        <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto rounded-md p-2 hover:bg-muted", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
+        <button type="button" aria-label="关闭任务详情" onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted md:hidden"><X className="h-5 w-5" /></button>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
+        <div className="flex items-start gap-3">
+          {editingTitle ? (
+            <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => void saveTitle()} onKeyDown={(event) => { if (event.key === "Enter") void saveTitle(); if (event.key === "Escape") { setTitle(task.title); setEditingTitle(false); } }} className="min-w-0 flex-1 border-b bg-transparent text-2xl font-semibold outline-none" />
+          ) : (
+            <h1 className="min-w-0 flex-1 cursor-text text-2xl font-semibold leading-tight" onClick={() => setEditingTitle(true)}>{task.title}</h1>
+          )}
+          <button type="button" aria-label="任务属性" className="rounded p-1.5 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
+        </div>
+        <button type="button" className="mt-5 text-sm text-muted-foreground hover:text-foreground" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }}><span className={cn(description ? "text-foreground" : "text-muted-foreground")}>{description || "描述"}</span></button>
+
+        <div className="mt-8 space-y-1">
+          {checklists.map((item) => (
+            <button type="button" key={item.id} onClick={() => void toggleChecklist(item)} className="group flex w-full items-center gap-3 border-b py-3 text-left text-sm hover:bg-muted/40">
+              <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", item.is_completed ? "border-muted bg-muted text-muted-foreground" : "border-muted-foreground/30")}>{item.is_completed && <Check className="h-3.5 w-3.5" />}</span>
+              <span className={cn("min-w-0 flex-1", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
+            </button>
+          ))}
+          <div className="flex items-center gap-2 border-b py-2">
+            <Plus className="h-4 w-4 text-muted-foreground" />
+            <input aria-label="添加子任务" value={newChecklist} onChange={(event) => setNewChecklist(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void addChecklist(); }} placeholder="添加子任务" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+          </div>
+        </div>
+
+        {showActivity && (
+          <section className="mt-8 rounded-lg bg-muted/30 p-3">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-medium"><Activity className="h-4 w-4" />任务动态</h2>
+            {activities.length === 0 ? <p className="text-xs text-muted-foreground">暂无动态</p> : activities.map((activity) => <div key={activity.id} className="flex items-center gap-2 py-1 text-xs text-muted-foreground"><Circle className="h-2 w-2 fill-current" />{activity.action}<span className="ml-auto">{new Date(activity.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric" })}</span></div>)}
+          </section>
+        )}
+
+        {tags.length > 0 && <div className="mt-6 flex flex-wrap gap-1.5">{tags.map((item) => <span key={item.id} className="rounded-full bg-muted px-2 py-1 text-xs">#{item.name}</span>)}</div>}
+        {attachments.length > 0 && <div className="mt-6 space-y-1">{attachments.map((attachment) => <div key={attachment.id} className="flex items-center gap-2 text-sm"><Paperclip className="h-4 w-4 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{attachment.name}</span></div>)}</div>}
+      </div>
+
+      <footer className="flex min-h-16 shrink-0 items-center gap-2 border-t px-5">
+        <span className="inline-flex min-w-0 items-center gap-2 text-sm text-muted-foreground"><span>{lists.find((item) => item.id === task.list_id)?.icon || "📋"}</span><span className="truncate">{lists.find((item) => item.id === task.list_id)?.name || "未分类"}</span></span>
+        <span className="ml-auto flex items-center gap-1">
+          <button type="button" aria-label="编辑任务描述" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
+          <button type="button" aria-label="添加评论" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ClipboardList className="h-5 w-5" /></button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><button type="button" aria-label="更多任务操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" className="w-56">
+              <DropdownMenuItem onClick={() => void addChecklist()}><CheckSquare2 className="mr-2 h-4 w-4" />添加子任务</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })}><Pin className="mr-2 h-4 w-4" />{task.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void onUpdate(task.id, { status: "cancelled" })}><Archive className="mr-2 h-4 w-4" />放弃</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void addTag()}><Tag className="mr-2 h-4 w-4" />标签</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => uploadRef.current?.click()}><Upload className="mr-2 h-4 w-4" />上传附件</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowActivity((current) => !current)}><Activity className="mr-2 h-4 w-4" />任务动态</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void saveTemplate()}><Bookmark className="mr-2 h-4 w-4" />保存为模板</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void duplicate()}><Copy className="mr-2 h-4 w-4" />创建副本</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/tasks/${task.id}`).then(() => toast({ title: "任务链接已复制" }))}><Link2 className="mr-2 h-4 w-4" />复制链接</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void openNote()}><FileText className="mr-2 h-4 w-4" />打开便签</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />打印</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void onDelete(task.id)}><Trash2 className="mr-2 h-4 w-4" />删除</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
+        <input ref={uploadRef} type="file" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); event.currentTarget.value = ""; }} />
+      </footer>
+    </aside>
+  );
+}

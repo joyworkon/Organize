@@ -45,6 +45,7 @@ import {
 
 interface TaskCardProps {
   task: TaskWithTags;
+  onOpen?: (task: TaskWithTags) => void;
   onEdit?: (task: TaskWithTags) => void;
   onDelete?: (id: string) => void;
   onToggleStatus?: (id: string, status: TaskStatus) => void;
@@ -66,6 +67,7 @@ interface TaskCardProps {
 
 export function TaskCard({
   task,
+  onOpen,
   onEdit,
   onDelete,
   onToggleStatus,
@@ -113,7 +115,8 @@ export function TaskCard({
       onSelectChange!(task.id, !selected);
       return;
     }
-    router.push(`/tasks/${task.id}`);
+    if (onOpen) onOpen(task);
+    else router.push(`/tasks/${task.id}`);
   };
 
   const handleButtonClick = (e: React.MouseEvent) => {

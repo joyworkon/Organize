@@ -27,6 +27,8 @@ interface TaskSidebarProps {
   onCreateList: () => void;
   onRenameList?: (list: TaskList) => void;
   onDeleteList?: (list: TaskList) => void;
+  hideHeading?: boolean;
+  active?: boolean;
 }
 
 /** 导出日期判断纯函数供单测 */
@@ -51,13 +53,17 @@ export function isOverdue(dateStr: string | null | undefined): boolean {
   return d < now && d.toDateString() !== now.toDateString();
 }
 
-export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList }: TaskSidebarProps) {
+export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList, hideHeading = false, active = true }: TaskSidebarProps) {
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
+    if (hideHeading) {
+      setExpanded(true);
+      return;
+    }
     const saved = localStorage.getItem(EXPANDED_KEY);
     if (saved !== null) setExpanded(saved === "1");
-  }, []);
+  }, [hideHeading]);
   const toggleExpanded = () => {
     const next = !expanded;
     setExpanded(next);
@@ -84,7 +90,7 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   }, [activeTasks]);
 
   const isSelected = (sel: SidebarSelection) =>
-    selection.scope === sel.scope && selection.listId === sel.listId;
+    active && selection.scope === sel.scope && selection.listId === sel.listId;
 
   const NavItem = ({ icon: Icon, label, count, sel, accent }: {
     icon: any; label: string; count?: number; sel: SidebarSelection; accent?: string;
@@ -109,13 +115,15 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
 
   return (
     <div className="organize-task-sidebar flex flex-col gap-0.5 p-2 min-w-[200px] max-w-[240px]">
-      <div className="flex items-center gap-1 px-1 py-1.5">
-        <button type="button" onClick={toggleExpanded} className="p-0.5 rounded hover:bg-muted">
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        </button>
-        <ListChecks className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">待办</span>
-      </div>
+      {!hideHeading && (
+        <div className="flex items-center gap-1 px-1 py-1.5">
+          <button type="button" onClick={toggleExpanded} className="p-0.5 rounded hover:bg-muted" aria-label={expanded ? "收起待办导航" : "展开待办导航"}>
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          <ListChecks className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">待办</span>
+        </div>
+      )}
 
       {expanded && (
         <div className="flex flex-col gap-0.5">

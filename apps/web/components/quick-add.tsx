@@ -2,43 +2,35 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Link, CheckSquare, FileText } from "lucide-react";
+import { Plus, Link, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type QuickAddMode = "menu" | "url" | "task";
+type QuickAddMode = "menu" | "url";
 
 export function QuickAdd() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<QuickAddMode>("menu");
   const [url, setUrl] = useState("");
-  const [taskTitle, setTaskTitle] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
-  const taskInputRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef(url);
-  const taskTitleRef = useRef(taskTitle);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     urlRef.current = url;
   }, [url]);
 
-  useEffect(() => {
-    taskTitleRef.current = taskTitle;
-  }, [taskTitle]);
-
   const openPanel = useCallback(() => {
     setOpen(true);
     setMode("menu");
     setUrl("");
-    setTaskTitle("");
     requestAnimationFrame(() => {
       setIsVisible(true);
     });
@@ -50,7 +42,6 @@ export function QuickAdd() {
       setOpen(false);
       setMode("menu");
       setUrl("");
-      setTaskTitle("");
     }, 150);
   }, []);
 
@@ -79,35 +70,6 @@ export function QuickAdd() {
       closePanel();
     } catch {
       toast({ title: "添加失败", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [supabase, closePanel]);
-
-  const handleAddTask = useCallback(async () => {
-    const trimmedTitle = taskTitleRef.current.trim();
-    if (!trimmedTitle) return;
-
-    setIsSubmitting(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: "请先登录", variant: "destructive" });
-        return;
-      }
-
-      const { error: taskErr } = await supabase.from("tasks").insert({
-        user_id: user.id,
-        title: trimmedTitle,
-        status: "todo",
-        category: "work",
-      });
-      if (taskErr) throw taskErr;
-
-      toast({ title: "任务已创建" });
-      closePanel();
-    } catch {
-      toast({ title: "创建失败", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -198,9 +160,6 @@ export function QuickAdd() {
     if (open && mode === "url" && urlInputRef.current) {
       setTimeout(() => urlInputRef.current?.focus(), 50);
     }
-    if (open && mode === "task" && taskInputRef.current) {
-      setTimeout(() => taskInputRef.current?.focus(), 50);
-    }
   }, [open, mode]);
 
   return (
@@ -237,13 +196,6 @@ export function QuickAdd() {
               >
                 <Link className="h-4 w-4 text-muted-foreground" />
                 <span>🔗 添加文章</span>
-              </button>
-              <button
-                className="flex items-center gap-2 p-2 rounded hover:bg-accent w-full text-left text-sm transition-colors"
-                onClick={() => setMode("task")}
-              >
-                <CheckSquare className="h-4 w-4 text-muted-foreground" />
-                <span>✅ 新建任务</span>
               </button>
               <button
                 className="flex items-center gap-2 p-2 rounded hover:bg-accent w-full text-left text-sm transition-colors"
@@ -286,30 +238,6 @@ export function QuickAdd() {
             </div>
           )}
 
-          {mode === "task" && (
-            <div className="space-y-2">
-              <button
-                className="flex items-center gap-1 p-1 rounded hover:bg-accent text-sm text-muted-foreground transition-colors"
-                onClick={() => setMode("menu")}
-              >
-                ← 返回
-              </button>
-              <div className="flex gap-2">
-                <Input
-                  ref={taskInputRef}
-                  placeholder="任务标题..."
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleAddTask();
-                  }}
-                />
-                <Button size="sm" onClick={handleAddTask} disabled={isSubmitting || !taskTitle.trim()}>
-                  添加
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </>

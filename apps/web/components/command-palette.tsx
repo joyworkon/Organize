@@ -26,7 +26,6 @@ import {
   BarChart3,
   CalendarDays,
   Puzzle,
-  Plus,
   Link as LinkIcon,
   FilePlus,
   BookOpenCheck,
@@ -39,7 +38,6 @@ import {
   HelpCircle,
   Settings,
 } from "lucide-react";
-import { TaskDialog } from "@/components/tasks/task-dialog";
 import { resetOnboarding } from "@/components/onboarding";
 import type { Task, ReadingItem, Note, Lesson, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
 import { Input } from "@/components/ui/input";
@@ -246,7 +244,6 @@ export function CommandPalette() {
     tag: 0,
   });
   const [loading, setLoading] = useState(false);
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const [linkInputOpen, setLinkInputOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [submittingLink, setSubmittingLink] = useState(false);
@@ -282,37 +279,6 @@ export function CommandPalette() {
       searchExecutedRef.current = false;
     }
   }, [open]);
-
-  const handleSaveTask = async (data: Partial<Task>, tagIds: string[]) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: inserted, error: insertErr } = await supabase
-      .from("tasks")
-      .insert({ ...data, user_id: user.id })
-      .select("id")
-      .single();
-    if (insertErr || !inserted) {
-      toast({ title: "任务创建失败", variant: "destructive" });
-      return;
-    }
-
-    if (tagIds.length > 0) {
-      const links = tagIds.map((tagId) => ({ task_id: inserted.id, tag_id: tagId }));
-      const { error: tagErr } = await supabase.from("task_tags").insert(links);
-      if (tagErr) {
-        // 任务已建，仅标签链接失败：提示但不算整体失败
-        toast({ title: "任务已创建（标签添加失败）", variant: "destructive" });
-        setTaskDialogOpen(false);
-        setOpen(false);
-        return;
-      }
-    }
-
-    toast({ title: "任务已创建" });
-    setTaskDialogOpen(false);
-    setOpen(false);
-  };
 
   const handlePasteLink = async () => {
     if (!linkUrl.trim()) return;
@@ -802,10 +768,6 @@ export function CommandPalette() {
               </CommandGroup>
               <CommandSeparator />
               <CommandGroup heading="快速新建">
-                <CommandItem onSelect={() => setTaskDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>新建任务</span>
-                </CommandItem>
                 <CommandItem onSelect={() => setLinkInputOpen(true)}>
                   <LinkIcon className="mr-2 h-4 w-4" />
                   <span>粘贴链接到收集箱</span>
@@ -827,12 +789,6 @@ export function CommandPalette() {
         </CommandList>
       </CommandDialog>
 
-      <TaskDialog
-        open={taskDialogOpen}
-        task={null}
-        onClose={() => setTaskDialogOpen(false)}
-        onSave={handleSaveTask}
-      />
     </>
   );
 }

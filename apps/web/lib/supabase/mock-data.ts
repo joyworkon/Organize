@@ -302,6 +302,23 @@ const tasks = [
   },
 ];
 
+// 让任务预览直接体现工作台的三栏/日历状态：真实数据库由033迁移回填这些字段。
+const mockListByCategory: Record<string, string> = {
+  work: "mock-list-work",
+  study: "mock-list-study",
+  life: "mock-list-life",
+};
+tasks.forEach((task, index) => {
+  (task as any).list_id = mockListByCategory[task.category] || null;
+  (task as any).schedule_start_at = task.due_date;
+  (task as any).schedule_end_at = index === 0 && task.due_date
+    ? new Date(new Date(task.due_date).getTime() + 2 * 86400000).toISOString()
+    : null;
+  (task as any).all_day = false;
+  (task as any).timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  (task as any).recurrence_rule = null;
+});
+
 const taskTags = tasks.flatMap((t) =>
   (t.tags || []).map((tag) => ({ task_id: t.id, tag_id: tag.id }))
 );
@@ -432,13 +449,36 @@ export const mockDb: Record<string, any[]> = {
   // 033 任务工作台新表
   task_lists: [
     { id: "mock-list-work", user_id: MOCK_USER.id, name: "工作", icon: "💼", color: "#3b82f6", sort_order: 0, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
-    { id: "mock-list-study", user_id: MOCK_USER.id, name: "学习", icon: "📚", color: "#8b5cf6", sort_order: 1, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
-    { id: "mock-list-life", user_id: MOCK_USER.id, name: "生活", icon: "🏠", color: "#10b981", sort_order: 2, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-rls", user_id: MOCK_USER.id, name: "RLS测试", icon: "📋", color: "#8b7d73", sort_order: 1, is_default: false, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-study", user_id: MOCK_USER.id, name: "学习", icon: "📚", color: "#8b5cf6", sort_order: 2, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
+    { id: "mock-list-life", user_id: MOCK_USER.id, name: "生活", icon: "🏠", color: "#10b981", sort_order: 3, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
   ],
   task_reminders: [],
   task_attachments: [],
   task_activities: [],
   task_templates: [],
+  countdown_days: [
+    {
+      id: "countdown-release",
+      user_id: MOCK_USER.id,
+      title: "Organize 发布日",
+      target_date: "2026-12-31",
+      repeat_annually: false,
+      deleted_at: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    },
+    {
+      id: "countdown-birthday",
+      user_id: MOCK_USER.id,
+      title: "产品周年纪念日",
+      target_date: "2026-10-18",
+      repeat_annually: true,
+      deleted_at: null,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    },
+  ],
 };
 
 export { MOCK_USER };

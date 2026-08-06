@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { GlobalHotkeys } from "@/components/layout/global-hotkeys";
@@ -17,7 +18,9 @@ export default function MainLayout({
     <div className="min-h-screen bg-background">
       <BodyPointerEventsGuard />
       <PluginBootstrap />
-      <Sidebar />
+      <Suspense fallback={null}>
+        <Sidebar />
+      </Suspense>
       <MobileTabBar />
       <GlobalHotkeys />
       <CommandPalette />

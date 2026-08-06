@@ -272,6 +272,7 @@ function fixtureData(): BackupData {
     task_attachments: [],
     task_activities: [],
     task_templates: [],
+    countdown_days: [],
   };
 }
 

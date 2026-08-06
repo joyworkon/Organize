@@ -22,7 +22,10 @@ export function sanitizeContent(html: string): string {
     ],
     allowedAttributes: {
       a: ["href", "name", "target", "rel", "title"],
-      img: ["src", "alt", "title", "width", "height", "loading"],
+      img: [
+        "src", "srcset", "alt", "title", "width", "height", "loading",
+        "decoding", "referrerpolicy",
+      ],
       source: ["src", "srcset", "type", "media"],
       "*": ["class", "style", "id", "data-language", "colspan", "rowspan"],
     },
@@ -37,6 +40,16 @@ export function sanitizeContent(html: string): string {
       a: (_tag, attribs) => ({
         tagName: "a",
         attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer nofollow" },
+      }),
+      // 防止微信等图片 CDN 把本地阅读页 Referer 判为盗链并返回占位图
+      img: (_tag, attribs) => ({
+        tagName: "img",
+        attribs: {
+          ...attribs,
+          loading: attribs.loading || "lazy",
+          decoding: "async",
+          referrerpolicy: "no-referrer",
+        },
       }),
     },
     // 不解析相对 URL（避免开放重定向）

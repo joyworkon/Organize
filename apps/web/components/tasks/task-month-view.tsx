@@ -1,38 +1,28 @@
 "use client";
-/**
- * 任务月历视图（任务3）：周一开头月格、月切换、跨月灰日、按清单色、多日横条。
- * 拖拽改期、+N 溢出在后续迭代加（本版先做基础月格 + 点击任务）。
- */
-import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+
+import { useMemo, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import type { TaskWithTags } from "@organize/shared";
 
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
+const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-/** 导出纯函数供单测（不依赖 React/DOM） */
-export function getTaskDate(t: { schedule_start_at?: string | null; due_date?: string | null }): Date | null {
-  const d = t.schedule_start_at || t.due_date;
-  if (!d) return null;
-  const dt = new Date(d);
-  return isNaN(dt.getTime()) ? null : dt;
+export function getTaskDate(task: { schedule_start_at?: string | null; due_date?: string | null }) {
+  const value = task.schedule_start_at || task.due_date;
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** 计算月格 42 格（周一开头） */
 export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const offset = (firstDay.getDay() + 6) % 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() + 6) % 7;
   const cells: { date: Date; inMonth: boolean }[] = [];
-  for (let i = offset - 1; i >= 0; i--) {
-    cells.push({ date: new Date(year, month, -i), inMonth: false });
-  }
-  for (let i = 1; i <= daysInMonth; i++) {
-    cells.push({ date: new Date(year, month, i), inMonth: true });
-  }
+  for (let i = offset; i > 0; i -= 1) cells.push({ date: new Date(year, month, 1 - i), inMonth: false });
+  const days = new Date(year, month + 1, 0).getDate();
+  for (let day = 1; day <= days; day += 1) cells.push({ date: new Date(year, month, day), inMonth: true });
   while (cells.length < 42) {
     const last = cells[cells.length - 1].date;
     cells.push({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), inMonth: false });
@@ -40,136 +30,110 @@ export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] 
   return cells;
 }
 
-/** 按日期分组任务 */
-export function groupTasksByDate(tasks: TaskWithTags[]): Map<string, TaskWithTags[]> {
-  const m = new Map<string, TaskWithTags[]>();
-  for (const t of tasks) {
-    const d = getTaskDate(t);
-    if (!d) continue;
-    const key = d.toDateString();
-    const arr = m.get(key) || [];
-    arr.push(t);
-    m.set(key, arr);
-  }
-  return m;
+export function groupTasksByDate(tasks: TaskWithTags[]) {
+  const grouped = new Map<string, TaskWithTags[]>();
+  tasks.forEach((task) => {
+    const date = getTaskDate(task);
+    if (!date) return;
+    const key = date.toDateString();
+    grouped.set(key, [...(grouped.get(key) || []), task]);
+  });
+  return grouped;
 }
 
-function sameDay(a: Date, b: Date) {
-  return a.toDateString() === b.toDateString();
+function keyFor(date: Date) {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function dateOnly(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function taskEnd(task: TaskWithTags) {
+  const start = getTaskDate(task);
+  const end = task.schedule_end_at ? new Date(task.schedule_end_at) : start;
+  return end && !Number.isNaN(end.getTime()) ? end : start;
+}
+
+function timeLabel(task: TaskWithTags) {
+  const date = getTaskDate(task);
+  if (!date || task.all_day) return "";
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 interface TaskMonthViewProps {
   tasks: TaskWithTags[];
   onTaskClick?: (task: TaskWithTags) => void;
-  onDateClick?: (date: Date) => void;
-  /** 拖拽改期：把任务移到新日期（保留时长/本地墙钟时间），失败由调用方回滚 */
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
 }
 
-export function TaskMonthView({ tasks, onTaskClick, onDateClick, onRescheduleTask }: TaskMonthViewProps) {
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
+export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMonthViewProps) {
+  const today = new Date();
+  const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
-
-  const monthDays = useMemo(() => getMonthCells(cursor), [cursor]);
-  const tasksByDate = useMemo(() => groupTasksByDate(tasks), [tasks]);
-
-  const today = new Date();
-  const monthLabel = `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`;
+  const cells = useMemo(() => getMonthCells(cursor), [cursor]);
+  const monthTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
 
   return (
-    <div className="organize-task-month">
-      {/* 月历头 */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-lg">{monthLabel}</h3>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}>
-            今天
-          </Button>
-          <button className="p-1.5 rounded hover:bg-muted" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button className="p-1.5 rounded hover:bg-muted" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>
-            <ChevronRight className="h-4 w-4" />
-          </button>
+    <div className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-3 md:px-8">
+        <CalendarDays className="h-6 w-6" />
+        <h2 className="text-xl font-semibold">{cursor.getFullYear()}年{cursor.getMonth() + 1}月</h2>
+        <div className="ml-auto flex items-center gap-1">
+          <button type="button" className="flex items-center gap-1 rounded-lg border px-3 py-2 text-sm hover:bg-muted">月<ChevronRight className="h-3.5 w-3.5 rotate-90" /></button>
+          <button type="button" aria-label="上个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded-lg border p-2 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
+          <button type="button" onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))} className="rounded-lg border px-4 py-2 text-sm hover:bg-muted">今天</button>
+          <button type="button" aria-label="下个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="rounded-lg border p-2 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
+          <button type="button" aria-label="更多日历操作" className="rounded-lg p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
         </div>
-      </div>
+      </header>
 
-      {/* 星期头 */}
-      <div className="grid grid-cols-7 gap-px mb-px">
-        {WEEKDAYS.map((d) => (
-          <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
-        ))}
-      </div>
-
-      {/* 月格 */}
-      <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
-        {monthDays.map((cell, i) => {
-          const dayTasks = tasksByDate.get(cell.date.toDateString()) || [];
-          const isToday = sameDay(cell.date, today);
-          const cellKey = cell.date.toDateString();
+      <div className="grid shrink-0 grid-cols-7 border-b bg-muted/20">{WEEKDAYS.map((day) => <div key={day} className="border-r px-2 py-3 text-center text-sm text-muted-foreground last:border-r-0">{day}</div>)}</div>
+      <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-6 overflow-y-auto">
+        {cells.map((cell) => {
+          const cellDate = dateOnly(cell.date);
+          const cellKey = keyFor(cell.date);
+          const dayTasks = monthTasks.filter((task) => {
+            const start = dateOnly(getTaskDate(task)!);
+            const end = dateOnly(taskEnd(task)!);
+            return cellDate >= start && cellDate <= end;
+          });
           return (
             <div
-              key={i}
-              className={cn(
-                "min-h-[80px] sm:min-h-[100px] p-1 bg-background flex flex-col gap-0.5",
-                !cell.inMonth && "opacity-40",
-                onDateClick && "cursor-pointer hover:bg-muted/50",
-                dragOverDate === cellKey && "ring-2 ring-primary ring-inset"
-              )}
-              onClick={() => onDateClick?.(cell.date)}
-              onDragOver={onRescheduleTask ? (e) => { e.preventDefault(); setDragOverDate(cellKey); } : undefined}
+              key={cellKey}
+              onDragOver={onRescheduleTask ? (event) => { event.preventDefault(); setDragOverDate(cellKey); } : undefined}
               onDragLeave={() => setDragOverDate(null)}
-              onDrop={onRescheduleTask ? async (e) => {
-                e.preventDefault();
-                setDragOverDate(null);
-                if (!dragTaskId) return;
-                const task = tasks.find((t) => t.id === dragTaskId);
-                if (!task) return;
-                const oldStart = getTaskDate(task);
-                if (!oldStart) return;
-                // 保留时长（如有 end）
-                const oldEnd = task.schedule_end_at ? new Date(task.schedule_end_at) : null;
-                const duration = oldEnd ? oldEnd.getTime() - oldStart.getTime() : 0;
-                // 新开始：目标日期 + 原来的时/分（保留本地墙钟时间）
-                const newStart = new Date(cell.date.getFullYear(), cell.date.getMonth(), cell.date.getDate(), oldStart.getHours(), oldStart.getMinutes());
-                await onRescheduleTask(dragTaskId, newStart);
-                setDragTaskId(null);
-              } : undefined}
+              onDrop={onRescheduleTask ? async (event) => { event.preventDefault(); const task = monthTasks.find((item) => item.id === dragTaskId); if (!task) return; const start = getTaskDate(task); if (!start) return; const next = new Date(cell.date.getFullYear(), cell.date.getMonth(), cell.date.getDate(), start.getHours(), start.getMinutes()); setDragOverDate(null); setDragTaskId(null); await onRescheduleTask(task.id, next); } : undefined}
+              className={cn("min-h-[108px] border-b border-r p-1.5 transition-colors last:border-r-0 lg:min-h-0", !cell.inMonth && "bg-muted/10 text-muted-foreground/50", isSameDay(cell.date, today) && "bg-blue-50/70 dark:bg-blue-950/20", dragOverDate === cellKey && "bg-primary/10 ring-2 ring-inset ring-primary")}
             >
-              <span className={cn(
-                "text-xs w-6 h-6 flex items-center justify-center rounded-full",
-                isToday && "bg-primary text-primary-foreground font-medium"
-              )}>
-                {cell.date.getDate()}
-              </span>
-              {dayTasks.slice(0, 3).map((t) => (
-                <button
-                  key={t.id}
-                  onClick={(e) => { e.stopPropagation(); onTaskClick?.(t); }}
-                  draggable={!!onRescheduleTask}
-                  onDragStart={(e) => { setDragTaskId(t.id); e.dataTransfer.effectAllowed = "move"; }}
-                  onDragEnd={() => setDragTaskId(null)}
-                  className={cn(
-                    "text-left text-xs px-1.5 py-0.5 rounded truncate border-l-2 hover:bg-muted",
-                    dragTaskId === t.id && "opacity-40"
-                  )}
-                  style={{ borderLeftColor: (t as any).list_color || "#3b82f6" }}
-                  title={t.title}
-                >
-                  {t.title}
-                </button>
-              ))}
-              {dayTasks.length > 3 && (
-                <span className="text-xs text-muted-foreground px-1">+{dayTasks.length - 3} 更多</span>
-              )}
+              <div className={cn("mb-1 flex h-7 w-7 items-center justify-center rounded-full text-sm", isSameDay(cell.date, today) && "bg-blue-500 font-semibold text-white")}>{cell.date.getDate()}</div>
+              <div className="space-y-1">
+                {dayTasks.slice(0, 3).map((task) => (
+                  <button
+                    type="button"
+                    key={task.id}
+                    draggable={Boolean(onRescheduleTask)}
+                    onDragStart={(event) => { setDragTaskId(task.id); event.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnd={() => setDragTaskId(null)}
+                    onClick={(event) => { event.stopPropagation(); onTaskClick?.(task); }}
+                    className={cn("flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs transition-colors hover:brightness-95", task.status === "done" ? "bg-muted text-muted-foreground" : task.category === "work" ? "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100" : task.category === "study" ? "bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100" : task.category === "life" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100" : "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100", dragTaskId === task.id && "opacity-40")}
+                  >
+                    <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded border border-current/40">{task.status === "done" && "✓"}</span>
+                    <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                    {timeLabel(task) && <span className="shrink-0 text-[10px] opacity-70">{timeLabel(task)}</span>}
+                  </button>
+                ))}
+                {dayTasks.length > 3 && <span className="px-1.5 text-xs text-muted-foreground">+{dayTasks.length - 3} 更多</span>}
+              </div>
             </div>
           );
         })}
       </div>
     </div>
   );
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.toDateString() === b.toDateString();
 }

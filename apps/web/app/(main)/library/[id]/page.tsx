@@ -26,6 +26,7 @@ import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
+import { prepareReadingContent } from "@/lib/reading-images";
 
 interface RecommendedItem {
   id: string;
@@ -105,6 +106,10 @@ export default function ReadingDetailPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
+  const renderedContent = useMemo(
+    () => prepareReadingContent(item?.content || ""),
+    [item?.content]
+  );
   const headings = useMemo(() => {
     if (!item?.content) return [];
     return extractHeadings(item.content);
@@ -783,7 +788,7 @@ export default function ReadingDetailPage() {
             className="prose prose-sm sm:prose max-w-none px-4 sm:px-6 xl:px-0
               prose-headings:font-bold prose-a:text-primary
               prose-img:rounded-lg prose-img:shadow-sm"
-            dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
+            dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
           />
         </HighlightMenu>
 
@@ -904,7 +909,7 @@ export default function ReadingDetailPage() {
                   prose-headings:font-bold prose-a:text-primary
                   prose-img:rounded-lg prose-img:shadow-sm
                   prose-p:leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: item.content || "<p>无法提取正文内容</p>" }}
+                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
               />
             </HighlightMenu>
             <div className="mt-16 pt-8 border-t text-center">

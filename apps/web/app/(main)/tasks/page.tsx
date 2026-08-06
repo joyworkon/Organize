@@ -1,848 +1,248 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { TaskCard } from "@/components/tasks/task-card";
-import { TaskDialog } from "@/components/tasks/task-dialog";
-import { CompleteTaskDialog } from "@/components/tasks/complete-task-dialog";
-import { TagFilter } from "@/components/tags/tag-filter";
-import { useNotifications } from "@/hooks/use-notifications";
-import { BatchActionsBar } from "@/components/batch-actions-bar";
-import { useSelection } from "@/hooks/use-selection";
-import { toast } from "@/hooks/use-toast";
-import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
-import type { TaskScope } from "@/lib/tasks/repository";
-import { TaskMonthView } from "@/components/tasks/task-month-view";
-import {
-  ListChecks,
-  Plus,
-  Search,
-  Loader2,
-  List,
-  LayoutGrid,
-  CalendarDays,
-  Bell,
-  CheckCircle2,
-  Trash2,
+  ArrowDownUp,
+  Check,
+  ChevronDown,
   Filter,
-  Tag as TagIcon,
-  ArrowUpDown,
+  ListChecks,
+  Loader2,
+  MoreHorizontal,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type {
-  Task,
-  TaskWithTags,
-  TaskStatus,
-  TaskCategory,
-  Tag,
-  TagWithCount,
-} from "@organize/shared";
-import { TASK_STATUS_CONFIG, TASK_CATEGORY_CONFIG } from "@organize/shared";
+import { createClient } from "@/lib/supabase/client";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
-import { mutateTrash } from "@/lib/trash/client";
+import { TagFilter } from "@/components/tags/tag-filter";
+import type { SidebarSelection } from "@/components/tasks/task-sidebar";
+import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
+import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
+import { toast } from "@/hooks/use-toast";
+import { useNotifications } from "@/hooks/use-notifications";
+import { cn } from "@/lib/utils";
+import type { TagWithCount, Task, TaskCategory, TaskStatus, TaskWithTags } from "@organize/shared";
+import { TASK_CATEGORY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
+import type { TaskSchedule } from "@/components/tasks/task-date-picker";
+import {
+  fetchTaskWorkspace,
+  filterTasksByScope,
+  isOverdue,
+  quickAddDueDate,
+  taskDate,
+} from "@/lib/tasks/workspace";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
-type ViewMode = "list" | "kanban" | "month";
-type SortOrder = "default" | "manual";
+type TaskScope = SidebarSelection["scope"];
 
-export default function TasksPage() {
+interface TaskRowProps {
+  task: TaskWithTags;
+  selected: boolean;
+  listColor?: string | null;
+  onOpen: () => void;
+  onStatus: () => void;
+  onDateChange: (value: TaskSchedule) => Promise<void>;
+}
+
+function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange }: TaskRowProps) {
+  const schedule: TaskSchedule = {
+    schedule_start_at: task.schedule_start_at || task.due_date,
+    schedule_end_at: task.schedule_end_at || null,
+    all_day: Boolean(task.all_day),
+    timezone: task.timezone || null,
+    recurrence_rule: task.recurrence_rule || null,
+  };
   return (
-    <Suspense fallback={<div className="p-8 text-center text-muted-foreground">加载中…</div>}>
-      <TasksPageInner />
-    </Suspense>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
+      className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors hover:bg-muted/50", selected && "bg-muted", task.status === "done" && "text-muted-foreground")}
+      style={{ borderLeft: `3px solid ${listColor || "transparent"}` }}
+    >
+      <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
+        {task.status === "done" && <Check className="h-3.5 w-3.5" />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className={cn("truncate text-[15px] font-medium", task.status === "done" && "line-through")}>{task.title}</div>
+        {task.description && <div className="mt-1 truncate text-sm text-muted-foreground">- {task.description}</div>}
+        {task.tags && task.tags.length > 0 && <div className="mt-1 flex gap-1 text-[11px] text-muted-foreground">{task.tags.slice(0, 3).map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>}
+      </div>
+      <TaskDatePopover
+        value={schedule}
+        onChange={onDateChange}
+        align="end"
+        trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
+      />
+    </div>
   );
 }
 
+export default function TasksPage() {
+  return <Suspense fallback={<div className="grid h-screen place-items-center text-muted-foreground">加载中…</div>}><TasksPageInner /></Suspense>;
+}
+
 function TasksPageInner() {
-  const [tasks, setTasks] = useState<TaskWithTags[]>([]);
-  const [allTags, setAllTags] = useState<TagWithCount[]>([]);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectionMode, setSelectionMode] = useState(false);
   const supabase = useMemo(() => createClient(), []);
-  const { permission, requestPermission, scheduleDueDateReminders } = useNotifications();
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [completeTask, setCompleteTask] = useState<Task | null>(null);
-
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
-  // URL 路由：scope/list/view 用 query params（刷新/深链保持）
-  const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { permission, requestPermission, scheduleDueDateReminders } = useNotifications();
+  const [tasks, setTasks] = useState<TaskWithTags[]>([]);
+  const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
+  const [tags, setTags] = useState<TagWithCount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
-  const viewMode = (searchParams.get("view") as ViewMode) || "list";
-  const setViewMode = (v: ViewMode) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("view", v);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
-
+  const selectedTaskId = searchParams.get("task");
   const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
   const sidebarListId = searchParams.get("list");
-  const sidebarSel: SidebarSelection = {
-    scope: sidebarScope,
-    listId: sidebarScope === "list" ? sidebarListId : null,
-  };
-  const setSidebarSel = (sel: SidebarSelection) => {
+  const sidebarSelection = useMemo<SidebarSelection>(() => ({ scope: sidebarScope, listId: sidebarScope === "list" ? sidebarListId : null }), [sidebarListId, sidebarScope]);
+  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null;
+
+  const updateUrl = useCallback((patch: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("scope", sel.scope);
-    if (sel.scope === "list" && sel.listId) params.set("list", sel.listId);
-    else { params.delete("list"); }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
-  const [sortOrder, setSortOrder] = useState<SortOrder>("default");
-  const [draggedTask, setDraggedTask] = useState<TaskWithTags | null>(null);
-  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
-
-  // 三栏侧栏：清单列表（scope/listId 已从 URL 路由获取）
-  const [taskLists, setTaskLists] = useState<import("@organize/shared").TaskList[]>([]);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  const selection = useSelection<TaskWithTags>();
-  const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
-  const showCheckbox = (selectionMode || isSelectMode) && viewMode === "list";
+    Object.entries(patch).forEach(([key, value]) => value === null ? params.delete(key) : params.set(key, value));
+    params.delete("view");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      let query = supabase
-        .from("tasks")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("is_pinned", { ascending: false })
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: false });
-
-      const { data: tasksData } = await query;
-      const tasksList = (tasksData || []) as unknown as Task[];
-
-      const [{ data: tagLinks }, { data: tagsData }, { data: taskTagLinks }] = await Promise.all([
-        supabase.from("task_tags").select("task_id, tag_id"),
-        supabase.from("tags").select("id, name").eq("user_id", user.id),
-        supabase.from("task_tags").select("tag_id"),
-      ]);
-
-      const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
-
-      const tagCountMap = new Map<string, number>();
-      for (const row of taskTagLinks || []) {
-        tagCountMap.set(row.tag_id, (tagCountMap.get(row.tag_id) || 0) + 1);
-      }
-
-      const tagsWithCount: TagWithCount[] = (tagsData || []).map((t) => ({
-        ...(t as Tag),
-        task_count: tagCountMap.get(t.id) || 0,
-      }));
-      setAllTags(tagsWithCount);
-
-      const linksByTask = new Map<string, Tag[]>();
-      for (const link of tagLinks || []) {
-        const tag = tagMap.get(link.tag_id);
-        if (tag) {
-          const existing = linksByTask.get(link.task_id) || [];
-          existing.push(tag);
-          linksByTask.set(link.task_id, existing);
-        }
-      }
-
-      const tasksWithTags: TaskWithTags[] = tasksList.map((t) => ({
-        ...t,
-        tags: linksByTask.get(t.id) || [],
-      }));
-
-      setTasks(tasksWithTags);
-      scheduleDueDateReminders(tasksWithTags);
-
-      // 加载清单（三栏侧栏用）
-      const { data: listsData } = await supabase.from("task_lists").select("*")
-        .eq("user_id", user.id).order("sort_order", { ascending: true }).is("deleted_at", null);
-      setTaskLists((listsData || []) as import("@organize/shared").TaskList[]);
+      const workspace = await fetchTaskWorkspace(supabase);
+      setTags(workspace.tags);
+      setLists(workspace.lists);
+      setTasks(workspace.tasks);
+      scheduleDueDateReminders(workspace.tasks);
     } finally {
       setLoading(false);
     }
-  }, [supabase, scheduleDueDateReminders]);
+  }, [scheduleDueDateReminders, supabase]);
+
+  useEffect(() => { void fetchTasks(); }, [fetchTasks]);
 
   useEffect(() => {
-    fetchTasks();
+    const reloadTasks = () => void fetchTasks();
+    window.addEventListener("organize:tasks-changed", reloadTasks);
+    return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
   }, [fetchTasks]);
 
-  const exitSelection = useCallback(() => {
-    clear();
-    setSelectionMode(false);
-  }, [clear]);
+  useEffect(() => {
+    if (searchParams.has("view")) updateUrl({ view: null });
+  }, [searchParams, updateUrl]);
 
-  const handleSaveTask = async (data: Partial<Task>, tagIds: string[]) => {
+  useEffect(() => {
+    if (!searchParams.get("scope") && lists[0]) updateUrl({ scope: "list", list: lists[0].id });
+  }, [lists, searchParams, updateUrl]);
+
+  const updateTask = useCallback(async (taskId: string, patch: Partial<Task>) => {
+    const previous = tasks;
+    const normalized = { ...patch } as Partial<Task>;
+    if ("schedule_start_at" in normalized || "schedule_end_at" in normalized) normalized.due_date = normalized.schedule_end_at || normalized.schedule_start_at || null;
+    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...normalized } : task));
+    const { error } = await supabase.from("tasks").update(normalized).eq("id", taskId);
+    if (error) {
+      setTasks(previous);
+      toast({ title: "保存失败，已回滚", variant: "destructive" });
+    }
+  }, [supabase, tasks]);
+
+  const deleteTask = useCallback(async (taskId: string) => {
+    if (!window.confirm("将这个任务移入垃圾箱？")) return;
+    const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
+    if (error) { toast({ title: "删除失败", variant: "destructive" }); return; }
+    updateUrl({ task: null });
+    await fetchTasks();
+    toast({ title: "任务已移入垃圾箱" });
+  }, [fetchTasks, supabase, updateUrl]);
+
+  const filteredTasks = useMemo(() => {
+    const scoped = filterTasksByScope(tasks, sidebarSelection);
+    return scoped.filter((task) => {
+    if (statusFilter !== "all" && task.status !== statusFilter) return false;
+    if (categoryFilter !== "all" && task.category !== categoryFilter) return false;
+    if (selectedTagIds.length && !(task.tags || []).some((tag) => selectedTagIds.includes(tag.id))) return false;
+    return true;
+    });
+  }, [categoryFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
+
+  const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
+  const completedTasks = filteredTasks.filter((task) => task.status === "done");
+  const listTitle = sidebarSelection.scope === "list" ? lists.find((list) => list.id === sidebarSelection.listId)?.name || "工作任务" : sidebarSelection.scope === "today" ? "今天" : sidebarSelection.scope === "upcoming" ? "最近7天" : sidebarSelection.scope === "completed" ? "已完成" : sidebarSelection.scope === "trash" ? "垃圾桶" : "全部任务";
+  const currentList = lists.find((list) => list.id === sidebarSelection.listId);
+
+  const openTask = (task: TaskWithTags) => updateUrl({ task: task.id });
+  const closeTask = () => updateUrl({ task: null });
+  const toggleStatus = (task: Task) => void updateTask(task.id, { status: task.status === "done" ? "todo" : "done", completed_at: task.status === "done" ? null : new Date().toISOString() });
+
+  const quickAdd = async (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    const input = event.currentTarget;
+    const title = input.value.trim();
+    if (!title) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-
-    let taskId: string;
-    if (editingTask) {
-      taskId = editingTask.id;
-      await supabase
-        .from("tasks")
-        .update(data)
-        .eq("id", editingTask.id);
-      await supabase.from("task_tags").delete().eq("task_id", editingTask.id);
-    } else {
-      const { data: inserted } = await supabase
-        .from("tasks")
-        .insert({ ...data, user_id: user.id })
-        .select("id")
-        .single();
-      taskId = inserted!.id;
-    }
-
-    if (tagIds.length > 0) {
-      const links = tagIds.map(tagId => ({ task_id: taskId, tag_id: tagId }));
-      await supabase.from("task_tags").insert(links);
-    }
-
-    await fetchTasks();
-    setEditingTask(null);
-  };
-
-  const handleDelete = async (taskId: string) => {
-    if (!confirm("将这个任务移入垃圾箱？任务清单和标签会一并保留。")) return;
-    try {
-      await mutateTrash("task", [taskId], "soft_delete");
-      await fetchTasks();
-      toast({ title: "任务已移入垃圾箱" });
-    } catch (error) {
-      toast({
-        title: "删除失败",
-        description: error instanceof Error ? error.message : undefined,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleToggleStatus = async (taskId: string, status: TaskStatus) => {
-    const updates: Partial<Task> = { status };
-    if (status === "done") {
-      updates.completed_at = new Date().toISOString();
-    } else {
-      updates.completed_at = null;
-    }
-    await supabase.from("tasks").update(updates).eq("id", taskId);
-    await fetchTasks();
-  };
-
-  const handleTogglePin = async (taskId: string, isPinned: boolean) => {
-    await supabase.from("tasks").update({ is_pinned: isPinned }).eq("id", taskId);
-    await fetchTasks();
-  };
-
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => {
-    setDraggedTask(task);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", task.id);
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, task: TaskWithTags) => {
-    e.preventDefault();
-    if (draggedTask && draggedTask.id !== task.id) {
-      setDragOverTaskId(task.id);
-    }
-  };
-
-  const handleDragLeave = () => {
-    setDragOverTaskId(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedTask(null);
-    setDragOverTaskId(null);
-  };
-
-  const calculateNewSortOrder = (
-    items: TaskWithTags[],
-    fromIndex: number,
-    toIndex: number
-  ): number => {
-    const isPinned = items[fromIndex].is_pinned;
-    const sameGroup = items.filter((t) => t.is_pinned === isPinned);
-    const groupWithoutMoved = sameGroup.filter((t) => t.id !== items[fromIndex].id);
-
-    let insertPos = 0;
-    for (let i = 0; i < toIndex; i++) {
-      if (items[i].is_pinned === isPinned && items[i].id !== items[fromIndex].id) {
-        insertPos++;
-      }
-    }
-
-    if (insertPos === 0) {
-      const firstItem = groupWithoutMoved[0];
-      return firstItem ? firstItem.sort_order - 1000 : 0;
-    } else if (insertPos >= groupWithoutMoved.length) {
-      const lastItem = groupWithoutMoved[groupWithoutMoved.length - 1];
-      return lastItem ? lastItem.sort_order + 1000 : groupWithoutMoved.length * 1000;
-    } else {
-      const prev = groupWithoutMoved[insertPos - 1];
-      const next = groupWithoutMoved[insertPos];
-      return Math.floor((prev.sort_order + next.sort_order) / 2);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetTask: TaskWithTags) => {
-    e.preventDefault();
-    if (!draggedTask || draggedTask.id === targetTask.id) {
-      setDraggedTask(null);
-      setDragOverTaskId(null);
-      return;
-    }
-
-    if (draggedTask.is_pinned !== targetTask.is_pinned) {
-      setDraggedTask(null);
-      setDragOverTaskId(null);
-      return;
-    }
-
-    const filteredForDrag = filtered;
-    const fromIndex = filteredForDrag.findIndex((t) => t.id === draggedTask.id);
-    const toIndex = filteredForDrag.findIndex((t) => t.id === targetTask.id);
-
-    if (fromIndex === -1 || toIndex === -1) {
-      setDraggedTask(null);
-      setDragOverTaskId(null);
-      return;
-    }
-
-    const newSortOrder = calculateNewSortOrder(filteredForDrag, fromIndex, toIndex);
-
-    await supabase
-      .from("tasks")
-      .update({ sort_order: newSortOrder })
-      .eq("id", draggedTask.id);
-
-    setDraggedTask(null);
-    setDragOverTaskId(null);
-    await fetchTasks();
-  };
-
-  const handleCompleteClick = (task: Task) => {
-    setCompleteTask(task);
-  };
-
-  const handleConfirmComplete = async (reflectionData?: { title?: string; content?: string; lessonType?: string }) => {
-    if (!completeTask) return;
-    await handleToggleStatus(completeTask.id, "done");
-
-    if (reflectionData && reflectionData.content?.trim()) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("lessons").insert({
-          user_id: user.id,
-          title: reflectionData.title?.trim() || `${completeTask.title} - 复盘`,
-          content: reflectionData.content.trim() ? {
-            type: "doc",
-            content: [
-              { type: "paragraph", content: [{ type: "text", text: reflectionData.content.trim() }] },
-            ],
-          } : null,
-          lesson_type: reflectionData.lessonType || "reflection",
-          task_id: completeTask.id,
-        });
-      }
-    }
-
-    setCompleteTask(null);
-    await fetchTasks();
-  };
-
-  const openCreate = () => {
-    setEditingTask(null);
-    setDialogOpen(true);
-  };
-
-  const openEdit = (task: Task) => {
-    setEditingTask(task);
-    setDialogOpen(true);
-  };
-
-  const handleToggleSelect = useCallback(
-    (id: string, checked: boolean) => {
-      if (checked) {
-        selection.select(id);
-      } else {
-        selection.deselect(id);
-      }
-    },
-    [selection]
-  );
-
-  const batchMarkComplete = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
-    const count = ids.length;
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "done", completed_at: now })
-      .in("id", ids);
-    if (!error) {
-      await fetchTasks();
-      exitSelection();
-      toast({ title: `已标记 ${count} 个任务为完成` });
-    }
-  };
-
-  const batchDelete = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
-    if (!confirm(`将选中的 ${ids.length} 个任务移入垃圾箱？`)) return;
-    const count = ids.length;
-    try {
-      await mutateTrash("task", ids, "soft_delete");
-      await fetchTasks();
-      exitSelection();
-      toast({ title: `${count} 个任务已移入垃圾箱` });
-    } catch (error) {
-      toast({
-        title: "批量删除失败",
-        description: error instanceof Error ? error.message : undefined,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleSelectAllVisible = () => {
-    selectAll(filtered.map((t) => t.id));
-  };
-
-  const canManualSort = statusFilter === "todo" || statusFilter === "in_progress";
-  const effectiveSortOrder: SortOrder = canManualSort ? sortOrder : "default";
-
-  const filtered = tasks
-    .filter((t) => {
-      // 三栏侧栏 scope 过滤
-      if (sidebarSel.scope === "trash") {
-        if (!t.deleted_at) return false;
-      } else {
-        if (t.deleted_at) return false; // 其它 scope 排除已删
-        if (sidebarSel.scope === "completed") {
-          if (t.status !== "done") return false;
-        } else if (sidebarSel.scope === "list") {
-          if (t.list_id !== sidebarSel.listId) return false;
-        } else if (sidebarSel.scope === "today") {
-          if (t.status === "done" || t.status === "cancelled") return false;
-          const d = t.schedule_start_at || t.due_date;
-          if (!d) return false;
-          const dt = new Date(d);
-          const now = new Date();
-          const isOverdue = dt < now && dt.toDateString() !== now.toDateString();
-          const isToday = dt.toDateString() === now.toDateString();
-          if (!isOverdue && !isToday) return false;
-        } else if (sidebarSel.scope === "upcoming") {
-          if (t.status === "done" || t.status === "cancelled") return false;
-          const d = t.schedule_start_at || t.due_date;
-          if (!d) return false;
-          const dt = new Date(d);
-          const now = new Date();
-          const diff = (dt.getTime() - now.getTime()) / 86400000;
-          if (diff < 0 || diff > 6) return false;
-        }
-      }
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
-      if (categoryFilter !== "all" && t.category !== categoryFilter) return false;
-      if (selectedTagIds.length > 0) {
-        const taskTagIds = (t.tags || []).map(tag => tag.id);
-        if (!selectedTagIds.some(id => taskTagIds.includes(id))) return false;
-      }
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        return (
-          t.title.toLowerCase().includes(q) ||
-          (t.description && t.description.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (a.is_pinned && !b.is_pinned) return -1;
-      if (!a.is_pinned && b.is_pinned) return 1;
-
-      if (effectiveSortOrder === "manual") {
-        if (a.sort_order !== b.sort_order) {
-          return a.sort_order - b.sort_order;
-        }
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-
-      if (a.due_date && b.due_date) {
-        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-      }
-      if (a.due_date) return -1;
-      if (b.due_date) return 1;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    const { error } = await supabase.from("tasks").insert({
+      user_id: user.id,
+      title,
+      status: "todo",
+      priority: "medium",
+      category: "work",
+      list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null,
+      due_date: quickAddDueDate(sidebarSelection.scope),
     });
-
-  const stats = {
-    total: tasks.length,
-    todo: tasks.filter((t) => t.status === "todo").length,
-    inProgress: tasks.filter((t) => t.status === "in_progress").length,
-    done: tasks.filter((t) => t.status === "done").length,
-    pinned: tasks.filter((t) => t.is_pinned).length,
+    if (error) {
+      toast({ title: "创建任务失败", description: error.message, variant: "destructive" });
+      return;
+    }
+    input.value = "";
+    await fetchTasks();
+    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
-
-  const isManualSortMode = effectiveSortOrder === "manual" && viewMode === "list" && !showCheckbox;
-
-  const taskCardProps = (task: TaskWithTags) => ({
-    task,
-    onEdit: openEdit,
-    onDelete: handleDelete,
-    onToggleStatus: handleToggleStatus,
-    onTogglePin: handleTogglePin,
-    onComplete: handleCompleteClick,
-    selected: isSelected(task.id),
-    onSelectChange: showCheckbox ? handleToggleSelect : undefined,
-    selectionMode: selectionMode || isSelectMode,
-    draggable: isManualSortMode,
-    isDragging: draggedTask?.id === task.id,
-    isDragOver: dragOverTaskId === task.id,
-    onDragStart: isManualSortMode ? handleDragStart : undefined,
-    onDragOver: isManualSortMode ? handleDragOver : undefined,
-    onDragEnd: isManualSortMode ? handleDragEnd : undefined,
-    onDrop: isManualSortMode ? handleDrop : undefined,
-    onDragLeave: isManualSortMode ? handleDragLeave : undefined,
-    onDragEnter: isManualSortMode ? (e: React.DragEvent<HTMLDivElement>) => handleDragEnter(e, task) : undefined,
-  });
 
   return (
-    <div className="organize-task-workspace flex h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* 手机侧栏遮罩 */}
-      {mobileSidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setMobileSidebarOpen(false)} />
-      )}
-      {/* 左：侧栏（桌面常驻，手机抽屉） */}
-      <div className={cn(
-        "organize-task-sidebar-wrap shrink-0 z-50 bg-background",
-        "md:relative md:translate-x-0 md:block",
-        mobileSidebarOpen
-          ? "fixed left-0 top-14 bottom-0 w-[260px] block"
-          : "fixed left-0 top-14 bottom-0 w-[260px] hidden md:block"
-      )}>
-      <TaskSidebar
-        lists={taskLists}
-        tasks={tasks}
-        selection={sidebarSel}
-        onSelect={setSidebarSel}
-        onCreateList={async () => {
-          const name = window.prompt("清单名称：");
-          if (!name?.trim()) return;
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) return;
-          const { data, error } = await supabase.from("task_lists")
-            .insert({ user_id: user.id, name: name.trim(), sort_order: taskLists.length })
-            .select().single();
-          if (error) { toast({ title: "创建清单失败", variant: "destructive" }); return; }
-          setTaskLists((cur) => [...cur, data as import("@organize/shared").TaskList]);
-        }}
-        onRenameList={async (list) => {
-          const name = window.prompt("新名称：", list.name);
-          if (!name?.trim() || name === list.name) return;
-          const { error } = await supabase.from("task_lists").update({ name: name.trim() }).eq("id", list.id);
-          if (error) { toast({ title: "改名失败", variant: "destructive" }); return; }
-          setTaskLists((cur) => cur.map((l) => l.id === list.id ? { ...l, name: name.trim() } : l));
-        }}
-        onDeleteList={async (list) => {
-          await supabase.from("tasks").update({ list_id: null }).eq("list_id", list.id);
-          await supabase.from("task_lists").update({ deleted_at: new Date().toISOString() }).eq("id", list.id);
-          setTaskLists((cur) => cur.filter((l) => l.id !== list.id));
-          if (sidebarSel.listId === list.id) setSidebarSel({ scope: "all", listId: null });
-          toast({ title: `清单「${list.name}」已删除，任务移到未分类` });
-        }}
-      />
-      </div>
-      {/* 中+右：主内容区 */}
-      <div className="flex-1 overflow-y-auto">
-    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
-      {/* 手机侧栏切换按钮 */}
-      <button
-        className="md:hidden flex items-center gap-1.5 text-sm text-muted-foreground mb-2"
-        onClick={() => setMobileSidebarOpen(true)}
-      >
-        <ListChecks className="h-4 w-4" />清单/视图
-      </button>
-      {permission === "default" && (
-        <div className="flex items-center justify-between gap-2 rounded-lg bg-accent/50 px-3 py-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <Bell className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">开启浏览器通知以接收任务到期提醒</span>
-            <span className="sm:hidden">开启任务提醒</span>
-          </div>
-          <button
-            onClick={() => requestPermission()}
-            className="shrink-0 text-muted-foreground hover:text-primary transition-colors font-medium"
-          >
-            开启
-          </button>
-        </div>
-      )}
+    <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
+      <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden md:flex")}>
+        <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
+          <span className="text-2xl">{currentList?.icon || "📋"}</span>
+          <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
+          <span className="ml-auto flex items-center gap-1">
+            <button type="button" aria-label="排序任务" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ArrowDownUp className="h-5 w-5" /></button>
+            <button type="button" aria-label="任务列表更多操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
+          </span>
+        </header>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">待办任务</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            {stats.todo} 个待办，{stats.inProgress} 个进行中，{stats.done} 个已完成
-          </p>
-        </div>
-        <Button onClick={openCreate} className="shrink-0">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline ml-2">新建任务</span>
-        </Button>
-      </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[820px] px-4 pb-12 pt-5 md:px-8">
+            <input aria-label="快速添加任务" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[150px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="搜索..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+            {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
 
-        <Select value={statusFilter} onValueChange={(v: StatusFilter) => setStatusFilter(v)}>
-          <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
-            <Filter className="h-3.5 w-3.5" />
-            <SelectValue placeholder="状态" className="hidden sm:inline-flex" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部状态</SelectItem>
-            {Object.entries(TASK_STATUS_CONFIG).map(([key, cfg]) => (
-              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
+              <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
+              <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
+            </div>
 
-        <Select value={categoryFilter} onValueChange={(v: CategoryFilter) => setCategoryFilter(v)}>
-          <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
-            <TagIcon className="h-3.5 w-3.5" />
-            <SelectValue placeholder="分类" className="hidden sm:inline-flex" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部分类</SelectItem>
-            {Object.entries(TASK_CATEGORY_CONFIG).map(([key, cfg]) => (
-              <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {canManualSort && (
-          <Select value={sortOrder} onValueChange={(v: SortOrder) => setSortOrder(v)}>
-            <SelectTrigger className="w-auto sm:w-32 h-9 gap-1">
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              <SelectValue placeholder="排序" className="hidden sm:inline-flex" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">默认排序</SelectItem>
-              <SelectItem value="manual">手动排序</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-
-        <TagFilter
-          options={allTags}
-          selectedIds={selectedTagIds}
-          onChange={setSelectedTagIds}
-        />
-
-        <div className="hidden sm:flex items-center gap-0.5 rounded-md border p-0.5 ml-auto">
-          <button
-            onClick={() => setViewMode("list")}
-            className={cn(
-              "p-1.5 rounded text-sm transition-colors",
-              viewMode === "list" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            title="列表视图"
-          >
-            <List className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setViewMode("kanban")}
-            className={cn(
-              "p-1.5 rounded text-sm transition-colors",
-              viewMode === "kanban" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            title="看板视图"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setViewMode("month")}
-            className={cn(
-              "p-1.5 rounded text-sm transition-colors",
-              viewMode === "month" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            title="月历视图"
-          >
-            <CalendarDays className="h-4 w-4" />
-          </button>
-        </div>
-
-        <Button
-          variant={showCheckbox ? "default" : "ghost"}
-          size="sm"
-          className="gap-1.5 ml-auto sm:ml-0"
-          onClick={() => {
-            if (selectionMode) {
-              exitSelection();
-            } else {
-              setSelectionMode(true);
-            }
-          }}
-          disabled={viewMode !== "list"}
-          title={viewMode !== "list" ? "请切换到列表视图使用多选" : "多选"}
-        >
-          <ListChecks className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">多选</span>
-        </Button>
-      </div>
-
-      {isSelectMode && viewMode === "list" && (
-        <BatchActionsBar
-          selectedCount={selectedIds.size}
-          totalCount={filtered.length}
-          onClear={exitSelection}
-          onSelectAll={handleSelectAllVisible}
-          typeLabel="个任务"
-          actions={
-            <>
-              <Button size="sm" variant="ghost" className="gap-1" onClick={batchMarkComplete} title="标记完成">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                <span className="hidden sm:inline">标记完成</span>
-              </Button>
-              <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={batchDelete} title="删除">
-                <Trash2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">删除</span>
-              </Button>
-            </>
-          }
-        />
-      )}
-
-      {loading ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-          加载中...
-        </div>
-      ) : filtered.length === 0 ? (
-        (() => {
-          const hasFilter = search.trim() !== "" || statusFilter !== "all" || categoryFilter !== "all" || selectedTagIds.length > 0;
-          return (
-            <EmptyState
-              icon={ListChecks}
-              title={hasFilter ? "没有匹配的任务" : "还没有任务"}
-              description="添加你的第一个任务开始规划"
-              action={!hasFilter ? (
-                <Button onClick={openCreate}>创建任务</Button>
-              ) : undefined}
-            />
-          );
-        })()
-      ) : viewMode === "month" ? (
-        <TaskMonthView
-          tasks={filtered}
-          onTaskClick={(t) => { setEditingTask(t); setDialogOpen(true); }}
-          onRescheduleTask={async (taskId, newStartDate) => {
-            // 乐观更新：先改本地，失败回滚
-            const prev = [...tasks];
-            const task = tasks.find((t) => t.id === taskId);
-            if (!task) return;
-            const oldStart = task.schedule_start_at || task.due_date;
-            if (!oldStart) return;
-            const oldEnd = task.schedule_end_at;
-            const duration = oldEnd ? new Date(oldEnd).getTime() - new Date(oldStart).getTime() : 0;
-            const newEnd = duration > 0 ? new Date(newStartDate.getTime() + duration).toISOString() : null;
-            // 乐观更新
-            setTasks((cur) => cur.map((t) => t.id === taskId ? {
-              ...t, schedule_start_at: newStartDate.toISOString(), schedule_end_at: newEnd
-            } : t));
-            try {
-              const updates: Record<string, unknown> = {
-                schedule_start_at: newStartDate.toISOString(),
-                schedule_end_at: newEnd,
-              };
-              const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
-              if (error) throw error;
-            } catch {
-              // 回滚
-              setTasks(prev);
-              toast({ title: "改期失败，已回滚", variant: "destructive" });
-            }
-          }}
-        />
-      ) : viewMode === "list" ? (
-        <div className="space-y-2 sm:space-y-3">
-          {filtered.map((task) => (
-            <TaskCard key={task.id} {...taskCardProps(task)} />
-          ))}
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-3 gap-4">
-          {(["todo", "in_progress", "done"] as TaskStatus[]).map((col) => {
-            const colTasks = filtered.filter((t) => t.status === col);
-            const cfg = TASK_STATUS_CONFIG[col];
-            return (
-              <div key={col} className="space-y-3">
-                <div className="flex items-center gap-2 px-1">
-                  <span className={cn("h-2 w-2 rounded-full", col === "todo" ? "bg-muted-foreground" : col === "in_progress" ? "bg-primary" : "bg-green-500")} />
-                  <h3 className="font-medium">{cfg.label}</h3>
-                  <span className="text-xs text-muted-foreground">{colTasks.length}</span>
-                </div>
-                <div className="space-y-2">
-                  {colTasks.map((task) => (
-                    <TaskCard key={task.id} {...taskCardProps(task)} />
-                  ))}
-                </div>
+            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
+              <div className="overflow-hidden rounded-xl border bg-background">
+                {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
+                {activeTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
+                {completedTasks.length > 0 && <div className="mt-4 flex items-center gap-2 border-y bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />已完成 <span className="text-xs font-normal text-muted-foreground">{completedTasks.length}</span></div>}
+                {completedTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
-      )}
+      </section>
 
-      <TaskDialog
-        open={dialogOpen}
-        task={editingTask}
-        onClose={() => {
-          setDialogOpen(false);
-          setEditingTask(null);
-        }}
-        onSave={handleSaveTask}
-      />
-
-      <CompleteTaskDialog
-        open={!!completeTask}
-        task={completeTask}
-        onClose={() => setCompleteTask(null)}
-        onComplete={handleConfirmComplete}
-      />
-    </div>
-      </div>
+      {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +32,9 @@ import { ThemeToggle } from "./theme-toggle";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
+import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
+import type { TaskScope } from "@/lib/tasks/repository";
+import { useTaskRepository } from "@/lib/tasks/repository";
 
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
@@ -47,16 +50,24 @@ const navItems = [
   { href: "/settings", label: "设置", icon: Settings },
 ];
 
+const TASK_NAV_EXPANDED_KEY = "organize-sidebar-task-nav-expanded";
+
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const isTaskWorkspace = pathname === "/tasks" || pathname.startsWith("/tasks/");
+  const isGlobalTaskTool = pathname === "/tasks/countdown" || pathname === "/tasks/search";
+  const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
+  const [tasksExpanded, setTasksExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
   const supabase = useMemo(() => createClient(), []);
+  const { tasks, lists, createList, refetch: refetchTasks } = useTaskRepository();
   useThemeColor();
 
   useEffect(() => {
@@ -65,11 +76,13 @@ export function Sidebar() {
     const storedNotesExpanded =
       localStorage.getItem("organize-sidebar-notes-expanded") === "true";
     setNotesExpanded(storedNotesExpanded || pathname.startsWith("/notes/"));
+    const storedTasksExpanded = localStorage.getItem(TASK_NAV_EXPANDED_KEY) === "1";
+    setTasksExpanded(storedTasksExpanded || isTaskWorkspace);
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
     };
-  }, [pathname]);
+  }, [isTaskWorkspace, pathname]);
 
   const loadNoteTree = useCallback(async () => {
     setNotesLoading(true);
@@ -112,6 +125,12 @@ export function Sidebar() {
     return () => window.removeEventListener("organize:notes-changed", reload);
   }, [loadNoteTree, notesExpanded]);
 
+  useEffect(() => {
+    const reloadTasks = () => void refetchTasks();
+    window.addEventListener("organize:tasks-changed", reloadTasks);
+    return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
+  }, [refetchTasks]);
+
   const toggleCollapsed = () => {
     const next = !collapsed;
     setCollapsed(next);
@@ -123,6 +142,38 @@ export function Sidebar() {
     const next = !notesExpanded;
     setNotesExpanded(next);
     localStorage.setItem("organize-sidebar-notes-expanded", String(next));
+  };
+
+  const toggleTasksExpanded = () => {
+    const next = !tasksExpanded;
+    setTasksExpanded(next);
+    localStorage.setItem(TASK_NAV_EXPANDED_KEY, next ? "1" : "0");
+  };
+
+  const taskSelection: SidebarSelection = useMemo(() => {
+    const scope = (searchParams.get("scope") as TaskScope) || "all";
+    return {
+      scope,
+      listId: scope === "list" ? searchParams.get("list") : null,
+    };
+  }, [searchParams]);
+
+  const navigateToTasks = (selection: SidebarSelection) => {
+    const params = new URLSearchParams();
+    params.set("scope", selection.scope);
+    if (selection.scope === "list" && selection.listId) {
+      params.set("list", selection.listId);
+    }
+    setTasksExpanded(true);
+    localStorage.setItem(TASK_NAV_EXPANDED_KEY, "1");
+    setMobileOpen(false);
+    router.push(`/tasks?${params.toString()}`);
+  };
+
+  const createTaskList = async () => {
+    const name = window.prompt("清单名称：")?.trim();
+    if (!name) return;
+    await createList(name);
   };
 
   const createNote = async () => {
@@ -228,6 +279,58 @@ export function Sidebar() {
           const isActive = item.href === "/"
             ? pathname === "/"
             : pathname.startsWith(item.href);
+          if (item.href === "/tasks" && !compact) {
+            return (
+              <div key={item.href}>
+                <div
+                  className={cn(
+                    "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <Link
+                    href="/tasks?scope=all"
+                    onClick={() => {
+                      setTasksExpanded(true);
+                      localStorage.setItem(TASK_NAV_EXPANDED_KEY, "1");
+                      setMobileOpen(false);
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
+                  >
+                    <ListChecks className="h-4 w-4 shrink-0" />
+                    <span className="truncate">待办</span>
+                  </Link>
+                  <button
+                    type="button"
+                    className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                    title={tasksExpanded ? "收起待办列表" : "展开待办列表"}
+                    aria-label={tasksExpanded ? "收起待办列表" : "展开待办列表"}
+                    aria-expanded={tasksExpanded}
+                    onClick={toggleTasksExpanded}
+                  >
+                    {tasksExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                {tasksExpanded && (
+                  <TaskSidebar
+                    lists={lists}
+                    tasks={tasks}
+                    selection={taskSelection}
+                    active={isTaskListContext}
+                    hideHeading
+                    onSelect={navigateToTasks}
+                    onCreateList={() => void createTaskList()}
+                  />
+                )}
+              </div>
+            );
+          }
           if (item.href === "/notes" && !compact) {
             return (
               <div key={item.href}>

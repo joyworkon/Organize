@@ -35,6 +35,7 @@ const ID_TABLES = [
   "task_attachments",
   "task_activities",
   "task_templates",
+  "countdown_days",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -215,6 +216,9 @@ export function prepareRestorePayload(
     task_id: remap(row.task_id, maps.tasks),
   }));
   data.task_templates = (backup.data.task_templates || []).map((row) => withId(row, maps.task_templates));
+  data.countdown_days = (backup.data.countdown_days || []).map((row) =>
+    withId(row, maps.countdown_days)
+  );
 
   // tasks 新列的外键重映射（list_id → task_lists）
   data.tasks = data.tasks.map((row) => ({

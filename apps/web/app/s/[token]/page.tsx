@@ -69,6 +69,7 @@ export default async function SharePage({ params }: PageProps) {
               fill
               className="object-cover"
               unoptimized
+              referrerPolicy="no-referrer"
             />
           </div>
         )}

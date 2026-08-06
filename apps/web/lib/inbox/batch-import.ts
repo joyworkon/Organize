@@ -15,6 +15,14 @@ export interface BatchItem {
   title?: string;
 }
 
+const EXPLICIT_HTTP_URL = /https?:\/\/[^\s<>"'，。；！？、）】》]+/gi;
+const TRAILING_URL_PUNCTUATION = /[\])}>.,;!?，。；！？、）】》]+$/;
+
+/** 从链接或平台分享文案中提取第一个 URL。 */
+export function extractFirstUrl(raw: string): string | null {
+  return parseBatchUrls(raw)[0] || null;
+}
+
 /**
  * 把用户粘贴的文本拆成 URL 列表。
  * - 支持换行 / 逗号 / 空格 / 制表符分隔
@@ -33,12 +41,31 @@ export function parseBatchUrls(raw: string): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const t of tokens) {
-    // 容错：没带协议的补 https://
-    const normalized = /^https?:\/\//i.test(t) ? t : `https://${t}`;
-    if (!/^https?:\/\/.+\..+/i.test(normalized)) continue; // 至少要有个点
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    result.push(normalized);
+    const explicitUrls = t.match(EXPLICIT_HTTP_URL);
+    const candidates = explicitUrls?.length ? explicitUrls : [t];
+
+    for (const candidate of candidates) {
+      const cleaned = candidate.replace(TRAILING_URL_PUNCTUATION, "");
+      const hasProtocol = /^https?:\/\//i.test(cleaned);
+      if (!hasProtocol && !cleaned.includes(".")) continue;
+      const normalized = hasProtocol ? cleaned : `https://${cleaned}`;
+
+      try {
+        const parsed = new URL(normalized);
+        if (
+          !["http:", "https:"].includes(parsed.protocol) ||
+          !parsed.hostname.includes(".")
+        ) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      result.push(normalized);
+    }
   }
   return result;
 }
