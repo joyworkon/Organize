@@ -64,6 +64,11 @@ function renderInline(nodes: PMNode[] | undefined): string {
         const alt = String(node.attrs?.alt || "");
         return `![${alt}](${src})`;
       }
+      if (node.type === "inlineMath") {
+        // 编辑器扩展存储属性名为 latex（extensions/math.tsx），expr 仅为兼容旧数据兜底
+        const latex = String(node.attrs?.latex || node.attrs?.expr || node.text || "");
+        return latex ? `$${latex}$` : "";
+      }
       return "";
     })
     .join("");
@@ -128,6 +133,18 @@ function renderBlock(node: PMNode): string {
 
     case "table": {
       return renderTable(node);
+    }
+
+    case "mathBlock": {
+      const latex = String(node.attrs?.latex || node.attrs?.expr || (node.content || []).map((c) => c.text || "").join(""));
+      return latex ? `$$\n${latex}\n$$` : "";
+    }
+
+    case "fileAttachment": {
+      // 附件块（extensions/file-attachment.tsx）：atom 无子节点，导出为文件链接
+      const src = String(node.attrs?.src || "");
+      const name = String(node.attrs?.name || "附件");
+      return src ? `[📎 ${name}](${src})` : `📎 ${name}`;
     }
 
     default:

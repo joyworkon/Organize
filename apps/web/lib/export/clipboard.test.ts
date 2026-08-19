@@ -504,3 +504,93 @@ describe("copyNoteContent", () => {
     expect(plainArg).toMatch(/My Note\n\s*\nbody/);
   });
 });
+
+
+describe("导出序列化：公式与附件（latex 属性 / fileAttachment）", () => {
+  it("inlineMath / mathBlock 读取 latex 属性（HTML）", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "公式 " },
+            { type: "inlineMath", attrs: { latex: "x^2+y^2" } },
+          ],
+        },
+        { type: "mathBlock", attrs: { latex: "\\int_0^1 x dx" } },
+      ],
+    };
+    const html = tiptapJsonToHtml(json);
+    expect(html).toContain("x^2+y^2");
+    expect(html).toContain("\\int_0^1 x dx");
+  });
+
+  it("inlineMath 兼容旧 expr 属性（HTML）", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "inlineMath", attrs: { expr: "a+b" } }],
+        },
+      ],
+    };
+    expect(tiptapJsonToHtml(json)).toContain("a+b");
+  });
+
+  it("inlineMath / mathBlock 读取 latex 属性（纯文本）", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "inlineMath", attrs: { latex: "e=mc^2" } }],
+        },
+        { type: "mathBlock", attrs: { latex: "\\sum i" } },
+      ],
+    };
+    const text = tiptapJsonToPlainText(json);
+    expect(text).toContain("e=mc^2");
+    expect(text).toContain("\\sum i");
+  });
+
+  it("fileAttachment 导出为带文件名的链接（HTML）", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "fileAttachment",
+          attrs: { src: "https://example.com/a.pdf", name: "报告.pdf", size: 1024, mime: "application/pdf" },
+        },
+      ],
+    };
+    const html = tiptapJsonToHtml(json);
+    expect(html).toContain('href="https://example.com/a.pdf"');
+    expect(html).toContain("报告.pdf");
+  });
+
+  it("fileAttachment 无 src 时仍保留文件名（HTML + 纯文本）", () => {
+    const json = {
+      type: "doc",
+      content: [{ type: "fileAttachment", attrs: { name: "丢失地址.zip" } }],
+    };
+    expect(tiptapJsonToHtml(json)).toContain("丢失地址.zip");
+    expect(tiptapJsonToPlainText(json)).toContain("丢失地址.zip");
+  });
+
+  it("fileAttachment 文件名经过转义（HTML）", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "fileAttachment",
+          attrs: { src: "https://example.com/x", name: '<script>alert(1)</script>' },
+        },
+      ],
+    };
+    const html = tiptapJsonToHtml(json);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
