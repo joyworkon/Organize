@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { Task, TaskWithTags, TaskList, Tag } from "@organize/shared";
 import { mutateTrash } from "@/lib/trash/client";
+import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 
 export type TaskScope =
   | "all"
@@ -89,9 +90,13 @@ export function useTaskRepository() {
       };
       const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
       if (error) throw error;
-      // 重复任务：done 时触发幂等生成（RPC 内部幂等）
+      // 重复任务：done 时触发幂等生成（RPC 内部自检，非重复任务返回 null）
       if (status === "done") {
-        await supabase.rpc("complete_recurring_task", { p_task_id: taskId });
+        const newId = await generateNextRecurringTask(supabase, taskId);
+        if (newId) {
+          toast({ title: "已生成下一次重复任务" });
+          await fetchAll();
+        }
       }
       // 成功后更新快照
       snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, status } : t);
@@ -99,7 +104,7 @@ export function useTaskRepository() {
       rollback();
       toast({ title: "更新失败，已回滚", variant: "destructive" });
     }
-  }, [supabase]);
+  }, [supabase, fetchAll]);
 
   /** 乐观切换置顶，失败回滚 */
   const togglePin = useCallback(async (taskId: string) => {

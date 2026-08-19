@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -162,8 +163,8 @@ export default function TaskDetailPage() {
     }
   }
 
-  async function saveTask(updates: Partial<Task>) {
-    if (!task) return;
+  async function saveTask(updates: Partial<Task>): Promise<boolean> {
+    if (!task) return false;
     setSaving(true);
     try {
       const { error } = await supabase
@@ -173,9 +174,11 @@ export default function TaskDetailPage() {
       if (error) throw error;
       setTask(prev => prev ? { ...prev, ...updates } : null);
       toast({ title: "已保存" });
+      return true;
     } catch (err) {
       console.error("保存失败:", err);
       toast({ title: "保存失败", variant: "destructive" });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -322,7 +325,15 @@ export default function TaskDetailPage() {
     } else {
       updates.completed_at = null;
     }
-    await saveTask(updates);
+    const ok = await saveTask(updates);
+    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
+    if (ok && status === "done" && task) {
+      const newId = await generateNextRecurringTask(supabase, task.id);
+      if (newId) {
+        toast({ title: "已生成下一次重复任务" });
+        window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      }
+    }
   }
 
   async function handleComplete(reflectionData?: { title?: string; content?: string; lessonType?: string }) {

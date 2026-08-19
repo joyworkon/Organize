@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagFilter } from "@/components/tags/tag-filter";
@@ -150,6 +151,15 @@ function TasksPageInner() {
     if (error) {
       setTasks(previous);
       toast({ title: "保存失败，已回滚", variant: "destructive" });
+      return;
+    }
+    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
+    if (normalized.status === "done") {
+      const newId = await generateNextRecurringTask(supabase, taskId);
+      if (newId) {
+        toast({ title: "已生成下一次重复任务" });
+        window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      }
     }
   }, [supabase, tasks]);
 

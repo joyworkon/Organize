@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -248,7 +249,12 @@ export default function TodayView() {
     } else {
       updates.completed_at = null;
     }
-    await supabase.from("tasks").update(updates).eq("id", taskId);
+    const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
+    if (!error && status === "done") {
+      // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
+      const newId = await generateNextRecurringTask(supabase, taskId);
+      if (newId) window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+    }
     loadData();
   };
 
