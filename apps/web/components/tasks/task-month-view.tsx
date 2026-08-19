@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags } from "@organize/shared";
 
@@ -184,11 +184,9 @@ export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMont
         <CalendarDays className="h-6 w-6" />
         <h2 className="text-xl font-semibold">{cursor.getFullYear()}年{cursor.getMonth() + 1}月</h2>
         <div className="ml-auto flex items-center gap-1">
-          <button type="button" className="flex items-center gap-1 rounded-lg border px-3 py-2 text-sm hover:bg-muted">月<ChevronRight className="h-3.5 w-3.5 rotate-90" /></button>
           <button type="button" aria-label="上个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded-lg border p-2 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
           <button type="button" onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))} className="rounded-lg border px-4 py-2 text-sm hover:bg-muted">今天</button>
           <button type="button" aria-label="下个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="rounded-lg border p-2 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
-          <button type="button" aria-label="更多日历操作" className="rounded-lg p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
         </div>
       </header>
 
