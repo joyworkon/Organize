@@ -495,7 +495,8 @@ describe("NotePageMenu", () => {
   });
 
   describe("快捷键显示", () => {
-    it("拷贝链接显示 ⌘L", async () => {
+    // ⌘L/⌘D 曾是纯装饰标注（未绑定任何按键且与浏览器快捷键冲突），已移除
+    it("拷贝链接不显示未绑定的假快捷键", async () => {
       const props = createProps();
       act(() => root.render(createElement(NotePageMenu, props)));
       openMenu(container);
@@ -503,10 +504,10 @@ describe("NotePageMenu", () => {
 
       const options = getVisibleOptions();
       const copyLinkOption = options.find((o) => o.textContent!.includes("拷贝链接"))!;
-      expect(copyLinkOption.textContent).toContain("⌘L");
+      expect(copyLinkOption.textContent).not.toContain("⌘L");
     });
 
-    it("创建副本显示 ⌘D", async () => {
+    it("创建副本不显示未绑定的假快捷键", async () => {
       const props = createProps();
       act(() => root.render(createElement(NotePageMenu, props)));
       openMenu(container);
@@ -514,7 +515,7 @@ describe("NotePageMenu", () => {
 
       const options = getVisibleOptions();
       const dupOption = options.find((o) => o.textContent!.includes("创建副本"))!;
-      expect(dupOption.textContent).toContain("⌘D");
+      expect(dupOption.textContent).not.toContain("⌘D");
     });
   });
 

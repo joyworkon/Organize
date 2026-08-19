@@ -20,6 +20,9 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
+import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
+import { exportNoteToMarkdown } from "@/components/share/export-button";
+import { mutateTrash } from "@/lib/trash/client";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
@@ -91,6 +94,7 @@ export default function NoteEditorPage() {
   const [smallFont, setSmallFont] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -306,6 +310,15 @@ export default function NoteEditorPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    // 刚执行过"恢复历史版本"：本地草稿已被服务端快照替代，跳过兜底保存，
+    // 否则卸载时的 flushSave 会把旧草稿写回，盖掉刚恢复的内容。
+    try {
+      if (sessionStorage.getItem(`organize:skip-flush:${noteId}`)) {
+        sessionStorage.removeItem(`organize:skip-flush:${noteId}`);
+        dirtyRef.current = false;
+        return;
+      }
+    } catch { /* sessionStorage 不可用时按正常流程 */ }
     if (savingPromiseRef.current) return savingPromiseRef.current;
     const promise = (async () => {
       setSaving(true);
@@ -574,6 +587,23 @@ export default function NoteEditorPage() {
     smallFont,
   ]);
 
+  /** 导出当前页为 Markdown（先落库保证导出最新内容） */
+  const exportMarkdown = useCallback(async () => {
+    await flushSave();
+    exportNoteToMarkdown(noteId, title || undefined);
+  }, [flushSave, noteId, title]);
+
+  /** 删除当前页（移入垃圾箱，可恢复） */
+  const deleteNote = useCallback(async () => {
+    if (!window.confirm("将这篇笔记移入垃圾箱？")) return;
+    try {
+      await mutateTrash("note", [noteId], "soft_delete");
+      router.push("/notes");
+    } catch {
+      showToast("删除失败");
+    }
+  }, [noteId, router, showToast]);
+
   /** 移动笔记：乐观更新本地树+面包屑+状态，失败回滚。 */
   const handleMove = useCallback(
     async (nextParentId: string | null) => {
@@ -783,6 +813,9 @@ export default function NoteEditorPage() {
               onCopyContent={copyContent}
               onDuplicate={duplicateNote}
               onMove={() => setMoveDialogOpen(true)}
+              onShowHistory={() => setHistoryOpen(true)}
+              onExport={() => void exportMarkdown()}
+              onDelete={() => void deleteNote()}
             />
           </div>
         </div>
@@ -876,6 +909,12 @@ export default function NoteEditorPage() {
         currentParentId={parentNoteId}
         notes={allNotes}
         onConfirm={handleMove}
+      />
+
+      <NoteHistoryDialog
+        noteId={noteId}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
       />
     </div>
   );
