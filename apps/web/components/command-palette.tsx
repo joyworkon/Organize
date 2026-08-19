@@ -342,7 +342,7 @@ export function CommandPalette() {
         return;
       }
 
-      const searchTerm = `%${query}%`;
+      const searchTerm = `%${query.replace(/[%_",()\\]/g, " ")}%`;
 
       if (isMockMode) {
         const { mockDb } = await import("@/lib/supabase/mock-data");
@@ -356,10 +356,15 @@ export function CommandPalette() {
           );
 
         const noteAll = (mockDb.notes as Note[])
-          .filter((note) =>
-            note.user_id === user.id &&
-            note.title && note.title.toLowerCase().includes(q)
-          );
+          .filter((note) => {
+            if (note.user_id !== user.id) return false;
+            // mock 模式同样按标题 + 正文全文匹配
+            const contentText = extractTextFromContent(note.content);
+            return (
+              (note.title && note.title.toLowerCase().includes(q)) ||
+              contentText.toLowerCase().includes(q)
+            );
+          });
 
         const taskAll = (mockDb.tasks as Task[])
           .filter((task) =>
@@ -407,7 +412,8 @@ export function CommandPalette() {
             .from("notes")
             .select("id, title, content", { count: "exact" })
             .eq("user_id", user.id)
-            .ilike("title", searchTerm)
+            // 全文搜索：标题 + 正文（search_text 生成列，037 迁移）
+            .or(`title.ilike.${searchTerm},search_text.ilike.${searchTerm}`)
             .limit(SEARCH_LIMIT),
           supabase
             .from("tasks")

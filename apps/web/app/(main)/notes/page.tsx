@@ -87,7 +87,10 @@ export default function NotesPage() {
       .eq("user_id", user.id);
 
     if (search.trim()) {
-      query = query.ilike("title", `%${search.trim()}%`);
+      // 全文搜索：标题 + 正文（search_text 生成列，037 迁移）
+      // 剥离会破坏 PostgREST or() 语法的字符
+      const pattern = `%${search.trim().replace(/[%_",()\\]/g, " ")}%`;
+      query = query.or(`title.ilike.${pattern},search_text.ilike.${pattern}`);
     }
     if (scopedIds) query = query.in("id", scopedIds);
 
