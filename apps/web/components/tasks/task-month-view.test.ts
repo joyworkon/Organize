@@ -1,6 +1,6 @@
 // TaskMonthView 纯逻辑测试（不依赖 React DOM 渲染）
 import { describe, it, expect } from "vitest";
-import { getTaskDate, getMonthCells, groupTasksByDate } from "./task-month-view";
+import { getTaskDate, getMonthCells, groupTasksByDate, layoutWeekSegments } from "./task-month-view";
 import type { TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -86,5 +86,94 @@ describe("groupTasksByDate", () => {
 
   it("空数组返回空 Map", () => {
     expect(groupTasksByDate([]).size).toBe(0);
+  });
+});
+
+
+describe("layoutWeekSegments（跨天任务连续条布局）", () => {
+  // 2026-08-17 是周一，这一周为 8/17（周一）~ 8/23（周日）
+  const week = Array.from({ length: 7 }, (_, i) => new Date(2026, 7, 17 + i));
+  const L = (d: number, h = 10) => new Date(2026, 7, d, h).toISOString();
+
+  function mkRangeTask(id: string, start: string, end: string | null): TaskWithTags {
+    return {
+      ...mkTask(id, start),
+      schedule_end_at: end,
+    } as TaskWithTags;
+  }
+
+  it("跨天任务只产生一个连续段，跨列正确", () => {
+    const { segments } = layoutWeekSegments(
+      [mkRangeTask("t1", L(18), L(21))],
+      week
+    );
+    expect(segments).toHaveLength(1);
+    expect(segments[0].startCol).toBe(1); // 周二
+    expect(segments[0].endCol).toBe(4);   // 周五
+    expect(segments[0].continuesBefore).toBe(false);
+    expect(segments[0].continuesAfter).toBe(false);
+  });
+
+  it("从上周延续 / 延续到下周：夹到周界并标记不闭合", () => {
+    const { segments } = layoutWeekSegments(
+      [mkRangeTask("t1", L(15), L(25))],
+      week
+    );
+    expect(segments).toHaveLength(1);
+    expect(segments[0].startCol).toBe(0);
+    expect(segments[0].endCol).toBe(6);
+    expect(segments[0].continuesBefore).toBe(true);
+    expect(segments[0].continuesAfter).toBe(true);
+  });
+
+  it("同一任务在相邻两周各得一段（分周渲染）", () => {
+    const nextWeek = week.map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7));
+    const thisWeekSegs = layoutWeekSegments([mkRangeTask("t1", L(21), L(26))], week).segments;
+    const nextWeekSegs = layoutWeekSegments([mkRangeTask("t1", L(21), L(26))], nextWeek).segments;
+    expect(thisWeekSegs).toHaveLength(1);
+    expect(thisWeekSegs[0].continuesAfter).toBe(true);
+    expect(nextWeekSegs).toHaveLength(1);
+    expect(nextWeekSegs[0].continuesBefore).toBe(true);
+  });
+
+  it("不重叠的任务复用同一泳道", () => {
+    const { segments } = layoutWeekSegments(
+      [mkRangeTask("t1", L(17), L(18)), mkRangeTask("t2", L(19), L(20))],
+      week
+    );
+    expect(segments).toHaveLength(2);
+    expect(segments[0].lane).toBe(0);
+    expect(segments[1].lane).toBe(0);
+  });
+
+  it("重叠的任务分配到不同泳道", () => {
+    const { segments } = layoutWeekSegments(
+      [mkRangeTask("t1", L(17), L(20)), mkRangeTask("t2", L(18), L(21))],
+      week
+    );
+    const lanes = segments.map((s: { lane: number }) => s.lane).sort();
+    expect(lanes).toEqual([0, 1]);
+  });
+
+  it("超出 MAX_LANES 的任务折叠为每列 +N", () => {
+    const tasks = [
+      mkRangeTask("t1", L(18), L(18)),
+      mkRangeTask("t2", L(18), L(18)),
+      mkRangeTask("t3", L(18), L(18)),
+      mkRangeTask("t4", L(18), L(18)),
+      mkRangeTask("t5", L(18), L(18)),
+    ];
+    const { segments, hiddenByCol } = layoutWeekSegments(tasks, week);
+    expect(segments).toHaveLength(3); // MAX_LANES = 3
+    expect(hiddenByCol[1]).toBe(2);   // 周二列折叠 2 条
+    expect(hiddenByCol[0]).toBe(0);
+  });
+
+  it("无日期任务与周外任务被跳过", () => {
+    const { segments } = layoutWeekSegments(
+      [mkTask("t1", null), mkRangeTask("t2", L(30), L(31))],
+      week
+    );
+    expect(segments).toHaveLength(0);
   });
 });
