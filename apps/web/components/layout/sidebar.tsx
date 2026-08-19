@@ -33,6 +33,7 @@ import { ThemeColorPicker } from "@/components/theme-color-picker";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
 import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
+import type { TaskList } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
 import { useTaskRepository } from "@/lib/tasks/repository";
 
@@ -67,7 +68,7 @@ export function Sidebar() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
   const supabase = useMemo(() => createClient(), []);
-  const { tasks, lists, createList, refetch: refetchTasks } = useTaskRepository();
+  const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   useThemeColor();
 
   useEffect(() => {
@@ -174,6 +175,16 @@ export function Sidebar() {
     const name = window.prompt("清单名称：")?.trim();
     if (!name) return;
     await createList(name);
+  };
+
+  const renameTaskList = async (list: TaskList) => {
+    const name = window.prompt("清单新名称：", list.name)?.trim();
+    if (!name || name === list.name) return;
+    await updateList(list.id, { name });
+  };
+
+  const deleteTaskList = async (list: TaskList) => {
+    await deleteList(list.id);
   };
 
   const createNote = async () => {
@@ -326,6 +337,8 @@ export function Sidebar() {
                     hideHeading
                     onSelect={navigateToTasks}
                     onCreateList={() => void createTaskList()}
+                    onRenameList={(list) => void renameTaskList(list)}
+                    onDeleteList={(list) => void deleteTaskList(list)}
                   />
                 )}
               </div>
