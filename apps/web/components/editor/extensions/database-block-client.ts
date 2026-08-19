@@ -2,12 +2,13 @@
 
 import type { Editor } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
+import { toast } from "@/hooks/use-toast";
 
 /**
  * 在当前笔记 pos 处插入「行内数据库」块：
  * 1) POST /api/databases 创建数据库（parent_note_id = 当前 noteId）
  * 2) 在编辑器中插入 databaseBlock 带 databaseId
- * 失败时回退为普通段落提示。
+ * 失败时【不写入文档】（避免永久错误段落留在正文里），toast 提示后重试即可。
  */
 export async function insertInlineDatabase(editor: Editor, noteId: string | null | undefined, pos?: number): Promise<void> {
   let databaseId = "";
@@ -28,12 +29,17 @@ export async function insertInlineDatabase(editor: Editor, noteId: string | null
     databaseId = "";
   }
 
+  if (!databaseId) {
+    toast({ title: "创建数据库失败，请重试", variant: "destructive" });
+    return;
+  }
+
   const block: JSONContent = {
     type: "databaseBlock",
     attrs: { databaseId, viewId: "default_view" },
   };
 
-  insertDbBlock(editor, pos, block, databaseId ? null : "⚠️ 创建数据库失败，请刷新重试");
+  insertDbBlock(editor, pos, block);
 }
 
 /**
@@ -42,7 +48,7 @@ export async function insertInlineDatabase(editor: Editor, noteId: string | null
  * 2) POST /api/notes 创建子笔记（content 为一个 databaseBlock，title = 数据库标题）
  * 3) POST /api/databases 创建数据库（id=databaseId, parent_note_id=新笔记 id）
  * 4) 用一个链接段落替换当前位置块，并跳转到新笔记
- * 失败时在原位置插入错误段落，不跳转。
+ * 失败时【不写入文档】，toast 提示后重试即可。
  */
 export async function insertPageDatabase(editor: Editor, noteId: string | null | undefined, pos?: number, router?: { push: (url: string) => void }): Promise<void> {
   const databaseId = typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -83,7 +89,7 @@ export async function insertPageDatabase(editor: Editor, noteId: string | null |
     });
     if (!dbRes.ok) throw new Error("create database failed");
   } catch {
-    insertDbBlock(editor, pos, { type: "paragraph", content: [{ type: "text", text: "⚠️ 创建整页数据库失败，请刷新重试" }] }, null);
+    toast({ title: "创建整页数据库失败，请重试", variant: "destructive" });
     return;
   }
 
@@ -100,7 +106,7 @@ export async function insertPageDatabase(editor: Editor, noteId: string | null |
       },
     ],
   };
-  insertDbBlock(editor, pos, linkBlock, null);
+  insertDbBlock(editor, pos, linkBlock);
 
   if (router?.push) {
     router.push(`/notes/${newNoteId}`);
@@ -121,7 +127,7 @@ export async function insertLinkedDatabase(editor: Editor, pos?: number): Promis
   } catch { /* ignore */ }
 
   if (!databases.length) {
-    insertDbBlock(editor, pos, { type: "paragraph", content: [{ type: "text", text: "⚠️ 还没有可链接的数据库，请先创建一个数据库。" }] }, null);
+    toast({ title: "还没有可链接的数据库，请先创建一个数据库" });
     return;
   }
 
@@ -139,14 +145,12 @@ export async function insertLinkedDatabase(editor: Editor, pos?: number): Promis
     type: "databaseBlock",
     attrs: { databaseId: selected.id, viewId },
   };
-  insertDbBlock(editor, pos, block, null);
+  insertDbBlock(editor, pos, block);
 }
 
-function insertDbBlock(editor: Editor, pos: number | undefined, block: JSONContent, fallbackText: string | null) {
+function insertDbBlock(editor: Editor, pos: number | undefined, block: JSONContent) {
   if (!editor) return;
-  const finalBlock = fallbackText
-    ? { type: "paragraph" as const, content: [{ type: "text" as const, text: fallbackText }] }
-    : block;
+  const finalBlock = block;
   if (pos === undefined) {
     editor.chain().focus().insertContent(finalBlock).run();
   } else {
