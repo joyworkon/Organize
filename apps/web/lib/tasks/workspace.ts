@@ -85,7 +85,8 @@ export function searchTasks(
   lists: TaskList[]
 ): TaskWithTags[] {
   const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return tasks.filter((task) => !task.deleted_at);
+  // 空查询返回空结果：搜索页语义是"输入关键词开始搜索"，不应列出全部任务
+  if (!normalized) return [];
   const listNames = new Map(lists.map((list) => [list.id, list.name]));
   return tasks.filter((task) => {
     if (task.deleted_at) return false;

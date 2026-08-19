@@ -59,9 +59,9 @@ describe("task search", () => {
     expect(searchTasks(tasks, "result", lists).map((item) => item.id)).toEqual(["done", "cancelled"]);
   });
 
-  it("returns all non-deleted tasks for blank queries", () => {
+  it("returns no results for blank queries（搜索页语义：输入关键词才开始搜索）", () => {
     const tasks = [task({ id: "active" }), task({ id: "trash", deleted_at: "2026-01-02T00:00:00Z" })];
-    expect(searchTasks(tasks, "  ", lists).map((item) => item.id)).toEqual(["active"]);
+    expect(searchTasks(tasks, "  ", lists)).toEqual([]);
   });
 });
 

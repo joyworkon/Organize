@@ -53,7 +53,7 @@ function SearchPageInner() {
       </div>
       {!loading && query.trim() && results.length === 0 ? (
         <EmptyState icon={SearchIcon} title="没有匹配任务" description="试试标题、描述、清单名或标签名称" />
-      ) : (
+      ) : query.trim() ? (
         <div className="divide-y overflow-hidden rounded-xl border">
           {results.map((task) => {
             const status = TASK_STATUS_CONFIG[task.status];
@@ -80,9 +80,8 @@ function SearchPageInner() {
               </button>
             );
           })}
-          {!query.trim() && <div className="p-8 text-center text-sm text-muted-foreground">搜索结果会显示在这里</div>}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

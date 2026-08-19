@@ -214,6 +214,16 @@ function TasksPageInner() {
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
+  // 无 scope 参数时会重定向到第一个清单（见上方 effect）；
+  // 清单已就绪但还没跳转时先渲染加载态，避免"全部"列表闪一下再跳走
+  if (!searchParams.get("scope") && lists.length > 0) {
+    return (
+      <div className="grid h-[calc(100vh-11rem)] place-items-center rounded-lg border bg-background text-muted-foreground md:h-[calc(100vh-6rem)]">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
       <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden md:flex")}>
