@@ -18,6 +18,9 @@ import {
   Check,
   Search,
   FolderInput,
+  History,
+  FileDown,
+  Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NoteFont } from "@organize/shared";
@@ -33,6 +36,12 @@ interface NotePageMenuProps {
   onCopyContent: () => void;
   onDuplicate: () => void;
   onMove?: () => void;
+  /** 历史版本（不传则不显示） */
+  onShowHistory?: () => void;
+  /** 导出 Markdown（不传则不显示） */
+  onExport?: () => void;
+  /** 删除（移入垃圾箱；不传则不显示） */
+  onDelete?: () => void;
 }
 
 /** 菜单项类型 */
@@ -87,6 +96,9 @@ export function NotePageMenu({
   onCopyContent,
   onDuplicate,
   onMove,
+  onShowHistory,
+  onExport,
+  onDelete,
 }: NotePageMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -147,7 +159,6 @@ export function NotePageMenu({
           label: "拷贝链接",
           keywords: ["copy", "link", "链接", "kao bei lian jie", "url"],
           icon: Link2,
-          shortcut: "⌘L",
           onSelect: onCopyLink,
         },
         {
@@ -164,12 +175,36 @@ export function NotePageMenu({
           label: "创建副本",
           keywords: ["duplicate", "copy", "副本", "复制", "chuang jian fu ben", "clone"],
           icon: CopyPlus,
-          shortcut: "⌘D",
           onSelect: onDuplicate,
         },
+        ...(onShowHistory ? [{
+          id: "history",
+          type: "action" as const,
+          label: "历史版本",
+          keywords: ["history", "版本", "历史", "ban ben", "li shi", "version"],
+          icon: History,
+          onSelect: onShowHistory,
+        }] : []),
+        ...(onExport ? [{
+          id: "export",
+          type: "action" as const,
+          label: "导出 Markdown",
+          keywords: ["export", "导出", "markdown", "dao chu", "md"],
+          icon: FileDown,
+          onSelect: onExport,
+        }] : []),
+        ...(onDelete ? [{
+          id: "delete",
+          type: "action" as const,
+          label: "删除",
+          keywords: ["delete", "删除", "垃圾箱", "shan chu", "trash"],
+          icon: Trash2,
+          danger: true,
+          onSelect: onDelete,
+        }] : []),
       ],
     },
-  ], [font, smallFont, fullWidth, onFontChange, onToggleSmallFont, onToggleFullWidth, onCopyLink, onCopyContent, onDuplicate, onMove]);
+  ], [font, smallFont, fullWidth, onFontChange, onToggleSmallFont, onToggleFullWidth, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onExport, onDelete]);
 
   /** 打平的可选项列表（用于键盘导航和过滤） */
   const flatItems = useMemo(() => {

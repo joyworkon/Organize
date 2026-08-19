@@ -67,6 +67,11 @@ export function NoteHistoryDialog({
     try {
       const res = await fetch(`/api/notes/${noteId}/versions/${vid}`, { method: "POST" });
       if (res.ok) {
+        // 恢复成功后页面会整页刷新；通知笔记页卸载时跳过 flushSave，
+        // 否则未落库的本地草稿会被兜底保存写回，把刚恢复的内容盖掉。
+        try {
+          sessionStorage.setItem(`organize:skip-flush:${noteId}`, "1");
+        } catch { /* sessionStorage 不可用时忽略 */ }
         setOpen(false);
         // 跳到笔记页让用户看效果
         window.location.href = `/notes/${noteId}`;
