@@ -7,6 +7,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { Toaster } from "@/components/ui/toast";
 import { QuickAdd } from "@/components/quick-add";
 import { Onboarding } from "@/components/onboarding";
+import { PromptHost } from "@/components/ui/prompt-dialog";
 import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
 
 export default function MainLayout({
@@ -30,6 +31,7 @@ export default function MainLayout({
       </main>
       <QuickAdd />
       <Onboarding />
+      <PromptHost />
     </div>
   );
 }

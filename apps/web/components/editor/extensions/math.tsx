@@ -1,6 +1,7 @@
 "use client";
 
 import { Node, Extension } from "@tiptap/core";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import katex from "katex";
 import { useMemo } from "react";
@@ -26,10 +27,11 @@ function MathNodeView({ node, updateAttributes, extension }: NodeViewProps) {
   }, [latex, isBlock]);
 
   const handleClick = () => {
-    const next = window.prompt("编辑公式（LaTeX）", latex);
-    if (next !== null && next !== latex) {
-      updateAttributes({ latex: next });
-    }
+    void showPrompt({ title: "编辑公式（LaTeX）", defaultValue: latex }).then((next) => {
+      if (next !== null && next !== latex) {
+        updateAttributes({ latex: next });
+      }
+    });
   };
 
   return (

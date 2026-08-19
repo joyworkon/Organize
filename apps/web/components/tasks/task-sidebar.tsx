@@ -9,6 +9,12 @@ import {
   Calendar, CalendarDays, CheckCircle2, Trash2, List as ListIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import type { TaskList, TaskWithTags } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
 
@@ -139,27 +145,36 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
             </button>
           </div>
           {lists.map((list) => (
-            <div
-              key={list.id}
-              onContextMenu={(e) => {
-                if (onRenameList || onDeleteList) {
-                  e.preventDefault();
-                  const action = window.prompt(`${list.name}\n\n输入 r 改名，d 删除：`);
-                  if (action === "r" && onRenameList) onRenameList(list);
-                  else if (action === "d" && onDeleteList) {
-                    if (window.confirm(`删除清单「${list.name}」？清单内任务会移到未分类。`)) onDeleteList(list);
-                  }
-                }
-              }}
-            >
-              <NavItem
-                icon={ListIcon}
-                label={list.name}
-                count={listCounts.get(list.id) || 0}
-                sel={{ scope: "list", listId: list.id }}
-                accent={list.color || undefined}
-              />
-            </div>
+            <ContextMenu key={list.id}>
+              <ContextMenuTrigger asChild>
+                <div>
+                  <NavItem
+                    icon={ListIcon}
+                    label={list.name}
+                    count={listCounts.get(list.id) || 0}
+                    sel={{ scope: "list", listId: list.id }}
+                    accent={list.color || undefined}
+                  />
+                </div>
+              </ContextMenuTrigger>
+              {(onRenameList || onDeleteList) && (
+                <ContextMenuContent>
+                  {onRenameList && (
+                    <ContextMenuItem onClick={() => onRenameList(list)}>重命名</ContextMenuItem>
+                  )}
+                  {onDeleteList && (
+                    <ContextMenuItem
+                      className="text-destructive"
+                      onClick={() => {
+                        if (window.confirm(`删除清单「${list.name}」？清单内任务会移到未分类。`)) onDeleteList(list);
+                      }}
+                    >
+                      删除清单
+                    </ContextMenuItem>
+                  )}
+                </ContextMenuContent>
+              )}
+            </ContextMenu>
           ))}
 
           <div className="mt-2 border-t pt-1">

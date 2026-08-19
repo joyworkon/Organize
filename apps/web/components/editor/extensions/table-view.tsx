@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { showPrompt } from "@/components/ui/prompt-dialog";
+import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, GripVertical, Type, Hash, CheckSquare, Calendar, Link, List,
   ListChecks, ChevronDown, FileText, Image as FileIcon, X, Check,
@@ -317,7 +319,7 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
 
   const addColumn = async (type: DatabasePropertyType = "text") => {
     if (saving || readOnly || !db) return;
-    const name = window.prompt("列名：");
+    const name = await showPrompt({ title: "新建列", placeholder: "列名" });
     if (!name) return;
     const newProp: DatabaseProperty = {
       id: generateId("prop"),
@@ -330,7 +332,7 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
 
   const renameColumn = async (prop: DatabaseProperty) => {
     if (readOnly) return;
-    const name = window.prompt("列名：", prop.name);
+    const name = await showPrompt({ title: "重命名列", defaultValue: prop.name });
     if (!name || name === prop.name) return;
     await patchSchema(schema.map((p) => (p.id === prop.id ? { ...p, name: name.trim() } : p)));
   };
@@ -367,7 +369,7 @@ export function TableView({ databaseId, readOnly = false, columnWidths, onUpdate
   const deleteColumn = async (prop: DatabaseProperty) => {
     if (readOnly) return;
     if (schema.length <= 1) {
-      window.alert("至少保留一列");
+      toast({ title: "至少保留一列", variant: "destructive" });
       return;
     }
     if (!window.confirm(`确定删除列「${prop.name}」？该列所有数据将被清空。`)) return;

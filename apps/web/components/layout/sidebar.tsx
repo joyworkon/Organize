@@ -36,6 +36,7 @@ import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-side
 import type { TaskList } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
 import { useTaskRepository } from "@/lib/tasks/repository";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
@@ -172,13 +173,13 @@ export function Sidebar() {
   };
 
   const createTaskList = async () => {
-    const name = window.prompt("清单名称：")?.trim();
+    const name = (await showPrompt({ title: "新建清单", placeholder: "清单名称" }))?.trim();
     if (!name) return;
     await createList(name);
   };
 
   const renameTaskList = async (list: TaskList) => {
-    const name = window.prompt("清单新名称：", list.name)?.trim();
+    const name = (await showPrompt({ title: "重命名清单", defaultValue: list.name }))?.trim();
     if (!name || name === list.name) return;
     await updateList(list.id, { name });
   };

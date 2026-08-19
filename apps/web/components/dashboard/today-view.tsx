@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
 import type { Task, TaskWithTags, ReadingItem, NoteWithTags, LessonWithTags, Tag } from "@organize/shared";
 import { TASK_CATEGORY_CONFIG } from "@organize/shared";
@@ -284,7 +285,7 @@ export default function TodayView() {
   };
 
   const handleCreateTaskList = async () => {
-    const name = window.prompt("清单名称：")?.trim();
+    const name = (await showPrompt({ title: "新建清单", placeholder: "清单名称" }))?.trim();
     if (!name) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
