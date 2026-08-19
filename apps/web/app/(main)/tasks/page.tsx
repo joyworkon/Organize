@@ -3,13 +3,11 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowDownUp,
   Check,
   ChevronDown,
   Filter,
   ListChecks,
   Loader2,
-  MoreHorizontal,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
@@ -222,10 +220,6 @@ function TasksPageInner() {
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
-          <span className="ml-auto flex items-center gap-1">
-            <button type="button" aria-label="排序任务" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ArrowDownUp className="h-5 w-5" /></button>
-            <button type="button" aria-label="任务列表更多操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button>
-          </span>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
