@@ -34,7 +34,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Task, TaskActivity, TaskAttachment, TaskChecklist, TaskList, TaskWithTags, Tag as TagType } from "@organize/shared";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TASK_PRIORITY_CONFIG } from "@organize/shared";
+import type { Task, TaskActivity, TaskAttachment, TaskChecklist, TaskList, TaskPriority, TaskWithTags, Tag as TagType } from "@organize/shared";
 import { cn } from "@/lib/utils";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
 
@@ -197,6 +199,18 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
           trigger={<button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md px-2 py-1"><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
           align="start"
         />
+        <Select value={task.priority} onValueChange={(value: TaskPriority) => void onUpdate(task.id, { priority: value })}>
+          <SelectTrigger aria-label="优先级" className="h-8 w-auto min-w-[72px] gap-1 border-0 px-2 text-sm shadow-none hover:bg-muted">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(TASK_PRIORITY_CONFIG).map(([key, config]) => (
+              <SelectItem key={key} value={key}>
+                <span className="flex items-center gap-2"><Flag className={cn("h-3.5 w-3.5", config.color)} />{config.label}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto rounded-md p-2 hover:bg-muted", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
         <button type="button" aria-label="关闭任务详情" onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button>
       </header>
