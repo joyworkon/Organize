@@ -163,12 +163,21 @@ function renderNode(node: PMNode): string {
     case "column":
       return `<div class="column" style="flex:1">${renderChildren(node)}</div>`;
     case "inlineMath": {
-      const expr = String(node.attrs?.expr || node.text || "");
+      // 编辑器扩展存储属性名为 latex（extensions/math.tsx），expr 仅为兼容旧数据兜底
+      const expr = String(node.attrs?.latex || node.attrs?.expr || node.text || "");
       return `<code class="math inline">${escapeHtml(expr)}</code>`;
     }
     case "mathBlock": {
-      const expr = String(node.attrs?.expr || (node.content || []).map((c) => c.text || "").join(""));
+      const expr = String(node.attrs?.latex || node.attrs?.expr || (node.content || []).map((c) => c.text || "").join(""));
       return `<pre class="math block"><code>${escapeHtml(expr)}</code></pre>`;
+    }
+    case "fileAttachment": {
+      // 附件块（extensions/file-attachment.tsx）：atom 无子节点，导出为可点击的文件链接
+      const src = String(node.attrs?.src || "");
+      const name = String(node.attrs?.name || "附件");
+      return src
+        ? `<p class="file-attachment"><a href="${escapeHtml(src)}" target="_blank" rel="noopener noreferrer">📎 ${escapeHtml(name)}</a></p>`
+        : `<p class="file-attachment">📎 ${escapeHtml(name)}</p>`;
     }
     case "text":
       return renderMarks(escapeHtml(node.text || ""), node.marks);
@@ -290,7 +299,12 @@ function extractPlainText(node: PMNode): string {
       return (node.content || []).map(extractPlainText).join("");
     case "inlineMath":
     case "mathBlock":
-      return String(node.attrs?.expr || node.text || "");
+      return String(node.attrs?.latex || node.attrs?.expr || node.text || "");
+    case "fileAttachment": {
+      const name = String(node.attrs?.name || "附件");
+      const src = String(node.attrs?.src || "");
+      return src ? `[附件] ${name} (${src})` : `[附件] ${name}`;
+    }
     case "text":
       return node.text || "";
     case "htmlEmbed":
