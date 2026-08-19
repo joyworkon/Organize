@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
+import { computeDragReschedule } from "@/lib/tasks/reschedule";
 import { toast } from "@/hooks/use-toast";
 
 function CalendarPageInner() {
@@ -24,10 +25,16 @@ function CalendarPageInner() {
 
   const rescheduleTask = useCallback(
     async (taskId: string, date: Date) => {
-      const value = date.toISOString();
+      const task = tasks.find((item) => item.id === taskId);
+      // 整段平移：保留时长，避免 end < start 违反 tasks_schedule_order_check
+      const patch = computeDragReschedule({
+        schedule_start_at: task?.schedule_start_at ?? task?.due_date ?? null,
+        schedule_end_at: task?.schedule_end_at ?? null,
+        target: date,
+      });
       const { error } = await supabase
         .from("tasks")
-        .update({ schedule_start_at: value, due_date: value })
+        .update(patch)
         .eq("id", taskId);
       if (error) {
         toast({ title: "改期失败", variant: "destructive" });
@@ -36,7 +43,7 @@ function CalendarPageInner() {
       await refetch();
       window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
     },
-    [refetch, supabase]
+    [refetch, supabase, tasks]
   );
 
   if (loading) {
