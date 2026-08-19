@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
@@ -11,6 +11,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { applyReorderedGroup, computeSortOrderUpdates, reorderIds } from "@/lib/tasks/reorder";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -44,9 +45,16 @@ interface TaskRowProps {
   onOpen: () => void;
   onStatus: () => void;
   onDateChange: (value: TaskSchedule) => Promise<void>;
+  /** 拖拽排序（仅待办组启用） */
+  draggableRow?: boolean;
+  dropPosition?: "before" | "after" | null;
+  onDragStartRow?: () => void;
+  onDragOverRow?: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDropRow?: () => void;
+  onDragEndRow?: () => void;
 }
 
-function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange }: TaskRowProps) {
+function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange, draggableRow, dropPosition, onDragStartRow, onDragOverRow, onDropRow, onDragEndRow }: TaskRowProps) {
   const schedule: TaskSchedule = {
     schedule_start_at: task.schedule_start_at || task.due_date,
     schedule_end_at: task.schedule_end_at || null,
@@ -60,7 +68,12 @@ function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange }: 
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
-      className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors hover:bg-muted/50", selected && "bg-muted", task.status === "done" && "text-muted-foreground")}
+      draggable={draggableRow}
+      onDragStart={draggableRow ? (event) => { event.dataTransfer.effectAllowed = "move"; onDragStartRow?.(); } : undefined}
+      onDragOver={draggableRow ? (event) => { event.preventDefault(); onDragOverRow?.(event); } : undefined}
+      onDrop={draggableRow ? (event) => { event.preventDefault(); event.stopPropagation(); onDropRow?.(); } : undefined}
+      onDragEnd={draggableRow ? () => onDragEndRow?.() : undefined}
+      className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors hover:bg-muted/50", selected && "bg-muted", task.status === "done" && "text-muted-foreground", dropPosition === "before" && "border-t-2 border-t-primary", dropPosition === "after" && "border-b-2 border-b-primary", draggableRow && "cursor-grab active:cursor-grabbing")}
       style={{ borderLeft: `3px solid ${listColor || "transparent"}` }}
     >
       <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
@@ -107,6 +120,10 @@ function TasksPageInner() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  // 拖拽排序（仅待办组）：dragTaskId 为被拖任务，dropTarget 为落点行+位置
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
+  const activeTasksRef = useRef<TaskWithTags[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
   const selectedTaskId = searchParams.get("task");
@@ -182,6 +199,30 @@ function TasksPageInner() {
     toast({ title: "任务已移入垃圾箱" });
   }, [fetchTasks, supabase, updateUrl]);
 
+  /** 拖拽落点：把被拖任务插到目标行前/后，组内 sort_order 归一后持久化最小更新集 */
+  const handleDropRow = useCallback(async (targetId: string, position: "before" | "after") => {
+    setDropTarget(null);
+    const dragId = dragTaskId;
+    setDragTaskId(null);
+    if (!dragId || dragId === targetId) return;
+    const groupIds = activeTasksRef.current.map((task) => task.id);
+    const newOrder = reorderIds(groupIds, dragId, targetId, position === "after");
+    if (newOrder === groupIds) return;
+    const previous = tasks;
+    setTasks((current) => applyReorderedGroup(current, newOrder));
+    const updates = computeSortOrderUpdates(activeTasksRef.current, newOrder);
+    try {
+      const results = await Promise.all(
+        updates.map((update) => supabase.from("tasks").update({ sort_order: update.sort_order }).eq("id", update.id))
+      );
+      const failed = results.find((result) => result.error);
+      if (failed) throw failed.error;
+    } catch {
+      setTasks(previous);
+      toast({ title: "排序保存失败，已回滚", variant: "destructive" });
+    }
+  }, [dragTaskId, supabase, tasks]);
+
   const filteredTasks = useMemo(() => {
     const scoped = filterTasksByScope(tasks, sidebarSelection);
     return scoped.filter((task) => {
@@ -194,6 +235,7 @@ function TasksPageInner() {
   }, [categoryFilter, priorityFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
 
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
+  activeTasksRef.current = activeTasks;
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
   const listTitle = sidebarSelection.scope === "list" ? lists.find((list) => list.id === sidebarSelection.listId)?.name || "工作任务" : sidebarSelection.scope === "today" ? "今天" : sidebarSelection.scope === "upcoming" ? "最近7天" : sidebarSelection.scope === "completed" ? "已完成" : sidebarSelection.scope === "trash" ? "垃圾桶" : "全部任务";
   const currentList = lists.find((list) => list.id === sidebarSelection.listId);
@@ -261,7 +303,28 @@ function TasksPageInner() {
             {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
-                {activeTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
+                {activeTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    selected={task.id === selectedTaskId}
+                    listColor={lists.find((list) => list.id === task.list_id)?.color}
+                    onOpen={() => openTask(task)}
+                    onStatus={() => toggleStatus(task)}
+                    onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
+                    draggableRow
+                    dropPosition={dropTarget?.id === task.id ? dropTarget.position : null}
+                    onDragStartRow={() => setDragTaskId(task.id)}
+                    onDragOverRow={(event) => {
+                      if (!dragTaskId || dragTaskId === task.id) return;
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+                      setDropTarget((current) => (current?.id === task.id && current.position === position ? current : { id: task.id, position }));
+                    }}
+                    onDropRow={() => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); }}
+                    onDragEndRow={() => { setDragTaskId(null); setDropTarget(null); }}
+                  />
+                ))}
                 {completedTasks.length > 0 && <div className="mt-4 flex items-center gap-2 border-y bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />已完成 <span className="text-xs font-normal text-muted-foreground">{completedTasks.length}</span></div>}
                 {completedTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
               </div>
