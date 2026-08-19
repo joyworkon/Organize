@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -102,6 +103,13 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
     if (next !== (task.description || "")) await onUpdate(task.id, { description: next || null });
   };
 
+  const editDescription = async () => {
+    const next = await showPrompt({ title: "任务描述", defaultValue: description, placeholder: "补充任务描述…" });
+    if (next === null) return;
+    setDescription(next);
+    void onUpdate(task.id, { description: next.trim() || null });
+  };
+
   const addChecklist = async () => {
     const content = newChecklist.trim();
     if (!content) return;
@@ -117,7 +125,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
   };
 
   const addTag = async () => {
-    const name = window.prompt("标签名称：")?.trim();
+    const name = (await showPrompt({ title: "添加标签", placeholder: "标签名称" }))?.trim();
     if (!name) return;
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
@@ -223,7 +231,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
             <h1 className="min-w-0 flex-1 cursor-text text-2xl font-semibold leading-tight" onClick={() => setEditingTitle(true)}>{task.title}</h1>
           )}
         </div>
-        <button type="button" className="mt-5 text-sm text-muted-foreground hover:text-foreground" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }}><span className={cn(description ? "text-foreground" : "text-muted-foreground")}>{description || "描述"}</span></button>
+        <button type="button" className="mt-5 text-sm text-muted-foreground hover:text-foreground" onClick={() => void editDescription()}><span className={cn(description ? "text-foreground" : "text-muted-foreground")}>{description || "描述"}</span></button>
 
         <div className="mt-8 space-y-1">
           {checklists.map((item) => (
@@ -252,7 +260,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
       <footer className="flex min-h-16 shrink-0 items-center gap-2 border-t px-5">
         <span className="inline-flex min-w-0 items-center gap-2 text-sm text-muted-foreground"><span>{lists.find((item) => item.id === task.list_id)?.icon || "📋"}</span><span className="truncate">{lists.find((item) => item.id === task.list_id)?.name || "未分类"}</span></span>
         <span className="ml-auto flex items-center gap-1">
-          <button type="button" aria-label="编辑任务描述" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
+          <button type="button" aria-label="编辑任务描述" onClick={() => void editDescription()} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button type="button" aria-label="更多任务操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-56">

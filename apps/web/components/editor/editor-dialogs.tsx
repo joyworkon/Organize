@@ -1,6 +1,7 @@
 "use client";
 
 import type { Editor, JSONContent } from "@tiptap/core";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import type { AIBlockResult, CommentThread, EditSuggestion, Note } from "@organize/shared";
 import {
   Bot,
@@ -156,8 +157,10 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
   };
 
   const editComment = (commentId: string, currentBody: string) => {
-    const nextBody = window.prompt("编辑评论", currentBody)?.trim();
-    if (nextBody && nextBody !== currentBody) void mutate("PATCH", { commentId, body: nextBody });
+    void showPrompt({ title: "编辑评论", defaultValue: currentBody }).then((raw) => {
+      const nextBody = raw?.trim();
+      if (nextBody && nextBody !== currentBody) void mutate("PATCH", { commentId, body: nextBody });
+    });
   };
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import { TextSelection } from "@tiptap/pm/state";
 import {
   ArrowDown,
@@ -353,7 +354,8 @@ export function BlockActionMenu({
       // 非安全上下文里 navigator.clipboard 可能为 undefined 或 reject
       await navigator.clipboard.writeText(href);
     } catch {
-      window.prompt("复制链接", href);
+      // 剪贴板不可用：弹出对话框让用户手动复制
+      void showPrompt({ title: "复制链接", defaultValue: href });
     }
   };
 

@@ -3,6 +3,7 @@
 import type { Editor } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
 import { toast } from "@/hooks/use-toast";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 
 /**
  * 在当前笔记 pos 处插入「行内数据库」块：
@@ -132,8 +133,8 @@ export async function insertLinkedDatabase(editor: Editor, pos?: number): Promis
   }
 
   // 构建选择列表
-  const list = databases.map((db, i) => `${i + 1}. ${db.title || "未命名数据库"}`).join("\n");
-  const choice = window.prompt(`选择要链接的数据库：\n${list}\n\n输入序号：`);
+  const list = databases.map((db, i) => `${i + 1}. ${db.title || "未命名数据库"}`).join("　");
+  const choice = await showPrompt({ title: `选择要链接的数据库（输入序号）`, placeholder: list });
   if (!choice) return;
   const idx = parseInt(choice, 10) - 1;
   if (isNaN(idx) || idx < 0 || idx >= databases.length) return;

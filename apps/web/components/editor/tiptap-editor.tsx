@@ -64,6 +64,8 @@ import {
 } from "./extensions/block-multi-select";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/hooks/use-toast";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
 import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
 import { BLOCK_COMMANDS } from "./block-commands";
@@ -237,8 +239,9 @@ const blockOptions: BlockOption[] = [
     icon: Sigma,
     isActive: (e) => e.isActive("mathBlock"),
     action: (e) => {
-      const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
-      if (latex) e.chain().focus().insertMathBlock(latex).run();
+      void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 E = mc^2" }).then((latex) => {
+        if (latex) e.chain().focus().insertMathBlock(latex).run();
+      });
     },
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
@@ -411,20 +414,26 @@ function BubbleToolbar({
 
   const addLink = () => {
     const previousUrl = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt(previousUrl ? "编辑链接 URL（留空可取消链接）" : "输入链接 URL", previousUrl || "");
-    if (url === null) return;
-    if (url === "") {
-      editor.chain().focus().unsetLink().run();
-    } else {
-      editor.chain().focus().setLink({ href: url }).run();
-    }
+    void showPrompt({
+      title: previousUrl ? "编辑链接 URL（留空可取消链接）" : "输入链接 URL",
+      defaultValue: previousUrl || "",
+      placeholder: "https://",
+    }).then((url) => {
+      if (url === null) return;
+      if (url === "") {
+        editor.chain().focus().unsetLink().run();
+      } else {
+        editor.chain().focus().setLink({ href: url }).run();
+      }
+    });
   };
 
   const addInlineMath = () => {
-    const latex = window.prompt("输入 LaTeX 公式，例如 a^2 + b^2 = c^2");
-    if (latex) {
-      editor.chain().focus().insertInlineMath(latex).run();
-    }
+    void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 a^2 + b^2 = c^2" }).then((latex) => {
+      if (latex) {
+        editor.chain().focus().insertInlineMath(latex).run();
+      }
+    });
   };
 
   const insertEmoji = (emoji: string) => {
@@ -1215,9 +1224,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           if (dataUrl) nodes.push({ type: "image", attrs: { src: dataUrl } });
         } else {
           console.warn("[editor] 附件上传失败", error);
-          window.alert(
-            `「${file.name}」上传失败：${error instanceof Error ? error.message : "请稍后重试"}`
-          );
+          toast({
+            title: `「${file.name}」上传失败`,
+            description: error instanceof Error ? error.message : "请稍后重试",
+            variant: "destructive",
+          });
         }
       }
     }
@@ -1251,22 +1262,24 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   }, [editor, insertFiles]);
 
   const addImageUrl = useCallback(() => {
-    const url = window.prompt("输入图片 URL");
-    if (url) insertImage(url);
+    void showPrompt({ title: "输入图片 URL", placeholder: "https://" }).then((url) => {
+      if (url) insertImage(url);
+    });
   }, [insertImage]);
 
   const addReadingReference = useCallback((pos?: number) => {
     if (!editor) return;
-    const url = window.prompt("输入要引用的阅读条目 URL");
-    if (!url) return;
-    const paragraph = {
-      type: "paragraph",
-      content: [
-        { type: "text", text: "📖 参考: " },
-        { type: "text", marks: [{ type: "link", attrs: { href: url } }], text: url },
-      ],
-    };
-    pos === undefined ? editor.chain().focus().insertContent(paragraph).run() : replaceAt(editor, pos, paragraph);
+    void showPrompt({ title: "输入要引用的阅读条目 URL", placeholder: "https://" }).then((url) => {
+      if (!url) return;
+      const paragraph = {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "📖 参考: " },
+          { type: "text", marks: [{ type: "link", attrs: { href: url } }], text: url },
+        ],
+      };
+      pos === undefined ? editor.chain().focus().insertContent(paragraph).run() : replaceAt(editor, pos, paragraph);
+    });
   }, [editor]);
 
   const addTable = useCallback((rows: number, cols: number) => {
@@ -1339,26 +1352,29 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
           uploadImage(detail.pos, detail.nested, detail.range);
         }
         else if (detail.type === "math") {
-          const latex = window.prompt("输入 LaTeX 公式，例如 E = mc^2");
-          if (latex) {
-            if (detail.nested && detail.range) {
-              editor.chain().focus().deleteRange(detail.range).insertContent({ type: "mathBlock", attrs: { latex } }).run();
+          const pos = detail.pos;
+          const nestedRange = detail.nested && detail.range ? detail.range : null;
+          void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 E = mc^2" }).then((latex) => {
+            if (!latex) return;
+            if (nestedRange) {
+              editor.chain().focus().deleteRange(nestedRange).insertContent({ type: "mathBlock", attrs: { latex } }).run();
             } else {
-              replaceAt(editor, detail.pos, { type: "mathBlock", attrs: { latex } });
+              replaceAt(editor, pos, { type: "mathBlock", attrs: { latex } });
             }
-          }
+          });
         } else if (detail.type === "reference") {
           if (detail.nested && detail.range) {
-            const url = window.prompt("输入要引用的阅读条目 URL");
-            if (url) {
-              editor.chain().focus().deleteRange(detail.range).insertContent({
+            const range = detail.range;
+            void showPrompt({ title: "输入要引用的阅读条目 URL", placeholder: "https://" }).then((url) => {
+              if (!url) return;
+              editor.chain().focus().deleteRange(range).insertContent({
                 type: "paragraph",
                 content: [
                   { type: "text", text: "📖 参考: " },
                   { type: "text", marks: [{ type: "link", attrs: { href: url } }], text: url },
                 ],
               }).run();
-            }
+            });
           } else {
             addReadingReference(detail.pos);
           }
@@ -1491,7 +1507,7 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
               },
               getConfig: baseContext?.getConfig || (<T = Record<string, unknown>>() => ({} as T)),
               setConfig: baseContext?.setConfig || (async () => {}),
-              notify: baseContext?.notify || ((message) => window.alert(message)),
+              notify: baseContext?.notify || ((message) => toast({ title: message })),
             };
             if (extension.type === "ai-action") {
               const result = await (extension as AIActionExtension).handler(target.text, context);
