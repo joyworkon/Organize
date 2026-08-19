@@ -330,7 +330,10 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
       <div className="organize-database-body" contentEditable={false}>
         {error ? (
           <div className="organize-database-placeholder">
-            <p className="organize-database-error">⚠️ {error}</p>
+            <div className="organize-database-error">
+              <span>⚠️ {error}</span>
+              <button type="button" onClick={() => void load()}>重试</button>
+            </div>
           </div>
         ) : loading || !databaseId ? (
           <div className="organize-database-placeholder">
