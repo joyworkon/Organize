@@ -11,7 +11,6 @@ import {
   Check,
   CheckSquare2,
   Circle,
-  ClipboardList,
   Copy,
   Flag,
   FileText,
@@ -55,6 +54,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
+  const checklistInputRef = useRef<HTMLInputElement>(null);
   const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
@@ -198,7 +198,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
           align="start"
         />
         <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto rounded-md p-2 hover:bg-muted", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
-        <button type="button" aria-label="关闭任务详情" onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted md:hidden"><X className="h-5 w-5" /></button>
+        <button type="button" aria-label="关闭任务详情" onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
@@ -208,7 +208,6 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
           ) : (
             <h1 className="min-w-0 flex-1 cursor-text text-2xl font-semibold leading-tight" onClick={() => setEditingTitle(true)}>{task.title}</h1>
           )}
-          <button type="button" aria-label="任务属性" className="rounded p-1.5 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
         </div>
         <button type="button" className="mt-5 text-sm text-muted-foreground hover:text-foreground" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }}><span className={cn(description ? "text-foreground" : "text-muted-foreground")}>{description || "描述"}</span></button>
 
@@ -221,7 +220,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
           ))}
           <div className="flex items-center gap-2 border-b py-2">
             <Plus className="h-4 w-4 text-muted-foreground" />
-            <input aria-label="添加子任务" value={newChecklist} onChange={(event) => setNewChecklist(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void addChecklist(); }} placeholder="添加子任务" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+            <input ref={checklistInputRef} aria-label="添加子任务" value={newChecklist} onChange={(event) => setNewChecklist(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void addChecklist(); }} placeholder="添加子任务" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
           </div>
         </div>
 
@@ -240,11 +239,10 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
         <span className="inline-flex min-w-0 items-center gap-2 text-sm text-muted-foreground"><span>{lists.find((item) => item.id === task.list_id)?.icon || "📋"}</span><span className="truncate">{lists.find((item) => item.id === task.list_id)?.name || "未分类"}</span></span>
         <span className="ml-auto flex items-center gap-1">
           <button type="button" aria-label="编辑任务描述" onClick={() => { const next = window.prompt("任务描述：", description); if (next !== null) { setDescription(next); void onUpdate(task.id, { description: next.trim() || null }); } }} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><AlignLeft className="h-5 w-5" /></button>
-          <button type="button" aria-label="添加评论" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><ClipboardList className="h-5 w-5" /></button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button type="button" aria-label="更多任务操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-56">
-              <DropdownMenuItem onClick={() => void addChecklist()}><CheckSquare2 className="mr-2 h-4 w-4" />添加子任务</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => checklistInputRef.current?.focus()}><CheckSquare2 className="mr-2 h-4 w-4" />添加子任务</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })}><Pin className="mr-2 h-4 w-4" />{task.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void onUpdate(task.id, { status: "cancelled" })}><Archive className="mr-2 h-4 w-4" />放弃</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void addTag()}><Tag className="mr-2 h-4 w-4" />标签</DropdownMenuItem>
