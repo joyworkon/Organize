@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
+import { resolveTriggerDeleteRange } from "./slash-trigger";
 import type { EditorMenuPoint } from "./types";
 
 // 不允许在嵌套块（表格/列表/分栏内）使用的命令
@@ -52,10 +53,17 @@ export function BlockCommandMenu({
       // 嵌套场景：精确删除 "/" 及后续输入的字符
       editor.chain().deleteRange(range).run();
     } else {
-      // 顶层场景：删除块内触发字符及后续内容
+      // 顶层场景：只删除 suggestion 给出的触发符范围（"/"），保留块内已有文字；
+      // 查询词输入在菜单自己的输入框里，不在文档中，绝不能删到块尾
       const node = editor.state.doc.nodeAt(pos);
       if (!node || !node.isTextblock || !node.content.size) return;
-      editor.chain().deleteRange({ from: pos + 1, to: pos + node.nodeSize - 1 }).run();
+      const delRange = resolveTriggerDeleteRange({
+        range,
+        blockPos: pos,
+        blockNodeSize: node.nodeSize,
+        blockText: node.textContent,
+      });
+      if (delRange) editor.chain().deleteRange(delRange).run();
     }
   };
 
