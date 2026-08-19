@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Task } from "@organize/shared";
+import { MAX_TIMEOUT_MS, buildDueReminders, effectiveDueDate, pruneNotifiedKeys } from "@/lib/tasks/notifications";
 
 const NOTIFIED_STORAGE_KEY = "organize:notified-due";
 
@@ -101,55 +102,37 @@ export function useNotifications() {
     clearAllTimeouts();
 
     const now = new Date();
+
+    // 清理失效幂等 key：已删除/已完成/已改期任务的旧 key 全部移除，
+    // 否则改期后新日期永远不再提醒，且 localStorage 无限增长
+    const current = new Map<string, number>();
+    tasks.forEach((task) => {
+      if (task.status === "done" || task.status === "cancelled") return;
+      const due = effectiveDueDate(task);
+      if (due) current.set(task.id, due.getTime());
+    });
+    notifiedRef.current = pruneNotifiedKeys(notifiedRef.current, current);
     const notified = notifiedRef.current;
 
     tasks.forEach((task) => {
-      if (!task.due_date || task.status === "done" || task.status === "cancelled") {
-        return;
-      }
-
-      const dueDate = new Date(task.due_date);
-      const fifteenMinutesBefore = new Date(dueDate.getTime() - 15 * 60 * 1000);
-
-      const notifyKey15Min = `${task.id}-15min`;
-      const notifyKeyDue = `${task.id}-due`;
-      const notifyKeyToday = `${task.id}-today`;
-
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfDueDate = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-      const isToday = startOfToday.getTime() === startOfDueDate.getTime();
-
-      if (isToday && !notified.has(notifyKeyToday)) {
-        if (dueDate > now) {
-          showNotification("任务到期提醒", `任务即将到期：${task.title}`);
-        } else {
-          showNotification("任务已过期", `任务已过期：${task.title}`);
+      for (const reminder of buildDueReminders(task, now)) {
+        if (notified.has(reminder.key)) continue;
+        const delay = reminder.fireAt - now.getTime();
+        if (delay <= 0) {
+          showNotification(reminder.title, reminder.body);
+          notified.add(reminder.key);
+        } else if (delay <= MAX_TIMEOUT_MS) {
+          const timeout = setTimeout(() => {
+            if (!notified.has(reminder.key)) {
+              showNotification(reminder.title, reminder.body);
+              notified.add(reminder.key);
+              saveNotifiedTaskIds(notified);
+            }
+          }, delay);
+          timeoutsRef.current.push(timeout);
         }
-        notified.add(notifyKeyToday);
-      }
-
-      if (fifteenMinutesBefore > now && !notified.has(notifyKey15Min)) {
-        const msUntil15Min = fifteenMinutesBefore.getTime() - now.getTime();
-        const timeout = setTimeout(() => {
-          if (!notified.has(notifyKey15Min)) {
-            showNotification("任务即将到期", `任务即将到期：${task.title}（15分钟后）`);
-            notified.add(notifyKey15Min);
-            saveNotifiedTaskIds(notified);
-          }
-        }, msUntil15Min);
-        timeoutsRef.current.push(timeout);
-      }
-
-      if (dueDate > now && !notified.has(notifyKeyDue)) {
-        const msUntilDue = dueDate.getTime() - now.getTime();
-        const timeout = setTimeout(() => {
-          if (!notified.has(notifyKeyDue)) {
-            showNotification("任务到期提醒", `任务已到期：${task.title}`);
-            notified.add(notifyKeyDue);
-            saveNotifiedTaskIds(notified);
-          }
-        }, msUntilDue);
-        timeoutsRef.current.push(timeout);
+        // delay > MAX_TIMEOUT_MS（≈24.8 天）时 setTimeout 会溢出立即触发，
+        // 直接跳过排程；任务临近后本函数随任务列表刷新再次执行即可正常排程
       }
     });
 
