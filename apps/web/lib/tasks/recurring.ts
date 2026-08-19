@@ -4,10 +4,9 @@
  * RPC 自身幂等且自检：非重复任务 / 未完成 / 同系列已生成过 → 返回 null，
  * 因此所有"标记完成"路径都可以无条件调用。
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnySupabase = SupabaseClient<any, any, any>;
+type SupabaseClient = ReturnType<typeof createClient>;
 
 /**
  * 触发重复任务的下一次实例生成。
@@ -15,7 +14,7 @@ type AnySupabase = SupabaseClient<any, any, any>;
  *          因为"完成"本身已成功，生成失败不应让 UI 回滚完成状态）。
  */
 export async function generateNextRecurringTask(
-  supabase: AnySupabase,
+  supabase: SupabaseClient,
   taskId: string
 ): Promise<string | null> {
   try {
