@@ -16,6 +16,25 @@ type Fetcher = (
   init?: RequestInit
 ) => Promise<Response>;
 
+/**
+ * 垃圾箱操作成功后需要广播的变更事件（按资源类型）。
+ * 侧栏笔记树/任务列表等靠这些事件刷新；不广播的话删除/恢复后
+ * 侧栏仍挂着幽灵节点，点进去才报"不存在"。
+ */
+const TRASH_CHANGED_EVENTS: Partial<Record<TrashResourceType, string>> = {
+  note: "organize:notes-changed",
+  task: "organize:tasks-changed",
+  countdown: "organize:countdown-changed",
+};
+
+function dispatchTrashChanged(resourceType: TrashResourceType) {
+  if (typeof window === "undefined") return;
+  const eventName = TRASH_CHANGED_EVENTS[resourceType];
+  if (eventName) {
+    window.dispatchEvent(new CustomEvent(eventName));
+  }
+}
+
 interface TrashMutationResponse {
   success: true;
   affected: number;
@@ -55,6 +74,7 @@ export async function mutateTrash(
   if (!isTrashMutationResponse(body)) {
     throw new Error("垃圾箱返回了无效结果");
   }
+  dispatchTrashChanged(resourceType);
   return body.affected;
 }
 
