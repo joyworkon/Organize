@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   Filter,
+  Flag,
   ListChecks,
   Loader2,
 } from "lucide-react";
@@ -20,8 +21,8 @@ import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-po
 import { toast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
-import type { TagWithCount, Task, TaskCategory, TaskStatus, TaskWithTags } from "@organize/shared";
-import { TASK_CATEGORY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
+import type { TagWithCount, Task, TaskCategory, TaskPriority, TaskStatus, TaskWithTags } from "@organize/shared";
+import { TASK_CATEGORY_CONFIG, TASK_PRIORITY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import {
   fetchTaskWorkspace,
@@ -33,6 +34,7 @@ import {
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
+type PriorityFilter = "all" | TaskPriority;
 type TaskScope = SidebarSelection["scope"];
 
 interface TaskRowProps {
@@ -65,7 +67,16 @@ function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange }: 
         {task.status === "done" && <Check className="h-3.5 w-3.5" />}
       </button>
       <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-[15px] font-medium", task.status === "done" && "line-through")}>{task.title}</div>
+        <div className="flex items-center gap-1.5">
+          {/* 优先级旗标（medium 为默认不显示，减少视觉噪声） */}
+          {task.priority && task.priority !== "medium" && (
+            <Flag
+              aria-label={`优先级：${TASK_PRIORITY_CONFIG[task.priority].label}`}
+              className={cn("h-3.5 w-3.5 shrink-0", task.priority === "high" ? "fill-red-500 text-red-500" : "text-muted-foreground")}
+            />
+          )}
+          <div className={cn("truncate text-[15px] font-medium", task.status === "done" && "line-through")}>{task.title}</div>
+        </div>
         {task.description && <div className="mt-1 truncate text-sm text-muted-foreground">- {task.description}</div>}
         {task.tags && task.tags.length > 0 && <div className="mt-1 flex gap-1 text-[11px] text-muted-foreground">{task.tags.slice(0, 3).map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>}
       </div>
@@ -95,6 +106,7 @@ function TasksPageInner() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
   const selectedTaskId = searchParams.get("task");
@@ -175,10 +187,11 @@ function TasksPageInner() {
     return scoped.filter((task) => {
     if (statusFilter !== "all" && task.status !== statusFilter) return false;
     if (categoryFilter !== "all" && task.category !== categoryFilter) return false;
+    if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
     if (selectedTagIds.length && !(task.tags || []).some((tag) => selectedTagIds.includes(tag.id))) return false;
     return true;
     });
-  }, [categoryFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
+  }, [categoryFilter, priorityFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
 
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
@@ -241,6 +254,7 @@ function TasksPageInner() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
+              <Select value={priorityFilter} onValueChange={(value: PriorityFilter) => setPriorityFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部优先级</SelectItem>{Object.entries(TASK_PRIORITY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
             </div>
 
