@@ -1526,15 +1526,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     return actions;
   }, [activePlugins, editor, noteId, noteTitle, pluginContexts]);
 
-  const updateHoveredBlock = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!editor || isDraggingBlock || selectDragRef.current?.active) return;
-    const editorDom = editor.view.dom;
-    const target = event.target as HTMLElement | null;
-
-    if (!target || !editorDom.contains(target)) return;
-    const block = blockElementAtTarget(editorDom, target, event.clientY);
-    if (!block) return;
-
+  const showHandleForBlock = useCallback((block: HTMLElement) => {
+    if (!editor) return;
     const pos = nodePosForElement(editor, block);
     const node = editor.state.doc.nodeAt(pos);
     const shell = rootRef.current;
@@ -1555,7 +1548,37 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     setHoveredBlock((previous) => (
       previous?.pos === pos && Math.abs(previous.top - next.top) < 0.5 && previous.left === next.left ? previous : next
     ));
-  }, [editor, isDraggingBlock]);
+  }, [editor]);
+
+  const updateHoveredBlock = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!editor || isDraggingBlock || selectDragRef.current?.active) return;
+    const editorDom = editor.view.dom;
+    const target = event.target as HTMLElement | null;
+
+    if (!target || !editorDom.contains(target)) return;
+    const block = blockElementAtTarget(editorDom, target, event.clientY);
+    if (!block) return;
+    showHandleForBlock(block);
+  }, [editor, isDraggingBlock, showHandleForBlock]);
+
+  // 触屏设备没有 hover：点按块（产生选区）时显示该块的手柄，
+  // 否则触屏上既不能打开块操作菜单、也没有任何块操作入口。
+  useEffect(() => {
+    if (!editor) return;
+    if (typeof window === "undefined" || !window.matchMedia?.("(pointer: coarse)").matches) return;
+    const showHandleForSelection = () => {
+      if (isDraggingBlock) return;
+      const { from } = editor.state.selection;
+      const domAtPos = editor.view.domAtPos(from).node;
+      const el = domAtPos instanceof HTMLElement ? domAtPos : domAtPos.parentElement;
+      const block = el?.closest("[data-id]") as HTMLElement | null;
+      if (block) showHandleForBlock(block);
+    };
+    editor.on("selectionUpdate", showHandleForSelection);
+    return () => {
+      editor.off("selectionUpdate", showHandleForSelection);
+    };
+  }, [editor, isDraggingBlock, showHandleForBlock]);
 
   // 文档可能已被菜单操作改写（转换成列表、拖拽移动等），而鼠标未再移动：
   // 此时 hoveredRef 里的 pos / node 已过期。点击 + / 6 点前按块 id 重新定位，
