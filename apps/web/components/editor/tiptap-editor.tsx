@@ -1007,6 +1007,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     content,
     immediatelyRender: false,
     onUpdate: ({ editor, transaction }) => {
+      // 仅用于强制 NodeView 刷新的无内容变化事务，不触发上层 onUpdate/自动保存
+      if (transaction.getMeta("breadcrumb:storage-refresh")) return;
       // 从 transaction meta 读来源；无 meta（用户键盘/鼠标操作）= "user"
       const source = (transaction.getMeta("transactionSource") as TransactionSource) || "user";
       onUpdateRef.current(editor.getJSON(), source);
@@ -1109,6 +1111,10 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       noteTitle,
       noteTree: noteTree || [],
     };
+    // storage 变化不会产生事务，NodeView 不会自动重渲染（路径栏块可能
+    // 长期显示"当前页位于顶层"，直到用户敲字）。派发一个无内容变化的
+    // meta 事务，强制订阅了编辑器更新的 NodeView 刷新。
+    editor.view.dispatch(editor.state.tr.setMeta("breadcrumb:storage-refresh", true));
   }, [editor, noteId, noteTitle, noteTree]);
 
   // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
