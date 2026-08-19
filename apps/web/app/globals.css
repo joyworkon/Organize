@@ -130,11 +130,15 @@
   display: flex;
   gap: 6px;
   opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
   transition: opacity 120ms ease;
 }
 .note-page-cover:hover .note-page-cover-controls,
 .note-page-cover:focus-within .note-page-cover-controls {
   opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 .note-page-cover-controls button {
   gap: 6px;

@@ -26,6 +26,7 @@ import {
   applyPinned,
   applyPinnedBatch,
   removeNotes,
+  sortNotesLocal,
   type SortField,
   type SortOrder,
 } from "./page-utils";
@@ -197,10 +198,10 @@ export default function NotesPage() {
   };
 
   const togglePin = async (id: string, pinned: boolean) => {
-    setNotes((prev) => applyPinned(prev, id, pinned));
+    setNotes((prev) => sortNotesLocal(applyPinned(prev, id, pinned), sortBy, sortOrder));
     const { error } = await supabase.from("notes").update({ is_pinned: pinned }).eq("id", id);
     if (error) {
-      setNotes((prev) => applyPinned(prev, id, !pinned));
+      setNotes((prev) => sortNotesLocal(applyPinned(prev, id, !pinned), sortBy, sortOrder));
       toast({ title: pinned ? "置顶失败" : "取消置顶失败", variant: "destructive" });
     }
   };
@@ -247,7 +248,7 @@ export default function NotesPage() {
       toast({ title: "操作失败", description: error.message, variant: "destructive" });
       return;
     }
-    setNotes((prev) => applyPinnedBatch(prev, selectedIds, pinned));
+    setNotes((prev) => sortNotesLocal(applyPinnedBatch(prev, selectedIds, pinned), sortBy, sortOrder));
     exitSelection();
     toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇笔记` });
   };

@@ -5,6 +5,7 @@ import {
   applyPinned,
   applyPinnedBatch,
   removeNotes,
+  sortNotesLocal,
 } from "./page-utils";
 
 function makeNote(id: string, pinned = false): NoteWithTags {
@@ -65,5 +66,39 @@ describe("removeNotes", () => {
   it("空集合不改变列表内容", () => {
     const notes = [makeNote("a")];
     expect(removeNotes(notes, new Set())).toHaveLength(1);
+  });
+});
+
+
+describe("sortNotesLocal（置顶后立即重排）", () => {
+  const n = (id: string, pinned: boolean, updatedAt: string): NoteWithTags =>
+    ({ ...makeNote(id, pinned), updated_at: updatedAt } as NoteWithTags);
+
+  it("置顶后跳到最前，其余保持更新时间降序", () => {
+    const notes = [
+      n("a", false, "2026-07-03T00:00:00Z"),
+      n("b", false, "2026-07-02T00:00:00Z"),
+      n("c", true, "2026-07-01T00:00:00Z"),
+    ];
+    // 把 b 置顶（b 比 c 新，置顶组内按更新时间降序）
+    const result = sortNotesLocal(applyPinned(notes, "b", true), "updated_at", "desc");
+    expect(result.map((x) => x.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("取消置顶后按排序字段回到正常位置", () => {
+    const notes = [
+      n("a", true, "2026-07-01T00:00:00Z"),
+      n("b", false, "2026-07-03T00:00:00Z"),
+      n("c", false, "2026-07-02T00:00:00Z"),
+    ];
+    const result = sortNotesLocal(applyPinned(notes, "a", false), "updated_at", "desc");
+    expect(result.map((x) => x.id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("标题升序排序在同组内生效", () => {
+    const a = { ...makeNote("a", false), title: "bbb" } as NoteWithTags;
+    const b = { ...makeNote("b", false), title: "aaa" } as NoteWithTags;
+    const result = sortNotesLocal([a, b], "title", "asc");
+    expect(result.map((x) => x.title)).toEqual(["aaa", "bbb"]);
   });
 });
