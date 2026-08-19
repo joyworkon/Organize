@@ -108,7 +108,7 @@ export function NoteHistoryDialog({
           <DialogHeader>
             <DialogTitle>历史版本</DialogTitle>
             <DialogDescription>
-              每次修改后自动保存，最多 50 个。恢复后当前内容会自动存为新版本。
+              编辑过程中自动保存快照（连续编辑每分钟至多 1 个），最多保留 50 个。恢复后当前内容会自动存为新版本。
             </DialogDescription>
           </DialogHeader>
 
