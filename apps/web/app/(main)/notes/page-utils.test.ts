@@ -80,9 +80,9 @@ describe("sortNotesLocal（置顶后立即重排）", () => {
       n("b", false, "2026-07-02T00:00:00Z"),
       n("c", true, "2026-07-01T00:00:00Z"),
     ];
-    // 把 b 置顶
+    // 把 b 置顶（b 比 c 新，置顶组内按更新时间降序）
     const result = sortNotesLocal(applyPinned(notes, "b", true), "updated_at", "desc");
-    expect(result.map((x) => x.id)).toEqual(["c", "b", "a"]);
+    expect(result.map((x) => x.id)).toEqual(["b", "c", "a"]);
   });
 
   it("取消置顶后按排序字段回到正常位置", () => {
