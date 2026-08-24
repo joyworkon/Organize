@@ -12,7 +12,7 @@ function genId(table: string) {
 // 链式查询构造器：支持 select/insert/update/delete + 常见过滤器，且可 await
 class MockQuery implements PromiseLike<{ data: any; count: number | null; error: null }> {
   private table: string;
-  private op: "select" | "insert" | "update" | "delete" = "select";
+  private op: "select" | "insert" | "upsert" | "update" | "delete" = "select";
   private filters: Filter[] = [];
   private orderBy: OrderBy | null = null;
   private payload: any = null;
@@ -21,6 +21,7 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   private rangeTo: number | null = null;
   private returnSingle = false;
   private selectAfterMutate = false;
+  private upsertConflictColumns: string[] = [];
 
   constructor(table: string) {
     this.table = table;
@@ -37,14 +38,18 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
         if (f.method === "eq") return row[f.column] === f.value;
         if (f.method === "neq") return row[f.column] !== f.value;
         if (f.method === "in") return (f.value as unknown[]).includes(row[f.column]);
-        if (f.method === "is") return row[f.column] == null;
+        if (f.method === "is") {
+          return f.value === null
+            ? row[f.column] == null
+            : row[f.column] === f.value;
+        }
         return true;
       })
     );
   }
 
   select(_cols?: string, opts?: { count?: string }) {
-    if (this.op !== "insert" && this.op !== "update" && this.op !== "delete") {
+    if (this.op !== "insert" && this.op !== "upsert" && this.op !== "update" && this.op !== "delete") {
       this.op = "select";
     } else {
       this.selectAfterMutate = true;
@@ -57,9 +62,13 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
     this.payload = payload;
     return this;
   }
-  upsert(payload: any, _opts?: { onConflict?: string }) {
-    this.op = "insert";
+  upsert(payload: any, opts?: { onConflict?: string }) {
+    this.op = "upsert";
     this.payload = payload;
+    this.upsertConflictColumns = (opts?.onConflict || "id")
+      .split(",")
+      .map((column) => column.trim())
+      .filter(Boolean);
     return this;
   }
   update(payload: any) {
@@ -84,7 +93,8 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
     this.filters.push({ method: "in", column, value });
     return this;
   }
-  is() {
+  is(column: string, value: unknown) {
+    this.filters.push({ method: "is", column, value });
     return this;
   }
   or() {
@@ -133,16 +143,29 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   private run(): { data: any; count: number | null; error: null } {
     const rows = this.rows();
 
-    if (this.op === "insert") {
+    if (this.op === "insert" || this.op === "upsert") {
       const items = Array.isArray(this.payload) ? this.payload : [this.payload];
-      const inserted = items.map((it) => ({
-        id: it.id || genId(this.table),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        ...it,
-      }));
-      rows.push(...inserted);
-      const data = this.returnSingle ? inserted[0] : inserted;
+      const now = new Date().toISOString();
+      const mutated = items.map((it) => {
+        const existing = this.op === "upsert"
+          ? rows.find((row) =>
+              this.upsertConflictColumns.every((column) => row[column] === it[column])
+            )
+          : null;
+        if (existing) {
+          Object.assign(existing, it, { updated_at: now });
+          return existing;
+        }
+        const inserted = {
+          id: it.id || genId(this.table),
+          created_at: now,
+          updated_at: now,
+          ...it,
+        };
+        rows.push(inserted);
+        return inserted;
+      });
+      const data = this.returnSingle ? mutated[0] : mutated;
       return { data: this.selectAfterMutate || this.returnSingle ? data : null, count: null, error: null };
     }
 
@@ -191,6 +214,448 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
 
 const noSession = { data: { session: { user: MOCK_USER } }, error: null };
 
+interface MockStorageObject {
+  data: Blob;
+  publicUrl: string | null;
+}
+
+const mockStorageObjects = new Map<string, MockStorageObject>();
+
+function storageObjectKey(bucket: string, path: string) {
+  return `${bucket}:${path}`;
+}
+
+function mockStorageBucket(bucket: string) {
+  return {
+    upload: async (
+      path: string,
+      body: Blob | ArrayBuffer | ArrayBufferView | string,
+      options?: { contentType?: string; upsert?: boolean }
+    ) => {
+      const key = storageObjectKey(bucket, path);
+      if (mockStorageObjects.has(key) && !options?.upsert) {
+        return { data: null, error: { message: "对象已存在" } };
+      }
+      const source = body instanceof Blob ? body : new Blob([body as BlobPart]);
+      const data = options?.contentType && !source.type
+        ? new Blob([await source.arrayBuffer()], { type: options.contentType })
+        : source;
+      const previous = mockStorageObjects.get(key);
+      if (previous?.publicUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previous.publicUrl);
+      }
+      mockStorageObjects.set(key, { data, publicUrl: null });
+      return { data: { path }, error: null };
+    },
+    download: async (path: string) => {
+      const object = mockStorageObjects.get(storageObjectKey(bucket, path));
+      if (!object) return { data: null, error: { message: "对象不存在" } };
+      return { data: object.data, error: null };
+    },
+    remove: async (paths: string[]) => {
+      for (const path of paths) {
+        const key = storageObjectKey(bucket, path);
+        const object = mockStorageObjects.get(key);
+        if (object?.publicUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(object.publicUrl);
+        }
+        mockStorageObjects.delete(key);
+      }
+      return { data: paths.map((name) => ({ name })), error: null };
+    },
+    getPublicUrl: (path: string) => {
+      const object = mockStorageObjects.get(storageObjectKey(bucket, path));
+      if (object && !object.publicUrl) {
+        object.publicUrl = typeof URL.createObjectURL === "function"
+          ? URL.createObjectURL(object.data)
+          : `mock-storage://${encodeURIComponent(bucket)}/${encodeURIComponent(path)}`;
+      }
+      return {
+        data: {
+          publicUrl:
+            object?.publicUrl
+            || `https://picsum.photos/seed/${encodeURIComponent(path)}/400`,
+        },
+      };
+    },
+  };
+}
+
+function extractTaskRefs(content: unknown): Array<{ blockId: string; taskId: string }> {
+  const refs: Array<{ blockId: string; taskId: string }> = [];
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const value = node as {
+      type?: string;
+      attrs?: { id?: unknown; taskId?: unknown };
+      content?: unknown[];
+    };
+    if (
+      value.type === "taskItem"
+      && typeof value.attrs?.id === "string"
+      && typeof value.attrs?.taskId === "string"
+    ) {
+      refs.push({ blockId: value.attrs.id, taskId: value.attrs.taskId });
+    }
+    value.content?.forEach(visit);
+  };
+  visit(content);
+  return refs;
+}
+
+function saveNoteWithTasks(args: Record<string, any>) {
+  const note = (mockDb.notes || []).find(
+    (row) => row.id === args.p_note_id && row.user_id === MOCK_USER.id
+  );
+  if (!note) return { data: { status: "not_found" }, error: null };
+
+  const currentRevision = Number(note.content_revision ?? 0);
+  if (currentRevision !== Number(args.p_expected_note_revision ?? 0)) {
+    return {
+      data: { status: "conflict_note", current_revision: currentRevision },
+      error: null,
+    };
+  }
+
+  const mutations = Array.isArray(args.p_task_mutations) ? args.p_task_mutations : [];
+  for (const mutation of mutations) {
+    const task = (mockDb.tasks || []).find(
+      (row) => row.id === mutation.task_id && row.user_id === MOCK_USER.id
+    );
+    if (!task) {
+      return {
+        data: {
+          status: "conflict_task",
+          task_id: mutation.task_id,
+          reason: "not_found_or_forbidden",
+        },
+        error: null,
+      };
+    }
+  }
+
+  const snapshot = args.p_note_snapshot || {};
+  Object.assign(note, {
+    content: args.p_content,
+    title: args.p_title ?? note.title,
+    ...snapshot,
+    content_revision: currentRevision + 1,
+    updated_at: new Date().toISOString(),
+  });
+
+  const taskRevisions: Record<string, number> = {};
+  for (const mutation of mutations) {
+    const task = mockDb.tasks.find((row) => row.id === mutation.task_id);
+    if (!task) continue;
+    task.title = mutation.title ?? task.title;
+    task.status = mutation.status ?? task.status;
+    task.sync_version = Number(task.sync_version ?? 0) + 1;
+    task.updated_at = new Date().toISOString();
+    taskRevisions[task.id] = task.sync_version;
+  }
+
+  mockDb.task_item_refs = (mockDb.task_item_refs || []).filter(
+    (row) => row.note_id !== note.id
+  );
+  mockDb.task_item_refs.push(
+    ...extractTaskRefs(args.p_content).map((ref) => ({
+      id: genId("task_item_refs"),
+      user_id: MOCK_USER.id,
+      note_id: note.id,
+      task_id: ref.taskId,
+      block_id: ref.blockId,
+    }))
+  );
+
+  return {
+    data: {
+      status: "ok",
+      note_revision: currentRevision + 1,
+      task_revisions: taskRevisions,
+    },
+    error: null,
+  };
+}
+
+function reachesTask(startId: string, targetId: string): boolean {
+  const stack = [startId];
+  const visited = new Set<string>();
+  while (stack.length > 0) {
+    const currentId = stack.pop()!;
+    if (currentId === targetId) return true;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    for (const edge of mockDb.task_dependencies || []) {
+      if (edge.task_id === currentId) stack.push(edge.depends_on_task_id);
+    }
+  }
+  return false;
+}
+
+function addTaskDependency(args: Record<string, any>) {
+  const taskId = String(args.p_task_id || "");
+  const prerequisiteId = String(args.p_depends_on_task_id || "");
+  const tasks = mockDb.tasks || [];
+  const task = tasks.find((row) => row.id === taskId && row.user_id === MOCK_USER.id);
+  const prerequisite = tasks.find(
+    (row) => row.id === prerequisiteId && row.user_id === MOCK_USER.id
+  );
+  if (!task || !prerequisite) {
+    return { data: null, error: { message: "依赖任务不存在或无权访问" } };
+  }
+  if (taskId === prerequisiteId) {
+    return { data: null, error: { message: "任务不能依赖自身" } };
+  }
+  const edges = mockDb.task_dependencies || (mockDb.task_dependencies = []);
+  if (
+    edges.some(
+      (edge) =>
+        edge.task_id === taskId &&
+        edge.depends_on_task_id === prerequisiteId
+    )
+  ) {
+    return { data: null, error: { message: "该依赖已存在" } };
+  }
+  if (reachesTask(prerequisiteId, taskId)) {
+    return { data: null, error: { message: "任务依赖不能形成循环" } };
+  }
+
+  edges.push({
+    task_id: taskId,
+    depends_on_task_id: prerequisiteId,
+    user_id: MOCK_USER.id,
+    created_at: new Date().toISOString(),
+  });
+  return {
+    data: {
+      status: "created",
+      task_id: taskId,
+      depends_on_task_id: prerequisiteId,
+    },
+    error: null,
+  };
+}
+
+function removeTaskDependency(args: Record<string, any>) {
+  const taskId = String(args.p_task_id || "");
+  const prerequisiteId = String(args.p_depends_on_task_id || "");
+  const before = (mockDb.task_dependencies || []).length;
+  mockDb.task_dependencies = (mockDb.task_dependencies || []).filter(
+    (edge) =>
+      edge.user_id !== MOCK_USER.id ||
+      edge.task_id !== taskId ||
+      edge.depends_on_task_id !== prerequisiteId
+  );
+  return {
+    data: {
+      status:
+        mockDb.task_dependencies.length === before ? "not_found" : "removed",
+    },
+    error: null,
+  };
+}
+
+function convertHighlightReference(args: Record<string, any>) {
+  const highlight = (mockDb.highlights || []).find(
+    (row) => row.id === args.p_highlight_id && row.user_id === MOCK_USER.id
+  );
+  const targetType = args.p_target_type;
+  if (!highlight) {
+    return { data: null, error: { message: "高亮不存在或无权访问" } };
+  }
+  if (targetType !== "note" && targetType !== "task") {
+    return { data: null, error: { message: "目标类型必须是 note 或 task" } };
+  }
+  const reading = (mockDb.reading_items || []).find(
+    (row) =>
+      row.id === highlight.reading_item_id &&
+      row.user_id === MOCK_USER.id &&
+      row.deleted_at == null
+  );
+  if (!reading) {
+    return { data: null, error: { message: "来源阅读不存在或已删除" } };
+  }
+
+  const field = targetType === "note" ? "note_id" : "task_id";
+  if (highlight[field]) {
+    return {
+      data: {
+        status: "existing",
+        target_type: targetType,
+        target_id: highlight[field],
+      },
+      error: null,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const targetId = genId(targetType === "note" ? "notes" : "tasks");
+  if (targetType === "note") {
+    mockDb.notes.push({
+      id: targetId,
+      user_id: MOCK_USER.id,
+      title: reading.title || highlight.content.slice(0, 120) || "阅读高亮",
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "blockquote",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: highlight.content }],
+              },
+            ],
+          },
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: `来源：${reading.url}` }],
+          },
+        ],
+      },
+      reading_item_id: reading.id,
+      content_revision: 0,
+      is_pinned: false,
+      deleted_at: null,
+      created_at: now,
+      updated_at: now,
+    });
+    highlight.note_id = targetId;
+    const linkedTask = mockDb.tasks.find(
+      (row) =>
+        row.id === highlight.task_id &&
+        row.user_id === MOCK_USER.id &&
+        row.deleted_at == null &&
+        row.note_id == null
+    );
+    if (linkedTask) linkedTask.note_id = targetId;
+  } else {
+    mockDb.tasks.push({
+      id: targetId,
+      user_id: MOCK_USER.id,
+      parent_task_id: null,
+      title: highlight.content.slice(0, 120),
+      description: `${highlight.content}\n\n来源：《${reading.title || "无标题文章"}》`,
+      status: "todo",
+      priority: "medium",
+      category: "study",
+      due_date: null,
+      estimated_minutes: null,
+      actual_minutes: null,
+      reading_item_id: reading.id,
+      note_id: highlight.note_id || null,
+      is_pinned: false,
+      sort_order: 0,
+      completed_at: null,
+      deleted_at: null,
+      created_at: now,
+      updated_at: now,
+    });
+    highlight.task_id = targetId;
+  }
+  highlight.updated_at = now;
+
+  return {
+    data: { status: "created", target_type: targetType, target_id: targetId },
+    error: null,
+  };
+}
+
+function getHighlightReferenceStates(args: Record<string, any>) {
+  const rows = (mockDb.highlights || [])
+    .filter(
+      (highlight) =>
+        highlight.user_id === MOCK_USER.id &&
+        (!args.p_reading_item_id || highlight.reading_item_id === args.p_reading_item_id) &&
+        (!args.p_note_id || highlight.note_id === args.p_note_id) &&
+        (!args.p_task_id || highlight.task_id === args.p_task_id)
+    )
+    .map((highlight) => {
+      const reading = mockDb.reading_items.find(
+        (row) => row.id === highlight.reading_item_id && row.user_id === MOCK_USER.id
+      );
+      const note = highlight.note_id
+        ? mockDb.notes.find((row) => row.id === highlight.note_id && row.user_id === MOCK_USER.id)
+        : null;
+      const task = highlight.task_id
+        ? mockDb.tasks.find((row) => row.id === highlight.task_id && row.user_id === MOCK_USER.id)
+        : null;
+      const state = (id: unknown, row: any) =>
+        !id ? null : !row ? "missing" : row.deleted_at ? "deleted" : "active";
+      return {
+        highlight_id: highlight.id,
+        reading_item_id: highlight.reading_item_id,
+        reading_title: reading?.title ?? null,
+        reading_state: state(highlight.reading_item_id, reading),
+        note_id: highlight.note_id ?? null,
+        note_title: note?.title ?? null,
+        note_state: state(highlight.note_id, note),
+        task_id: highlight.task_id ?? null,
+        task_title: task?.title ?? null,
+        task_state: state(highlight.task_id, task),
+      };
+    });
+  return { data: rows, error: null };
+}
+
+function getLinkedContentStates(args: Record<string, any>) {
+  const reading = args.p_reading_item_id
+    ? mockDb.reading_items.find(
+        (row) => row.id === args.p_reading_item_id && row.user_id === MOCK_USER.id
+      )
+    : null;
+  const note = args.p_note_id
+    ? mockDb.notes.find((row) => row.id === args.p_note_id && row.user_id === MOCK_USER.id)
+    : null;
+  const task = args.p_task_id
+    ? mockDb.tasks.find((row) => row.id === args.p_task_id && row.user_id === MOCK_USER.id)
+    : null;
+  const state = (id: unknown, row: any) =>
+    !id ? null : !row ? "missing" : row.deleted_at ? "deleted" : "active";
+  return {
+    data: [
+      {
+        reading_item_id: args.p_reading_item_id || null,
+        reading_title: reading?.title ?? null,
+        reading_state: state(args.p_reading_item_id, reading),
+        note_id: args.p_note_id || null,
+        note_title: note?.title ?? null,
+        note_state: state(args.p_note_id, note),
+        task_id: args.p_task_id || null,
+        task_title: task?.title ?? null,
+        task_state: state(args.p_task_id, task),
+      },
+    ],
+    error: null,
+  };
+}
+
+function getNoteContentLinkStates(args: Record<string, any>) {
+  const rows = [
+    ...(args.p_note_ids || []).map((id: string) => {
+      const note = mockDb.notes.find((row) => row.id === id && row.user_id === MOCK_USER.id);
+      return {
+        resource_type: "note",
+        resource_id: id,
+        title: note?.title ?? null,
+        state: !note ? "missing" : note.deleted_at ? "deleted" : "active",
+      };
+    }),
+    ...(args.p_reading_item_ids || []).map((id: string) => {
+      const reading = mockDb.reading_items.find(
+        (row) => row.id === id && row.user_id === MOCK_USER.id
+      );
+      return {
+        resource_type: "reading",
+        resource_id: id,
+        title: reading?.title ?? null,
+        state: !reading ? "missing" : reading.deleted_at ? "deleted" : "active",
+      };
+    }),
+  ];
+  return { data: rows, error: null };
+}
+
 export function createMockClient(): any {
   return {
     auth: {
@@ -204,13 +669,17 @@ export function createMockClient(): any {
     },
     from: (table: string) => new MockQuery(table),
     storage: {
-      from: () => ({
-        upload: async () => ({ data: { path: "mock/path.png" }, error: null }),
-        getPublicUrl: (name: string) => ({
-          data: { publicUrl: `https://picsum.photos/seed/${encodeURIComponent(name)}/400` },
-        }),
-      }),
+      from: (bucket: string) => mockStorageBucket(bucket),
     },
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (name: string, args: Record<string, any> = {}) => {
+      if (name === "save_note_with_tasks") return saveNoteWithTasks(args);
+      if (name === "add_task_dependency") return addTaskDependency(args);
+      if (name === "remove_task_dependency") return removeTaskDependency(args);
+      if (name === "convert_highlight_reference") return convertHighlightReference(args);
+      if (name === "get_highlight_reference_states") return getHighlightReferenceStates(args);
+      if (name === "get_linked_content_states") return getLinkedContentStates(args);
+      if (name === "get_note_content_link_states") return getNoteContentLinkStates(args);
+      return { data: null, error: null };
+    },
   };
 }

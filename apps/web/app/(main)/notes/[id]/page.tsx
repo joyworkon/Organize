@@ -26,28 +26,35 @@ import { mutateTrash } from "@/lib/trash/client";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
+import {
+  areNoteDraftsEqual,
+  clearLocalNoteDraft,
+  readLocalNoteDraft,
+  writeLocalNoteDraft,
+  type NoteDraftSnapshot,
+  type StoredNoteDraft,
+} from "@/lib/notes/local-draft";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  extractLinksFromContent,
+  internalLinkKey,
+  type InternalLinkStateRow,
+} from "@/lib/note-links";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
 const fontKey = (id: string) => `organize:note:${id}:font`;
 const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
 
-// G2/G3 任务↔笔记双链总开关。默认关闭：user-edit 仍走老路径(直接 update snapshot)，
-// 不激活 legacy、不生成 task mutation、不调 save_note_with_tasks RPC。
-// G3 双标签页验收通过后置 true，双链正式启用（见 docs/g0-protocol.md、BLOCKED.md）。
-//
-// 验收期：可临时通过浏览器控制台开启
-//   localStorage.setItem("organize:task-note-link", "1")
-// 然后刷新页面，即可试双链基础功能（不破坏默认行为，清掉 localStorage 即恢复）。
-// 验收通过后改为直接返回 true。
-// 注意：必须用函数实时读，不能用模块级 const（import 时机/SSR 求值会导致读到 false 且不再更新）。
 function isTaskNoteLinkEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem("organize:task-note-link") === "1";
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 /**
@@ -56,16 +63,14 @@ function isTaskNoteLinkEnabled(): boolean {
  * 标题取 taskItem 内首段纯文本；checked=true → status="done"。
  * G0 §3 状态机：此函数只读 content，不改动它。
  */
-interface NoteDraft {
-  title: string;
-  content: Record<string, unknown> | null;
-  icon: string | null;
-  cover_url: string | null;
-  cover_position: number;
-  parent_note_id: string | null;
-  full_width: boolean;
-  font_family: NoteFont;
-  small_font: boolean;
+type NoteDraft = NoteDraftSnapshot;
+
+interface SaveConflict {
+  kind: "note" | "task";
+  currentRevision: number | null;
+  taskId?: string;
+  remoteDraft: NoteDraft | null;
+  remoteUpdatedAt: string | null;
 }
 
 export default function NoteEditorPage() {
@@ -95,6 +100,9 @@ export default function NoteEditorPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
+  const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null);
+  const [contentLinkStates, setContentLinkStates] = useState<Record<string, InternalLinkStateRow>>({});
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -115,6 +123,7 @@ export default function NoteEditorPage() {
   const lastSourceRef = useRef<TransactionSource>("user");
   // notes.content_revision（G1 乐观锁），双链 RPC 保存时用
   const contentRevisionRef = useRef(0);
+  const userIdRef = useRef<string | null>(null);
   const savingPromiseRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -152,6 +161,7 @@ export default function NoteEditorPage() {
         setLoading(false);
         return;
       }
+      userIdRef.current = user.id;
       const { data, error } = await supabase
         .from("notes")
         .select("*")
@@ -179,7 +189,7 @@ export default function NoteEditorPage() {
         setFont(dbFont);
         setSmallFont(dbSmallFont);
         contentRevisionRef.current = Number(data.content_revision ?? 0);
-        draftRef.current = {
+        const remoteDraft: NoteDraft = {
           title: loadedTitle,
           content: loadedContent,
           icon: data.icon || null,
@@ -190,6 +200,16 @@ export default function NoteEditorPage() {
           font_family: dbFont,
           small_font: dbSmallFont,
         };
+        draftRef.current = remoteDraft;
+
+        const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
+        if (localDraft) {
+          if (areNoteDraftsEqual(localDraft.draft, remoteDraft)) {
+            clearLocalNoteDraft(localStorage, user.id, noteId);
+          } else {
+            setRecoveryDraft(localDraft);
+          }
+        }
 
         // 一次性幂等迁移：DB 是默认值且 localStorage 有旧值时，搬入 DB。
         // 成功后 DB 非默认，下次加载条件自动不成立，不会重复迁移。
@@ -237,6 +257,41 @@ export default function NoteEditorPage() {
     window.addEventListener("organize:notes-changed", reload);
     return () => window.removeEventListener("organize:notes-changed", reload);
   }, [loadNoteTree]);
+
+  useEffect(() => {
+    let active = true;
+    const links = extractLinksFromContent(content);
+    const noteIds = links.filter((link) => link.type === "note").map((link) => link.url);
+    const readingIds = links.filter((link) => link.type === "reading").map((link) => link.url);
+    if (noteIds.length === 0 && readingIds.length === 0) {
+      setContentLinkStates({});
+      return () => {
+        active = false;
+      };
+    }
+
+    void supabase
+      .rpc("get_note_content_link_states", {
+        p_note_ids: noteIds,
+        p_reading_item_ids: readingIds,
+      })
+      .then(({ data, error }) => {
+        if (!active || error || !data) return;
+        setContentLinkStates(
+          (data as InternalLinkStateRow[]).reduce<Record<string, InternalLinkStateRow>>(
+            (states, row) => {
+              states[internalLinkKey(row.resource_type, row.resource_id)] = row;
+              return states;
+            },
+            {}
+          )
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [content, supabase]);
 
   // G2 反向同步（任务→笔记）：订阅 tasks 表变更，任务状态变了→回勾笔记里对应块。
   // 仅双链开启时生效。注意：editorRef 在 onEditorReady 时才赋值，可能晚于本 effect，
@@ -304,7 +359,15 @@ export default function NoteEditorPage() {
     };
   }, [noteId, supabase]);
 
-  // 保存始终写入同一时刻的完整快照，并串行排空后续改动。
+  const persistCurrentDraft = useCallback((baseRevision = contentRevisionRef.current) => {
+    const userId = userIdRef.current;
+    if (!userId) return;
+    writeLocalNoteDraft(localStorage, userId, noteId, baseRevision, {
+      ...draftRef.current,
+    });
+  }, [noteId]);
+
+  // 所有保存统一走带 revision 的原子 RPC，并串行排空保存期间产生的后续改动。
   const flushSave = useCallback(async () => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -316,6 +379,8 @@ export default function NoteEditorPage() {
       if (sessionStorage.getItem(`organize:skip-flush:${noteId}`)) {
         sessionStorage.removeItem(`organize:skip-flush:${noteId}`);
         dirtyRef.current = false;
+        const userId = userIdRef.current;
+        if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
         return;
       }
     } catch { /* sessionStorage 不可用时按正常流程 */ }
@@ -326,45 +391,82 @@ export default function NoteEditorPage() {
       while (dirtyRef.current) {
         dirtyRef.current = false;
         const snapshot = { ...draftRef.current };
-        // 双链启用且本次是用户编辑 → 走 G1 原子 RPC（同步任务 + 对齐引用）；
-        // 否则（系统事务/开关关）走老的直接 update snapshot（默认路径，零行为变化）。
-        if (isTaskNoteLinkEnabled() && lastSourceRef.current === "user") {
-          const { mutations } = extractTaskMutations(snapshot.content);
-          const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
-            p_note_id: noteId,
-            p_content: snapshot.content,
-            p_expected_note_revision: contentRevisionRef.current,
-            p_title: snapshot.title ?? null,
-            p_task_mutations: mutations.length > 0 ? mutations : null,
-            // 不传 task revisions：前端未维护 sync_version 缓存，传 null 让 RPC 跳过乐观锁校验
-            p_expected_task_revisions: null,
-            p_mutation_id: null,
+        const { mutations } =
+          isTaskNoteLinkEnabled() && lastSourceRef.current === "user"
+            ? extractTaskMutations(snapshot.content)
+            : { mutations: [] };
+        const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
+          p_note_id: noteId,
+          p_content: snapshot.content,
+          p_expected_note_revision: contentRevisionRef.current,
+          p_title: snapshot.title,
+          p_task_mutations: mutations.length > 0 ? mutations : null,
+          // 前端尚未维护任务 sync_version 缓存，传 null 只对笔记执行乐观锁。
+          p_expected_task_revisions: null,
+          p_mutation_id: null,
+          p_note_snapshot: snapshot,
+        });
+        const result = rpcResult as {
+          status?: string;
+          note_revision?: number;
+          current_revision?: number;
+          task_id?: string;
+        } | null;
+        const status = result?.status;
+
+        if (status === "conflict_note" || status === "conflict_task") {
+          dirtyRef.current = true;
+          persistCurrentDraft();
+          const { data: remote } = await supabase
+            .from("notes")
+            .select("*")
+            .eq("id", noteId)
+            .single();
+          const remoteDraft: NoteDraft | null = remote
+            ? {
+                title: remote.title || "",
+                content: remote.content || null,
+                icon: remote.icon || null,
+                cover_url: remote.cover_url || null,
+                cover_position: Number(remote.cover_position ?? 50),
+                parent_note_id: remote.parent_note_id || null,
+                full_width: remote.full_width === true,
+                font_family:
+                  remote.font_family === "serif" || remote.font_family === "mono"
+                    ? remote.font_family
+                    : "default",
+                small_font: remote.small_font === true,
+              }
+            : null;
+          setSaveConflict({
+            kind: status === "conflict_note" ? "note" : "task",
+            currentRevision:
+              typeof result?.current_revision === "number"
+                ? result.current_revision
+                : remote
+                  ? Number(remote.content_revision ?? 0)
+                  : null,
+            taskId: result?.task_id,
+            remoteDraft,
+            remoteUpdatedAt: remote?.updated_at || null,
           });
-          if (rpcErr) {
-            // conflict_note/conflict_task 是乐观锁冲突，不算硬错：保留 dirty 让下次重试，
-            // 但不刷屏报错（双标签页并发场景，重试即对齐）。
-            const status = (rpcResult as any)?.status;
-            if (status === "conflict_note" || status === "conflict_task") {
-              dirtyRef.current = true;
-              break; // 等下次编辑触发重试
-            }
-            dirtyRef.current = true;
-            setSaveError("保存失败，请检查网络后继续编辑");
-            break;
-          }
-          // 更新本地 revision（RPC 返回新值）
-          if (rpcResult && typeof (rpcResult as any).note_revision === "number") {
-            contentRevisionRef.current = (rpcResult as any).note_revision;
-          }
-        } else {
-          const { error } = await supabase.from("notes").update(snapshot).eq("id", noteId);
-          if (error) {
-            dirtyRef.current = true;
-            setSaveError("保存失败，请检查网络后继续编辑");
-            break;
-          }
+          setSaveError("检测到其他位置的修改，请处理保存冲突");
+          break;
         }
+
+        if (rpcErr || status !== "ok" || typeof result?.note_revision !== "number") {
+          dirtyRef.current = true;
+          persistCurrentDraft();
+          setSaveError("保存失败，本地草稿已保留，请检查网络后重试");
+          break;
+        }
+        contentRevisionRef.current = result.note_revision;
+        setSaveConflict(null);
         setLastSaved(new Date());
+        if (!dirtyRef.current && areNoteDraftsEqual(draftRef.current, snapshot)) {
+          const userId = userIdRef.current;
+          if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
+        }
         window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       }
     })().finally(() => {
@@ -373,13 +475,100 @@ export default function NoteEditorPage() {
     });
     savingPromiseRef.current = promise;
     return promise;
-  }, [noteId, supabase]);
+  }, [noteId, persistCurrentDraft, supabase]);
 
   const queueSave = useCallback(() => {
     dirtyRef.current = true;
+    persistCurrentDraft();
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => void flushSave(), 900);
-  }, [flushSave]);
+  }, [flushSave, persistCurrentDraft]);
+
+  const applyDraftToPage = useCallback((draft: NoteDraft) => {
+    setTitle(draft.title);
+    setContent(draft.content);
+    setIcon(draft.icon);
+    setCoverUrl(draft.cover_url);
+    setCoverPosition(draft.cover_position);
+    setParentNoteId(draft.parent_note_id);
+    setFullWidth(draft.full_width);
+    setFont(draft.font_family);
+    setSmallFont(draft.small_font);
+    draftRef.current = { ...draft };
+    lastSourceRef.current = "user";
+    editorRef.current?.commands.setContent(
+      draft.content || { type: "doc", content: [{ type: "paragraph" }] },
+      false
+    );
+  }, []);
+
+  const restoreLocalDraft = useCallback(() => {
+    if (!recoveryDraft) return;
+    contentRevisionRef.current = recoveryDraft.baseRevision;
+    applyDraftToPage(recoveryDraft.draft);
+    setRecoveryDraft(null);
+    queueSave();
+  }, [applyDraftToPage, queueSave, recoveryDraft]);
+
+  const discardLocalDraft = useCallback(() => {
+    const userId = userIdRef.current;
+    if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
+    setRecoveryDraft(null);
+  }, [noteId]);
+
+  const reloadRemoteVersion = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    dirtyRef.current = false;
+    const userId = userIdRef.current;
+    if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
+    setSaveConflict(null);
+    window.location.reload();
+  }, [noteId]);
+
+  const overwriteRemoteVersion = useCallback(() => {
+    if (!saveConflict || saveConflict.currentRevision === null) return;
+    contentRevisionRef.current = saveConflict.currentRevision;
+    setSaveConflict(null);
+    setSaveError("");
+    dirtyRef.current = true;
+    persistCurrentDraft(saveConflict.currentRevision);
+    void flushSave();
+  }, [flushSave, persistCurrentDraft, saveConflict]);
+
+  const keepLocalCopy = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setSaveError("未登录，无法保留副本");
+      return;
+    }
+    const snapshot = { ...draftRef.current };
+    const { data, error } = await supabase
+      .from("notes")
+      .insert({
+        user_id: user.id,
+        ...snapshot,
+        title: snapshot.title ? `${snapshot.title}（冲突副本）` : "冲突副本",
+      })
+      .select("id")
+      .single();
+    if (error || !data) {
+      setSaveError("创建本地副本失败，请重试");
+      return;
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    dirtyRef.current = false;
+    clearLocalNoteDraft(localStorage, user.id, noteId);
+    setSaveConflict(null);
+    router.push(`/notes/${data.id}`);
+  }, [noteId, router, supabase]);
 
   const updatePageMetadata = useCallback(
     (patch: Partial<Pick<NoteDraft, "icon" | "cover_url" | "cover_position" | "parent_note_id">>) => {
@@ -604,12 +793,10 @@ export default function NoteEditorPage() {
     }
   }, [noteId, router, showToast]);
 
-  /** 移动笔记：乐观更新本地树+面包屑+状态，失败回滚。 */
+  /** 移动笔记：先更新本地状态，再交给统一 revision 保存处理。 */
   const handleMove = useCallback(
     async (nextParentId: string | null) => {
       if (nextParentId === parentNoteId) return;
-      const oldParentId = parentNoteId;
-      // 乐观更新：本地状态、allNotes 树、draftRef 全部同步
       setParentNoteId(nextParentId);
       draftRef.current.parent_note_id = nextParentId;
       setAllNotes((notes) =>
@@ -618,30 +805,9 @@ export default function NoteEditorPage() {
         )
       );
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-      // 也走一次常规队列保存，保证正文/标题等其他改动一并落库
       queueSave();
-      try {
-        const { error } = await supabase
-          .from("notes")
-          .update({ parent_note_id: nextParentId })
-          .eq("id", noteId);
-        if (error) throw error;
-      } catch (err) {
-        // 回滚
-        setParentNoteId(oldParentId);
-        draftRef.current.parent_note_id = oldParentId;
-        setAllNotes((notes) =>
-          notes.map((n) =>
-            n.id === noteId ? { ...n, parent_note_id: oldParentId } : n
-          )
-        );
-        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-        throw new Error(
-          err instanceof Error ? err.message : "移动失败，请重试"
-        );
-      }
     },
-    [supabase, noteId, parentNoteId, queueSave]
+    [noteId, parentNoteId, queueSave]
   );
 
   const handleContentUpdate = (newContent: Record<string, unknown>, source: TransactionSource) => {
@@ -876,6 +1042,7 @@ export default function NoteEditorPage() {
           content={content}
           onUpdate={handleContentUpdate}
           noteTree={allNotes}
+          internalLinkStates={contentLinkStates}
           onEditorReady={(editor) => {
             editorRef.current = editor;
           }}
@@ -893,6 +1060,85 @@ export default function NoteEditorPage() {
           {toast}
         </div>
       )}
+
+      <Dialog open={recoveryDraft !== null} onOpenChange={() => {}}>
+        <DialogContent hideCloseButton>
+          <DialogHeader>
+            <DialogTitle>发现未保存的本地草稿</DialogTitle>
+            <DialogDescription>
+              上次编辑可能因断网或页面意外关闭而未保存。请选择恢复草稿或使用服务器版本。
+            </DialogDescription>
+          </DialogHeader>
+          {recoveryDraft && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <p className="font-medium">{recoveryDraft.draft.title || "无标题"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                本地修改于 {new Date(recoveryDraft.updatedAt).toLocaleString("zh-CN")}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={discardLocalDraft}>
+              使用服务器版本
+            </Button>
+            <Button onClick={restoreLocalDraft}>恢复本地草稿</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={saveConflict !== null} onOpenChange={() => {}}>
+        <DialogContent hideCloseButton>
+          <DialogHeader>
+            <DialogTitle>笔记存在保存冲突</DialogTitle>
+            <DialogDescription>
+              另一页面或设备已修改这篇笔记。当前内容没有丢失，并已保存在本地。
+            </DialogDescription>
+          </DialogHeader>
+          {saveConflict && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                <p className="text-xs font-medium text-muted-foreground">当前本地版本</p>
+                <p className="mt-1 truncate text-sm font-medium">
+                  {draftRef.current.title || "无标题"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  内容大小 {JSON.stringify(draftRef.current.content || {}).length} 字符
+                </p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-xs font-medium text-muted-foreground">服务器版本</p>
+                <p className="mt-1 truncate text-sm font-medium">
+                  {saveConflict.remoteDraft?.title || "无标题"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  内容大小 {JSON.stringify(saveConflict.remoteDraft?.content || {}).length} 字符
+                  {saveConflict.remoteUpdatedAt
+                    ? ` · ${new Date(saveConflict.remoteUpdatedAt).toLocaleString("zh-CN")}`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          )}
+          {saveConflict?.kind === "task" && (
+            <p className="text-xs text-destructive">
+              关联任务已被删除或发生变化，无法安全覆盖。请保留副本或重新加载服务器版本。
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button variant="outline" onClick={reloadRemoteVersion}>
+              重新加载服务器版本
+            </Button>
+            <Button variant="outline" onClick={() => void keepLocalCopy()}>
+              保留为新副本
+            </Button>
+            {saveConflict?.kind === "note" && (
+              <Button variant="destructive" onClick={overwriteRemoteVersion}>
+                用本地版本覆盖
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ShareDialog
         resourceType="note"

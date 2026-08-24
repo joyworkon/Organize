@@ -106,6 +106,12 @@ export function prepareRestorePayload(
     ...withId(row, maps.tasks),
     reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
     note_id: remapOptional(row.note_id, maps.notes),
+    parent_task_id: remapOptional(row.parent_task_id, maps.tasks),
+  }));
+  data.task_dependencies = (backup.data.task_dependencies || []).map((row) => ({
+    task_id: remap(row.task_id, maps.tasks),
+    depends_on_task_id: remap(row.depends_on_task_id, maps.tasks),
+    created_at: row.created_at,
   }));
   data.task_checklists = backup.data.task_checklists.map((row) => ({
     ...withId(row, maps.task_checklists),
@@ -129,6 +135,8 @@ export function prepareRestorePayload(
   data.highlights = backup.data.highlights.map((row) => ({
     ...withId(row, maps.highlights),
     reading_item_id: remap(row.reading_item_id, maps.reading_items),
+    note_id: remapOptional(row.note_id, maps.notes),
+    task_id: remapOptional(row.task_id, maps.tasks),
   }));
   data.favorites = backup.data.favorites.map((row) => ({
     ...withId(row, maps.favorites),
@@ -243,7 +251,7 @@ function remapOptional(
   value: unknown,
   map: Map<string, string>
 ): string | null {
-  return value === null ? null : remap(value, map);
+  return value == null ? null : remap(value, map);
 }
 
 function rewriteInternalLinks(

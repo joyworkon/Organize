@@ -52,6 +52,10 @@ import { DatabaseBlock } from "./extensions/database-block";
 import { insertInlineDatabase, insertPageDatabase, insertLinkedDatabase } from "./extensions/database-block-client";
 import { SlashCommand } from "./extensions/slash-command";
 import { BlockDeepLink } from "./extensions/deep-link";
+import {
+  InternalLinkStateDecorations,
+  internalLinkStateKey,
+} from "./extensions/internal-link-state";
 import { TransformedBlockSelection } from "./extensions/block-selection";
 import {
   BlockMultiSelect,
@@ -79,6 +83,10 @@ import { TableDirectControls } from "./table-direct-controls";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
 import { usePluginStore } from "@/lib/plugin/store";
 import type { AIActionExtension, PluginContext, ToolbarActionExtension } from "@organize/plugin-sdk";
+import {
+  internalLinkKeyFromHref,
+  type InternalLinkStateRow,
+} from "@/lib/note-links";
 import {
   Bold,
   Italic,
@@ -147,6 +155,8 @@ interface EditorProps {
   onEditorReady?: (editor: Editor | null) => void;
   /** 笔记树（含 parent_note_id），供路径栏(Breadcrumb)块渲染父级链；不传则该块显示占位 */
   noteTree?: { id: string; title: string | null; icon: string | null; parent_note_id: string | null }[];
+  /** 当前正文内站内链接的受控状态；删除/缺失目标不可继续导航。 */
+  internalLinkStates?: Record<string, InternalLinkStateRow>;
 }
 
 /* ----------------------------- 块类型配置 ----------------------------- */
@@ -909,7 +919,15 @@ function shouldShowTextToolbar({
     && editor.isEditable;
 }
 
-export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEditorReady, noteTree }: EditorProps) {
+export function TipTapEditor({
+  noteId,
+  noteTitle = "",
+  content,
+  onUpdate,
+  onEditorReady,
+  noteTree,
+  internalLinkStates = {},
+}: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const onEditorReadyRef = useRef(onEditorReady);
@@ -917,6 +935,8 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
   const initialContentRef = useRef(content);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  const internalLinkStatesRef = useRef(internalLinkStates);
+  internalLinkStatesRef.current = internalLinkStates;
   const hoveredRef = useRef<HoveredBlock | null>(null);
   const pointerDragRef = useRef<BlockPointerDrag | null>(null);
   const dropTargetRef = useRef<BlockDropTarget | null>(null);
@@ -1001,8 +1021,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
     Embed,
     SyncedBlock,
     DatabaseBlock,
-    SlashCommand,
+      SlashCommand,
       BlockDeepLink,
+      InternalLinkStateDecorations.configure({
+        getStates: () => internalLinkStatesRef.current,
+      }),
       TransformedBlockSelection,
       BlockMultiSelect,
       BlockStyle,
@@ -1065,6 +1088,16 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
         if (!(anchor instanceof HTMLAnchorElement)) return false;
         const href = anchor.getAttribute("href");
         if (!href) return false;
+        const linkStateKey = internalLinkKeyFromHref(href);
+        const linkState = linkStateKey ? internalLinkStatesRef.current[linkStateKey] : null;
+        if (linkState && linkState.state !== "active") {
+          event.preventDefault();
+          toast({
+            title: linkState.state === "deleted" ? "链接目标已在垃圾箱中" : "链接目标不存在或无权访问",
+            variant: "destructive",
+          });
+          return true;
+        }
         if (event.metaKey || event.ctrlKey) {
           event.preventDefault();
           window.open(href, "_blank", "noopener,noreferrer");
@@ -1098,6 +1131,11 @@ export function TipTapEditor({ noteId, noteTitle = "", content, onUpdate, onEdit
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(editor.state.tr.setMeta(internalLinkStateKey, true));
+  }, [editor, internalLinkStates]);
 
   const closeMenus = useCallback(() => {
     setCommandMenu(null);

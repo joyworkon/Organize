@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
 import { mutateTrash } from "@/lib/trash/client";
+import { findNoteSearchMatch } from "@/lib/notes/search-match";
 import {
   nextSortField,
   applyPinned,
@@ -260,9 +261,19 @@ export default function NotesPage() {
     selectAll(notes.map((n) => n.id));
   };
 
+  const searchMatches = useMemo(() => {
+    const query = search.trim();
+    if (!query) return new Map<string, ReturnType<typeof findNoteSearchMatch>>();
+    return new Map(notes.map((note) => [note.id, findNoteSearchMatch(note.content, query)]));
+  }, [notes, search]);
+
   const noteCardProps = (note: NoteWithTags) => ({
     note,
     view,
+    searchMatch: searchMatches.get(note.id),
+    titleMatched:
+      !!search.trim() &&
+      (note.title || "").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
     selected: isSelected(note.id),
     onSelectChange: showCheckbox ? handleToggleSelect : undefined,
     selectionMode: selectionMode || isSelectMode,

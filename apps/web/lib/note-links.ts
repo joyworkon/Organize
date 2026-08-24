@@ -3,6 +3,35 @@ export interface ExtractedLink {
   type: "external" | "note" | "reading";
 }
 
+export type InternalLinkState = "active" | "deleted" | "missing";
+
+export interface InternalLinkStateRow {
+  resource_type: "note" | "reading";
+  resource_id: string;
+  title: string | null;
+  state: InternalLinkState;
+}
+
+export function internalLinkKey(type: "note" | "reading", id: string): string {
+  return `${type}:${id}`;
+}
+
+function decodeInternalId(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function internalLinkKeyFromHref(href: string): string | null {
+  const noteId = href.match(/\/notes\/([^/?#]+)/)?.[1];
+  if (noteId) return internalLinkKey("note", decodeInternalId(noteId));
+  const readingId = href.match(/\/library\/([^/?#]+)/)?.[1];
+  if (readingId) return internalLinkKey("reading", decodeInternalId(readingId));
+  return null;
+}
+
 export function extractLinksFromContent(content: any): ExtractedLink[] {
   const links: ExtractedLink[] = [];
   if (!content || !content.content) return links;
@@ -13,11 +42,11 @@ export function extractLinksFromContent(content: any): ExtractedLink[] {
         if (mark.type === "link" && mark.attrs?.href) {
           const href = mark.attrs.href;
           if (href.includes("/notes/")) {
-            const noteId = href.split("/notes/")[1]?.split(/[?#]/)[0];
-            if (noteId) links.push({ url: noteId, type: "note" });
+            const noteId = href.match(/\/notes\/([^/?#]+)/)?.[1];
+            if (noteId) links.push({ url: decodeInternalId(noteId), type: "note" });
           } else if (href.includes("/library/")) {
-            const itemId = href.split("/library/")[1]?.split(/[?#]/)[0];
-            if (itemId) links.push({ url: itemId, type: "reading" });
+            const itemId = href.match(/\/library\/([^/?#]+)/)?.[1];
+            if (itemId) links.push({ url: decodeInternalId(itemId), type: "reading" });
           } else {
             links.push({ url: href, type: "external" });
           }

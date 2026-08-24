@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { extractLinksFromContent } from "@/lib/note-links";
 import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "lucide-react";
 import type { ReadingItem } from "@organize/shared";
+import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 
 interface BacklinkNote {
   id: string;
@@ -22,6 +23,7 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   const supabase = useMemo(() => createClient(), []);
   const [backlinkNotes, setBacklinkNotes] = useState<BacklinkNote[]>([]);
   const [readingItem, setReadingItem] = useState<ReadingItem | null>(null);
+  const [highlightReferences, setHighlightReferences] = useState<HighlightReferenceState[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
         return;
       }
 
-      const [notesResult, readingResult] = await Promise.all([
+      const [notesResult, readingResult, referenceResult, readingStateResult] = await Promise.all([
         supabase
           .from("notes")
           .select("id, title, content, created_at")
@@ -53,6 +55,11 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
               .eq("id", readingItemId)
               .single()
           : Promise.resolve({ data: null, error: null }),
+        supabase.rpc("get_highlight_reference_states", { p_note_id: noteId }),
+        supabase.rpc("get_linked_content_states", {
+          p_reading_item_id: readingItemId || null,
+          p_note_id: noteId,
+        }),
       ]);
 
       if (!active) return;
@@ -76,6 +83,31 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
       if (readingItemId && !readingResult.error && readingResult.data) {
         setReadingItem(readingResult.data as ReadingItem);
       }
+      if (!referenceResult.error && referenceResult.data) {
+        setHighlightReferences(referenceResult.data as HighlightReferenceState[]);
+      }
+      if (
+        readingItemId &&
+        !readingResult.data &&
+        !readingStateResult.error &&
+        readingStateResult.data?.[0]
+      ) {
+        setHighlightReferences((current) => [
+          {
+            highlight_id: `note-reading:${noteId}`,
+            reading_item_id: readingItemId,
+            reading_title: readingStateResult.data[0].reading_title,
+            reading_state: readingStateResult.data[0].reading_state,
+            note_id: noteId,
+            note_title: readingStateResult.data[0].note_title,
+            note_state: readingStateResult.data[0].note_state,
+            task_id: null,
+            task_title: null,
+            task_state: null,
+          },
+          ...current,
+        ]);
+      }
 
       setLoading(false);
     }
@@ -88,8 +120,10 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
 
   const hasReading = !!readingItem;
   const hasBacklinks = backlinkNotes.length > 0;
+  const linkedTasks = highlightReferences.filter((reference) => reference.task_id);
+  const hasUnavailableReading = !!readingItemId && !readingItem;
 
-  if (!loading && !hasReading && !hasBacklinks) {
+  if (!loading && !hasReading && !hasUnavailableReading && !hasBacklinks && linkedTasks.length === 0) {
     return null;
   }
 
@@ -129,6 +163,49 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
               )}
             </div>
           </Link>
+        </div>
+      )}
+
+      {!loading && hasUnavailableReading && (
+        <div className="mb-6">
+          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <BookOpen className="h-3.5 w-3.5" />
+            关联阅读
+          </h3>
+          <div className="rounded border border-dashed p-2 text-sm text-muted-foreground">
+            {highlightReferences[0]?.reading_state === "deleted"
+              ? "来源阅读已移入垃圾箱"
+              : "来源阅读引用已失效"}
+          </div>
+        </div>
+      )}
+
+      {linkedTasks.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            高亮关联任务
+          </h3>
+          <div className="space-y-1">
+            {linkedTasks.map((reference) =>
+              reference.task_state === "active" && reference.task_id ? (
+                <Link
+                  key={reference.highlight_id}
+                  href={`/tasks/${reference.task_id}`}
+                  className="block rounded p-2 text-sm hover:bg-accent hover:text-primary"
+                >
+                  {reference.task_title || "无标题任务"}
+                </Link>
+              ) : (
+                <div
+                  key={reference.highlight_id}
+                  className="rounded border border-dashed p-2 text-sm text-muted-foreground"
+                >
+                  {reference.task_state === "deleted" ? "关联任务已移入垃圾箱" : "关联任务引用已失效"}
+                </div>
+              )
+            )}
+          </div>
         </div>
       )}
 

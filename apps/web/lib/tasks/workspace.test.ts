@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskList, TaskWithTags } from "@organize/shared";
-import { quickAddDueDate, searchTasks } from "./workspace";
+import { filterTasksByScope, quickAddDueDate, searchTasks } from "./workspace";
 
 const task = (overrides: Partial<TaskWithTags>): TaskWithTags => ({
   id: "task-1",
@@ -82,5 +82,29 @@ describe("quickAddDueDate", () => {
   it("普通清单范围保持无日期", () => {
     expect(quickAddDueDate("all", now)).toBeNull();
     expect(quickAddDueDate("list", now)).toBeNull();
+  });
+});
+
+describe("filterTasksByScope", () => {
+  it("所有范围只展示根任务，子任务由父任务详情承载", () => {
+    const tasks = [
+      task({ id: "root", parent_task_id: null }),
+      task({ id: "child", parent_task_id: "root" }),
+      task({
+        id: "deleted-root",
+        parent_task_id: null,
+        deleted_at: "2026-01-02T00:00:00Z",
+      }),
+      task({
+        id: "deleted-child",
+        parent_task_id: "root",
+        deleted_at: "2026-01-02T00:00:00Z",
+      }),
+    ];
+
+    expect(filterTasksByScope(tasks, { scope: "all", listId: null }).map((item) => item.id))
+      .toEqual(["root"]);
+    expect(filterTasksByScope(tasks, { scope: "trash", listId: null }).map((item) => item.id))
+      .toEqual(["deleted-root"]);
   });
 });

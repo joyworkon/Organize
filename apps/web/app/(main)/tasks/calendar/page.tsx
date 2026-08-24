@@ -8,6 +8,7 @@ import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
 import { toast } from "@/hooks/use-toast";
+import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 function CalendarPageInner() {
   const router = useRouter();
@@ -46,6 +47,29 @@ function CalendarPageInner() {
     [refetch, supabase, tasks]
   );
 
+  const updateTaskSchedule = useCallback(
+    async (taskId: string, schedule: TaskSchedule) => {
+      const { error } = await supabase
+        .from("tasks")
+        .update({
+          schedule_start_at: schedule.schedule_start_at,
+          schedule_end_at: schedule.schedule_end_at,
+          due_date: schedule.schedule_end_at || schedule.schedule_start_at,
+          all_day: schedule.all_day,
+          timezone: schedule.timezone,
+          recurrence_rule: schedule.recurrence_rule,
+        })
+        .eq("id", taskId);
+      if (error) {
+        toast({ title: "改期失败", variant: "destructive" });
+        return;
+      }
+      await refetch();
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+    },
+    [refetch, supabase]
+  );
+
   if (loading) {
     return (
       <div className="grid h-[calc(100vh-11rem)] place-items-center rounded-lg border bg-background text-muted-foreground md:h-[calc(100vh-6rem)]">
@@ -60,6 +84,7 @@ function CalendarPageInner() {
         tasks={visibleTasks}
         onTaskClick={(task) => router.push(`/tasks/${task.id}`)}
         onRescheduleTask={rescheduleTask}
+        onUpdateTaskSchedule={updateTaskSchedule}
       />
     </div>
   );

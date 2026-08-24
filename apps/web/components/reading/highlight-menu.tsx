@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Copy, StickyNote } from "lucide-react";
+import { Copy, ListTodo, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { HighlightColor } from "@organize/shared";
@@ -16,7 +16,11 @@ const HIGHLIGHT_COLORS: { color: HighlightColor; bg: string }[] = [
 
 interface HighlightMenuProps {
   children: React.ReactNode;
-  onCreateHighlight: (content: string, color: HighlightColor) => Promise<void>;
+  onCreateHighlight: (
+    content: string,
+    color: HighlightColor,
+    targetType?: "note" | "task"
+  ) => Promise<void>;
 }
 
 interface MenuPosition {
@@ -107,7 +111,7 @@ export function HighlightMenu({ children, onCreateHighlight }: HighlightMenuProp
     };
   }, [updateMenuPosition, hideMenu]);
 
-  const applyHighlight = useCallback((color: HighlightColor) => {
+  const applyHighlight = useCallback((color: HighlightColor, targetType?: "note" | "task") => {
     if (!selectedText) return;
 
     const selection = window.getSelection();
@@ -124,7 +128,7 @@ export function HighlightMenu({ children, onCreateHighlight }: HighlightMenuProp
       console.log("surroundContents failed (cross-element selection), will save to DB only");
     }
 
-    onCreateHighlight(selectedText, color);
+    void onCreateHighlight(selectedText, color, targetType);
 
     selection.removeAllRanges();
     hideMenu();
@@ -140,11 +144,6 @@ export function HighlightMenu({ children, onCreateHighlight }: HighlightMenuProp
     }
     hideMenu();
   }, [selectedText, hideMenu]);
-
-  const handleAddNote = useCallback(() => {
-    applyHighlight("yellow");
-    toast({ title: "高亮已创建，可在侧边栏添加笔记" });
-  }, [applyHighlight]);
 
   return (
     <div ref={containerRef}>
@@ -172,11 +171,18 @@ export function HighlightMenu({ children, onCreateHighlight }: HighlightMenuProp
           ))}
           <div className="mx-1 h-5 w-px bg-border" />
           <button
-            onClick={handleAddNote}
+            onClick={() => applyHighlight("yellow", "note")}
             className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors"
-            title="添加笔记"
+            title="转为笔记"
           >
             <StickyNote className="h-4 w-4 text-muted-foreground" />
+          </button>
+          <button
+            onClick={() => applyHighlight("yellow", "task")}
+            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent transition-colors"
+            title="转为任务"
+          >
+            <ListTodo className="h-4 w-4 text-muted-foreground" />
           </button>
           <button
             onClick={handleCopy}

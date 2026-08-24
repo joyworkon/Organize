@@ -190,6 +190,8 @@ export interface CountdownDay {
 export interface Task {
   id: string;
   user_id: string;
+  /** 040 迁移新增；为空时是工作台根任务。 */
+  parent_task_id?: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
@@ -250,6 +252,28 @@ export interface TaskReminder {
   offset_minutes: number;
   notified_at?: string | null;
   created_at: string;
+  updated_at?: string;
+}
+
+/** 任务依赖（041 迁移）：task_id 是后置任务，depends_on_task_id 是前置任务。 */
+export interface TaskDependency {
+  task_id: string;
+  depends_on_task_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+/** 浏览器 Web Push 订阅（039 迁移） */
+export interface WebPushSubscription {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth_secret: string;
+  user_agent: string | null;
+  disabled_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** 任务附件元数据（033 迁移，二进制在 storage） */
@@ -372,6 +396,8 @@ export interface Highlight {
   color: HighlightColor;
   anchor_path?: string | null;
   anchor_offset?: number | null;
+  note_id?: string | null;
+  task_id?: string | null;
   created_at: string;
   updated_at: string;
 }

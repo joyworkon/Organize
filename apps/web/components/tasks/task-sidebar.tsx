@@ -58,6 +58,9 @@ export function isOverdue(dateStr: string | null | undefined): boolean {
   const now = new Date();
   return d < now && d.toDateString() !== now.toDateString();
 }
+export function isRootTask(task: Pick<TaskWithTags, "parent_task_id">): boolean {
+  return task.parent_task_id == null;
+}
 
 export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList, hideHeading = false, active = true }: TaskSidebarProps) {
   const [expanded, setExpanded] = useState(true);
@@ -77,15 +80,16 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   };
 
   // 计数
-  const activeTasks = tasks.filter((t) => !t.deleted_at && t.status !== "done" && t.status !== "cancelled");
+  const rootTasks = tasks.filter(isRootTask);
+  const activeTasks = rootTasks.filter((t) => !t.deleted_at && t.status !== "done" && t.status !== "cancelled");
   const todayCount = activeTasks.filter(
     (t) => isToday(t.schedule_start_at) || (isOverdue(t.schedule_start_at) && t.status === "todo") || isToday(t.due_date) || (isOverdue(t.due_date) && t.status === "todo")
   ).length;
   const upcomingCount = activeTasks.filter(
     (t) => isUpcoming(t.schedule_start_at) || isUpcoming(t.due_date)
   ).length;
-  const completedCount = tasks.filter((t) => !t.deleted_at && t.status === "done").length;
-  const trashCount = tasks.filter((t) => t.deleted_at).length;
+  const completedCount = rootTasks.filter((t) => !t.deleted_at && t.status === "done").length;
+  const trashCount = rootTasks.filter((t) => t.deleted_at).length;
 
   const listCounts = useMemo(() => {
     const m = new Map<string, number>();

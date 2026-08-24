@@ -3,26 +3,33 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronDown,
   Filter,
   Flag,
   ListChecks,
   Loader2,
+  LockKeyhole,
+  MoreHorizontal,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { applyReorderedGroup, computeSortOrderUpdates, reorderIds } from "@/lib/tasks/reorder";
+import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagFilter } from "@/components/tags/tag-filter";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
+import { TaskTemplatesDialog } from "@/components/tasks/task-templates-dialog";
+import { TaskAttachmentsDialog } from "@/components/tasks/task-attachments-dialog";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
 import { toast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
-import type { TagWithCount, Task, TaskCategory, TaskPriority, TaskStatus, TaskWithTags } from "@organize/shared";
+import type { TagWithCount, Task, TaskCategory, TaskDependency, TaskPriority, TaskStatus, TaskWithTags } from "@organize/shared";
 import { TASK_CATEGORY_CONFIG, TASK_PRIORITY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import {
@@ -32,6 +39,7 @@ import {
   quickAddDueDate,
   taskDate,
 } from "@/lib/tasks/workspace";
+import { getBlockedTaskIds } from "@/lib/tasks/dependencies";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
@@ -42,6 +50,7 @@ interface TaskRowProps {
   task: TaskWithTags;
   selected: boolean;
   listColor?: string | null;
+  blocked?: boolean;
   onOpen: () => void;
   onStatus: () => void;
   onDateChange: (value: TaskSchedule) => Promise<void>;
@@ -52,9 +61,21 @@ interface TaskRowProps {
   onDragOverRow?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDropRow?: () => void;
   onDragEndRow?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveRow?: (offset: -1 | 1) => void;
 }
 
-function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange, draggableRow, dropPosition, onDragStartRow, onDragOverRow, onDropRow, onDragEndRow }: TaskRowProps) {
+function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateChange, draggableRow, dropPosition, onDragStartRow, onDragOverRow, onDropRow, onDragEndRow, canMoveUp, canMoveDown, onMoveRow }: TaskRowProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const suppressOpen = useRef(false);
+  const clearLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    longPressOrigin.current = null;
+  };
   const schedule: TaskSchedule = {
     schedule_start_at: task.schedule_start_at || task.due_date,
     schedule_end_at: task.schedule_end_at || null,
@@ -66,8 +87,31 @@ function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange, dr
     <div
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      onClick={(event) => {
+        if (suppressOpen.current) {
+          event.preventDefault();
+          suppressOpen.current = false;
+          return;
+        }
+        onOpen();
+      }}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
+      onPointerDown={(event) => {
+        if (event.pointerType !== "touch" || !onMoveRow || (event.target as HTMLElement).closest("button,input")) return;
+        clearLongPress();
+        longPressOrigin.current = { x: event.clientX, y: event.clientY };
+        longPressTimer.current = setTimeout(() => {
+          suppressOpen.current = true;
+          setMobileMenuOpen(true);
+          clearLongPress();
+        }, 500);
+      }}
+      onPointerMove={(event) => {
+        const origin = longPressOrigin.current;
+        if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 8) clearLongPress();
+      }}
+      onPointerUp={clearLongPress}
+      onPointerCancel={clearLongPress}
       draggable={draggableRow}
       onDragStart={draggableRow ? (event) => { event.dataTransfer.effectAllowed = "move"; onDragStartRow?.(); } : undefined}
       onDragOver={draggableRow ? (event) => { event.preventDefault(); onDragOverRow?.(event); } : undefined}
@@ -89,6 +133,15 @@ function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange, dr
             />
           )}
           <div className={cn("truncate text-[15px] font-medium", task.status === "done" && "line-through")}>{task.title}</div>
+          {blocked && (
+            <span
+              aria-label="任务被未完成的前置任务阻塞"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+            >
+              <LockKeyhole className="h-3 w-3" />
+              阻塞
+            </span>
+          )}
         </div>
         {task.description && <div className="mt-1 truncate text-sm text-muted-foreground">- {task.description}</div>}
         {task.tags && task.tags.length > 0 && <div className="mt-1 flex gap-1 text-[11px] text-muted-foreground">{task.tags.slice(0, 3).map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>}
@@ -99,6 +152,25 @@ function TaskRow({ task, selected, listColor, onOpen, onStatus, onDateChange, dr
         align="end"
         trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
       />
+      {onMoveRow && (
+        <DropdownMenu open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="移动任务" onClick={(event) => event.stopPropagation()} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted md:hidden">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+            <DropdownMenuItem disabled={!canMoveUp} onSelect={() => onMoveRow(-1)}>
+              <ArrowUp className="mr-2 h-4 w-4" />
+              上移一项
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!canMoveDown} onSelect={() => onMoveRow(1)}>
+              <ArrowDown className="mr-2 h-4 w-4" />
+              下移一项
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
@@ -116,6 +188,7 @@ function TasksPageInner() {
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
   const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
+  const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
@@ -147,6 +220,7 @@ function TasksPageInner() {
       setTags(workspace.tags);
       setLists(workspace.lists);
       setTasks(workspace.tasks);
+      setDependencies(workspace.dependencies);
       scheduleDueDateReminders(workspace.tasks);
     } finally {
       setLoading(false);
@@ -223,6 +297,24 @@ function TasksPageInner() {
     }
   }, [dragTaskId, supabase, tasks]);
 
+  /** 触屏菜单与桌面拖拽共用相同的乐观更新及 sort_order 持久化协议 */
+  const handleMoveRow = useCallback(async (taskId: string, offset: -1 | 1) => {
+    const currentRows = activeTasksRef.current;
+    const groupIds = currentRows.map((task) => task.id);
+    const newOrder = moveIdByOffset(groupIds, taskId, offset);
+    if (newOrder === groupIds) return;
+    const previous = tasks;
+    setTasks((current) => applyReorderedGroup(current, newOrder));
+    const updates = computeSortOrderUpdates(currentRows, newOrder);
+    const results = await Promise.all(
+      updates.map((update) => supabase.from("tasks").update({ sort_order: update.sort_order }).eq("id", update.id))
+    );
+    if (results.some((result) => result.error)) {
+      setTasks(previous);
+      toast({ title: "排序保存失败，已回滚", variant: "destructive" });
+    }
+  }, [supabase, tasks]);
+
   const filteredTasks = useMemo(() => {
     const scoped = filterTasksByScope(tasks, sidebarSelection);
     return scoped.filter((task) => {
@@ -237,6 +329,10 @@ function TasksPageInner() {
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   activeTasksRef.current = activeTasks;
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
+  const blockedTaskIds = useMemo(
+    () => getBlockedTaskIds(tasks, dependencies),
+    [dependencies, tasks]
+  );
   const listTitle = sidebarSelection.scope === "list" ? lists.find((list) => list.id === sidebarSelection.listId)?.name || "工作任务" : sidebarSelection.scope === "today" ? "今天" : sidebarSelection.scope === "upcoming" ? "最近7天" : sidebarSelection.scope === "completed" ? "已完成" : sidebarSelection.scope === "trash" ? "垃圾桶" : "全部任务";
   const currentList = lists.find((list) => list.id === sidebarSelection.listId);
 
@@ -285,6 +381,20 @@ function TasksPageInner() {
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
+          <TaskTemplatesDialog
+            lists={lists}
+            defaultListId={sidebarSelection.scope === "list" ? sidebarSelection.listId : null}
+            defaultDueDate={quickAddDueDate(sidebarSelection.scope)}
+            onCreated={async (taskId) => {
+              await fetchTasks();
+              window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+              updateUrl({ task: taskId });
+            }}
+          />
+          <TaskAttachmentsDialog
+            tasks={tasks}
+            onOpenTask={(taskId) => updateUrl({ task: taskId })}
+          />
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -303,12 +413,13 @@ function TasksPageInner() {
             {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
-                {activeTasks.map((task) => (
+                {activeTasks.map((task, index) => (
                   <TaskRow
                     key={task.id}
                     task={task}
                     selected={task.id === selectedTaskId}
                     listColor={lists.find((list) => list.id === task.list_id)?.color}
+                    blocked={blockedTaskIds.has(task.id)}
                     onOpen={() => openTask(task)}
                     onStatus={() => toggleStatus(task)}
                     onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
@@ -323,6 +434,9 @@ function TasksPageInner() {
                     }}
                     onDropRow={() => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); }}
                     onDragEndRow={() => { setDragTaskId(null); setDropTarget(null); }}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < activeTasks.length - 1}
+                    onMoveRow={(offset) => void handleMoveRow(task.id, offset)}
                   />
                 ))}
                 {completedTasks.length > 0 && <div className="mt-4 flex items-center gap-2 border-y bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />已完成 <span className="text-xs font-normal text-muted-foreground">{completedTasks.length}</span></div>}
@@ -333,7 +447,7 @@ function TasksPageInner() {
         </div>
       </section>
 
-      {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} />}
+      {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} onOpenTask={(taskId) => updateUrl({ task: taskId })} />}
     </div>
   );
 }

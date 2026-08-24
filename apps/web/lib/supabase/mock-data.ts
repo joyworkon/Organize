@@ -153,6 +153,7 @@ const notes = [
     full_width: false,
     font_family: "default" as const,
     small_font: false,
+    content_revision: 0,
     is_pinned: true,
     created_at: iso(1),
     updated_at: iso(0),
@@ -172,6 +173,7 @@ const notes = [
     full_width: false,
     font_family: "default" as const,
     small_font: false,
+    content_revision: 0,
     is_pinned: false,
     created_at: iso(3),
     updated_at: iso(1),
@@ -191,6 +193,7 @@ const notes = [
     full_width: false,
     font_family: "default" as const,
     small_font: false,
+    content_revision: 0,
     is_pinned: false,
     created_at: iso(5),
     updated_at: iso(5),
@@ -309,6 +312,7 @@ const mockListByCategory: Record<string, string> = {
   life: "mock-list-life",
 };
 tasks.forEach((task, index) => {
+  (task as any).parent_task_id = null;
   (task as any).list_id = mockListByCategory[task.category] || null;
   (task as any).schedule_start_at = task.due_date;
   (task as any).schedule_end_at = index === 0 && task.due_date
@@ -435,6 +439,7 @@ export const mockDb: Record<string, any[]> = {
   note_tags: noteTags,
   tasks,
   task_tags: taskTags,
+  task_dependencies: [],
   task_checklists: taskChecklists,
   lessons,
   lesson_tags: lessonTags,
@@ -454,6 +459,8 @@ export const mockDb: Record<string, any[]> = {
     { id: "mock-list-life", user_id: MOCK_USER.id, name: "生活", icon: "🏠", color: "#10b981", sort_order: 3, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },
   ],
   task_reminders: [],
+  web_push_subscriptions: [],
+  task_reminder_deliveries: [],
   task_attachments: [],
   task_activities: [],
   task_templates: [],

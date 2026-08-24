@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Breadcrumb,
@@ -43,7 +42,6 @@ import {
   CheckCircle2,
   BookOpen,
   FileText,
-  Plus,
   X,
   CheckSquare,
   Clock,
@@ -54,7 +52,6 @@ import {
   Bookmark,
   Printer,
   Upload,
-  Paperclip,
   Activity,
 } from "lucide-react";
 import {
@@ -72,6 +69,8 @@ import type {
   TaskPriority,
   TaskCategory,
   Tag,
+  TaskActivity,
+  TaskAttachment,
 } from "@organize/shared";
 import {
   TASK_STATUS_CONFIG,
@@ -81,6 +80,16 @@ import {
 import { FavoriteButton } from "@/components/favorite-button";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { mutateTrash } from "@/lib/trash/client";
+import { TaskRemindersEditor } from "@/components/tasks/task-reminders-editor";
+import { buildTaskTemplateSnapshot } from "@/lib/tasks/templates";
+import { TaskHierarchy } from "@/components/tasks/task-hierarchy";
+import { TaskDependencies } from "@/components/tasks/task-dependencies";
+import { TaskLinkedContent } from "@/components/tasks/task-linked-content";
+import { TaskAttachmentList } from "@/components/tasks/task-attachment-list";
+import {
+  buildTaskAttachmentPath,
+  validateTaskAttachment,
+} from "@/lib/tasks/attachments";
 
 export default function TaskDetailPage() {
   const params = useParams();
@@ -91,8 +100,8 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [attachments, setAttachments] = useState<import("@organize/shared").TaskAttachment[]>([]);
-  const [activities, setActivities] = useState<import("@organize/shared").TaskActivity[]>([]);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -101,7 +110,6 @@ export default function TaskDetailPage() {
   const [editedTitle, setEditedTitle] = useState("");
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editedDescription, setEditedDescription] = useState("");
-  const [newChecklistContent, setNewChecklistContent] = useState("");
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
@@ -153,8 +161,8 @@ export default function TaskDetailPage() {
         if (tag) taskTags.push(tag);
       }
       setTags(taskTags);
-      setAttachments((attData as import("@organize/shared").TaskAttachment[]) || []);
-      setActivities((actData as import("@organize/shared").TaskActivity[]) || []);
+      setAttachments((attData as TaskAttachment[]) || []);
+      setActivities((actData as TaskActivity[]) || []);
     } catch (err) {
       console.error("加载任务失败:", err);
       setError("加载任务失败");
@@ -195,30 +203,6 @@ export default function TaskDetailPage() {
     } catch (err) {
       console.error("更新子任务失败:", err);
       toast({ title: "更新失败", variant: "destructive" });
-    }
-  }
-
-  async function addChecklist() {
-    if (!task || !newChecklistContent.trim()) return;
-    const content = newChecklistContent.trim();
-    setNewChecklistContent("");
-    try {
-      const maxOrder = checklists.reduce((max, c) => Math.max(max, c.sort_order), -1);
-      const { data, error } = await supabase
-        .from("task_checklists")
-        .insert({
-          task_id: task.id,
-          content,
-          is_completed: false,
-          sort_order: maxOrder + 1,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      setChecklists(prev => [...prev, data as TaskChecklist]);
-    } catch (err) {
-      console.error("添加子任务失败:", err);
-      toast({ title: "添加失败", variant: "destructive" });
     }
   }
 
@@ -295,13 +279,47 @@ export default function TaskDetailPage() {
     const { error } = await supabase.from("task_templates").insert({
       user_id: user.id,
       name: task.title,
-      template: {
-        title: task.title, description: task.description, priority: task.priority,
-        category: task.category, estimated_minutes: task.estimated_minutes,
-      },
+      template: buildTaskTemplateSnapshot(task),
     });
     if (error) { toast({ title: "保存模板失败", variant: "destructive" }); return; }
     toast({ title: "模板已保存" });
+  }
+
+  async function handleUploadAttachment(file: File) {
+    if (!task) return;
+    const validationError = validateTaskAttachment(file);
+    if (validationError) {
+      toast({ title: validationError, variant: "destructive" });
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const path = buildTaskAttachmentPath(user.id, task.id, file.name);
+    const { error: uploadError } = await supabase.storage
+      .from("attachments")
+      .upload(path, file);
+    if (uploadError) {
+      toast({ title: "上传附件失败", variant: "destructive" });
+      return;
+    }
+    const { error: metadataError } = await supabase
+      .from("task_attachments")
+      .insert({
+        user_id: user.id,
+        task_id: task.id,
+        name: file.name,
+        bucket: "attachments",
+        path,
+        mime_type: file.type,
+        size_bytes: file.size,
+      });
+    if (metadataError) {
+      await supabase.storage.from("attachments").remove([path]);
+      toast({ title: "附件记录失败，已清理上传对象", variant: "destructive" });
+      return;
+    }
+    toast({ title: "附件已上传" });
+    await loadTask();
   }
 
   async function handleDelete() {
@@ -390,9 +408,6 @@ export default function TaskDetailPage() {
     });
   }
 
-  const checklistCompleted = checklists.filter(c => c.is_completed).length;
-  const checklistTotal = checklists.length;
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -414,16 +429,16 @@ export default function TaskDetailPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+    <div className="mx-auto max-w-2xl min-w-0 space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
           <Link href="/tasks">
             <Button variant="ghost" size="sm" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               返回
             </Button>
           </Link>
-          <Breadcrumb>
+          <Breadcrumb className="hidden min-w-0 sm:block">
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink href="/">首页</BreadcrumbLink>
@@ -439,7 +454,7 @@ export default function TaskDetailPage() {
             </BreadcrumbList>
           </Breadcrumb>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <FavoriteButton targetType="task" targetId={taskId} />
           <Button
             variant="ghost"
@@ -606,6 +621,8 @@ export default function TaskDetailPage() {
             </div>
           </details>
 
+          <TaskRemindersEditor task={task} />
+
           {(task.estimated_minutes || task.actual_minutes) && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="h-4 w-4" />
@@ -645,33 +662,9 @@ export default function TaskDetailPage() {
             </div>
           )}
 
-          {(task.reading_item_id || task.note_id) && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground">关联内容</h3>
-              <div className="flex flex-wrap gap-2">
-                {task.reading_item_id && (
-                  <Link
-                    href={`/library/${task.reading_item_id}`}
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                  >
-                    <BookOpen className="h-4 w-4" />
-                    关联阅读
-                  </Link>
-                )}
-                {task.note_id && (
-                  <Link
-                    href={`/notes/${task.note_id}`}
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                  >
-                    <FileText className="h-4 w-4" />
-                    关联笔记
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}
+          <TaskLinkedContent task={task} />
 
-          {/* 附件区域（12项菜单之上传附件） */}
+          {/* 附件区域 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-muted-foreground">附件</h3>
@@ -680,59 +673,21 @@ export default function TaskDetailPage() {
                 <input
                   type="file"
                   className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file || !task) return;
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) return;
-                    const path = `${user.id}/tasks/${task.id}/${Date.now()}-${file.name}`;
-                    const { error: upErr } = await supabase.storage.from("attachments").upload(path, file);
-                    if (upErr) {
-                      toast({ title: "上传失败", variant: "destructive" });
-                      return;
-                    }
-                    const { error: metaErr } = await supabase.from("task_attachments").insert({
-                      user_id: user.id, task_id: task.id, name: file.name,
-                      bucket: "attachments", path, mime_type: file.type, size_bytes: file.size,
-                    });
-                    if (metaErr) {
-                      // 元数据写失败 → 补偿删除已上传对象（任务书红线）
-                      await supabase.storage.from("attachments").remove([path]);
-                      toast({ title: "附件记录失败，已清理", variant: "destructive" });
-                      return;
-                    }
-                    toast({ title: "附件已上传" });
-                    loadTask();
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleUploadAttachment(file);
+                    event.currentTarget.value = "";
                   }}
                 />
               </label>
             </div>
-            {attachments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">无附件</p>
-            ) : (
-              <div className="space-y-1">
-                {attachments.map((att) => (
-                  <div key={att.id} className="flex items-center gap-2 text-sm group">
-                    <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <a
-                      href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${att.bucket}/${att.path}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="flex-1 truncate hover:underline"
-                    >{att.name}</a>
-                    <span className="text-xs text-muted-foreground">{att.size_bytes ? `${Math.round(att.size_bytes / 1024)}KB` : ""}</span>
-                    <button
-                      onClick={async () => {
-                        await supabase.storage.from(att.bucket).remove([att.path]);
-                        await supabase.from("task_attachments").delete().eq("id", att.id);
-                        loadTask();
-                        toast({ title: "附件已删除" });
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-destructive"
-                    ><X className="h-3.5 w-3.5" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <TaskAttachmentList
+              attachments={attachments}
+              emptyText="无附件"
+              onDeleted={(attachmentId) =>
+                setAttachments((items) => items.filter((item) => item.id !== attachmentId))
+              }
+            />
           </div>
 
           {/* 任务动态（12项菜单之任务动态） */}
@@ -762,60 +717,49 @@ export default function TaskDetailPage() {
           <CardTitle className="text-base flex items-center gap-2">
             <CheckSquare className="h-4 w-4" />
             子任务
-            {checklistTotal > 0 && (
-              <span className="text-sm font-normal text-muted-foreground">
-                ({checklistCompleted}/{checklistTotal})
-              </span>
-            )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {checklists.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">暂无子任务</p>
-          )}
-          {checklists.map((item) => (
-            <div
-              key={item.id}
-              className="group flex items-start gap-3 p-2 rounded-md hover:bg-accent/50 transition-colors"
-            >
-              <Checkbox
-                checked={item.is_completed}
-                onCheckedChange={(checked) => toggleChecklist(item.id, checked as boolean)}
-                className="mt-0.5"
-              />
-              <span
-                className={cn(
-                  "flex-1 text-sm",
-                  item.is_completed && "line-through text-muted-foreground"
-                )}
-              >
-                {item.content}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                onClick={() => deleteChecklist(item.id)}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-          <div className="flex items-center gap-2 pt-2">
-            <Input
-              placeholder="添加子任务..."
-              value={newChecklistContent}
-              onChange={(e) => setNewChecklistContent(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") addChecklist();
-              }}
-            />
-            <Button size="sm" onClick={addChecklist} disabled={!newChecklistContent.trim()}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+        <CardContent>
+          <TaskHierarchy task={task} />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">任务依赖</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <TaskDependencies task={task} />
+        </CardContent>
+      </Card>
+
+      {checklists.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">清单项（旧数据）</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {checklists.map((item) => (
+              <div key={item.id} className="group flex items-center gap-3 rounded-md p-2 hover:bg-accent/50">
+                <button
+                  type="button"
+                  onClick={() => void toggleChecklist(item.id, !item.is_completed)}
+                  className={cn(
+                    "grid h-5 w-5 shrink-0 place-items-center rounded border",
+                    item.is_completed && "border-primary bg-primary text-primary-foreground"
+                  )}
+                >
+                  {item.is_completed && <CheckCircle2 className="h-3.5 w-3.5" />}
+                </button>
+                <span className={cn("flex-1 text-sm", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100" onClick={() => void deleteChecklist(item.id)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="text-xs text-muted-foreground space-y-1">
         <div>创建于: {formatDate(task.created_at)}</div>

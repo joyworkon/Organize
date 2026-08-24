@@ -14,6 +14,16 @@ export function reorderIds(ids: string[], dragId: string, targetId: string, afte
   return without;
 }
 
+/** 触屏排序：把指定项上移或下移一格；到达边界时保持原数组 */
+export function moveIdByOffset(ids: string[], id: string, offset: -1 | 1): string[] {
+  const index = ids.indexOf(id);
+  const targetIndex = index + offset;
+  if (index === -1 || targetIndex < 0 || targetIndex >= ids.length) return ids;
+  const next = [...ids];
+  [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+  return next;
+}
+
 /** 对比新顺序与现有 sort_order，返回需要持久化的最小更新集 */
 export function computeSortOrderUpdates(
   rows: { id: string; sort_order: number }[],
