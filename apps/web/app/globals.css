@@ -529,6 +529,24 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.organize-editor .is-invalid-internal-link {
+  cursor: not-allowed;
+  color: hsl(var(--destructive));
+  text-decoration-line: line-through;
+  text-decoration-style: dotted;
+}
+
+.organize-editor .invalid-internal-link-label {
+  margin-left: 0.2rem;
+  font-size: 0.75em;
+  color: hsl(var(--destructive));
+  user-select: none;
+}
+
+.organize-editor .invalid-internal-link-label[data-link-state="missing"] {
+  opacity: 0.85;
+}
+
 /* 表格 */
 .organize-editor .tableWrapper {
   width: 100%;

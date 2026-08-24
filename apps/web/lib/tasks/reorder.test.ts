@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReorderedGroup, computeSortOrderUpdates, reorderIds } from "./reorder";
+import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "./reorder";
 
 describe("reorderIds", () => {
   const ids = ["a", "b", "c", "d"];
@@ -21,6 +21,21 @@ describe("reorderIds", () => {
   it("向前移动自身紧邻位置不产生跳变", () => {
     // b 拖到 c 之后 → a c b d
     expect(reorderIds(ids, "b", "c", true)).toEqual(["a", "c", "b", "d"]);
+  });
+});
+
+describe("moveIdByOffset", () => {
+  const ids = ["a", "b", "c"];
+
+  it("支持触屏菜单逐项上移或下移", () => {
+    expect(moveIdByOffset(ids, "b", -1)).toEqual(["b", "a", "c"]);
+    expect(moveIdByOffset(ids, "b", 1)).toEqual(["a", "c", "b"]);
+  });
+
+  it("边界和不存在的任务保持不变", () => {
+    expect(moveIdByOffset(ids, "a", -1)).toBe(ids);
+    expect(moveIdByOffset(ids, "c", 1)).toBe(ids);
+    expect(moveIdByOffset(ids, "x", 1)).toBe(ids);
   });
 });
 

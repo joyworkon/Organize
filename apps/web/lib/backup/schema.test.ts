@@ -12,6 +12,7 @@ const ids = {
   note: "20000000-0000-4000-8000-000000000001",
   tag: "30000000-0000-4000-8000-000000000001",
   task: "40000000-0000-4000-8000-000000000001",
+  childTask: "40000000-0000-4000-8000-000000000002",
   checklist: "50000000-0000-4000-8000-000000000001",
   lesson: "60000000-0000-4000-8000-000000000001",
   highlight: "70000000-0000-4000-8000-000000000001",
@@ -116,6 +117,7 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    task_dependencies: [],
     task_checklists: [
       {
         id: ids.checklist,
@@ -151,6 +153,8 @@ function fixtureData(): BackupData {
         color: "yellow",
         anchor_path: null,
         anchor_offset: null,
+        note_id: ids.note,
+        task_id: ids.task,
         created_at: timestamp,
         updated_at: timestamp,
       },
@@ -337,6 +341,124 @@ describe("Backup V2", () => {
     );
     expect(JSON.stringify(payload)).not.toContain(ids.note);
     expect(JSON.stringify(payload)).not.toContain(ids.reading);
+  });
+
+  it("接受完整父子链并在恢复时重映射 parent_task_id", () => {
+    const data = fixtureData();
+    data.tasks[0].parent_task_id = null;
+    data.tasks.push({
+      ...data.tasks[0],
+      id: ids.childTask,
+      title: "Child task",
+      parent_task_id: ids.task,
+    });
+    const backup = createBackupV2(data, timestamp);
+    expect(inspectBackupV2(backup).ok).toBe(true);
+
+    let sequence = 1;
+    const payload = prepareRestorePayload(backup, () => {
+      const suffix = String(sequence++).padStart(12, "0");
+      return `b0000000-0000-4000-8000-${suffix}`;
+    });
+    expect(payload.data.tasks[0].parent_task_id).toBeNull();
+    expect(payload.data.tasks[1].parent_task_id).toBe(payload.data.tasks[0].id);
+    expect(payload.data.tasks[1].parent_task_id).not.toBe(ids.task);
+  });
+
+  it("拒绝不存在的父任务和任意深度的层级循环", () => {
+    const broken = createBackupV2(fixtureData(), timestamp) as any;
+    broken.data.tasks[0].parent_task_id =
+      "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const brokenResult = inspectBackupV2(broken);
+    expect(brokenResult.ok).toBe(false);
+    if (!brokenResult.ok) {
+      expect(brokenResult.issues.map((entry) => entry.code)).toContain(
+        "BROKEN_REFERENCE"
+      );
+    }
+
+    const cyclic = createBackupV2(fixtureData(), timestamp) as any;
+    cyclic.data.tasks[0].parent_task_id = ids.childTask;
+    cyclic.data.tasks.push({
+      ...cyclic.data.tasks[0],
+      id: ids.childTask,
+      title: "Child task",
+      parent_task_id: ids.task,
+    });
+    const cyclicResult = inspectBackupV2(cyclic);
+    expect(cyclicResult.ok).toBe(false);
+    if (!cyclicResult.ok) {
+      expect(cyclicResult.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "INVALID_ROW",
+            message: "任务层级不能形成循环",
+          }),
+        ])
+      );
+    }
+  });
+
+  it("兼容未包含 parent_task_id 的旧备份", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as any;
+    delete backup.data.tasks[0].parent_task_id;
+    expect(inspectBackupV2(backup).ok).toBe(true);
+    expect(prepareRestorePayload(backup).data.tasks[0].parent_task_id).toBeNull();
+  });
+
+  it("校验依赖引用、自依赖、重复边和任意深度循环，并重映射两端 ID", () => {
+    const data = fixtureData();
+    data.tasks.push({
+      ...data.tasks[0],
+      id: ids.childTask,
+      title: "Dependent task",
+    });
+    data.task_dependencies.push({
+      task_id: ids.childTask,
+      depends_on_task_id: ids.task,
+      created_at: timestamp,
+    });
+    const backup = createBackupV2(data, timestamp);
+    expect(inspectBackupV2(backup).ok).toBe(true);
+
+    const payload = prepareRestorePayload(backup);
+    expect(payload.data.task_dependencies[0].task_id).toBe(payload.data.tasks[1].id);
+    expect(payload.data.task_dependencies[0].depends_on_task_id).toBe(
+      payload.data.tasks[0].id
+    );
+
+    const self = structuredClone(backup);
+    self.data.task_dependencies[0].depends_on_task_id = ids.childTask;
+    expect(inspectBackupV2(self).ok).toBe(false);
+
+    const duplicate = structuredClone(backup);
+    duplicate.data.task_dependencies.push({
+      ...duplicate.data.task_dependencies[0],
+    });
+    expect(inspectBackupV2(duplicate).ok).toBe(false);
+
+    const cyclic = structuredClone(backup);
+    cyclic.data.task_dependencies.push({
+      task_id: ids.task,
+      depends_on_task_id: ids.childTask,
+      created_at: timestamp,
+    });
+    const cyclicResult = inspectBackupV2(cyclic);
+    expect(cyclicResult.ok).toBe(false);
+    if (!cyclicResult.ok) {
+      expect(cyclicResult.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: "任务依赖不能形成循环" }),
+        ])
+      );
+    }
+  });
+
+  it("恢复时重映射高亮关联的笔记和任务 ID", () => {
+    const payload = prepareRestorePayload(createBackupV2(fixtureData(), timestamp));
+
+    expect(payload.data.highlights[0].note_id).toBe(payload.data.notes[0].id);
+    expect(payload.data.highlights[0].task_id).toBe(payload.data.tasks[0].id);
   });
 
   it("accepts legacy backups that omit full_width / font_family / small_font", () => {

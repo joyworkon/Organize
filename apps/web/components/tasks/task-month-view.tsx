@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags } from "@organize/shared";
+import { TaskDatePopover } from "@/components/tasks/task-date-popover";
+import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 /** 每周最多可见泳道数，超出的折叠为 +N */
@@ -43,6 +45,35 @@ export function groupTasksByDate(tasks: TaskWithTags[]) {
     grouped.set(key, [...(grouped.get(key) || []), task]);
   });
   return grouped;
+}
+
+export interface AgendaGroup {
+  date: Date;
+  tasks: TaskWithTags[];
+}
+
+/** 移动端按当前月份生成有任务的日程分组，并按日期、时间、手工顺序稳定排序 */
+export function getMonthAgenda(tasks: TaskWithTags[], cursor: Date): AgendaGroup[] {
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const grouped = new Map<string, AgendaGroup>();
+  tasks.forEach((task) => {
+    const date = getTaskDate(task);
+    if (!date || date.getFullYear() !== year || date.getMonth() !== month) return;
+    const key = keyFor(date);
+    const group = grouped.get(key) || { date: dateOnly(date), tasks: [] };
+    group.tasks.push(task);
+    grouped.set(key, group);
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .map((group) => ({
+      ...group,
+      tasks: [...group.tasks].sort((a, b) => {
+        const time = (getTaskDate(a)?.getTime() || 0) - (getTaskDate(b)?.getTime() || 0);
+        return time || a.sort_order - b.sort_order || a.id.localeCompare(b.id);
+      }),
+    }));
 }
 
 function keyFor(date: Date) {
@@ -152,9 +183,10 @@ interface TaskMonthViewProps {
   tasks: TaskWithTags[];
   onTaskClick?: (task: TaskWithTags) => void;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
+  onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
 }
 
-export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMonthViewProps) {
+export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask, onUpdateTaskSchedule }: TaskMonthViewProps) {
   const today = new Date();
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -170,6 +202,7 @@ export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMont
     () => weeks.map((week) => layoutWeekSegments(monthTasks, week)),
     [weeks, monthTasks]
   );
+  const agenda = useMemo(() => getMonthAgenda(monthTasks, cursor), [cursor, monthTasks]);
 
   /** 从拖拽事件的横坐标算出目标列（0-6），用于行级 drop */
   const colFromEvent = (event: React.DragEvent<HTMLElement>) => {
@@ -190,8 +223,8 @@ export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMont
         </div>
       </header>
 
-      <div className="grid shrink-0 grid-cols-7 border-b bg-muted/20">{WEEKDAYS.map((day) => <div key={day} className="border-r px-2 py-3 text-center text-sm text-muted-foreground last:border-r-0">{day}</div>)}</div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="hidden shrink-0 grid-cols-7 border-b bg-muted/20 md:grid">{WEEKDAYS.map((day) => <div key={day} className="border-r px-2 py-3 text-center text-sm text-muted-foreground last:border-r-0">{day}</div>)}</div>
+      <div className="hidden min-h-0 flex-1 flex-col overflow-y-auto md:flex">
         {weeks.map((week, weekIndex) => {
           const { segments, hiddenByCol } = weekLayouts[weekIndex];
           return (
@@ -265,6 +298,61 @@ export function TaskMonthView({ tasks, onTaskClick, onRescheduleTask }: TaskMont
             </div>
           );
         })}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
+        {agenda.length === 0 ? (
+          <div className="grid min-h-56 place-items-center px-6 text-center text-sm text-muted-foreground">
+            本月还没有已排期任务
+          </div>
+        ) : (
+          <div className="divide-y">
+            {agenda.map((group) => (
+              <section key={keyFor(group.date)} className="px-4 py-4">
+                <div className="mb-2 flex items-baseline gap-2">
+                  <strong className="text-base">{group.date.getMonth() + 1}月{group.date.getDate()}日</strong>
+                  <span className="text-xs text-muted-foreground">{WEEKDAYS[(group.date.getDay() + 6) % 7]}</span>
+                </div>
+                <div className="overflow-hidden rounded-xl border bg-background">
+                  {group.tasks.map((task) => {
+                    const date = getTaskDate(task);
+                    const schedule: TaskSchedule = {
+                      schedule_start_at: task.schedule_start_at || task.due_date,
+                      schedule_end_at: task.schedule_end_at || null,
+                      all_day: Boolean(task.all_day),
+                      timezone: task.timezone || null,
+                      recurrence_rule: task.recurrence_rule || null,
+                    };
+                    return (
+                      <div key={task.id} className="flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0">
+                        <button type="button" onClick={() => onTaskClick?.(task)} className="min-w-0 flex-1 text-left">
+                          <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}>{task.title}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {task.all_day ? "全天" : date?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}
+                          </div>
+                        </button>
+                        {(onUpdateTaskSchedule || onRescheduleTask) && (
+                          <TaskDatePopover
+                            value={schedule}
+                            align="end"
+                            className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto"
+                            onChange={async (next) => {
+                              if (onUpdateTaskSchedule) {
+                                await onUpdateTaskSchedule(task.id, next);
+                              } else if (next.schedule_start_at && onRescheduleTask) {
+                                await onRescheduleTask(task.id, new Date(next.schedule_start_at));
+                              }
+                            }}
+                            trigger={<button type="button" className="shrink-0 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground">改期</button>}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

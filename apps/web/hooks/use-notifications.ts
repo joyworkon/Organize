@@ -8,6 +8,12 @@ const NOTIFIED_STORAGE_KEY = "organize:notified-due";
 
 type NotificationPermissionState = NotificationPermission | "unsupported";
 
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
 function getNotifiedTaskIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -67,7 +73,26 @@ export function useNotifications() {
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
-      return result === "granted";
+      if (result !== "granted") return false;
+
+      const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        return true;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription =
+        existing ||
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        }));
+      const response = await fetch("/api/push/subscriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      return response.ok;
     } catch {
       return false;
     }

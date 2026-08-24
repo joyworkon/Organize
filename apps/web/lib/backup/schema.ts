@@ -13,6 +13,7 @@ export const BACKUP_TABLES = [
   "item_tags",
   "note_tags",
   "tasks",
+  "task_dependencies",
   "task_checklists",
   "task_tags",
   "lessons",
@@ -191,6 +192,7 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       actual_minutes: isNullableInteger,
       reading_item_id: isNullableUuid,
       note_id: isNullableUuid,
+      parent_task_id: optional(isNullableUuid),
       is_pinned: isBoolean,
       sort_order: isInteger,
       completed_at: isNullableTimestamp,
@@ -198,6 +200,14 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       updated_at: isTimestamp,
     },
     keyFields: ["id"],
+  },
+  task_dependencies: {
+    fields: {
+      task_id: isUuid,
+      depends_on_task_id: isUuid,
+      created_at: isTimestamp,
+    },
+    keyFields: ["task_id", "depends_on_task_id"],
   },
   task_checklists: {
     fields: {
@@ -236,6 +246,8 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       color: oneOf("yellow", "green", "blue", "pink", "purple"),
       anchor_path: isNullableString,
       anchor_offset: isNullableInteger,
+      note_id: optional(isNullableUuid),
+      task_id: optional(isNullableUuid),
       created_at: isTimestamp,
       updated_at: isTimestamp,
     },
@@ -445,7 +457,7 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   // 旧 v2 备份没有 033 新表；早期 v3 备份也可能没有倒数日，统一补空数组。
   if ((value.version === 2 || value.version === 3) && value.data && typeof value.data === "object") {
     const data = value.data as Record<string, unknown>;
-    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days"];
+    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies"];
     for (const t of v3NewTables) {
       if (data[t] === undefined) {
         data[t] = [];
@@ -647,6 +659,17 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   checkRefs(data.note_tags, "tag_id", ids.tags, "note_tags", issues);
   checkOptionalRefs(data.tasks, "reading_item_id", ids.reading, "tasks", issues);
   checkOptionalRefs(data.tasks, "note_id", ids.notes, "tasks", issues);
+  checkOptionalRefs(data.tasks, "parent_task_id", ids.tasks, "tasks", issues);
+  validateTaskHierarchy(data.tasks, issues);
+  checkRefs(data.task_dependencies, "task_id", ids.tasks, "task_dependencies", issues);
+  checkRefs(
+    data.task_dependencies,
+    "depends_on_task_id",
+    ids.tasks,
+    "task_dependencies",
+    issues
+  );
+  validateTaskDependencies(data.task_dependencies, issues);
   checkRefs(data.task_checklists, "task_id", ids.tasks, "task_checklists", issues);
   checkRefs(data.task_tags, "task_id", ids.tasks, "task_tags", issues);
   checkRefs(data.task_tags, "tag_id", ids.tags, "task_tags", issues);
@@ -656,6 +679,8 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   checkRefs(data.lesson_tags, "lesson_id", ids.lessons, "lesson_tags", issues);
   checkRefs(data.lesson_tags, "tag_id", ids.tags, "lesson_tags", issues);
   checkRefs(data.highlights, "reading_item_id", ids.reading, "highlights", issues);
+  checkOptionalRefs(data.highlights, "note_id", ids.notes, "highlights", issues);
+  checkOptionalRefs(data.highlights, "task_id", ids.tasks, "highlights", issues);
   checkRefs(data.note_versions, "note_id", ids.notes, "note_versions", issues);
   checkRefs(
     data.note_comment_threads,
@@ -795,6 +820,81 @@ function checkReference(
 ) {
   if (typeof value === "string" && !targets.has(value)) {
     issues.push(issue("BROKEN_REFERENCE", path, "引用的记录不在备份中"));
+  }
+}
+
+function validateTaskHierarchy(rows: BackupRow[], issues: BackupIssue[]) {
+  const parents = new Map(
+    rows.map((row) => [
+      String(row.id),
+      typeof row.parent_task_id === "string" ? row.parent_task_id : null,
+    ])
+  );
+
+  rows.forEach((row, index) => {
+    const id = String(row.id);
+    let current = parents.get(id) || null;
+    const visited = new Set([id]);
+    while (current && parents.has(current)) {
+      if (visited.has(current)) {
+        issues.push(
+          issue(
+            "INVALID_ROW",
+            `$.data.tasks[${index}].parent_task_id`,
+            "任务层级不能形成循环"
+          )
+        );
+        return;
+      }
+      visited.add(current);
+      current = parents.get(current) || null;
+    }
+  });
+}
+
+function validateTaskDependencies(rows: BackupRow[], issues: BackupIssue[]) {
+  const graph = new Map<string, string[]>();
+  rows.forEach((row, index) => {
+    const taskId = String(row.task_id);
+    const prerequisiteId = String(row.depends_on_task_id);
+    if (taskId === prerequisiteId) {
+      issues.push(
+        issue(
+          "INVALID_ROW",
+          `$.data.task_dependencies[${index}].depends_on_task_id`,
+          "任务不能依赖自身"
+        )
+      );
+      return;
+    }
+    graph.set(taskId, [...(graph.get(taskId) || []), prerequisiteId]);
+  });
+
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const hasCycle = (taskId: string): boolean => {
+    if (visiting.has(taskId)) return true;
+    if (visited.has(taskId)) return false;
+    visiting.add(taskId);
+    for (const prerequisiteId of graph.get(taskId) || []) {
+      if (hasCycle(prerequisiteId)) return true;
+    }
+    visiting.delete(taskId);
+    visited.add(taskId);
+    return false;
+  };
+
+  for (const taskId of Array.from(graph.keys())) {
+    if (hasCycle(taskId)) {
+      issues.push(
+        issue(
+          "INVALID_ROW",
+          "$.data.task_dependencies",
+          "任务依赖不能形成循环"
+        )
+      );
+      return;
+    }
   }
 }
 

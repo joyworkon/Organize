@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { History, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
 
 interface Version {
   id: string;
@@ -70,6 +71,7 @@ export function NoteHistoryDialog({
         // 恢复成功后页面会整页刷新；通知笔记页卸载时跳过 flushSave，
         // 否则未落库的本地草稿会被兜底保存写回，把刚恢复的内容盖掉。
         try {
+          clearLocalNoteDraftForNote(localStorage, noteId);
           sessionStorage.setItem(`organize:skip-flush:${noteId}`, "1");
         } catch { /* sessionStorage 不可用时忽略 */ }
         setOpen(false);

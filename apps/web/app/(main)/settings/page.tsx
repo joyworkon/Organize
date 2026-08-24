@@ -94,9 +94,15 @@ export default function SettingsPage() {
         {
           table: "tasks",
           columns:
-            "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, is_pinned, sort_order, completed_at, created_at, updated_at",
+            "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, parent_task_id, is_pinned, sort_order, completed_at, created_at, updated_at",
           userOwned: true,
           order: ["id"],
+        },
+        {
+          table: "task_dependencies",
+          columns: "task_id, depends_on_task_id, created_at",
+          userOwned: true,
+          order: ["task_id", "depends_on_task_id"],
         },
         {
           table: "task_checklists",
@@ -124,7 +130,7 @@ export default function SettingsPage() {
         {
           table: "highlights",
           columns:
-            "id, reading_item_id, content, note, color, anchor_path, anchor_offset, created_at, updated_at",
+            "id, reading_item_id, content, note, color, anchor_path, anchor_offset, note_id, task_id, created_at, updated_at",
           userOwned: true,
           order: ["id"],
         },

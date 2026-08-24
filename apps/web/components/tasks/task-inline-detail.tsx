@@ -18,7 +18,6 @@ import {
   MoreHorizontal,
   Paperclip,
   Pin,
-  Plus,
   Printer,
   Tag,
   Trash2,
@@ -40,6 +39,16 @@ import { TASK_PRIORITY_CONFIG } from "@organize/shared";
 import type { Task, TaskActivity, TaskAttachment, TaskChecklist, TaskList, TaskPriority, TaskWithTags, Tag as TagType } from "@organize/shared";
 import { cn } from "@/lib/utils";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
+import { TaskRemindersEditor } from "@/components/tasks/task-reminders-editor";
+import { buildTaskTemplateSnapshot } from "@/lib/tasks/templates";
+import { TaskHierarchy } from "@/components/tasks/task-hierarchy";
+import { TaskDependencies } from "@/components/tasks/task-dependencies";
+import { TaskLinkedContent } from "@/components/tasks/task-linked-content";
+import { TaskAttachmentList } from "@/components/tasks/task-attachment-list";
+import {
+  buildTaskAttachmentPath,
+  validateTaskAttachment,
+} from "@/lib/tasks/attachments";
 
 interface TaskInlineDetailProps {
   task: TaskWithTags;
@@ -47,17 +56,17 @@ interface TaskInlineDetailProps {
   onUpdate: (taskId: string, patch: Partial<Task>) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
   onClose: () => void;
+  onOpenTask: (taskId: string) => void;
 }
 
 function statusLabel(status: Task["status"]) {
   return status === "done" ? "已完成" : status === "in_progress" ? "进行中" : status === "cancelled" ? "已放弃" : "待办";
 }
 
-export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: TaskInlineDetailProps) {
+export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask }: TaskInlineDetailProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
-  const checklistInputRef = useRef<HTMLInputElement>(null);
   const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
@@ -65,7 +74,6 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
-  const [newChecklist, setNewChecklist] = useState("");
   const [showActivity, setShowActivity] = useState(false);
 
   const loadChildren = async () => {
@@ -110,14 +118,6 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
     void onUpdate(task.id, { description: next.trim() || null });
   };
 
-  const addChecklist = async () => {
-    const content = newChecklist.trim();
-    if (!content) return;
-    const { error } = await supabase.from("task_checklists").insert({ task_id: task.id, content, is_completed: false, sort_order: checklists.length });
-    if (error) toast({ title: "添加子任务失败", variant: "destructive" });
-    else { setNewChecklist(""); await loadChildren(); }
-  };
-
   const toggleChecklist = async (item: TaskChecklist) => {
     const { error } = await supabase.from("task_checklists").update({ is_completed: !item.is_completed }).eq("id", item.id);
     if (error) toast({ title: "更新子任务失败", variant: "destructive" });
@@ -160,7 +160,11 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
   };
 
   const saveTemplate = async () => {
-    const { error } = await supabase.from("task_templates").insert({ user_id: task.user_id, name: task.title, template: { title: task.title, description: task.description, priority: task.priority, category: task.category, list_id: task.list_id || null } });
+    const { error } = await supabase.from("task_templates").insert({
+      user_id: task.user_id,
+      name: task.title,
+      template: buildTaskTemplateSnapshot(task),
+    });
     toast(error ? { title: "保存模板失败", variant: "destructive" } : { title: "已保存为模板" });
   };
 
@@ -172,7 +176,12 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
   };
 
   const uploadAttachment = async (file: File) => {
-    const path = `${task.user_id}/tasks/${task.id}/${Date.now()}-${file.name}`;
+    const validationError = validateTaskAttachment(file);
+    if (validationError) {
+      toast({ title: validationError, variant: "destructive" });
+      return;
+    }
+    const path = buildTaskAttachmentPath(task.user_id, task.id, file.name);
     const { error: uploadError } = await supabase.storage.from("attachments").upload(path, file);
     if (uploadError) { toast({ title: "上传附件失败", variant: "destructive" }); return; }
     const { error: metaError } = await supabase.from("task_attachments").insert({ user_id: task.user_id, task_id: task.id, name: file.name, bucket: "attachments", path, mime_type: file.type, size_bytes: file.size });
@@ -233,18 +242,29 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
         </div>
         <button type="button" className="mt-5 text-sm text-muted-foreground hover:text-foreground" onClick={() => void editDescription()}><span className={cn(description ? "text-foreground" : "text-muted-foreground")}>{description || "描述"}</span></button>
 
-        <div className="mt-8 space-y-1">
-          {checklists.map((item) => (
-            <button type="button" key={item.id} onClick={() => void toggleChecklist(item)} className="group flex w-full items-center gap-3 border-b py-3 text-left text-sm hover:bg-muted/40">
-              <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", item.is_completed ? "border-muted bg-muted text-muted-foreground" : "border-muted-foreground/30")}>{item.is_completed && <Check className="h-3.5 w-3.5" />}</span>
-              <span className={cn("min-w-0 flex-1", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
-            </button>
-          ))}
-          <div className="flex items-center gap-2 border-b py-2">
-            <Plus className="h-4 w-4 text-muted-foreground" />
-            <input ref={checklistInputRef} aria-label="添加子任务" value={newChecklist} onChange={(event) => setNewChecklist(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void addChecklist(); }} placeholder="添加子任务" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
-          </div>
+        <div className="mt-8">
+          <TaskLinkedContent task={task} />
         </div>
+
+        <div className="mt-8">
+          <TaskHierarchy task={task} onOpenTask={onOpenTask} />
+        </div>
+
+        <div className="mt-8">
+          <TaskDependencies task={task} onOpenTask={onOpenTask} />
+        </div>
+
+        {checklists.length > 0 && (
+          <div className="mt-8 space-y-1">
+            <h3 className="pb-1 text-sm font-medium">清单项（旧数据）</h3>
+            {checklists.map((item) => (
+              <button type="button" key={item.id} onClick={() => void toggleChecklist(item)} className="group flex w-full items-center gap-3 border-b py-3 text-left text-sm hover:bg-muted/40">
+                <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", item.is_completed ? "border-muted bg-muted text-muted-foreground" : "border-muted-foreground/30")}>{item.is_completed && <Check className="h-3.5 w-3.5" />}</span>
+                <span className={cn("min-w-0 flex-1", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {showActivity && (
           <section className="mt-8 rounded-lg bg-muted/30 p-3">
@@ -254,7 +274,22 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
         )}
 
         {tags.length > 0 && <div className="mt-6 flex flex-wrap gap-1.5">{tags.map((item) => <span key={item.id} className="rounded-full bg-muted px-2 py-1 text-xs">#{item.name}</span>)}</div>}
-        {attachments.length > 0 && <div className="mt-6 space-y-1">{attachments.map((attachment) => <div key={attachment.id} className="flex items-center gap-2 text-sm"><Paperclip className="h-4 w-4 text-muted-foreground" /><span className="min-w-0 flex-1 truncate">{attachment.name}</span></div>)}</div>}
+        <TaskRemindersEditor task={task} />
+        <section className="mt-6 space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-medium">
+              <Paperclip className="h-4 w-4" />
+              附件
+            </h2>
+            <button type="button" onClick={() => uploadRef.current?.click()} className="text-xs text-primary hover:underline">上传</button>
+          </div>
+          <TaskAttachmentList
+            attachments={attachments}
+            onDeleted={(attachmentId) =>
+              setAttachments((items) => items.filter((item) => item.id !== attachmentId))
+            }
+          />
+        </section>
       </div>
 
       <footer className="flex min-h-16 shrink-0 items-center gap-2 border-t px-5">
@@ -264,7 +299,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose }: T
           <DropdownMenu>
             <DropdownMenuTrigger asChild><button type="button" aria-label="更多任务操作" className="rounded-md p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-56">
-              <DropdownMenuItem onClick={() => checklistInputRef.current?.focus()}><CheckSquare2 className="mr-2 h-4 w-4" />添加子任务</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => document.getElementById(`subtask-input-${task.id}`)?.focus()}><CheckSquare2 className="mr-2 h-4 w-4" />添加子任务</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })}><Pin className="mr-2 h-4 w-4" />{task.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void onUpdate(task.id, { status: "cancelled" })}><Archive className="mr-2 h-4 w-4" />放弃</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void addTag()}><Tag className="mr-2 h-4 w-4" />标签</DropdownMenuItem>

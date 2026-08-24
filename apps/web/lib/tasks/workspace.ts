@@ -6,6 +6,7 @@ import type {
   Tag,
   TagWithCount,
   Task,
+  TaskDependency,
   TaskList,
   TaskWithTags,
 } from "@organize/shared";
@@ -17,6 +18,7 @@ export interface TaskWorkspaceData {
   tasks: TaskWithTags[];
   lists: TaskList[];
   tags: TagWithCount[];
+  dependencies: TaskDependency[];
 }
 
 export function taskDate(task: Task): string | null {
@@ -61,6 +63,7 @@ export function filterTasksByScope(
   selection: SidebarSelection
 ): TaskWithTags[] {
   return tasks.filter((task) => {
+    if (task.parent_task_id != null) return false;
     if (selection.scope === "trash") return Boolean(task.deleted_at);
     if (task.deleted_at) return false;
     if (selection.scope === "completed" && task.status !== "done") return false;
@@ -106,9 +109,9 @@ export async function fetchTaskWorkspace(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { tasks: [], lists: [], tags: [] };
+  if (!user) return { tasks: [], lists: [], tags: [], dependencies: [] };
 
-  const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }] =
+  const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }, { data: dependencyData }] =
     await Promise.all([
       supabase
         .from("tasks")
@@ -125,6 +128,10 @@ export async function fetchTaskWorkspace(
         .is("deleted_at", null),
       supabase.from("task_tags").select("task_id, tag_id"),
       supabase.from("tags").select("id, name, color").eq("user_id", user.id),
+      supabase
+        .from("task_dependencies")
+        .select("*")
+        .eq("user_id", user.id),
     ]);
 
   const lists = (listData || []) as TaskList[];
@@ -159,7 +166,12 @@ export async function fetchTaskWorkspace(
     ...(tag as Tag),
     task_count: tagCounts.get(tag.id) || 0,
   }));
-  return { tasks, lists, tags };
+  return {
+    tasks,
+    lists,
+    tags,
+    dependencies: (dependencyData || []) as TaskDependency[],
+  };
 }
 
 export function useTaskWorkspaceData() {
@@ -168,6 +180,7 @@ export function useTaskWorkspaceData() {
     tasks: [],
     lists: [],
     tags: [],
+    dependencies: [],
   });
   const [loading, setLoading] = useState(true);
   const refetch = useCallback(async () => {

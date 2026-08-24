@@ -34,6 +34,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { nodeText } from "@/components/editor/block-utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import type { NoteSearchMatch } from "@/lib/notes/search-match";
 
 export type NoteViewMode = "card" | "list";
 
@@ -42,6 +43,8 @@ type DialogKind = "export" | "autotag" | "history" | "share" | null;
 interface NoteCardProps {
   note: NoteWithTags;
   view: NoteViewMode;
+  searchMatch?: NoteSearchMatch | null;
+  titleMatched?: boolean;
   selected?: boolean;
   onSelectChange?: (id: string, checked: boolean) => void;
   selectionMode?: boolean;
@@ -61,6 +64,8 @@ function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120
 export function NoteCard({
   note,
   view,
+  searchMatch,
+  titleMatched = false,
   selected = false,
   onSelectChange,
   selectionMode = false,
@@ -76,9 +81,23 @@ export function NoteCard({
   const [isFavorited, setIsFavorited] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
 
-  const excerpt = useMemo(() => extractExcerpt(note.content), [note.content]);
+  const excerpt = searchMatch?.snippet || extractExcerpt(note.content);
   const tags = note.tags || [];
-  const href = `/notes/${note.id}`;
+  const href =
+    !titleMatched && searchMatch?.blockId
+      ? `/notes/${note.id}#block-${encodeURIComponent(searchMatch.blockId)}`
+      : `/notes/${note.id}`;
+  const Excerpt = searchMatch ? (
+    <>
+      {excerpt.slice(0, searchMatch.matchStart)}
+      <mark className="rounded bg-yellow-200 px-0.5 text-inherit dark:bg-yellow-900/70">
+        {excerpt.slice(searchMatch.matchStart, searchMatch.matchEnd)}
+      </mark>
+      {excerpt.slice(searchMatch.matchEnd)}
+    </>
+  ) : (
+    excerpt
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -403,7 +422,7 @@ export function NoteCard({
             </div>
             {excerpt && (
               <p className="text-xs text-muted-foreground line-clamp-1 mt-1.5 ml-8">
-                {excerpt}
+                {Excerpt}
               </p>
             )}
           </CardContent>
@@ -438,7 +457,7 @@ export function NoteCard({
           </div>
           {excerpt && (
             <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mt-2">
-              {excerpt}
+              {Excerpt}
             </p>
           )}
           <div className="flex-1" />

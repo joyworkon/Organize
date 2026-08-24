@@ -63,3 +63,36 @@ self.addEventListener("message", (event) => {
     }
   }
 });
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "任务提醒", body: event.data?.text() || "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "任务提醒", {
+      body: payload.body || "有一项任务需要处理",
+      icon: "/favicon.ico",
+      badge: "/favicon.ico",
+      tag: payload.tag || "organize-task-reminder",
+      data: { url: payload.url || "/tasks" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "/tasks", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const visibleClient = clients.find((client) => "focus" in client);
+      if (visibleClient) {
+        visibleClient.navigate(targetUrl);
+        return visibleClient.focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});

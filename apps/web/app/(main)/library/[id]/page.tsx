@@ -27,6 +27,7 @@ import Link from "next/link";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { prepareReadingContent } from "@/lib/reading-images";
+import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 
 interface RecommendedItem {
   id: string;
@@ -101,6 +102,9 @@ export default function ReadingDetailPage() {
   const [bionicMode, setBionicMode] = useState(false);
   const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [highlightReferences, setHighlightReferences] = useState<
+    Record<string, HighlightReferenceState>
+  >({});
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -118,6 +122,22 @@ export default function ReadingDetailPage() {
   const recommendedItem = useMemo(() => {
     return getNextRecommendation(otherItems, itemId);
   }, [otherItems, itemId]);
+
+  const loadHighlightReferences = useCallback(async () => {
+    const { data, error } = await supabase.rpc("get_highlight_reference_states", {
+      p_reading_item_id: itemId,
+    });
+    if (error || !data) return;
+    setHighlightReferences(
+      (data as HighlightReferenceState[]).reduce<Record<string, HighlightReferenceState>>(
+        (result, row) => {
+          result[row.highlight_id] = row;
+          return result;
+        },
+        {}
+      )
+    );
+  }, [itemId, supabase]);
 
   useEffect(() => {
     async function loadItem() {
@@ -174,12 +194,13 @@ export default function ReadingDetailPage() {
         .order("created_at", { ascending: false });
       if (!error && data) {
         setHighlights(data as Highlight[]);
+        await loadHighlightReferences();
       }
     }
     if (itemId) {
       loadHighlights();
     }
-  }, [itemId, supabase]);
+  }, [itemId, loadHighlightReferences, supabase]);
 
   useEffect(() => {
     async function loadOtherItems() {
@@ -513,7 +534,40 @@ export default function ReadingDetailPage() {
           ...limitedParagraphs.map(p => ({
             type: "paragraph" as const,
             content: p.trim() ? [{ type: "text" as const, text: p.trim() }] : undefined
-          })).filter(n => n.content)
+          })).filter(n => n.content),
+          ...(highlights.length > 0
+            ? [
+                {
+                  type: "heading" as const,
+                  attrs: { level: 2 },
+                  content: [{ type: "text" as const, text: "阅读高亮" }],
+                },
+                ...[...highlights].reverse().flatMap((highlight) => [
+                  {
+                    type: "blockquote" as const,
+                    content: [
+                      {
+                        type: "paragraph" as const,
+                        content: [{ type: "text" as const, text: highlight.content }],
+                      },
+                    ],
+                  },
+                  ...(highlight.note
+                    ? [
+                        {
+                          type: "paragraph" as const,
+                          content: [
+                            {
+                              type: "text" as const,
+                              text: `批注：${highlight.note}`,
+                            },
+                          ],
+                        },
+                      ]
+                    : []),
+                ]),
+              ]
+            : []),
         ]
       };
 
@@ -540,9 +594,50 @@ export default function ReadingDetailPage() {
     } finally {
       setIsConvertingToNote(false);
     }
-  }, [item, itemId, supabase, router, isConvertingToNote]);
+  }, [highlights, item, itemId, supabase, router, isConvertingToNote]);
 
-  const handleCreateHighlight = useCallback(async (content: string, color: HighlightColor) => {
+  const handleConvertHighlight = useCallback(async (
+    highlightId: string,
+    targetType: "note" | "task",
+    openAfterCreate = false
+  ) => {
+    const { data, error } = await supabase.rpc("convert_highlight_reference", {
+      p_highlight_id: highlightId,
+      p_target_type: targetType,
+    });
+    if (error || !data?.target_id) {
+      toast({
+        title: `转为${targetType === "note" ? "笔记" : "任务"}失败`,
+        description: error?.message,
+        variant: "destructive",
+      });
+      return;
+    }
+    const targetId = String(data.target_id);
+    setHighlights((current) =>
+      current.map((highlight) =>
+        highlight.id === highlightId
+          ? {
+              ...highlight,
+              [targetType === "note" ? "note_id" : "task_id"]: targetId,
+            }
+          : highlight
+      )
+    );
+    await loadHighlightReferences();
+    toast({
+      title: data.status === "existing"
+        ? `${targetType === "note" ? "笔记" : "任务"}已存在`
+        : `${targetType === "note" ? "笔记" : "任务"}创建成功`,
+    });
+    if (openAfterCreate) router.push(`/${targetType === "note" ? "notes" : "tasks"}/${targetId}`);
+  }, [loadHighlightReferences, router, supabase]);
+
+  const handleCreateHighlight = useCallback(async (
+    content: string,
+    color: HighlightColor,
+    targetType?: "note" | "task"
+  ) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -565,12 +660,16 @@ export default function ReadingDetailPage() {
       }
       if (data) {
         setHighlights((prev) => [data as Highlight, ...prev]);
-        toast({ title: "高亮已添加" });
+        if (targetType) {
+          await handleConvertHighlight(data.id, targetType, true);
+        } else {
+          toast({ title: "高亮已添加" });
+        }
       }
     } catch {
       toast({ title: "高亮保存失败", variant: "destructive" });
     }
-  }, [itemId, supabase]);
+  }, [handleConvertHighlight, itemId, supabase]);
 
   const handleDeleteHighlight = useCallback(async (id: string) => {
     try {
@@ -583,6 +682,11 @@ export default function ReadingDetailPage() {
         return;
       }
       setHighlights((prev) => prev.filter((h) => h.id !== id));
+      setHighlightReferences((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
       const marks = document.querySelectorAll(`mark.hl-yellow, mark.hl-green, mark.hl-blue, mark.hl-pink, mark.hl-purple`);
       for (const mark of Array.from(marks)) {
         const highlight = highlights.find((h) => h.id === id);
@@ -632,7 +736,12 @@ export default function ReadingDetailPage() {
         isOpen={showHighlightsPanel}
         onClose={() => setShowHighlightsPanel(false)}
         highlights={highlights}
+        references={highlightReferences}
         onDelete={handleDeleteHighlight}
+        onConvert={(id, targetType) => handleConvertHighlight(id, targetType)}
+        onOpenReference={(targetType, id) =>
+          router.push(`/${targetType === "note" ? "notes" : "tasks"}/${id}`)
+        }
       />
       <div className={cn(
         "max-w-3xl mx-auto xl:mx-0 xl:mr-auto xl:ml-0",

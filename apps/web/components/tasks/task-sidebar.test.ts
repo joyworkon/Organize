@@ -1,6 +1,6 @@
 // TaskSidebar 日期判断纯函数测试
 import { describe, it, expect } from "vitest";
-import { isToday, isUpcoming, isOverdue } from "./task-sidebar";
+import { isToday, isUpcoming, isOverdue, isRootTask } from "./task-sidebar";
 
 describe("isToday", () => {
   it("今天的日期 → true", () => {
@@ -57,5 +57,13 @@ describe("isOverdue", () => {
   });
   it("null → false", () => {
     expect(isOverdue(null)).toBe(false);
+  });
+});
+
+describe("isRootTask", () => {
+  it("仅将没有父任务的任务计入侧栏范围", () => {
+    expect(isRootTask({ parent_task_id: null })).toBe(true);
+    expect(isRootTask({ parent_task_id: undefined })).toBe(true);
+    expect(isRootTask({ parent_task_id: "parent-task-id" })).toBe(false);
   });
 });
