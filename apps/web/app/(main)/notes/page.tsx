@@ -24,6 +24,7 @@ import { mutateTrash } from "@/lib/trash/client";
 import { findNoteSearchMatch } from "@/lib/notes/search-match";
 import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   nextSortField,
   applyPinned,
@@ -290,11 +291,13 @@ export default function NotesPage() {
     selectAll(notes.map((n) => n.id));
   };
 
+  // 高亮匹配要遍历每篇笔记的正文 JSON，按 150ms 防抖避免击键卡顿（取数本身已有 300ms 防抖）
+  const debouncedHighlight = useDebouncedValue(search, 150);
   const searchMatches = useMemo(() => {
-    const query = search.trim();
+    const query = debouncedHighlight.trim();
     if (!query) return new Map<string, ReturnType<typeof findNoteSearchMatch>>();
     return new Map(notes.map((note) => [note.id, findNoteSearchMatch(note.content, query)]));
-  }, [notes, search]);
+  }, [notes, debouncedHighlight]);
 
   // 列表视图 + 默认排序（更新时间降序）+ 非搜索态时按时间分组（今天/昨天/本周/更早），
   // 置顶笔记独立成组保持在最上；其余排序方式或搜索态下保持平铺，不干扰用户预期。

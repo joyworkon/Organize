@@ -11,6 +11,7 @@ import { TagSelector } from "@/components/tags/tag-selector";
 import { useAllTags } from "@/components/tags/use-tags";
 import { BatchActionsBar } from "@/components/batch-actions-bar";
 import { useSelection } from "@/hooks/use-selection";
+import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
@@ -122,6 +123,7 @@ export default function LibraryPage() {
 
   const [filter, setFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [smartSort, setSmartSort] = useState<SmartSortOption>("smart");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -272,6 +274,26 @@ export default function LibraryPage() {
     clear();
     setSelectionMode(false);
   }, [clear]);
+
+  // 页面快捷键：/ 聚焦搜索、Esc 退出多选或清空搜索（弹层打开时让位）
+  useHotkey([
+    {
+      key: "/",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) searchInputRef.current?.focus(); },
+    },
+    {
+      key: "escape",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => {
+        if (hasOpenDialog()) return;
+        if (showCheckbox) exitSelection();
+        else if (search) setSearch("");
+      },
+    },
+  ]);
 
   const updateStatus = async (id: string, status: ReadingStatus) => {
     const { error } = await supabase
@@ -502,7 +524,8 @@ export default function LibraryPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索标题..."
+            ref={searchInputRef}
+            placeholder="搜索标题...（按 / 聚焦）"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -605,7 +628,11 @@ export default function LibraryPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">加载中...</div>
+        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="文章加载中">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
+          ))}
+        </div>
       ) : items.length === 0 ? (
         (() => {
           const hasFilter = search.trim() !== "" || selectedTagIds.length > 0 || filter !== "all";

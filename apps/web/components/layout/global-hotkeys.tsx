@@ -52,6 +52,21 @@ const PAGE_SHORTCUTS = [
     page: "笔记详情",
     items: [{ keys: "⌘S / Ctrl+S", desc: "立即保存" }],
   },
+  {
+    page: "阅读库",
+    items: [
+      { keys: "/", desc: "聚焦搜索框" },
+      { keys: "Esc", desc: "退出多选 / 清空搜索" },
+    ],
+  },
+  {
+    page: "经验",
+    items: [
+      { keys: "n", desc: "记录经验" },
+      { keys: "/", desc: "聚焦搜索框" },
+      { keys: "Esc", desc: "清空搜索" },
+    ],
+  },
 ];
 
 export function GlobalHotkeys() {

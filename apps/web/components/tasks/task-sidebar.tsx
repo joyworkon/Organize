@@ -85,6 +85,10 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   const todayCount = activeTasks.filter(
     (t) => isToday(t.schedule_start_at) || (isOverdue(t.schedule_start_at) && t.status === "todo") || isToday(t.due_date) || (isOverdue(t.due_date) && t.status === "todo")
   ).length;
+  // 逾期（昨天及以前到期）未完成任务数，用红色角标单独提醒
+  const overdueCount = activeTasks.filter(
+    (t) => isOverdue(t.schedule_start_at) || isOverdue(t.due_date)
+  ).length;
   const upcomingCount = activeTasks.filter(
     (t) => isUpcoming(t.schedule_start_at) || isUpcoming(t.due_date)
   ).length;
@@ -102,8 +106,8 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   const isSelected = (sel: SidebarSelection) =>
     active && selection.scope === sel.scope && selection.listId === sel.listId;
 
-  const NavItem = ({ icon: Icon, label, count, sel, accent }: {
-    icon: any; label: string; count?: number; sel: SidebarSelection; accent?: string;
+  const NavItem = ({ icon: Icon, label, count, sel, accent, alert }: {
+    icon: any; label: string; count?: number; sel: SidebarSelection; accent?: string; alert?: number;
   }) => (
     <button
       type="button"
@@ -117,6 +121,9 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
     >
       <Icon className="h-4 w-4 shrink-0" style={accent ? { color: accent } : undefined} />
       <span className="flex-1 text-left truncate">{label}</span>
+      {alert !== undefined && alert > 0 && (
+        <span className="rounded-full bg-destructive/15 px-1.5 text-xs font-medium text-destructive tabular-nums">{alert}</span>
+      )}
       {count !== undefined && count > 0 && (
         <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
       )}
@@ -138,7 +145,7 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
       {expanded && (
         <div className="flex flex-col gap-0.5">
           <NavItem icon={ListChecks} label="全部" count={activeTasks.length} sel={{ scope: "all", listId: null }} />
-          <NavItem icon={Calendar} label="今天" count={todayCount} sel={{ scope: "today", listId: null }} />
+          <NavItem icon={Calendar} label="今天" count={todayCount} alert={overdueCount} sel={{ scope: "today", listId: null }} />
           <NavItem icon={CalendarDays} label="最近7天" count={upcomingCount} sel={{ scope: "upcoming", listId: null }} />
 
           {/* 清单分组 */}

@@ -223,7 +223,7 @@ function TasksPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { permission, requestPermission, scheduleDueDateReminders } = useNotifications();
+  const { permission, requestPermission, scheduleDueDateReminders, notifyOverdueSummary } = useNotifications();
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
   const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
@@ -268,10 +268,11 @@ function TasksPageInner() {
       setTasks(workspace.tasks);
       setDependencies(workspace.dependencies);
       scheduleDueDateReminders(workspace.tasks);
+      notifyOverdueSummary(workspace.tasks);
     } finally {
       setLoading(false);
     }
-  }, [scheduleDueDateReminders, supabase]);
+  }, [notifyOverdueSummary, scheduleDueDateReminders, supabase]);
 
   useEffect(() => { void fetchTasks(); }, [fetchTasks]);
 
@@ -548,7 +549,7 @@ function TasksPageInner() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[820px] px-4 pb-12 pt-5 md:px-8">
-            <input ref={quickAddInputRef} aria-label="快速添加任务" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建（按 n 快速聚焦）`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
+            <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
 
             {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
 

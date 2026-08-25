@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Task } from "@organize/shared";
-import { MAX_TIMEOUT_MS, buildDueReminders, effectiveDueDate, pruneNotifiedKeys } from "@/lib/tasks/notifications";
+import { MAX_TIMEOUT_MS, buildDueReminders, buildOverdueSummary, effectiveDueDate, pruneNotifiedKeys } from "@/lib/tasks/notifications";
 
 const NOTIFIED_STORAGE_KEY = "organize:notified-due";
+/** 每日逾期摘要：记录上次推送的日期串，同一天只推一次 */
+const OVERDUE_SUMMARY_DATE_KEY = "organize:overdue-summary-date";
 
 type NotificationPermissionState = NotificationPermission | "unsupported";
 
@@ -164,9 +166,29 @@ export function useNotifications() {
     saveNotifiedTaskIds(notified);
   }, [clearAllTimeouts, showNotification]);
 
+  /** 每日一次的逾期摘要通知（同一天只推一次；无逾期或当天到期不推） */
+  const notifyOverdueSummary = useCallback((tasks: Task[]) => {
+    if (!isNotificationSupported() || Notification.permission !== "granted") return;
+    const todayKey = new Date().toDateString();
+    try {
+      if (localStorage.getItem(OVERDUE_SUMMARY_DATE_KEY) === todayKey) return;
+    } catch {
+      // localStorage 不可用时照常推送，最多多推一次
+    }
+    const summary = buildOverdueSummary(tasks, new Date());
+    if (!summary) return;
+    showNotification(summary.title, summary.body);
+    try {
+      localStorage.setItem(OVERDUE_SUMMARY_DATE_KEY, todayKey);
+    } catch {
+      // ignore
+    }
+  }, [showNotification]);
+
   return {
     permission,
     requestPermission,
     scheduleDueDateReminders,
+    notifyOverdueSummary,
   };
 }

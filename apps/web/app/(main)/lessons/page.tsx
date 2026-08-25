@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -20,7 +20,6 @@ import {
   Lightbulb,
   Plus,
   Search,
-  Loader2,
 } from "lucide-react";
 import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
@@ -28,6 +27,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { mutateTrash } from "@/lib/trash/client";
+import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 
 type TypeFilter = "all" | LessonType;
 
@@ -40,6 +40,7 @@ export default function LessonsPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
 
   const fetchLessons = useCallback(async () => {
@@ -119,6 +120,28 @@ export default function LessonsPage() {
     router.push("/lessons/new");
   };
 
+  // 页面快捷键：n 记录经验、/ 聚焦搜索、Esc 清空搜索（弹层打开时让位）
+  useHotkey([
+    {
+      key: "n",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) handleCreate(); },
+    },
+    {
+      key: "/",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) searchInputRef.current?.focus(); },
+    },
+    {
+      key: "escape",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog() && search) setSearch(""); },
+    },
+  ]);
+
   const filtered = lessons.filter((l) => {
     if (typeFilter !== "all" && l.lesson_type !== typeFilter) return false;
     if (selectedTagIds.length > 0) {
@@ -150,7 +173,7 @@ export default function LessonsPage() {
             共 {stats.total} 条经验 · {stats.reflection} 篇复盘 · {stats.lesson} 条经验 · {stats.insight} 个灵感
           </p>
         </div>
-        <Button onClick={handleCreate} className="shrink-0">
+        <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline ml-2">记录经验</span>
         </Button>
@@ -160,7 +183,8 @@ export default function LessonsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索经验..."
+            ref={searchInputRef}
+            placeholder="搜索经验...（按 / 聚焦）"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -189,9 +213,10 @@ export default function LessonsPage() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-          加载中...
+        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="经验加载中">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-[110px] animate-pulse rounded-lg bg-muted/60" />
+          ))}
         </div>
       ) : filtered.length === 0 ? (
         (() => {
