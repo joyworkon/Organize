@@ -64,7 +64,7 @@ export default function SettingsPage() {
         {
           table: "reading_items",
           columns:
-            "id, url, title, content, excerpt, cover_image, reading_status, reading_progress, is_pinned, started_reading_at, completed_reading_at, created_at, updated_at",
+            "id, url, title, content, excerpt, cover_image, reading_status, reading_progress, is_pinned, full_width, started_reading_at, completed_reading_at, created_at, updated_at",
           userOwned: true,
           order: ["id"],
         },

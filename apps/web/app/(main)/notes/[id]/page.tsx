@@ -911,8 +911,8 @@ export default function NoteEditorPage() {
   }
 
   const contentClassName = fullWidth
-    ? "mx-auto w-full max-w-none md:px-10"
-    : "mx-auto w-full max-w-3xl";
+    ? "mx-auto w-full max-w-none px-4 md:px-10"
+    : "mx-auto w-full max-w-3xl px-4 md:px-6";
 
   return (
     <div
@@ -923,27 +923,26 @@ export default function NoteEditorPage() {
         smallFont && "note-page-small"
       )}
     >
-      <div className={cn(contentClassName, "space-y-3 pt-2")}>
-        <NoteHierarchyBar
-          noteId={noteId}
-          title={title}
-          icon={icon}
-          parentNoteId={parentNoteId}
-          notes={allNotes}
-          onParentChange={(nextParentId) =>
-            updatePageMetadata({ parent_note_id: nextParentId })
-          }
-        />
-
-        {/* 顶栏 */}
-        <div className="flex items-center justify-between">
-          <Link href="/notes">
-            <Button variant="ghost" size="sm" className="gap-2">
+      {/* Notion 风格顶栏：全宽吸顶 */}
+      <div className="note-topbar">
+        <div className="note-topbar-inner">
+          <div className="note-topbar-group note-topbar-nav">
+            <Link href="/notes" className="note-topbar-back" title="返回笔记列表">
               <ArrowLeft className="h-4 w-4" />
-              返回
-            </Button>
-          </Link>
-          <div className="flex items-center gap-3">
+              <span className="hidden sm:inline">返回</span>
+            </Link>
+            <NoteHierarchyBar
+              noteId={noteId}
+              title={title}
+              icon={icon}
+              parentNoteId={parentNoteId}
+              notes={allNotes}
+              onParentChange={(nextParentId) =>
+                updatePageMetadata({ parent_note_id: nextParentId })
+              }
+            />
+          </div>
+          <div className="note-topbar-group note-topbar-actions">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               {saveError ? (
                 <span className="text-destructive">{saveError}</span>
@@ -1006,7 +1005,7 @@ export default function NoteEditorPage() {
         onError={showToast}
       />
 
-      <div className={cn(contentClassName, "note-page-main")}>
+      <div className={cn(contentClassName, "note-page-main pt-2")}>
         {/* 标题：自动增高、不限长度；回车执行 T1/T2 而非插入换行 */}
         <textarea
           ref={titleRef}
