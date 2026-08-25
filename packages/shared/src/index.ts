@@ -19,6 +19,7 @@ export interface ReadingItem {
   updated_at: string;
   tags?: Tag[];
   is_pinned?: boolean;
+  full_width?: boolean;
 }
 
 // 笔记字体选项

@@ -17,7 +17,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import type { ReadingItem, ReadingStatus, Highlight, HighlightColor } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -108,6 +108,7 @@ export default function ReadingDetailPage() {
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [fullWidth, setFullWidth] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const renderedContent = useMemo(
@@ -149,6 +150,7 @@ export default function ReadingDetailPage() {
 
       if (!error && data) {
         setItem(data as ReadingItem);
+        setFullWidth(data.full_width ?? false);
         progressRef.current = data.reading_progress || 0;
         if (data.reading_status === "unread") {
           await supabase
@@ -495,6 +497,22 @@ export default function ReadingDetailPage() {
     setItem((prev) => prev ? { ...prev, reading_status: status } : null);
   };
 
+  // 全宽 / 默认宽度切换：乐观更新，失败回滚（与笔记页 full_width 语义一致，按文章持久化）
+  const toggleFullWidth = useCallback(async () => {
+    const next = !fullWidth;
+    setFullWidth(next);
+    setItem((prev) => (prev ? { ...prev, full_width: next } : null));
+    const { error } = await supabase
+      .from("reading_items")
+      .update({ full_width: next })
+      .eq("id", itemId);
+    if (error) {
+      setFullWidth(!next);
+      setItem((prev) => (prev ? { ...prev, full_width: !next } : null));
+      toast({ title: "宽度设置保存失败", variant: "destructive" });
+    }
+  }, [fullWidth, itemId, supabase]);
+
   const handleConvertToNote = useCallback(async () => {
     if (!item || isConvertingToNote) return;
     setIsConvertingToNote(true);
@@ -726,11 +744,13 @@ export default function ReadingDetailPage() {
   }
 
   return (
-    <div className="relative xl:max-w-[calc(65rem+16rem)] xl:mx-auto">
-      <div
-        className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-primary transition-[width] duration-100 ease-out"
-        style={{ width: `${scrollProgress}%` }}
-      />
+    <div
+      className={cn(
+        "relative transition-[padding] duration-300",
+        // 高亮面板是 xl 下 fixed 的右侧栏（w-80），打开时整体右移内容列避免遮挡
+        showHighlightsPanel && "xl:pr-80"
+      )}
+    >
       <Toc headings={headings} containerRef={contentRef} />
       <HighlightsPanel
         isOpen={showHighlightsPanel}
@@ -743,127 +763,143 @@ export default function ReadingDetailPage() {
           router.push(`/${targetType === "note" ? "notes" : "tasks"}/${id}`)
         }
       />
-      <div className={cn(
-        "max-w-3xl mx-auto xl:mx-0 xl:mr-auto xl:ml-0",
-        showHighlightsPanel ? "xl:pr-72" : "xl:pr-72"
-      )}>
-        {/* 顶栏 */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b py-3 mb-6 -mx-4 px-4 xl:mx-0 xl:rounded-t-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <Link href="/library">
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Breadcrumb className="min-w-0">
-                <BreadcrumbList>
-                  <BreadcrumbItem className="hidden sm:inline-flex">
-                    <BreadcrumbLink href="/">首页</BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator className="hidden sm:block" />
-                  <BreadcrumbItem>
-                    <BreadcrumbLink href="/library">阅读库</BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem className="min-w-0">
-                    <BreadcrumbPage
-                      className="max-w-[20ch] sm:max-w-[30ch]"
-                      title={item.title ?? undefined}
-                    >
-                      {item.title || "无标题"}
-                    </BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`gap-1 sm:gap-1.5 ${bionicMode ? "text-primary bg-primary/10" : ""}`}
-                onClick={() => setBionicMode(!bionicMode)}
-                title="速读"
-              >
-                <Zap className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">速读</span>
+
+      {/* 顶栏：全宽吸顶（负 margin 抵消主布局 p-4/md:p-6）。
+          左侧返回+面包屑，右侧操作；进度条贴顶栏下沿 */}
+      <div className="sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 bg-background/95 backdrop-blur border-b">
+        <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Link href="/library">
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                <ArrowLeft className="h-4 w-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`gap-1 sm:gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
-                onClick={() => setFocusMode(!focusMode)}
-                title="专注"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">专注</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1 sm:gap-1.5"
-                onClick={handleConvertToNote}
-                disabled={isConvertingToNote}
-                title="笔记"
-              >
-                {isConvertingToNote ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">笔记</span>
-              </Button>
-              <FavoriteButton targetType="reading" targetId={itemId} />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1 sm:gap-1.5"
-                onClick={() => setShareDialogOpen(true)}
-                title="分享"
-              >
-                <Share2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">分享</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
-                onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
-                title="高亮"
-              >
-                <Highlighter className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">高亮</span>
-                {highlights.length > 0 && (
-                  <span className="ml-0.5 sm:ml-1 text-xs bg-primary/10 text-primary px-1 sm:px-1.5 rounded-full">
-                    {highlights.length}
-                  </span>
-                )}
-              </Button>
-              <StatusBadge status={item.reading_status} />
-              <a href={item.url} target="_blank" rel="noopener noreferrer" className="hidden sm:inline">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  原文
-                </Button>
-              </a>
-              <a href={item.url} target="_blank" rel="noopener noreferrer" className="sm:hidden">
-                <Button variant="ghost" size="sm" title="原文">
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </a>
-            </div>
+            </Link>
+            <Breadcrumb className="min-w-0">
+              <BreadcrumbList>
+                <BreadcrumbItem className="hidden sm:inline-flex">
+                  <BreadcrumbLink href="/">首页</BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden sm:block" />
+                <BreadcrumbItem>
+                  <BreadcrumbLink href="/library">阅读库</BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage
+                    className="max-w-[20ch] sm:max-w-[30ch]"
+                    title={item.title ?? undefined}
+                  >
+                    {item.title || "无标题"}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
           </div>
-          {/* 进度条 */}
-          <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${Math.round(scrollProgress)}%` }}
-            />
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`gap-1 sm:gap-1.5 ${bionicMode ? "text-primary bg-primary/10" : ""}`}
+              onClick={() => setBionicMode(!bionicMode)}
+              title="速读"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">速读</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`gap-1 sm:gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
+              onClick={() => setFocusMode(!focusMode)}
+              title="专注"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">专注</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`gap-1 sm:gap-1.5 ${fullWidth ? "text-primary bg-primary/10" : ""}`}
+              onClick={toggleFullWidth}
+              title={fullWidth ? "默认宽度" : "全宽"}
+            >
+              <StretchHorizontal className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">全宽</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 sm:gap-1.5"
+              onClick={handleConvertToNote}
+              disabled={isConvertingToNote}
+              title="笔记"
+            >
+              {isConvertingToNote ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileText className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">笔记</span>
+            </Button>
+            <FavoriteButton targetType="reading" targetId={itemId} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 sm:gap-1.5"
+              onClick={() => setShareDialogOpen(true)}
+              title="分享"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">分享</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
+              onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
+              title="高亮"
+            >
+              <Highlighter className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">高亮</span>
+              {highlights.length > 0 && (
+                <span className="ml-0.5 sm:ml-1 text-xs bg-primary/10 text-primary px-1 sm:px-1.5 rounded-full">
+                  {highlights.length}
+                </span>
+              )}
+            </Button>
+            <StatusBadge status={item.reading_status} />
+            <a href={item.url} target="_blank" rel="noopener noreferrer" className="hidden sm:inline">
+              <Button variant="outline" size="sm" className="gap-2">
+                <ExternalLink className="h-3.5 w-3.5" />
+                原文
+              </Button>
+            </a>
+            <a href={item.url} target="_blank" rel="noopener noreferrer" className="sm:hidden">
+              <Button variant="ghost" size="sm" title="原文">
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </a>
           </div>
         </div>
+        {/* 进度条：贴顶栏下沿，全宽一条（不再重复渲染页面顶部 fixed 进度条） */}
+        <div className="h-0.5 bg-muted">
+          <div
+            className="h-full bg-primary transition-[width] duration-100 ease-out"
+            style={{ width: `${scrollProgress}%` }}
+          />
+        </div>
+      </div>
 
+      {/* 内容列：标题 / 元信息 / 正文 / 推荐共用同一宽度与文字轴。
+          默认 max-w-3xl 居中；全宽 max-w-none + md:px-10（与笔记页一致） */}
+      <div
+        className={cn(
+          "mx-auto w-full transition-[max-width,padding] duration-200",
+          fullWidth ? "max-w-none md:px-10" : "max-w-3xl"
+        )}
+      >
         {/* 文章标题 */}
-        <header className="mb-8 px-4 xl:px-0">
+        <header className="mb-8">
           <h1 className="text-2xl md:text-3xl font-bold leading-tight">
             {item.title}
           </h1>
@@ -894,15 +930,13 @@ export default function ReadingDetailPage() {
         <HighlightMenu onCreateHighlight={handleCreateHighlight}>
           <div
             ref={contentRef}
-            className="prose prose-sm sm:prose max-w-none px-4 sm:px-6 xl:px-0
-              prose-headings:font-bold prose-a:text-primary
-              prose-img:rounded-lg prose-img:shadow-sm"
+            className="reader-content"
             dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
           />
         </HighlightMenu>
 
         {/* 下一篇推荐 */}
-        <div className="pb-24 px-4 sm:px-6 xl:px-0 mt-12">
+        <div className="pb-24 mt-12">
           {recommendedItem ? (
             <Link href={`/library/${recommendedItem.id}`}>
               <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer">
@@ -947,33 +981,38 @@ export default function ReadingDetailPage() {
             </Link>
           )}
         </div>
+      </div>
 
-        {/* 底部操作 */}
-        <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
-          <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              阅读进度: {Math.round(scrollProgress)}%
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => updateStatus("unread")}
-              >
-                标记未读
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => updateStatus("read")}
-              >
-                标记已读
-              </Button>
-            </div>
+      {/* 底部操作 */}
+      <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
+        <div
+          className={cn(
+            "mx-auto w-full flex items-center justify-between",
+            fullWidth ? "max-w-none md:px-10" : "max-w-3xl"
+          )}
+        >
+          <span className="text-xs text-muted-foreground">
+            阅读进度: {Math.round(scrollProgress)}%
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateStatus("unread")}
+            >
+              标记未读
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => updateStatus("read")}
+            >
+              标记已读
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* 专注模式全屏覆盖层 */}
+      {/* 专注模式全屏覆盖层（与正文共用 .reader-content 排版与宽度设置） */}
       {focusMode && (
         <div ref={focusScrollContainerRef} className="fixed inset-0 z-50 bg-background overflow-y-auto animate-in fade-in duration-200">
           <Button
@@ -984,7 +1023,12 @@ export default function ReadingDetailPage() {
           >
             <X className="h-5 w-5" />
           </Button>
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+          <div
+            className={cn(
+              "mx-auto w-full px-4 sm:px-6 py-12 sm:py-16",
+              fullWidth ? "max-w-none md:px-10" : "max-w-3xl"
+            )}
+          >
             <header className="mb-8">
               <h1 className="text-2xl md:text-3xl font-bold leading-tight">
                 {item.title}
@@ -1014,10 +1058,7 @@ export default function ReadingDetailPage() {
             <HighlightMenu onCreateHighlight={handleCreateHighlight}>
               <div
                 ref={focusContentRef}
-                className="prose prose-lg max-w-none
-                  prose-headings:font-bold prose-a:text-primary
-                  prose-img:rounded-lg prose-img:shadow-sm
-                  prose-p:leading-relaxed"
+                className="reader-content"
                 dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
               />
             </HighlightMenu>

@@ -101,6 +101,17 @@
 .note-page-main {
   padding-top: 0.25rem;
 }
+
+/* 笔记页面根容器：抵消主布局 container 的 p-4 / md:p-6，让顶栏和封面通栏 */
+.note-page {
+  margin: 0 -1rem;
+}
+@media (min-width: 768px) {
+  .note-page {
+    margin: 0 -1.5rem;
+  }
+}
+
 .note-page-main .note-title {
   margin-top: 0.25rem;
 }
@@ -111,14 +122,14 @@
 
 /* ------------------------- 笔记页面外观与层级 ------------------------- */
 .note-page-visuals {
-  margin-top: 1rem;
+  margin-top: 0;
 }
 .note-page-cover {
   position: relative;
   width: 100%;
   height: clamp(180px, 26vw, 320px);
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: 0;
   background-color: hsl(var(--muted));
   background-repeat: no-repeat;
   background-size: cover;
@@ -175,7 +186,7 @@
   display: flex;
   min-height: 44px;
   align-items: flex-end;
-  padding-left: var(--organize-content-lane-inset);
+  padding-left: 0;
 }
 .note-page-icon-actions > button,
 .note-page-add-actions > button {
@@ -220,6 +231,64 @@
   color: hsl(var(--primary-foreground));
   font-size: 11px;
 }
+
+/* === Notion 风格顶栏 === */
+.note-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: hsl(var(--background) / 0.85);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+.note-topbar.scrolled {
+  border-bottom-color: hsl(var(--border));
+}
+.note-topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  padding: 0 1rem;
+}
+@media (min-width: 768px) {
+  .note-topbar-inner {
+    padding: 0 1.5rem;
+  }
+}
+.note-topbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.note-topbar-nav {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.note-topbar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.note-topbar-back:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.note-topbar-actions {
+  flex-shrink: 0;
+  gap: 2px;
+}
+
 .note-hierarchy-bar {
   display: flex;
   min-width: 0;
@@ -4037,7 +4106,7 @@
     margin-top: -36px;
   }
   .note-page-icon-actions {
-    padding-left: var(--organize-content-lane-inset);
+    padding-left: 0;
   }
   .note-page-icon {
     width: 72px;
@@ -4050,7 +4119,7 @@
   .note-page-comments,
   .note-child-pages,
   .note-create-child {
-    margin-left: var(--organize-content-lane-inset);
+    margin-left: 0;
   }
   .note-hierarchy-link {
     display: none;
@@ -4095,6 +4164,148 @@ mark.hl-pink { background-color: rgb(251 207 232 / 0.7); color: inherit; padding
 .dark mark.hl-pink { background-color: rgb(131 24 67 / 0.4); }
 mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; padding: 1px 2px; border-radius: 2px; }
 .dark mark.hl-purple { background-color: rgb(76 29 149 / 0.4); }
+
+/* ------------------------- 阅读器正文排版（.reader-content） ------------------------- */
+/* 抓取正文（Readability HTML）的统一排版。不依赖 Tailwind prose：
+   prose 在 ≥640px 会重新施加 max-width: 65ch 压过 max-w-none，且自带
+   引用引号 / 行内代码反引号等伪元素，这里全部自定义，与编辑器视觉语言一致。 */
+.reader-content {
+  font-size: 1.0625rem; /* 17px，中文长文阅读的舒适字号 */
+  line-height: 1.8;
+  overflow-wrap: break-word;
+}
+.reader-content > :first-child { margin-top: 0; }
+.reader-content > :last-child { margin-bottom: 0; }
+
+.reader-content p { margin: 1.1em 0; }
+
+.reader-content h1,
+.reader-content h2,
+.reader-content h3,
+.reader-content h4,
+.reader-content h5,
+.reader-content h6 {
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 1.8em 0 0.6em;
+  /* 锚点跳转时不被吸顶栏遮挡 */
+  scroll-margin-top: 6rem;
+}
+.reader-content h1 { font-size: 1.55em; }
+.reader-content h2 { font-size: 1.35em; }
+.reader-content h3 { font-size: 1.18em; }
+.reader-content h4 { font-size: 1.05em; }
+.reader-content h5,
+.reader-content h6 { font-size: 1em; }
+
+.reader-content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.reader-content ul,
+.reader-content ol {
+  margin: 1.1em 0;
+  padding-left: 1.5em;
+}
+.reader-content ul { list-style: disc; }
+.reader-content ol { list-style: decimal; }
+.reader-content li { margin: 0.35em 0; }
+.reader-content li > ul,
+.reader-content li > ol { margin: 0.35em 0; }
+
+.reader-content blockquote {
+  margin: 1.4em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+.reader-content blockquote p { margin: 0.5em 0; }
+
+.reader-content pre {
+  margin: 1.4em 0;
+  padding: 1rem 1.25rem;
+  background: hsl(var(--muted));
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+}
+.reader-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+.reader-content :not(pre) > code {
+  background: hsl(var(--muted));
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.reader-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.reader-content figure { margin: 1.6em 0; }
+.reader-content figure img,
+.reader-content > img,
+.reader-content p > img:only-child {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+.reader-content figcaption {
+  margin-top: 0.5em;
+  font-size: 0.85em;
+  line-height: 1.5;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+
+.reader-content table {
+  display: block;
+  width: 100%;
+  margin: 1.6em 0;
+  border-collapse: collapse;
+  overflow-x: auto;
+  font-size: 0.925em;
+  line-height: 1.6;
+}
+.reader-content th,
+.reader-content td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+.reader-content th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+
+.reader-content hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.reader-content iframe,
+.reader-content video,
+.reader-content audio {
+  max-width: 100%;
+}
+.reader-content video {
+  display: block;
+  margin: 1.6em auto;
+  border-radius: 8px;
+}
 
 /* ------------------------- 数据库图表视图 ------------------------- */
 .organize-db-chart {
