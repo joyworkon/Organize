@@ -12,6 +12,7 @@ import { Backlinks } from "@/components/notes/backlinks";
 import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
 import { NoteHierarchyBar } from "@/components/notes/note-hierarchy-bar";
+import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -1025,6 +1026,9 @@ export default function NoteEditorPage() {
             创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
           </div>
         )}
+
+        {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
+        <LinkedTaskBanner noteId={noteId} />
 
         {commentsOpen && (
           <NotePageComments

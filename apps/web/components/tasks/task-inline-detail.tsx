@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
 import { TaskRemindersEditor } from "@/components/tasks/task-reminders-editor";
 import { buildTaskTemplateSnapshot } from "@/lib/tasks/templates";
+import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
 import { TaskHierarchy } from "@/components/tasks/task-hierarchy";
 import { TaskDependencies } from "@/components/tasks/task-dependencies";
 import { TaskLinkedContent } from "@/components/tasks/task-linked-content";
@@ -170,7 +171,8 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
 
   const openNote = async () => {
     if (task.note_id) { router.push(`/notes/${task.note_id}`); return; }
-    const { data: note, error } = await supabase.from("notes").insert({ user_id: task.user_id, title: `${task.title} - 便签`, content: { type: "doc", content: [{ type: "paragraph" }] } }).select().single();
+    // 便签预填任务描述与子任务清单，避免从空白页开始誊抄
+    const { data: note, error } = await supabase.from("notes").insert({ user_id: task.user_id, title: `${task.title} - 便签`, content: buildTaskNoteContent(task, checklists) }).select().single();
     if (error || !note) toast({ title: "创建便签失败", variant: "destructive" });
     else { await onUpdate(task.id, { note_id: note.id }); router.push(`/notes/${note.id}`); }
   };

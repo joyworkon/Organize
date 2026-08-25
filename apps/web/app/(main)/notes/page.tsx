@@ -22,6 +22,7 @@ import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog"
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
 import { mutateTrash } from "@/lib/trash/client";
 import { findNoteSearchMatch } from "@/lib/notes/search-match";
+import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
 import {
   nextSortField,
   applyPinned,
@@ -267,6 +268,19 @@ export default function NotesPage() {
     return new Map(notes.map((note) => [note.id, findNoteSearchMatch(note.content, query)]));
   }, [notes, search]);
 
+  // 列表视图 + 默认排序（更新时间降序）+ 非搜索态时按时间分组（今天/昨天/本周/更早），
+  // 置顶笔记独立成组保持在最上；其余排序方式或搜索态下保持平铺，不干扰用户预期。
+  const noteSections = useMemo<DateGroup<NoteWithTags>[] | null>(() => {
+    if (view !== "list" || sortBy !== "updated_at" || sortOrder !== "desc" || search.trim()) {
+      return null;
+    }
+    const pinned = notes.filter((note) => note.is_pinned);
+    const groups = groupNotesByDate(notes.filter((note) => !note.is_pinned));
+    return pinned.length > 0
+      ? [{ key: "pinned", label: "置顶", items: pinned }, ...groups]
+      : groups;
+  }, [notes, view, sortBy, sortOrder, search]);
+
   const noteCardProps = (note: NoteWithTags) => ({
     note,
     view,
@@ -467,19 +481,53 @@ export default function NotesPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">加载中...</div>
+        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="笔记加载中">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="h-[88px] animate-pulse rounded-lg bg-muted/60" />
+          ))}
+        </div>
       ) : notes.length === 0 ? (
         <EmptyState
           icon={FileText}
           title={search.trim() || selectedTagIds.length > 0 ? "没有找到匹配的笔记" : "还没有笔记"}
-          description="开始记录你的想法和灵感"
+          description={
+            search.trim() || selectedTagIds.length > 0
+              ? "换个关键词或筛选条件试试"
+              : "记录你的想法、灵感和阅读笔记"
+          }
+          action={
+            search.trim() || selectedTagIds.length > 0 ? undefined : (
+              <Button onClick={createNote} disabled={creating}>
+                <Plus className="h-4 w-4 mr-2" />
+                新建笔记
+              </Button>
+            )
+          }
         />
       ) : view === "list" ? (
-        <div className="grid gap-2 sm:gap-3">
-          {notes.map((note) => (
-            <NoteCard key={note.id} {...noteCardProps(note)} />
-          ))}
-        </div>
+        noteSections ? (
+          <div className="space-y-5">
+            {noteSections.map((section) => (
+              <section key={section.key}>
+                <h2 className="mb-2 px-1 text-xs font-medium text-muted-foreground">
+                  {section.label}
+                  <span className="ml-1.5">{section.items.length}</span>
+                </h2>
+                <div className="grid gap-2 sm:gap-3">
+                  {section.items.map((note) => (
+                    <NoteCard key={note.id} {...noteCardProps(note)} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-2 sm:gap-3">
+            {notes.map((note) => (
+              <NoteCard key={note.id} {...noteCardProps(note)} />
+            ))}
+          </div>
+        )
       ) : (
         <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
