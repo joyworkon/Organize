@@ -7,12 +7,15 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  FileText,
   Filter,
   Flag,
+  Group,
   ListChecks,
   Loader2,
   LockKeyhole,
   MoreHorizontal,
+  Trash2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
@@ -20,6 +23,11 @@ import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BatchActionsBar } from "@/components/batch-actions-bar";
+import { useSelection } from "@/hooks/use-selection";
+import { groupTasksByDate } from "@/lib/date-groups";
 import { TagFilter } from "@/components/tags/tag-filter";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
@@ -54,6 +62,12 @@ interface TaskRowProps {
   onOpen: () => void;
   onStatus: () => void;
   onDateChange: (value: TaskSchedule) => Promise<void>;
+  /** 多选模式：显示勾选框 */
+  selectionMode?: boolean;
+  checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  /** 已关联便签时可一键打开笔记 */
+  onOpenNote?: () => void;
   /** 拖拽排序（仅待办组启用） */
   draggableRow?: boolean;
   dropPosition?: "before" | "after" | null;
@@ -66,7 +80,7 @@ interface TaskRowProps {
   onMoveRow?: (offset: -1 | 1) => void;
 }
 
-function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateChange, draggableRow, dropPosition, onDragStartRow, onDragOverRow, onDropRow, onDragEndRow, canMoveUp, canMoveDown, onMoveRow }: TaskRowProps) {
+function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateChange, selectionMode, checked, onCheckedChange, onOpenNote, draggableRow, dropPosition, onDragStartRow, onDragOverRow, onDropRow, onDragEndRow, canMoveUp, canMoveDown, onMoveRow }: TaskRowProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -120,6 +134,15 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
       className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors hover:bg-muted/50", selected && "bg-muted", task.status === "done" && "text-muted-foreground", dropPosition === "before" && "border-t-2 border-t-primary", dropPosition === "after" && "border-b-2 border-b-primary", draggableRow && "cursor-grab active:cursor-grabbing")}
       style={{ borderLeft: `3px solid ${listColor || "transparent"}` }}
     >
+      {selectionMode && (
+        <span onClick={(event) => event.stopPropagation()} className="mt-0.5 shrink-0">
+          <Checkbox
+            aria-label={`选择任务 ${task.title}`}
+            checked={checked}
+            onCheckedChange={(value) => onCheckedChange?.(value === true)}
+          />
+        </span>
+      )}
       <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
         {task.status === "done" && <Check className="h-3.5 w-3.5" />}
       </button>
@@ -146,6 +169,17 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
         {task.description && <div className="mt-1 truncate text-sm text-muted-foreground">- {task.description}</div>}
         {task.tags && task.tags.length > 0 && <div className="mt-1 flex gap-1 text-[11px] text-muted-foreground">{task.tags.slice(0, 3).map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>}
       </div>
+      {onOpenNote && (
+        <button
+          type="button"
+          aria-label="打开关联便签"
+          title="打开关联便签"
+          onClick={(event) => { event.stopPropagation(); onOpenNote(); }}
+          className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-primary"
+        >
+          <FileText className="h-3.5 w-3.5" />
+        </button>
+      )}
       <TaskDatePopover
         value={schedule}
         onChange={onDateChange}
@@ -198,6 +232,12 @@ function TasksPageInner() {
   const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const activeTasksRef = useRef<TaskWithTags[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // 待办组按日期分组展示（分组模式下禁用手动排序，避免与 sort_order 语义冲突）
+  const [groupByDate, setGroupByDate] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const selection = useSelection<TaskWithTags>();
+  const { selectedIds, isSelectMode } = selection;
+  const showCheckbox = selectionMode || isSelectMode;
 
   const selectedTaskId = searchParams.get("task");
   const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
@@ -329,6 +369,11 @@ function TasksPageInner() {
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   activeTasksRef.current = activeTasks;
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
+  // 日期分组只在分组开关打开时计算；组内保持手动排序的先后顺序
+  const activeSections = useMemo(
+    () => (groupByDate ? groupTasksByDate(activeTasks, taskDate) : null),
+    [groupByDate, activeTasks]
+  );
   const blockedTaskIds = useMemo(
     () => getBlockedTaskIds(tasks, dependencies),
     [dependencies, tasks]
@@ -339,6 +384,50 @@ function TasksPageInner() {
   const openTask = (task: TaskWithTags) => updateUrl({ task: task.id });
   const closeTask = () => updateUrl({ task: null });
   const toggleStatus = (task: Task) => void updateTask(task.id, { status: task.status === "done" ? "todo" : "done", completed_at: task.status === "done" ? null : new Date().toISOString() });
+
+  const exitSelection = useCallback(() => {
+    selection.clear();
+    setSelectionMode(false);
+  }, [selection]);
+
+  /** 批量完成：一次性落库；重复任务不逐个生成下一次实例（批量场景下代价高且易刷屏） */
+  const batchComplete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const now = new Date().toISOString();
+    const previous = tasks;
+    setTasks((current) => current.map((task) => selectedIds.has(task.id) ? { ...task, status: "done", completed_at: now } : task));
+    const results = await Promise.all(
+      ids.map((id) => supabase.from("tasks").update({ status: "done", completed_at: now }).eq("id", id))
+    );
+    if (results.some((result) => result.error)) {
+      setTasks(previous);
+      toast({ title: "批量完成失败，已回滚", variant: "destructive" });
+      return;
+    }
+    exitSelection();
+    toast({ title: `已完成 ${ids.length} 个任务` });
+  }, [exitSelection, selectedIds, supabase, tasks]);
+
+  const batchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`将选中的 ${ids.length} 个任务移入垃圾箱？`)) return;
+    const now = new Date().toISOString();
+    const previous = tasks;
+    setTasks((current) => current.map((task) => selectedIds.has(task.id) ? { ...task, deleted_at: now } : task));
+    const results = await Promise.all(
+      ids.map((id) => supabase.from("tasks").update({ deleted_at: now }).eq("id", id))
+    );
+    if (results.some((result) => result.error)) {
+      setTasks(previous);
+      toast({ title: "批量删除失败，已回滚", variant: "destructive" });
+      return;
+    }
+    updateUrl({ task: null });
+    exitSelection();
+    toast({ title: `${ids.length} 个任务已移入垃圾箱` });
+  }, [exitSelection, selectedIds, supabase, tasks, updateUrl]);
 
   const quickAdd = async (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
@@ -364,6 +453,28 @@ function TasksPageInner() {
     await fetchTasks();
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
+
+  /** 行公共 props：平铺（拖拽）与分组两种渲染分支共用；已完成任务不展示阻塞标识（保持旧行为） */
+  const commonRowProps = (task: TaskWithTags) => ({
+    task,
+    selected: task.id === selectedTaskId,
+    listColor: lists.find((list) => list.id === task.list_id)?.color,
+    blocked: task.status === "done" ? false : blockedTaskIds.has(task.id),
+    onOpen: () => openTask(task),
+    onStatus: () => toggleStatus(task),
+    onDateChange: (value: TaskSchedule) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule }),
+    selectionMode: showCheckbox,
+    checked: selectedIds.has(task.id),
+    onCheckedChange: (checked: boolean) => { if (checked) selection.select(task.id); else selection.deselect(task.id); },
+    onOpenNote: task.note_id ? () => router.push(`/notes/${task.note_id}`) : undefined,
+  });
+
+  const sectionHeader = (label: string, count: number) => (
+    <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold">
+      <ChevronDown className="h-4 w-4" />{label}
+      <span className="text-xs font-normal text-muted-foreground">{count}</span>
+    </div>
+  );
 
   // 无 scope 参数时会重定向到第一个清单（见上方 effect）；
   // 清单已就绪但还没跳转时先渲染加载态，避免"全部"列表闪一下再跳走
@@ -408,39 +519,88 @@ function TasksPageInner() {
               <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <Select value={priorityFilter} onValueChange={(value: PriorityFilter) => setPriorityFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部优先级</SelectItem>{Object.entries(TASK_PRIORITY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
+              <div className="ml-auto flex items-center gap-1">
+                <Button
+                  variant={groupByDate ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  title="按日期分组待办任务"
+                  onClick={() => setGroupByDate((value) => !value)}
+                >
+                  <Group className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">日期分组</span>
+                </Button>
+                <Button
+                  variant={showCheckbox ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  title="多选批量操作"
+                  onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">多选</span>
+                </Button>
+              </div>
             </div>
+
+            {showCheckbox && filteredTasks.length > 0 && (
+              <BatchActionsBar
+                selectedCount={selectedIds.size}
+                totalCount={filteredTasks.length}
+                onClear={exitSelection}
+                onSelectAll={() => selection.selectAll(filteredTasks.map((task) => task.id))}
+                typeLabel="个任务"
+                actions={
+                  <>
+                    <Button size="sm" variant="ghost" className="gap-1" onClick={() => void batchComplete()} title="标记完成">
+                      <Check className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">完成</span>
+                    </Button>
+                    <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => void batchDelete()} title="删除">
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">删除</span>
+                    </Button>
+                  </>
+                }
+              />
+            )}
 
             {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
-                {activeTasks.length > 0 && <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />待办 <span className="text-xs font-normal text-muted-foreground">{activeTasks.length}</span></div>}
-                {activeTasks.map((task, index) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    selected={task.id === selectedTaskId}
-                    listColor={lists.find((list) => list.id === task.list_id)?.color}
-                    blocked={blockedTaskIds.has(task.id)}
-                    onOpen={() => openTask(task)}
-                    onStatus={() => toggleStatus(task)}
-                    onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
-                    draggableRow
-                    dropPosition={dropTarget?.id === task.id ? dropTarget.position : null}
-                    onDragStartRow={() => setDragTaskId(task.id)}
-                    onDragOverRow={(event) => {
-                      if (!dragTaskId || dragTaskId === task.id) return;
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
-                      setDropTarget((current) => (current?.id === task.id && current.position === position ? current : { id: task.id, position }));
-                    }}
-                    onDropRow={() => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); }}
-                    onDragEndRow={() => { setDragTaskId(null); setDropTarget(null); }}
-                    canMoveUp={index > 0}
-                    canMoveDown={index < activeTasks.length - 1}
-                    onMoveRow={(offset) => void handleMoveRow(task.id, offset)}
-                  />
-                ))}
-                {completedTasks.length > 0 && <div className="mt-4 flex items-center gap-2 border-y bg-muted/20 px-5 py-3 text-sm font-semibold"><ChevronDown className="h-4 w-4" />已完成 <span className="text-xs font-normal text-muted-foreground">{completedTasks.length}</span></div>}
-                {completedTasks.map((task) => <TaskRow key={task.id} task={task} selected={task.id === selectedTaskId} listColor={lists.find((list) => list.id === task.list_id)?.color} onOpen={() => openTask(task)} onStatus={() => toggleStatus(task)} onDateChange={(value) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })} />)}
+                {activeSections ? (
+                  activeSections.map((section) => (
+                    <div key={section.key}>
+                      {sectionHeader(section.label, section.items.length)}
+                      {section.items.map((task) => <TaskRow key={task.id} {...commonRowProps(task)} />)}
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    {activeTasks.length > 0 && sectionHeader("待办", activeTasks.length)}
+                    {activeTasks.map((task, index) => (
+                      <TaskRow
+                        key={task.id}
+                        {...commonRowProps(task)}
+                        draggableRow
+                        dropPosition={dropTarget?.id === task.id ? dropTarget.position : null}
+                        onDragStartRow={() => setDragTaskId(task.id)}
+                        onDragOverRow={(event) => {
+                          if (!dragTaskId || dragTaskId === task.id) return;
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+                          setDropTarget((current) => (current?.id === task.id && current.position === position ? current : { id: task.id, position }));
+                        }}
+                        onDropRow={() => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); }}
+                        onDragEndRow={() => { setDragTaskId(null); setDropTarget(null); }}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < activeTasks.length - 1}
+                        onMoveRow={(offset) => void handleMoveRow(task.id, offset)}
+                      />
+                    ))}
+                  </>
+                )}
+                {completedTasks.length > 0 && sectionHeader("已完成", completedTasks.length)}
+                {completedTasks.map((task) => <TaskRow key={task.id} {...commonRowProps(task)} />)}
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -255,16 +256,21 @@ export default function TaskDetailPage() {
     router.push(`/tasks/${data.id}`);
   }
 
-  /** 打开便签：复用 note_id；无则建笔记 */
+  /** 打开便签：复用 note_id；无则建笔记（预填描述与子任务清单） */
   async function handleOpenNote() {
     if (!task) return;
     if (task.note_id) { router.push(`/notes/${task.note_id}`); return; }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    const { data: checklistRows } = await supabase
+      .from("task_checklists")
+      .select("content, is_completed")
+      .eq("task_id", task.id)
+      .order("sort_order", { ascending: true });
     const { data: note, error } = await supabase.from("notes").insert({
       user_id: user.id,
       title: `${task.title} - 便签`,
-      content: { type: "doc", content: [{ type: "paragraph" }] },
+      content: buildTaskNoteContent(task, checklistRows || []),
     }).select("id").single();
     if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
     await supabase.from("tasks").update({ note_id: note.id }).eq("id", task.id);
