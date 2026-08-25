@@ -12,7 +12,8 @@ import {
   FileVideo,
 } from "lucide-react";
 
-function formatFileSize(size: unknown): string {
+/** 面向附件面板等处复用：字节大小格式化 */
+export function formatFileSize(size: unknown): string {
   const bytes = typeof size === "number" ? size : Number(size);
   if (!Number.isFinite(bytes) || bytes <= 0) return "";
   if (bytes < 1024) return `${Math.round(bytes)} B`;
@@ -21,7 +22,8 @@ function formatFileSize(size: unknown): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function iconForMime(mime: string) {
+/** 面向附件面板等处复用：按 mime 取文件类型图标 */
+export function iconForMime(mime: string) {
   if (mime.startsWith("video/")) return FileVideo;
   if (mime.startsWith("audio/")) return FileAudio;
   if (mime === "application/pdf" || mime.startsWith("text/")) return FileText;

@@ -6,6 +6,7 @@ import type { Editor } from "@tiptap/react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
+import { NoteAttachmentsButton } from "@/components/editor/note-attachments-panel";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -128,6 +129,8 @@ export default function NoteEditorPage() {
   const userIdRef = useRef<string | null>(null);
   const savingPromiseRef = useRef<Promise<void> | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNoteTree = useCallback(async () => {
@@ -979,6 +982,7 @@ export default function NoteEditorPage() {
               ) : null}
             </div>
             <FavoriteButton targetType="note" targetId={noteId} />
+            <NoteAttachmentsButton editor={editorInstance} />
             <Button
               variant="ghost"
               size="sm"
@@ -1067,6 +1071,7 @@ export default function NoteEditorPage() {
           internalLinkStates={contentLinkStates}
           onEditorReady={(editor) => {
             editorRef.current = editor;
+            setEditorInstance(editor);
           }}
         />
 
