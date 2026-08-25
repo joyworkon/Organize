@@ -1,0 +1,287 @@
+import { describe, expect, it } from "vitest";
+import {
+  MSG_CONFIG_LOAD_FAILED,
+  MSG_CONFIG_SAVE_FAILED,
+  bootstrapPlugins,
+  buildCreateFailedMessage,
+  pluginDefaultConfig,
+  type BootstrapDeps,
+} from "./bootstrap";
+import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
+import type { PluginRecord } from "@organize/shared";
+
+// ---------- 测试夹具 ----------
+
+function makePlugin(id: string, name = id): OrganizePlugin {
+  return {
+    id,
+    name,
+    version: "1.0.0",
+    description: "test plugin",
+    configFields: [
+      { key: "enabled_by_default", label: "默认开关", type: "boolean", default: true },
+      { key: "no_default", label: "无默认值", type: "text" },
+    ],
+    extensions: [],
+  };
+}
+
+function makeRecord(plugin: OrganizePlugin, overrides: Partial<PluginRecord> = {}): PluginRecord {
+  return {
+    id: `rec-${plugin.id}`,
+    user_id: "u1",
+    name: plugin.name,
+    package_name: plugin.id,
+    version: plugin.version,
+    config: {},
+    enabled: true,
+    created_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+interface Harness {
+  deps: BootstrapDeps;
+  notified: { message: string; variant: string }[];
+  registered: OrganizePlugin[];
+  activated: { id: string; ctx: PluginContext }[];
+  requests: { input: string; init?: RequestInit }[];
+}
+
+/**
+ * 组装 bootstrapPlugins 的依赖并记录副作用。
+ * fetch 由调用方提供，用于精确控制每个请求的成功/失败。
+ */
+function makeHarness(
+  plugins: OrganizePlugin[],
+  fetchImpl: (input: string, init?: RequestInit) => Response | Promise<Response>
+): Harness {
+  const notified: { message: string; variant: string }[] = [];
+  const registered: OrganizePlugin[] = [];
+  const activated: { id: string; ctx: PluginContext }[] = [];
+  const requests: { input: string; init?: RequestInit }[] = [];
+
+  const trackedFetch = (input: string, init?: RequestInit) => {
+    requests.push({ input, init });
+    return Promise.resolve(fetchImpl(input, init));
+  };
+
+  const deps: BootstrapDeps = {
+    plugins,
+    userId: "u1",
+    fetchImpl: trackedFetch,
+    registerPlugin: (plugin) => registered.push(plugin),
+    activatePlugin: (id, ctx) => activated.push({ id, ctx }),
+    notify: (message, variant) => notified.push({ message, variant }),
+  };
+
+  return { deps, notified, registered, activated, requests };
+}
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+// ---------- pluginDefaultConfig ----------
+
+describe("pluginDefaultConfig", () => {
+  it("只提取有默认值的字段", () => {
+    expect(pluginDefaultConfig(makePlugin("p1"))).toEqual({ enabled_by_default: true });
+  });
+
+  it("无配置字段时返回空对象", () => {
+    expect(pluginDefaultConfig({ ...makePlugin("p1"), configFields: undefined })).toEqual({});
+  });
+});
+
+// ---------- bootstrapPlugins ----------
+
+describe("bootstrapPlugins", () => {
+  it("已有记录且启用：注册并激活，复用服务端配置，不发创建请求，无通知", async () => {
+    const plugin = makePlugin("ai-summary", "AI 摘要");
+    const record = makeRecord(plugin, { config: { enabled_by_default: false, extra: 1 } });
+    const harness = makeHarness([plugin], () => jsonResponse([record]));
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result).toEqual({
+      registered: 1,
+      activated: 1,
+      configLoadFailed: false,
+      failedCreations: [],
+    });
+    expect(harness.registered).toEqual([plugin]);
+    expect(harness.activated.map((entry) => entry.id)).toEqual(["ai-summary"]);
+    // 没有任何 POST（不重复创建记录）
+    expect(
+      harness.requests.filter((req) => req.init?.method === "POST")
+    ).toEqual([]);
+    // getConfig 返回服务端记录里的配置
+    const ctx = harness.activated[0].ctx;
+    expect(ctx.getConfig()).toEqual({ enabled_by_default: false, extra: 1 });
+    expect(harness.notified).toEqual([]);
+  });
+
+  it("无记录：用默认配置 POST 创建并激活", async () => {
+    const plugin = makePlugin("tag-suggest", "标签推荐");
+    const created = makeRecord(plugin, { config: { enabled_by_default: true } });
+    const harness = makeHarness([plugin], (input, init) => {
+      if (init?.method === "POST") return jsonResponse(created, 201);
+      return jsonResponse([]); // GET 返回空列表
+    });
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result.activated).toBe(1);
+    const post = harness.requests.find((req) => req.init?.method === "POST");
+    expect(post).toBeDefined();
+    expect(JSON.parse(String(post!.init!.body))).toEqual({
+      name: "标签推荐",
+      package_name: "tag-suggest",
+      version: "1.0.0",
+      config: { enabled_by_default: true },
+    });
+    expect(harness.activated[0].ctx.getConfig()).toEqual({ enabled_by_default: true });
+    expect(harness.notified).toEqual([]);
+  });
+
+  it("配置读取失败（网络异常）：插件仍注册但不激活，提示一次且不尝试创建", async () => {
+    const plugins = [makePlugin("p1"), makePlugin("p2")];
+    const harness = makeHarness(plugins, () => Promise.reject(new Error("network down")));
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result.configLoadFailed).toBe(true);
+    expect(result.activated).toBe(0);
+    expect(harness.registered).toHaveLength(2);
+    expect(harness.notified).toEqual([
+      { message: MSG_CONFIG_LOAD_FAILED, variant: "default" },
+    ]);
+    // 只有一个 GET 请求，没有 POST
+    expect(harness.requests.map((req) => req.init?.method ?? "GET")).toEqual(["GET"]);
+  });
+
+  it("配置读取失败（HTTP 500）：同样注册不激活并提示", async () => {
+    const harness = makeHarness([makePlugin("p1")], () => jsonResponse({ error: "boom" }, 500));
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result.configLoadFailed).toBe(true);
+    expect(result.activated).toBe(0);
+    expect(harness.notified[0].message).toBe(MSG_CONFIG_LOAD_FAILED);
+    // 提示不透出服务端原始错误
+    expect(harness.notified[0].message).not.toContain("boom");
+  });
+
+  it("创建记录失败：该插件不激活，其他插件正常，失败插件名聚合提示", async () => {
+    const okPlugin = makePlugin("ok", "正常插件");
+    const badPlugin = makePlugin("bad", "失败插件");
+    const okRecord = makeRecord(okPlugin);
+    const harness = makeHarness([okPlugin, badPlugin], (input, init) => {
+      if (init?.method === "POST") {
+        // 只有 bad 插件会走创建路径
+        return jsonResponse({ error: "permission denied for table plugins" }, 500);
+      }
+      return jsonResponse([okRecord]);
+    });
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result.activated).toBe(1);
+    expect(result.failedCreations).toEqual(["失败插件"]);
+    expect(harness.activated.map((entry) => entry.id)).toEqual(["ok"]);
+    expect(harness.notified).toEqual([
+      { message: buildCreateFailedMessage(["失败插件"]), variant: "default" },
+    ]);
+    // 聚合文案不含原始数据库错误
+    expect(harness.notified[0].message).not.toContain("permission denied");
+  });
+
+  it("记录存在但 enabled=false：注册不激活，无通知", async () => {
+    const plugin = makePlugin("p1");
+    const harness = makeHarness(
+      [plugin],
+      () => jsonResponse([makeRecord(plugin, { enabled: false })])
+    );
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result.activated).toBe(0);
+    expect(harness.registered).toHaveLength(1);
+    expect(harness.notified).toEqual([]);
+  });
+
+  it("无插件：直接返回零计数，不发任何请求", async () => {
+    const harness = makeHarness([], () => {
+      throw new Error("should not fetch");
+    });
+
+    const result = await bootstrapPlugins(harness.deps);
+
+    expect(result).toEqual({
+      registered: 0,
+      activated: 0,
+      configLoadFailed: false,
+      failedCreations: [],
+    });
+    expect(harness.requests).toEqual([]);
+  });
+
+  describe("激活后的 PluginContext", () => {
+    async function activateWith(
+      patchResponse: () => Response | Promise<Response>
+    ): Promise<{ harness: Harness; ctx: PluginContext }> {
+      const plugin = makePlugin("p1");
+      const harness = makeHarness(
+        [plugin],
+        (input, init) => {
+          if (init?.method === "PATCH") return patchResponse();
+          return jsonResponse([makeRecord(plugin, { config: { level: 1 } })]);
+        }
+      );
+      await bootstrapPlugins(harness.deps);
+      return { harness, ctx: harness.activated[0].ctx };
+    }
+
+    it("setConfig 成功：配置更新为服务端返回值", async () => {
+      const { harness, ctx } = await activateWith(() =>
+        jsonResponse(makeRecord(makePlugin("p1"), { config: { level: 2 } }))
+      );
+      await ctx.setConfig({ level: 2 });
+      expect(ctx.getConfig()).toEqual({ level: 2 });
+      expect(harness.notified).toEqual([]);
+    });
+
+    it("setConfig 失败：notify destructive 且抛统一文案，不透出原始错误", async () => {
+      const { harness, ctx } = await activateWith(() =>
+        jsonResponse({ error: "row-level security policy violation" }, 403)
+      );
+      await expect(ctx.setConfig({ level: 2 })).rejects.toThrow(MSG_CONFIG_SAVE_FAILED);
+      expect(harness.notified).toEqual([
+        { message: MSG_CONFIG_SAVE_FAILED, variant: "destructive" },
+      ]);
+      expect(harness.notified[0].message).not.toContain("row-level");
+    });
+
+    it("插件 notify：info/success 走 default，error 走 destructive", async () => {
+      const { harness, ctx } = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
+      ctx.notify("普通消息");
+      ctx.notify("成功消息", "success");
+      ctx.notify("出错了", "error");
+      expect(harness.notified).toEqual([
+        { message: "普通消息", variant: "default" },
+        { message: "成功消息", variant: "default" },
+        { message: "出错了", variant: "destructive" },
+      ]);
+    });
+
+    it("getCurrentItem 恒为 null，userId 透传", async () => {
+      const { ctx } = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
+      expect(ctx.getCurrentItem()).toBeNull();
+      expect(ctx.userId).toBe("u1");
+    });
+  });
+});
