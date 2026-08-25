@@ -23,6 +23,7 @@ import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog"
 import { mutateTrash } from "@/lib/trash/client";
 import { findNoteSearchMatch } from "@/lib/notes/search-match";
 import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
+import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import {
   nextSortField,
   applyPinned,
@@ -52,6 +53,7 @@ export default function NotesPage() {
 
   const selection = useSelection<NoteWithTags>();
   const { selectedIds, isSelectMode, selectAll, clear, isSelected } = selection;
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = useMemo(() => createClient(), []);
   const { tags: allTags, refresh: refreshTags } = useAllTags();
@@ -186,6 +188,32 @@ export default function NotesPage() {
       setCreating(false);
     }
   };
+
+  // 页面快捷键：n 新建、/ 聚焦搜索、Esc 退出多选或清空搜索（弹层打开时让位）
+  useHotkey([
+    {
+      key: "n",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog() && !creating) void createNote(); },
+    },
+    {
+      key: "/",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) searchInputRef.current?.focus(); },
+    },
+    {
+      key: "escape",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => {
+        if (hasOpenDialog()) return;
+        if (showCheckbox) exitSelection();
+        else if (search) setSearch("");
+      },
+    },
+  ]);
 
   const deleteNote = async (id: string) => {
     if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
@@ -356,7 +384,7 @@ export default function NotesPage() {
             <Upload className="h-4 w-4" />
             <span className="hidden sm:inline ml-2">导入MD</span>
           </Button>
-          <Button onClick={createNote} disabled={creating} className="shrink-0">
+          <Button onClick={createNote} disabled={creating} className="shrink-0" title="新建笔记（按 n）">
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline ml-2">新建笔记</span>
           </Button>
@@ -384,7 +412,8 @@ export default function NotesPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索..."
+            ref={searchInputRef}
+            placeholder="搜索...（按 / 聚焦）"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"

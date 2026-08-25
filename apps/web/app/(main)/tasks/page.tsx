@@ -28,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BatchActionsBar } from "@/components/batch-actions-bar";
 import { useSelection } from "@/hooks/use-selection";
 import { groupTasksByDate } from "@/lib/date-groups";
+import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { TagFilter } from "@/components/tags/tag-filter";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
@@ -109,7 +110,11 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
         }
         onOpen();
       }}
-      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); return; }
+        // 行聚焦时按 x 切换完成状态（x 未占用全局 g 序列，避免与导航冲突）
+        if (event.key === "x" || event.key === "X") { event.preventDefault(); event.stopPropagation(); onStatus(); }
+      }}
       onPointerDown={(event) => {
         if (event.pointerType !== "touch" || !onMoveRow || (event.target as HTMLElement).closest("button,input")) return;
         clearLongPress();
@@ -238,6 +243,7 @@ function TasksPageInner() {
   const selection = useSelection<TaskWithTags>();
   const { selectedIds, isSelectMode } = selection;
   const showCheckbox = selectionMode || isSelectMode;
+  const quickAddInputRef = useRef<HTMLInputElement>(null);
 
   const selectedTaskId = searchParams.get("task");
   const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
@@ -429,6 +435,38 @@ function TasksPageInner() {
     toast({ title: `${ids.length} 个任务已移入垃圾箱` });
   }, [exitSelection, selectedIds, supabase, tasks, updateUrl]);
 
+  // 页面快捷键：n 聚焦快速添加、v 日期分组、m 多选、Esc 关闭详情/退出多选（弹层打开时让位）
+  useHotkey([
+    {
+      key: "n",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) quickAddInputRef.current?.focus(); },
+    },
+    {
+      key: "v",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) setGroupByDate((value) => !value); },
+    },
+    {
+      key: "m",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => { if (!hasOpenDialog()) { if (showCheckbox) exitSelection(); else setSelectionMode(true); } },
+    },
+    {
+      key: "escape",
+      ctrlKey: false,
+      metaKey: false,
+      handler: () => {
+        if (hasOpenDialog()) return;
+        if (selectedTaskId) closeTask();
+        else if (showCheckbox) exitSelection();
+      },
+    },
+  ]);
+
   const quickAdd = async (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
     const input = event.currentTarget;
@@ -510,7 +548,7 @@ function TasksPageInner() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[820px] px-4 pb-12 pt-5 md:px-8">
-            <input aria-label="快速添加任务" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
+            <input ref={quickAddInputRef} aria-label="快速添加任务" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建（按 n 快速聚焦）`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
 
             {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
 
@@ -524,7 +562,7 @@ function TasksPageInner() {
                   variant={groupByDate ? "default" : "outline"}
                   size="sm"
                   className="gap-1.5"
-                  title="按日期分组待办任务"
+                  title="按日期分组待办任务（按 v）"
                   onClick={() => setGroupByDate((value) => !value)}
                 >
                   <Group className="h-3.5 w-3.5" />
@@ -534,7 +572,7 @@ function TasksPageInner() {
                   variant={showCheckbox ? "default" : "outline"}
                   size="sm"
                   className="gap-1.5"
-                  title="多选批量操作"
+                  title="多选批量操作（按 m）"
                   onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
                 >
                   <ListChecks className="h-3.5 w-3.5" />

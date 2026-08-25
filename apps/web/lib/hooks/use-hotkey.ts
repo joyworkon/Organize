@@ -15,6 +15,16 @@ function isTypingTarget(e: KeyboardEvent): boolean {
   return false;
 }
 
+/**
+ * 当前是否有打开的对话框（Radix Dialog 会渲染 role="dialog"）。
+ * 页面级快捷键（如 n 新建、Esc 退出多选）应在弹层打开时让位，
+ * 避免"关掉对话框的同时误触发页面动作"。
+ */
+export function hasOpenDialog(): boolean {
+  if (typeof document === "undefined") return false;
+  return Boolean(document.querySelector('[role="dialog"]'));
+}
+
 export interface HotkeyHandler {
   /** 按下的键（小写），如 "g"、"l"、"/"、"?" */
   key: string;

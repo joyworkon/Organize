@@ -29,6 +29,31 @@ const SHORTCUTS = [
   { keys: "Esc", desc: "关闭对话框/清空序列" },
 ];
 
+const PAGE_SHORTCUTS = [
+  {
+    page: "笔记列表",
+    items: [
+      { keys: "n", desc: "新建笔记" },
+      { keys: "/", desc: "聚焦搜索框" },
+      { keys: "Esc", desc: "退出多选 / 清空搜索" },
+    ],
+  },
+  {
+    page: "待办列表",
+    items: [
+      { keys: "n", desc: "聚焦快速添加" },
+      { keys: "v", desc: "切换日期分组" },
+      { keys: "m", desc: "切换多选模式" },
+      { keys: "x", desc: "完成/取消完成（任务行聚焦时）" },
+      { keys: "Esc", desc: "关闭详情 / 退出多选" },
+    ],
+  },
+  {
+    page: "笔记详情",
+    items: [{ keys: "⌘S / Ctrl+S", desc: "立即保存" }],
+  },
+];
+
 export function GlobalHotkeys() {
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
@@ -73,7 +98,7 @@ export function GlobalHotkeys() {
         </div>
       )}
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>键盘快捷键</DialogTitle>
             <DialogDescription>在 1.5 秒内按完整个序列触发</DialogDescription>
@@ -86,6 +111,19 @@ export function GlobalHotkeys() {
               </div>
             ))}
           </div>
+          {PAGE_SHORTCUTS.map((group) => (
+            <div key={group.page}>
+              <h3 className="mb-2 mt-4 text-xs font-medium text-muted-foreground">{group.page}</h3>
+              <div className="space-y-2">
+                {group.items.map((s) => (
+                  <div key={s.keys} className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">{s.desc}</span>
+                    <kbd className="font-mono text-xs bg-muted px-2 py-1 rounded border">{s.keys}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </DialogContent>
       </Dialog>
     </>
