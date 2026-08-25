@@ -13,6 +13,7 @@ import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
 import { NoteHierarchyBar } from "@/components/notes/note-hierarchy-bar";
 import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
+import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -704,6 +705,24 @@ export default function NoteEditorPage() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  // ⌘/Ctrl+S 立即保存（编辑器内也生效，阻止浏览器默认"保存网页"弹窗）
+  useHotkey([
+    {
+      key: "s",
+      metaKey: true,
+      ctrlKey: false,
+      allowInInput: true,
+      handler: () => { void flushSave().then(() => showToast("已保存")); },
+    },
+    {
+      key: "s",
+      ctrlKey: true,
+      metaKey: false,
+      allowInInput: true,
+      handler: () => { void flushSave().then(() => showToast("已保存")); },
+    },
+  ]);
 
   const copyLink = useCallback(async () => {
     try {
