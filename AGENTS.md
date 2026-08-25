@@ -84,7 +84,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–026；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置和附件存储 bucket）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–044；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态和阅读全宽偏好）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
