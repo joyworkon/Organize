@@ -107,3 +107,37 @@ export function pruneNotifiedKeys(keys: Set<string>, current: Map<string, number
   });
   return kept;
 }
+
+export interface OverdueSummary {
+  count: number;
+  title: string;
+  body: string;
+}
+
+interface OverdueCheckTask {
+  title: string;
+  due_date: string | null;
+  all_day?: boolean | null;
+  status: string;
+  deleted_at?: string | null;
+}
+
+/**
+ * 每日逾期摘要：统计"昨天及以前"到期且未完成的任务。
+ * 当天到期的不计入——当天到期由 buildDueReminders 的即时提醒覆盖，
+ * 避免同一任务在页面加载时重复打扰。无逾期时返回 null。
+ */
+export function buildOverdueSummary(tasks: OverdueCheckTask[], now: Date): OverdueSummary | null {
+  const overdue = tasks.filter((task) => {
+    if (task.status === "done" || task.status === "cancelled" || task.deleted_at) return false;
+    const due = effectiveDueDate(task);
+    return due !== null && due.getTime() < now.getTime() && !isSameDay(due, now);
+  });
+  if (overdue.length === 0) return null;
+  const titles = overdue.slice(0, 3).map((task) => task.title).join("、");
+  return {
+    count: overdue.length,
+    title: `你有 ${overdue.length} 个任务已逾期`,
+    body: overdue.length <= 3 ? titles : `${titles} 等 ${overdue.length} 个任务`,
+  };
+}

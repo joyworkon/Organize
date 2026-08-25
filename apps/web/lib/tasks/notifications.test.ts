@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_TIMEOUT_MS,
   buildDueReminders,
+  buildOverdueSummary,
   effectiveDueDate,
   pruneNotifiedKeys,
 } from "./notifications";
@@ -98,5 +99,62 @@ describe("pruneNotifiedKeys", () => {
     const keys = new Set(["t1:100:due", "t1:300:due"]);
     const current = new Map([["t1", 300]]);
     expect(Array.from(pruneNotifiedKeys(keys, current))).toEqual(["t1:300:due"]);
+  });
+});
+
+describe("buildOverdueSummary", () => {
+  const base = { all_day: false, deleted_at: null };
+
+  it("统计昨天及以前到期的未完成任务", () => {
+    const summary = buildOverdueSummary([
+      { ...base, title: "昨天到期", status: "todo", due_date: new Date(2026, 7, 18, 12, 0, 0).toISOString() },
+      { ...base, title: "上周到期", status: "in_progress", due_date: new Date(2026, 7, 15, 12, 0, 0).toISOString() },
+    ], NOW);
+    expect(summary).not.toBeNull();
+    expect(summary!.count).toBe(2);
+    expect(summary!.title).toBe("你有 2 个任务已逾期");
+    expect(summary!.body).toBe("昨天到期、上周到期");
+  });
+
+  it("当天到期的不计入（由即时提醒覆盖）", () => {
+    const summary = buildOverdueSummary([
+      { ...base, title: "今早到期", status: "todo", due_date: LOCAL_TODAY_8AM },
+    ], NOW);
+    expect(summary).toBeNull();
+  });
+
+  it("已完成/已取消/已删除的不计入", () => {
+    const yesterday = new Date(2026, 7, 18, 12, 0, 0).toISOString();
+    const summary = buildOverdueSummary([
+      { ...base, title: "done", status: "done", due_date: yesterday },
+      { ...base, title: "cancelled", status: "cancelled", due_date: yesterday },
+      { ...base, title: "deleted", status: "todo", due_date: yesterday, deleted_at: yesterday },
+    ], NOW);
+    expect(summary).toBeNull();
+  });
+
+  it("无日期与非法日期不计入", () => {
+    const summary = buildOverdueSummary([
+      { ...base, title: "无日期", status: "todo", due_date: null },
+      { ...base, title: "坏日期", status: "todo", due_date: "bad" },
+    ], NOW);
+    expect(summary).toBeNull();
+  });
+
+  it("超过 3 个时 body 省略为「等 N 个任务」", () => {
+    const yesterday = new Date(2026, 7, 18, 12, 0, 0).toISOString();
+    const tasks = ["甲", "乙", "丙", "丁"].map((title) => ({
+      ...base, title, status: "todo", due_date: yesterday,
+    }));
+    const summary = buildOverdueSummary(tasks, NOW);
+    expect(summary!.count).toBe(4);
+    expect(summary!.body).toBe("甲、乙、丙 等 4 个任务");
+  });
+
+  it("全天任务的逾期按当天 23:59:59 判定：昨天全天的任务今天算逾期", () => {
+    const summary = buildOverdueSummary([
+      { ...base, title: "昨天全天", status: "todo", all_day: true, due_date: new Date(2026, 7, 18, 0, 0, 0).toISOString() },
+    ], NOW);
+    expect(summary!.count).toBe(1);
   });
 });
