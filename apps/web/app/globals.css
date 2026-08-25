@@ -2854,6 +2854,27 @@
 .suggestion-list article p { margin: 8px 0; font-size: 13px; white-space: pre-wrap; }
 .suggestion-list footer { display: flex; justify-content: flex-end; gap: 6px; }
 
+/* 页面内块搜索（note-search-dialog） */
+.note-search-results { padding: 0 10px 12px; }
+.note-search-count { margin: 0 6px 6px; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.note-search-empty { margin: 4px 6px; color: hsl(var(--muted-foreground)); font-size: 13px; }
+.note-search-results ul { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: grid; gap: 2px; }
+.note-search-results li button {
+  display: flex; align-items: baseline; gap: 8px;
+  width: 100%; padding: 7px 8px; border: 0; border-radius: 8px;
+  background: transparent; text-align: left; cursor: pointer;
+}
+.note-search-results li button.active { background: hsl(var(--accent)); }
+.note-search-type { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.note-search-snippet { min-width: 0; flex: 1; font-size: 13px; color: hsl(var(--foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-search-snippet mark { background: hsl(16 85% 50% / .18); color: inherit; border-radius: 3px; padding: 0 1px; }
+/* 跳转命中块的短暂高亮 */
+.organize-editor .organize-search-hit { animation: search-hit-fade 2.4s ease-out; }
+@keyframes search-hit-fade {
+  0%, 55% { background: hsl(16 85% 50% / .16); box-shadow: -8px 0 0 0 hsl(16 85% 50% / .16), 8px 0 0 0 hsl(16 85% 50% / .16); }
+  100% { background: transparent; box-shadow: none; }
+}
+
 /* HTML 嵌入 */
 .organize-editor .html-embed {
   overflow: hidden;

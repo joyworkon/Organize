@@ -1081,6 +1081,12 @@ export function TipTapEditor({
           setCommandMenu({ pos, point: { left: Math.max(12, coords.left), top: coords.bottom + 8, anchorTop: coords.top } });
           return true;
         }
+        // ⌘F / Ctrl+F：编辑器聚焦时打开页面内块搜索（覆盖浏览器查找）
+        if ((event.metaKey || event.ctrlKey) && (event.key === "f" || event.key === "F")) {
+          event.preventDefault();
+          setDialog({ type: "search" });
+          return true;
+        }
         return false;
       },
       handleClickOn: (_view, _pos, _node, _nodePos, event) => {
