@@ -2875,6 +2875,40 @@
   100% { background: transparent; box-shadow: none; }
 }
 
+/* 笔记附件管理面板（note-attachments-panel） */
+.note-topbar .note-attachment-badge {
+  margin-left: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: hsl(16 85% 50% / .15);
+  color: hsl(var(--foreground));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+.note-attachment-list { padding: 0 10px 12px; }
+.note-attachment-list ul { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; display: grid; gap: 2px; }
+.note-attachment-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.note-attachment-row:hover { background: hsl(var(--accent)); }
+.note-attachment-main {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+  padding: 7px 8px; border: 0; background: transparent; text-align: left; cursor: pointer;
+}
+.note-attachment-name { flex: 1; min-width: 0; font-size: 13px; color: hsl(var(--foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-attachment-kind { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.note-attachment-size { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.note-attachment-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-right: 4px; flex-shrink: 0;
+  border: 0; border-radius: 6px; background: transparent;
+  color: hsl(var(--muted-foreground)); cursor: pointer;
+}
+.note-attachment-icon-btn:hover { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.note-attachment-remove:hover { color: hsl(var(--destructive)); }
+
 /* HTML 嵌入 */
 .organize-editor .html-embed {
   overflow: hidden;
