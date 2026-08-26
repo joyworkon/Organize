@@ -909,6 +909,16 @@ function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement, clien
     if (best) return best;
   }
 
+  // 折叠列表 / 折叠标题的内容区：里面的直接子块是独立块（hover 出手柄、
+  // 可拖拽排序、6 点菜单作用在单个块上），而不是整体算到外层折叠块上。
+  // 嵌套折叠时 closest 取到最内层内容区，符合"最贴近指针的块"直觉。
+  const detailsContent = target.closest('div[data-type="detailsContent"]');
+  if (detailsContent instanceof HTMLElement && editorDom.contains(detailsContent)) {
+    let inner: HTMLElement | null = target;
+    while (inner?.parentElement && inner.parentElement !== detailsContent) inner = inner.parentElement;
+    if (inner?.parentElement === detailsContent) return inner;
+  }
+
   let block: HTMLElement | null = target;
   while (block?.parentElement && block.parentElement !== editorDom) block = block.parentElement;
   return block?.parentElement === editorDom ? block : null;
@@ -1120,7 +1130,22 @@ export function TipTapEditor({
       OrganizeTableRow,
       OrganizeTableCell,
       OrganizeTableHeader,
-      Details,
+      // persist: 折叠状态写入文档，刷新 / 重开笔记后保持。
+      // open 默认 true：新建的折叠块默认展开（否则内容区的空白提示
+      // “点击或拖动区块到这里”根本看不见，用户无从入手）；旧文档没有
+      // open 属性，也按展开渲染，由用户点击箭头后按需收起并持久化。
+      Details.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            open: {
+              default: true,
+              parseHTML: (el) => (el as HTMLElement).hasAttribute("open"),
+              renderHTML: ({ open }) => (open ? { open: "" } : {}),
+            },
+          };
+        },
+      }).configure({ persist: true }),
       DetailsContent,
       // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
       DetailsSummary.extend({
@@ -1945,9 +1970,27 @@ export function TipTapEditor({
     const editorDom = drag.source.editor.view.dom;
     const sourceParent = drag.source.element.parentElement;
     const sourceIsListItem = drag.source.element.matches("li") && sourceParent?.matches("ul, ol");
+    // 指针落在某个折叠内容区上时，投放候选是该内容区的子块
+    // （→ 可以把块拖进折叠列表 / 折叠标题，也可以在内容区内部排序）；
+    // 否则保持原逻辑：列表项在同列表内排序，普通块在顶层排序。
+    // 源块自己包含的内容区不算（不能把块拖进自己肚子里）。
+    let container: HTMLElement = editorDom;
+    if (!sourceIsListItem) {
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const detailsContent = under instanceof HTMLElement
+        ? under.closest('div[data-type="detailsContent"]')
+        : null;
+      if (
+        detailsContent instanceof HTMLElement
+        && editorDom.contains(detailsContent)
+        && !drag.source.element.contains(detailsContent)
+      ) {
+        container = detailsContent;
+      }
+    }
     const blocks = sourceIsListItem && sourceParent
       ? Array.from(sourceParent.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches("li"))
-      : Array.from(editorDom.children) as HTMLElement[];
+      : Array.from(container.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
     const shell = rootRef.current;
     if (!blocks.length || !shell) return;
 
@@ -1960,6 +2003,16 @@ export function TipTapEditor({
         placeBefore = true;
         break;
       }
+    }
+    // 空折叠内容只有一个占位空段落：投放一律插到它之前，
+    // 让拖入的块成为折叠内容的第一个块（“拖动区块到这里”提示的语义）
+    if (
+      container !== editorDom
+      && blocks.length === 1
+      && targetElement.matches("p")
+      && !targetElement.textContent?.trim()
+    ) {
+      placeBefore = true;
     }
 
     const targetPos = nodePosForElement(drag.source.editor, targetElement);

@@ -150,21 +150,25 @@ function deleteBlock(editor: Editor, target: EditorBlockTarget) {
 }
 
 function moveBlock(editor: Editor, target: EditorBlockTarget, direction: -1 | 1) {
-  const positions: { pos: number; size: number }[] = [];
-  editor.state.doc.forEach((node, offset) => positions.push({ pos: offset, size: node.nodeSize }));
-  const index = positions.findIndex((entry) => entry.pos === target.pos);
+  // 同级交换：顶层块在文档顶层移动；折叠内容 / 列表里的块在自己的父容器内移动，
+  // 与相邻兄弟互换位置（到边界则不动作）。
+  const $pos = editor.state.doc.resolve(target.pos);
+  const parent = $pos.parent;
+  const index = $pos.index();
   const destinationIndex = index + direction;
-  if (index < 0 || destinationIndex < 0 || destinationIndex >= positions.length) return;
+  if (destinationIndex < 0 || destinationIndex >= parent.childCount) return;
 
   const current = editor.state.doc.nodeAt(target.pos);
   if (!current) return;
+  const contentStart = $pos.start();
+  const positions: { pos: number; size: number }[] = [];
+  parent.forEach((node, offset) => positions.push({ pos: contentStart + offset, size: node.nodeSize }));
+  const destination = positions[destinationIndex];
   const tr = editor.state.tr;
   if (direction < 0) {
-    const destination = positions[destinationIndex];
     tr.delete(target.pos, target.pos + current.nodeSize);
     tr.insert(destination.pos, current);
   } else {
-    const destination = positions[destinationIndex];
     tr.delete(target.pos, target.pos + current.nodeSize);
     tr.insert(destination.pos + destination.size - current.nodeSize, current);
   }
@@ -215,9 +219,6 @@ export function BlockActionMenu({
   );
   const canTransformTarget = TEXT_TRANSFORMABLE_TYPES.has(target.type);
   const listParent = findListParent(editor.state.doc, target.pos);
-  // moveBlock 只收集顶层块，对嵌套的 listItem/taskItem 永远找不到目标，
-  // 「上移 / 下移」会静默无效，因此对这两类块直接隐藏
-  const canMoveTarget = target.type !== "listItem" && target.type !== "taskItem";
 
   // 二级菜单 hover 展开：短暂延迟避免鼠标滑过项时误触发（Notion 同款 hover intent），
   // 点击仍然立即可用（触屏设备没有 hover）。
@@ -398,8 +399,8 @@ export function BlockActionMenu({
         <div className="editor-menu-separator" />
         <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onClick={() => finish(copyLink)} query={query} />
         <Action icon={Copy} label="创建副本" shortcut="⌘D" onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
-        {canMoveTarget && <Action icon={ArrowUp} label="上移" onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />}
-        {canMoveTarget && <Action icon={ArrowDown} label="下移" onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />}
+        <Action icon={ArrowUp} label="上移" onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />
+        <Action icon={ArrowDown} label="下移" onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />
         <Action icon={FileInput} label="移动到" onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />
         <Action icon={Trash2} label="删除" shortcut="Del" danger onClick={() => finish(() => deleteBlock(editor, target))} query={query} />
         <div className="editor-menu-separator" />

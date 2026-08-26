@@ -1404,17 +1404,28 @@
 /* 容器内段落统一节奏：引用 / 标注 / 标签页 / 折叠内容 / 列布局里的段落
    也使用 8px 下间距且无上边距，末尾段落不再留白。
    否则 typography 默认的 1.25em 段落 margin 会穿透 blockquote 的透明上下边缘，
-   或在这些容器内部形成突兀的大片空白。 */
+   或在这些容器内部形成突兀的大片空白。
+   注意折叠内容有两种格式：旧格式 [data-details-content] 与新格式
+   div[data-type="detailsContent"]（@tiptap/extension-details-content 渲染）。 */
 .organize-editor.prose
-  :is(blockquote, div[data-callout], .organize-tabs-content, [data-details-content], div[data-columns])
+  :is(blockquote, div[data-callout], .organize-tabs-content, [data-details-content], div[data-type="detailsContent"], div[data-columns])
   p {
   margin-top: 0;
   margin-bottom: var(--organize-block-gap);
 }
 .organize-editor.prose
-  :is(blockquote, div[data-callout], .organize-tabs-content, [data-details-content], div[data-columns])
+  :is(blockquote, div[data-callout], .organize-tabs-content, [data-details-content], div[data-type="detailsContent"], div[data-columns])
   p:last-child {
   margin-bottom: 0;
+}
+
+/* 折叠内容里的标题与外层同节奏：无上边距、统一下间距（覆盖 prose 标题的大 margin） */
+.organize-editor.prose div[data-type="detailsContent"] > :is(h1, h2, h3, h4) {
+  margin-top: 0 !important;
+  margin-bottom: var(--organize-block-gap) !important;
+}
+.organize-editor.prose div[data-type="detailsContent"] > :is(h1, h2, h3, h4):last-child {
+  margin-bottom: 0 !important;
 }
 
 /* 水平线 */
