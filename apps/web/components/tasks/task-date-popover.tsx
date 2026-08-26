@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, Repeat2, Sun, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -88,13 +88,19 @@ export function TaskDatePopover({
   const end = localParts(draft.schedule_end_at || draft.schedule_start_at);
   const cells = useMemo(() => monthCells(cursor), [cursor]);
 
+  // 父组件每次渲染都会传入新的 value 对象（字面量构造），若直接放进依赖数组，
+  // 弹窗开着时任何父级重渲染都会把草稿重置回旧值，导致选好的日期“存不上”。
+  // 因此只在弹窗打开那一刻同步一次草稿，期间以本地 draft 为准。
+  const valueRef = useRef(value);
+  valueRef.current = value;
   useEffect(() => {
     if (!open) return;
-    setDraft(value);
-    setMode(value.schedule_end_at && value.schedule_end_at !== value.schedule_start_at ? "range" : "single");
-    const base = value.schedule_start_at ? new Date(value.schedule_start_at) : new Date();
+    const current = valueRef.current;
+    setDraft(current);
+    setMode(current.schedule_end_at && current.schedule_end_at !== current.schedule_start_at ? "range" : "single");
+    const base = current.schedule_start_at ? new Date(current.schedule_start_at) : new Date();
     setCursor(new Date(base.getFullYear(), base.getMonth(), 1));
-  }, [open, value]);
+  }, [open]);
 
   const updateStart = (key: string, time = start.time) => {
     setDraft((current) => ({ ...current, schedule_start_at: toIso(key, time) }));
@@ -146,7 +152,15 @@ export function TaskDatePopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{triggerNode}</PopoverTrigger>
-      <PopoverContent align={align} side={side} className={cn("w-[360px] p-0 overflow-hidden", className)}>
+      <PopoverContent
+        align={align}
+        side={side}
+        className={cn("w-[360px] p-0 overflow-hidden", className)}
+        // Radix Portal 挂在 body 下，但 React 合成事件仍沿组件树冒泡：
+        // 不拦截的话弹窗里的每次点击都会触发任务行的 onClick 打开详情
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
         <div className="flex rounded-xl bg-muted p-1 m-3 mb-2">
           <button type="button" onClick={() => setMode("single")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "single" ? "bg-background shadow-sm" : "text-muted-foreground")}>日期</button>
           <button type="button" onClick={() => setMode("range")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "range" ? "bg-background shadow-sm" : "text-muted-foreground")}>时间段</button>
