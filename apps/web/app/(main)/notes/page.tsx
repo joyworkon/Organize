@@ -13,7 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { NoteWithTags } from "@organize/shared";
 import type { NoteTreeItem } from "@/lib/notes/tree";
-import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload } from "lucide-react";
+import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
@@ -22,6 +22,17 @@ import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog"
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
 import { mutateTrash } from "@/lib/trash/client";
 import { findNoteSearchMatch } from "@/lib/notes/search-match";
+import { isOnline, useOnlineStatus } from "@/lib/offline/network";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import {
+  enqueueNoteCreate,
+  makeNoteCreateOp,
+  noteCreatesCount,
+  readNoteCreates,
+  replayNoteCreates,
+  writeNoteCreates,
+  type NoteCreateWriter,
+} from "@/lib/offline/note-queue";
 import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -61,6 +72,35 @@ export default function NotesPage() {
 
   const reqIdRef = useRef(0);
   const showCheckbox = selectionMode || isSelectMode;
+
+  // X1 离线同步：网络状态 + 待回放创建数
+  const online = useOnlineStatus();
+  const [pendingCreates, setPendingCreates] = useState(0);
+  useEffect(() => {
+    setPendingCreates(noteCreatesCount(localStorage));
+  }, []);
+
+  /** 待同步创建转为列表乐观条目（仅保留列表渲染所需字段） */
+  const pendingCreatesAsNotes = useCallback((): NoteWithTags[] => {
+    const keyword = search.trim().toLowerCase();
+    return readNoteCreates(localStorage)
+      .filter((op) => {
+        if (selectedTagIds.length > 0) return false; // 待同步笔记无标签，不进入标签筛选
+        if (!keyword) return true;
+        return String(op.note.title || "").toLowerCase().includes(keyword);
+      })
+      .map((op) => ({
+        id: String(op.note.id),
+        user_id: String(op.note.user_id || ""),
+        title: (op.note.title as string | null) ?? null,
+        content: (op.note.content as Record<string, unknown> | null) ?? null,
+        reading_item_id: null,
+        is_pinned: false,
+        created_at: new Date(op.created_at).toISOString(),
+        updated_at: new Date(op.created_at).toISOString(),
+        tags: [],
+      }));
+  }, [search, selectedTagIds]);
 
   const fetchNotes = useCallback(async () => {
     const myReqId = ++reqIdRef.current;
@@ -108,10 +148,41 @@ export default function NotesPage() {
     if (reqIdRef.current !== myReqId) return;
 
     if (!error && data) {
-      setNotes(data as NoteWithTags[]);
+      // X1：合并待同步的离线创建（服务端尚未有的），置顶展示
+      const serverIds = new Set((data as NoteWithTags[]).map((note) => note.id));
+      const pending = pendingCreatesAsNotes().filter((note) => !serverIds.has(note.id));
+      setNotes([...pending, ...(data as NoteWithTags[])]);
     }
     setLoading(false);
-  }, [search, sortBy, sortOrder, selectedTagIds, supabase]);
+  }, [search, sortBy, sortOrder, selectedTagIds, supabase, pendingCreatesAsNotes]);
+
+  /** 回放离线创建队列：联网后按序推送，应用成功的触发一次列表刷新 */
+  const replayPendingCreates = useCallback(async () => {
+    const ops = readNoteCreates(localStorage);
+    if (ops.length === 0) {
+      setPendingCreates(0);
+      return;
+    }
+    const writer: NoteCreateWriter = {
+      insertNote: async (note) => {
+        const { error } = await supabase.from("notes").insert(note);
+        return { error };
+      },
+    };
+    const result = await replayNoteCreates(writer, ops);
+    writeNoteCreates(localStorage, result.remaining);
+    setPendingCreates(result.remaining.length);
+    if (result.applied > 0) {
+      await fetchNotes();
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      toast({ title: `已同步 ${result.applied} 篇离线笔记` });
+    }
+  }, [fetchNotes, supabase]);
+
+  // 联网即回放（含首次挂载时队列有积压的场景）
+  useEffect(() => {
+    if (online) void replayPendingCreates();
+  }, [online, replayPendingCreates]);
 
   useEffect(() => {
     const timer = setTimeout(fetchNotes, 300);
@@ -168,17 +239,39 @@ export default function NotesPage() {
 
       if (!user) throw new Error("未登录，请先登录");
 
+      // X1：id 始终由客户端生成——离线创建可立即入队并跳转编辑器，
+      // 服务端主键唯一约束保证回放幂等（23505 视为已应用）
+      const insertPayload: Record<string, unknown> = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        title: "无标题笔记",
+        content: { type: "doc", content: [{ type: "paragraph" }] },
+      };
+      const applyOfflineCreate = () => {
+        enqueueNoteCreate(localStorage, makeNoteCreateOp(insertPayload));
+        setPendingCreates(noteCreatesCount(localStorage));
+        toast({ title: "已离线创建，联网后自动同步" });
+        router.push(`/notes/${insertPayload.id}`);
+      };
+      if (!isOnline()) {
+        applyOfflineCreate();
+        return;
+      }
+
       const { data, error } = await supabase
         .from("notes")
-        .insert({
-          user_id: user.id,
-          title: "无标题笔记",
-          content: { type: "doc", content: [{ type: "paragraph" }] },
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // X1：网络错误按离线创建处理（客户端 id 保证回放不重复）
+        if (isNetworkSaveError(error)) {
+          applyOfflineCreate();
+          return;
+        }
+        throw error;
+      }
 
       if (data) {
         router.push(`/notes/${data.id}`);
@@ -373,7 +466,15 @@ export default function NotesPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold">笔记</h1>
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            笔记
+            {!online && (
+              <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground" role="status">
+                <WifiOff className="h-3.5 w-3.5" />
+                离线中{pendingCreates > 0 ? ` · ${pendingCreates} 篇待同步` : ""}
+              </span>
+            )}
+          </h1>
           <p className="text-muted-foreground mt-1 text-sm sm:text-base">
             记录你的想法和阅读笔记
           </p>
