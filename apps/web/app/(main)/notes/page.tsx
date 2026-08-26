@@ -233,9 +233,11 @@ export default function NotesPage() {
     setCreating(true);
     setCreateError(null);
     try {
+      // X1：getSession 读本地会话（无网络请求），离线创建可用；getUser 离线返回 null 会静默吞掉创建
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
 
       if (!user) throw new Error("未登录，请先登录");
 

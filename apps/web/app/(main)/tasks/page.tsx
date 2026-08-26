@@ -539,7 +539,9 @@ function TasksPageInner() {
     const input = event.currentTarget;
     const title = input.value.trim();
     if (!title) return;
-    const { data: { user } } = await supabase.auth.getUser();
+    // X1：getSession 读本地会话（无网络请求），离线创建可用；getUser 离线返回 null 会静默吞掉创建
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
     if (!user) return;
     const now = new Date().toISOString();
     // X1：id 始终由客户端生成——离线创建可乐观入列，服务端主键唯一约束保证回放幂等

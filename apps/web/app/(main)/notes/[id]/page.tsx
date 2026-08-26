@@ -169,9 +169,12 @@ export default function NoteEditorPage() {
   useEffect(() => {
     let active = true;
     async function loadNote() {
+      // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
+      // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) {
         setLoading(false);
         return;
