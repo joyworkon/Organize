@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
-import { getTagGenerator } from "@/lib/ai/tag-generator";
+import { getAIConfig } from "@/lib/ai/server";
+import { createAITagGenerator, keywordTagGenerator, type TagSuggestion } from "@/lib/ai/tag-generator";
 import type { TaggableResource } from "@organize/shared";
 
 // POST /api/ai/tags/suggest
@@ -63,28 +64,16 @@ export async function POST(request: NextRequest) {
     .eq("user_id", user.id);
   const existingNames = (existingTags || []).map((t) => t.name);
 
-  // 调生成器
-  const generator = getTagGenerator();
-  let suggestions;
+  // 调生成器：配置了 AI（设置页或环境变量）就优先用 AI，失败时退化到关键词
+  const input = { resourceType, title, text: rawText, existingTagNames: existingNames, maxTags };
+  let suggestions: TagSuggestion[];
   try {
-    suggestions = await generator.generate({
-      resourceType,
-      title,
-      text: rawText,
-      existingTagNames: existingNames,
-      maxTags,
-    });
+    const config = await getAIConfig(supabase, user.id);
+    suggestions = await createAITagGenerator(config).generate(input);
   } catch (e) {
-    // AI 模式失败时退化到关键词
-    console.warn("[ai/tags/suggest] generator 失败，退化到关键词:", e);
-    const { keywordTagGenerator } = await import("@/lib/ai/tag-generator");
-    suggestions = await keywordTagGenerator.generate({
-      resourceType,
-      title,
-      text: rawText,
-      existingTagNames: existingNames,
-      maxTags,
-    });
+    // 未配置 AI 或 AI 调用失败时静默退化到关键词
+    console.warn("[ai/tags/suggest] AI 不可用，退化到关键词:", e);
+    suggestions = await keywordTagGenerator.generate(input);
   }
 
   return NextResponse.json({

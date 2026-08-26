@@ -24,7 +24,7 @@ import DetailsSummary from "@tiptap/extension-details-summary";
 import { Callout } from "./extensions/callout";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
-import { BlockStyle } from "./extensions/block-style";
+import { BlockStyle, BLOCK_BACKGROUND_TYPES } from "./extensions/block-style";
 import { ListBackspaceFix } from "./extensions/list-backspace";
 import { ListStyleExtension } from "./extensions/list-style";
 import {
@@ -121,6 +121,7 @@ import {
   Undo2,
   Redo2,
   RemoveFormatting,
+  Palette,
   Columns as ColumnsIcon,
   Columns2,
   Columns3,
@@ -302,6 +303,104 @@ function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
 }
 
 /* ----------------------------- 下拉菜单 ----------------------------- */
+
+const BUBBLE_TEXT_COLORS = [
+  { label: "默认", value: null },
+  { label: "灰色", value: "#787774" },
+  { label: "棕色", value: "#9f6b53" },
+  { label: "橙色", value: "#d9730d" },
+  { label: "黄色", value: "#cb912f" },
+  { label: "绿色", value: "#448361" },
+  { label: "蓝色", value: "#337ea9" },
+  { label: "紫色", value: "#9065b0" },
+  { label: "红色", value: "#d44c47" },
+] as const;
+
+const BUBBLE_BACKGROUNDS = [
+  { label: "无背景", value: null },
+  { label: "灰色背景", value: "rgba(120,119,116,.12)" },
+  { label: "棕色背景", value: "rgba(159,107,83,.14)" },
+  { label: "橙色背景", value: "rgba(217,115,13,.14)" },
+  { label: "黄色背景", value: "rgba(203,145,47,.16)" },
+  { label: "绿色背景", value: "rgba(68,131,97,.14)" },
+  { label: "蓝色背景", value: "rgba(51,126,169,.14)" },
+  { label: "紫色背景", value: "rgba(144,101,176,.14)" },
+  { label: "红色背景", value: "rgba(212,76,71,.14)" },
+] as const;
+
+function ColorMenuRow({ label, swatch, onClick }: { label: string; swatch: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent"
+    >
+      {swatch}
+      <span className="flex-1 text-left">{label}</span>
+    </button>
+  );
+}
+
+/** 气泡工具栏的「颜色」菜单：文字颜色 / 文字背景（高亮）/ 块背景 */
+function BubbleColorMenu({ editor, close }: { editor: Editor; close: () => void }) {
+  // 块背景作用于选区覆盖到的所有最外层可着色块；setNodeMarkup 不改节点大小，位置稳定
+  const applyBlockBackground = (color: string | null) => {
+    const { from, to } = editor.state.selection;
+    const tr = editor.state.tr;
+    let changed = false;
+    editor.state.doc.nodesBetween(from, to, (node, pos) => {
+      if (BLOCK_BACKGROUND_TYPES.has(node.type.name)) {
+        tr.setNodeMarkup(pos, undefined, { ...node.attrs, backgroundColor: color });
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    if (changed) editor.view.dispatch(tr);
+  };
+  return (
+    <div className="max-h-96 w-52 overflow-y-auto">
+      <div className="px-2.5 pb-1 pt-1.5 text-xs text-muted-foreground">文字颜色</div>
+      {BUBBLE_TEXT_COLORS.map((color) => (
+        <ColorMenuRow
+          key={`text-${color.label}`}
+          label={color.label}
+          swatch={<span className="color-swatch text-swatch" style={{ color: color.value || "inherit" }}>A</span>}
+          onClick={() => {
+            if (color.value) editor.chain().focus().setColor(color.value).run();
+            else editor.chain().focus().unsetColor().run();
+            close();
+          }}
+        />
+      ))}
+      <div className="px-2.5 pb-1 pt-2 text-xs text-muted-foreground">文字背景</div>
+      {BUBBLE_BACKGROUNDS.map((color) => (
+        <ColorMenuRow
+          key={`hl-${color.label}`}
+          label={color.label}
+          swatch={<span className="color-swatch" style={{ background: color.value || "transparent" }} />}
+          onClick={() => {
+            if (color.value) editor.chain().focus().setHighlight({ color: color.value }).run();
+            else editor.chain().focus().unsetHighlight().run();
+            close();
+          }}
+        />
+      ))}
+      <div className="px-2.5 pb-1 pt-2 text-xs text-muted-foreground">块背景</div>
+      {BUBBLE_BACKGROUNDS.map((color) => (
+        <ColorMenuRow
+          key={`block-${color.label}`}
+          label={color.label}
+          swatch={<span className="color-swatch" style={{ background: color.value || "transparent" }} />}
+          onClick={() => {
+            applyBlockBackground(color.value);
+            close();
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function Dropdown({
   trigger,
@@ -538,6 +637,26 @@ function BubbleToolbar({
       >
         <Sigma className="h-4 w-4" />
       </BubbleButton>
+
+      {/* 颜色：文字颜色 / 文字背景 / 块背景 */}
+      <Dropdown
+        trigger={(open) => (
+          <button
+            type="button"
+            title="颜色"
+            className={cn(
+              "rounded p-1.5 transition-colors hover:bg-accent",
+              open || editor.isActive("highlight") || editor.getAttributes("textStyle").color
+                ? "bg-accent text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Palette className="h-4 w-4" />
+          </button>
+        )}
+      >
+        {(close) => <BubbleColorMenu editor={editor} close={close} />}
+      </Dropdown>
 
       <Divider />
 
@@ -818,6 +937,18 @@ function handleTopForBlock(block: HTMLElement, shellRect: DOMRect): number {
     const emoji = callout.querySelector(".callout-emoji");
     const iconRect = (emoji instanceof HTMLElement ? emoji : callout).getBoundingClientRect();
     return iconRect.top - shellRect.top + Math.max(0, (iconRect.height - HANDLE_HEIGHT) / 2);
+  }
+  // 选项卡：ReactNodeViewRenderer 会在 [data-tabs] 外再包一层 .react-renderer，
+  // 悬停解析出的块是外层包装，故用 :scope 直接子选择器向下找一层。
+  // 顶部是 contentEditable=false 的标签栏，块内第一个文本块在标签栏之下，
+  // 按通用规则手柄会偏到内容区第一行；改为锚定标签栏，与块顶部对齐。
+  const tabs = block.matches("[data-tabs]")
+    ? block
+    : block.querySelector(":scope > [data-tabs]");
+  if (tabs instanceof HTMLElement) {
+    const bar = tabs.querySelector(".organize-tabs-bar");
+    const barRect = (bar instanceof HTMLElement ? bar : tabs).getBoundingClientRect();
+    return barRect.top - shellRect.top + Math.max(0, (barRect.height - HANDLE_HEIGHT) / 2);
   }
   // 锚定到块内第一个文本块：列表项 / 待办项 / 折叠列表的外框会因外边距折叠、
   // 内边距而偏离首行文字，直接用外框会让手柄偏上几像素。

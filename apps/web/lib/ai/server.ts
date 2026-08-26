@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AIBlockResult } from "@organize/shared";
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -10,13 +11,44 @@ const ALLOWED_AUDIO = new Set([
   "audio/ogg",
 ]);
 
-function config() {
-  const baseUrl = process.env.AI_BASE_URL?.replace(/\/$/, "");
-  const apiKey = process.env.AI_API_KEY;
-  const textModel = process.env.AI_TEXT_MODEL;
-  const transcriptionModel = process.env.AI_TRANSCRIPTION_MODEL;
-  if (!baseUrl || !apiKey) throw new Error("AI 服务尚未配置");
-  return { baseUrl, apiKey, textModel, transcriptionModel };
+export interface AIConfig {
+  baseUrl: string;
+  apiKey: string;
+  textModel?: string;
+  transcriptionModel?: string;
+}
+
+interface AISettingsRow {
+  base_url: string;
+  api_key: string;
+  text_model: string | null;
+  transcription_model: string | null;
+}
+
+/**
+ * 解析当前用户的 AI 配置：优先读「设置 › AI 服务」里存到 user_ai_settings 的值，
+ * 未配置时回退到环境变量（AI_BASE_URL / AI_API_KEY / AI_TEXT_MODEL / AI_TRANSCRIPTION_MODEL）。
+ * 所有 AI 功能（笔记问 AI、AI 速记、标签推荐）共用这一份配置。
+ */
+export async function getAIConfig(supabase: SupabaseClient, userId: string): Promise<AIConfig> {
+  const { data } = await supabase
+    .from("user_ai_settings")
+    .select("base_url, api_key, text_model, transcription_model")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const row = data as AISettingsRow | null;
+
+  const baseUrl = (row?.base_url || process.env.AI_BASE_URL || "").replace(/\/+$/, "");
+  const apiKey = row?.api_key || process.env.AI_API_KEY || "";
+  if (!baseUrl || !apiKey) {
+    throw new Error("AI 服务尚未配置，请到「设置 › AI 服务」填写 API 地址和密钥");
+  }
+  return {
+    baseUrl,
+    apiKey,
+    textModel: row?.text_model || process.env.AI_TEXT_MODEL,
+    transcriptionModel: row?.transcription_model || process.env.AI_TRANSCRIPTION_MODEL,
+  };
 }
 
 async function request(url: string, init: RequestInit, timeoutMs = 90_000) {
@@ -34,17 +66,17 @@ async function request(url: string, init: RequestInit, timeoutMs = 90_000) {
   }
 }
 
-export async function askAI(instruction: string, text: string) {
-  const { baseUrl, apiKey, textModel } = config();
-  if (!textModel) throw new Error("缺少 AI_TEXT_MODEL 配置");
-  const response = await request(`${baseUrl}/chat/completions`, {
+/** 通用聊天补全：所有走 OpenAI 兼容协议的文本 AI 功能复用。 */
+export async function chatCompletion(config: AIConfig, system: string, user: string) {
+  if (!config.textModel) throw new Error("缺少文本模型配置，请到「设置 › AI 服务」填写模型名称");
+  const response = await request(`${config.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
     body: JSON.stringify({
-      model: textModel,
+      model: config.textModel,
       messages: [
-        { role: "system", content: "你是笔记编辑助手。只输出可直接放入笔记的正文，不要解释过程。" },
-        { role: "user", content: `任务：${instruction}\n\n原文：\n${text.slice(0, 20_000)}` },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
       temperature: 0.3,
     }),
@@ -55,19 +87,26 @@ export async function askAI(instruction: string, text: string) {
   return result.trim();
 }
 
-export async function transcribeAudio(file: File) {
+export async function askAI(config: AIConfig, instruction: string, text: string) {
+  return chatCompletion(
+    config,
+    "你是笔记编辑助手。只输出可直接放入笔记的正文，不要解释过程。",
+    `任务：${instruction}\n\n原文：\n${text.slice(0, 20_000)}`
+  );
+}
+
+export async function transcribeAudio(config: AIConfig, file: File) {
   if (file.size > MAX_AUDIO_BYTES) throw new Error("录音不能超过 25MB");
   const mime = file.type.split(";")[0];
   if (!ALLOWED_AUDIO.has(mime)) throw new Error("不支持该录音格式");
-  const { baseUrl, apiKey, transcriptionModel } = config();
-  if (!transcriptionModel) throw new Error("缺少 AI_TRANSCRIPTION_MODEL 配置");
+  if (!config.transcriptionModel) throw new Error("缺少转写模型配置，请到「设置 › AI 服务」填写转写模型");
   const form = new FormData();
   form.append("file", file, file.name || "recording.webm");
-  form.append("model", transcriptionModel);
+  form.append("model", config.transcriptionModel);
   form.append("response_format", "json");
-  const response = await request(`${baseUrl}/audio/transcriptions`, {
+  const response = await request(`${config.baseUrl}/audio/transcriptions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: { Authorization: `Bearer ${config.apiKey}` },
     body: form,
   }, 180_000);
   const data = await response.json();
@@ -94,8 +133,9 @@ function parseJsonResult(raw: string, transcript: string): AIBlockResult {
   return { summary: raw.trim(), keyPoints: [], actionItems: [], transcript };
 }
 
-export async function summarizeTranscript(transcript: string): Promise<AIBlockResult> {
+export async function summarizeTranscript(config: AIConfig, transcript: string): Promise<AIBlockResult> {
   const raw = await askAI(
+    config,
     "将转写整理为严格 JSON：{\"summary\":\"简洁摘要\",\"keyPoints\":[\"要点\"],\"actionItems\":[\"待办\"]}。不要输出 JSON 以外的内容。",
     transcript
   );

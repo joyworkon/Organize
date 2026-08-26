@@ -22,7 +22,7 @@ import {
   Trash2,
   WandSparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { stripBlockIds } from "./block-utils";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
@@ -219,6 +219,25 @@ export function BlockActionMenu({
   // 「上移 / 下移」会静默无效，因此对这两类块直接隐藏
   const canMoveTarget = target.type !== "listItem" && target.type !== "taskItem";
 
+  // 二级菜单 hover 展开：短暂延迟避免鼠标滑过项时误触发（Notion 同款 hover intent），
+  // 点击仍然立即可用（触屏设备没有 hover）。
+  const subViewTimer = useRef<number | null>(null);
+  const cancelSubView = () => {
+    if (subViewTimer.current !== null) {
+      window.clearTimeout(subViewTimer.current);
+      subViewTimer.current = null;
+    }
+  };
+  const scheduleSubView = (next: "transform" | "color" | "list-style" | "skills") => {
+    cancelSubView();
+    subViewTimer.current = window.setTimeout(() => {
+      subViewTimer.current = null;
+      setQuery("");
+      setView(next);
+    }, 150);
+  };
+  useEffect(() => cancelSubView, []);
+
   const finish = (callback: () => void | Promise<void>) => {
     void callback();
     onClose();
@@ -362,16 +381,17 @@ export function BlockActionMenu({
   return (
     <EditorPopover point={point} onClose={onClose} className="block-action-popover">
       <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索操作…" autoFocus /></div>
-      <div className="editor-menu-scroll compact">
+      <div className="editor-menu-scroll compact" onMouseLeave={cancelSubView}>
         <div className="editor-menu-label">文本</div>
-        <Action icon={FileInput} label="转换成" suffix={<ChevronRight />} onClick={() => setView("transform")} query={query} />
-        <Action icon={Palette} label="颜色" suffix={<ChevronRight />} onClick={() => setView("color")} query={query} />
+        <Action icon={FileInput} label="转换成" suffix={<ChevronRight />} onClick={() => setView("transform")} onMouseEnter={() => scheduleSubView("transform")} query={query} />
+        <Action icon={Palette} label="颜色" suffix={<ChevronRight />} onClick={() => setView("color")} onMouseEnter={() => scheduleSubView("color")} query={query} />
         {listParent && (
           <Action
             icon={ListIcon}
             label="列表格式"
             suffix={<ChevronRight />}
             onClick={() => setView("list-style")}
+            onMouseEnter={() => scheduleSubView("list-style")}
             query={query}
           />
         )}
@@ -388,7 +408,7 @@ export function BlockActionMenu({
         <div className="editor-menu-separator" />
         <Action icon={PlaySquare} label="从此处演示" onClick={() => finish(() => onPresent(target))} query={query} />
         <Action icon={Bot} label="万事问 AI" onClick={() => finish(() => dispatchDialog(editor, "ask-ai", target))} query={query} />
-        <Action icon={Sparkles} label="技能" suffix={<ChevronRight />} onClick={() => setView("skills")} query={query} />
+        <Action icon={Sparkles} label="技能" suffix={<ChevronRight />} onClick={() => setView("skills")} onMouseEnter={() => scheduleSubView("skills")} query={query} />
       </div>
       <div className="editor-menu-meta">当前块 · {target.type}</div>
     </EditorPopover>
@@ -430,10 +450,10 @@ function MenuHeader({ title, query, onQuery, onBack, hideSearch = false }: { tit
   );
 }
 
-function Action({ icon: Icon, label, onClick, query, suffix, shortcut, danger, badge }: { icon: typeof Check; label: string; onClick: () => void; query: string; suffix?: React.ReactNode; shortcut?: string; danger?: boolean; badge?: number }) {
+function Action({ icon: Icon, label, onClick, query, suffix, shortcut, danger, badge, onMouseEnter }: { icon: typeof Check; label: string; onClick: () => void; query: string; suffix?: React.ReactNode; shortcut?: string; danger?: boolean; badge?: number; onMouseEnter?: () => void }) {
   if (query && !label.toLowerCase().includes(query.toLowerCase())) return null;
   return (
-    <button type="button" className={danger ? "danger" : ""} onClick={onClick}>
+    <button type="button" className={danger ? "danger" : ""} onClick={onClick} onMouseEnter={onMouseEnter}>
       <Icon className="h-4 w-4" /><span>{label}</span>{badge ? <em>{badge}</em> : null}{shortcut && <kbd>{shortcut}</kbd>}{suffix && <span className="menu-suffix">{suffix}</span>}
     </button>
   );

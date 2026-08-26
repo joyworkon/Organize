@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Loader2,
 } from "lucide-react";
+import { AISettingsSection } from "@/components/settings/ai-settings";
 
 const APP_VERSION = "0.1.0";
 
@@ -359,6 +360,8 @@ export default function SettingsPage() {
             主题切换可在侧边栏底部操作，支持明暗模式切换和主题色自定义。
           </p>
         </div>
+
+        <AISettingsSection />
 
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">

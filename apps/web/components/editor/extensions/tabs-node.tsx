@@ -34,17 +34,23 @@ function TabsView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
     updateAttributes({ activeIndex: index });
     // 把对应 tab 的 active 属性更新，供 CSS 隐藏非活动 tab
     syncActiveAttrs(index);
-    editor.commands.focus();
+    // 注意：这里不能 editor.commands.focus()——双击标签名会弹出重命名输入框，
+    // 单击触发的 focus() 会在输入框挂载后立刻把焦点抢走，导致输入框一闪而过。
   };
 
-  // 同步每个子 tab 的 active 标记（CSS 用 data-active 控制显隐）
+  // 同步每个子 tab 的 active 标记（CSS 用 data-active 控制显隐）。
+  // 必须从当前文档重新读 tabs 节点：addTab 插入新 tab 后立刻调用时，
+  // 组件闭包里的 node 还是旧的（没有新 tab），会把所有 tab 都标成 inactive，
+  // 表现为内容区全部隐藏。
   const syncActiveAttrs = (active: number) => {
     const base = typeof getPos === "function" ? (getPos() as number) : null;
     if (base === null) return;
+    const current = editor.state.doc.nodeAt(base);
+    if (!current || current.type.name !== "tabs") return;
     const tr = editor.state.tr;
     let offset = 0;
     let index = 0;
-    node.forEach((child) => {
+    current.forEach((child) => {
       const childPos = base + 1 + offset; // tabs 节点开头 +1 进入
       tr.setNodeMarkup(childPos, undefined, {
         ...child.attrs,

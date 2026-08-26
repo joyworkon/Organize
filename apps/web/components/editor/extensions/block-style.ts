@@ -11,6 +11,9 @@ const STYLED_BLOCKS = [
   "details",
 ];
 
+/** 支持块背景色的块类型（供块菜单 / 气泡工具栏等多处复用） */
+export const BLOCK_BACKGROUND_TYPES: ReadonlySet<string> = new Set(STYLED_BLOCKS);
+
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     blockStyle: {
