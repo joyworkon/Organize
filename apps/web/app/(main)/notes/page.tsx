@@ -252,8 +252,21 @@ export default function NotesPage() {
       const applyOfflineCreate = () => {
         enqueueNoteCreate(localStorage, makeNoteCreateOp(insertPayload));
         setPendingCreates(noteCreatesCount(localStorage));
+        // 离线时客户端路由跳转不可靠（RSC 请求会失败）：就地插入列表顶部，
+        // 联网回放后经 fetchNotes 去重收敛（serverIds 判定）
+        const optimistic: NoteWithTags = {
+          id: insertPayload.id as string,
+          user_id: user.id,
+          title: "无标题笔记",
+          content: insertPayload.content as Record<string, unknown>,
+          reading_item_id: null,
+          is_pinned: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          tags: [],
+        };
+        setNotes((current) => current.some((n) => n.id === optimistic.id) ? current : [optimistic, ...current]);
         toast({ title: "已离线创建，联网后自动同步" });
-        router.push(`/notes/${insertPayload.id}`);
       };
       if (!isOnline()) {
         applyOfflineCreate();
