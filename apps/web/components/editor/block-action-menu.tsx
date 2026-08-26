@@ -5,7 +5,6 @@ import { showPrompt } from "@/components/ui/prompt-dialog";
 import { TextSelection } from "@tiptap/pm/state";
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   Bot,
   Check,
@@ -23,6 +22,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { stripBlockIds } from "./block-utils";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
@@ -199,19 +199,20 @@ export function BlockActionMenu({
   onClose: () => void;
   onPresent: (target: EditorBlockTarget) => void;
 }) {
-  const [view, setView] = useState<
-    "main" | "transform" | "color" | "list-style" | "skills"
-  >("main");
   const [query, setQuery] = useState("");
+  const [subQuery, setSubQuery] = useState("");
   const [preview, setPreview] = useState<{ commandId: string; top: number; left: number } | null>(null);
+  // 二级 flyout：subView 为当前展开的二级菜单，subAnchor 为其锚点坐标（视口内 fixed 定位）
+  const [subView, setSubView] = useState<"transform" | "color" | "list-style" | "skills" | null>(null);
+  const [subAnchor, setSubAnchor] = useState<{ top: number; left: number } | null>(null);
   const transformCommands = useMemo(
     () => BLOCK_COMMANDS.filter((item) => {
-      if (!item.canTransform || !commandMatches(item, query)) return false;
+      if (!item.canTransform || !commandMatches(item, subQuery)) return false;
       if (target.type === "paragraph" && item.id === "paragraph") return false;
       if (target.type === "heading" && item.id === `heading-${target.json.attrs?.level}`) return false;
       return true;
     }),
-    [query, target.json.attrs?.level, target.type]
+    [subQuery, target.json.attrs?.level, target.type]
   );
   const canTransformTarget = TEXT_TRANSFORMABLE_TYPES.has(target.type);
   const listParent = findListParent(editor.state.doc, target.pos);
@@ -219,153 +220,181 @@ export function BlockActionMenu({
   // 「上移 / 下移」会静默无效，因此对这两类块直接隐藏
   const canMoveTarget = target.type !== "listItem" && target.type !== "taskItem";
 
-  // 二级菜单 hover 展开：短暂延迟避免鼠标滑过项时误触发（Notion 同款 hover intent），
-  // 点击仍然立即可用（触屏设备没有 hover）。
-  const subViewTimer = useRef<number | null>(null);
-  const cancelSubView = () => {
-    if (subViewTimer.current !== null) {
-      window.clearTimeout(subViewTimer.current);
-      subViewTimer.current = null;
+  // 二级菜单 hover 展开（Notion 同款）：短延迟避免鼠标滑过项时误触发；
+  // 鼠标移入 flyout 或回到菜单项上时取消关闭；触屏设备点击菜单项也能立即展开。
+  const openTimer = useRef<number | null>(null);
+  const closeTimer = useRef<number | null>(null);
+  const cancelOpenTimer = () => {
+    if (openTimer.current !== null) {
+      window.clearTimeout(openTimer.current);
+      openTimer.current = null;
     }
   };
-  const scheduleSubView = (next: "transform" | "color" | "list-style" | "skills") => {
-    cancelSubView();
-    subViewTimer.current = window.setTimeout(() => {
-      subViewTimer.current = null;
-      setQuery("");
-      setView(next);
-    }, 150);
+  const cancelCloseTimer = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
   };
-  useEffect(() => cancelSubView, []);
+  const clearFlyout = () => {
+    setSubView(null);
+    setSubAnchor(null);
+    setPreview(null);
+  };
+  const openSubView = (next: "transform" | "color" | "list-style" | "skills", rect: DOMRect) => {
+    cancelOpenTimer();
+    cancelCloseTimer();
+    setSubView(next);
+    setSubQuery("");
+    setPreview(null);
+    const left = Math.min(rect.right + 6, Math.max(8, window.innerWidth - 336));
+    const top = Math.max(8, Math.min(rect.top - 8, window.innerHeight - 320));
+    setSubAnchor({ top, left });
+  };
+  const scheduleOpenSubView = (next: "transform" | "color" | "list-style" | "skills") => (event: React.MouseEvent<HTMLElement>) => {
+    cancelCloseTimer();
+    const rect = event.currentTarget.getBoundingClientRect();
+    cancelOpenTimer();
+    openTimer.current = window.setTimeout(() => {
+      openTimer.current = null;
+      openSubView(next, rect);
+    }, 120);
+  };
+  const closeSubView = () => {
+    cancelOpenTimer();
+    cancelCloseTimer();
+    clearFlyout();
+  };
+  const scheduleCloseSubView = () => {
+    cancelOpenTimer();
+    cancelCloseTimer();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      clearFlyout();
+    }, 200);
+  };
+  useEffect(() => () => { cancelOpenTimer(); cancelCloseTimer(); }, []);
 
   const finish = (callback: () => void | Promise<void>) => {
     void callback();
     onClose();
   };
 
-  if (view === "transform") {
-    const previewCommand = preview ? transformCommands.find((item) => item.id === preview.commandId) : null;
-    return (
-      <EditorPopover point={point} onClose={onClose} className="block-action-popover">
-        <MenuHeader title="转换成" query={query} onQuery={setQuery} onBack={() => { setPreview(null); setView("main"); }} />
-        <div className="editor-menu-scroll compact" onMouseLeave={() => setPreview(null)}>
-          {!canTransformTarget && <div className="editor-menu-empty">{target.type} 是结构化区块，不能直接转换；请先复制其中的文本。</div>}
-          {canTransformTarget && transformCommands.map((command) => {
-            const Icon = command.icon;
-            return <button key={command.id} type="button"
-              onMouseEnter={(event) => {
-                if (!command.preview) {
-                  setPreview(null);
-                  return;
-                }
-                const rect = event.currentTarget.getBoundingClientRect();
-                setPreview({
-                  commandId: command.id,
-                  top: Math.max(8, Math.min(rect.top, window.innerHeight - 180)),
-                  left: Math.min(rect.right + 8, window.innerWidth - 216),
-                });
-              }}
-              onClick={() => finish(() => {
-                const pos = resolveTransformPos(editor, target);
-                command.run(editor, pos);
-                focusAndHighlightBlock(editor, target.id);
-              })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
-          })}
-        </div>
-        {previewCommand?.preview && (
-          <div className="block-transform-preview" style={{ top: preview!.top, left: preview!.left }} aria-hidden="true">
-            <div className={`block-transform-preview-sample preview-${previewCommand.id}`}>{previewCommand.preview.sample}</div>
-            <div className="block-transform-preview-caption">{previewCommand.preview.caption}</div>
-          </div>
-        )}
-      </EditorPopover>
-    );
-  }
-
-  if (view === "color") {
-    return (
-      <EditorPopover point={point} onClose={onClose} className="block-action-popover">
-        <MenuHeader title="颜色" query="" onQuery={() => {}} onBack={() => setView("main")} hideSearch />
-        <div className="editor-menu-scroll compact color-menu">
-          <div className="editor-menu-label">文字颜色</div>
-          {TEXT_COLORS.map((color) => (
-            <button key={color.label} type="button" onClick={() => finish(() => {
-              if (!selectBlockText(editor, target)) return;
-              color.value ? editor.chain().focus().setColor(color.value).run() : editor.chain().focus().unsetColor().run();
-            })}>
-              <span className="color-swatch text-swatch" style={{ color: color.value || "inherit" }}>A</span><span>{color.label}</span>
-            </button>
-          ))}
-          <div className="editor-menu-label">背景颜色</div>
-          {BACKGROUNDS.map((color) => (
-            <button key={color.label} type="button" onClick={() => finish(() => { editor.commands.setBlockBackground(target.pos, color.value); })}>
-              <span className="color-swatch" style={{ background: color.value || "transparent" }} /><span>{color.label}</span>
-            </button>
-          ))}
-        </div>
-      </EditorPopover>
-    );
-  }
-
-  if (view === "list-style" && listParent) {
-    const options: Array<{ label: string; value: ListStyle }> =
-      listParent.type === "orderedList"
-        ? [
-            { label: "默认", value: "default" },
-            { label: "数字", value: "decimal" },
-            { label: "字母", value: "lower-alpha" },
-            { label: "罗马数字", value: "lower-roman" },
-          ]
-        : [
-            { label: "默认", value: "default" },
-            { label: "盘型", value: "disc" },
-            { label: "圆形", value: "circle" },
-            { label: "方形", value: "square" },
-          ];
-    return (
-      <EditorPopover point={point} onClose={onClose} className="block-action-popover">
-        <MenuHeader
-          title="列表格式"
-          query=""
-          onQuery={() => {}}
-          onBack={() => setView("main")}
-          hideSearch
-        />
-        <div className="editor-menu-scroll compact">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={listParent.style === option.value ? "is-active" : ""}
-              onClick={() =>
-                finish(() => {
-                  setListStyle(editor, target.pos, option.value);
-                })
-              }
-            >
-              <ListStylePreview type={listParent.type} style={option.value} />
-              <span>{option.label}</span>
-              {listParent.style === option.value && <Check className="h-4 w-4" />}
-            </button>
-          ))}
-        </div>
-      </EditorPopover>
-    );
-  }
-
-  if (view === "skills") {
-    return (
-      <EditorPopover point={point} onClose={onClose} className="block-action-popover">
-        <MenuHeader title="技能" query={query} onQuery={setQuery} onBack={() => setView("main")} />
-        <div className="editor-menu-scroll compact">
-          {skills.filter((skill) => skill.label.toLowerCase().includes(query.toLowerCase())).map((skill) => (
-            <button key={skill.id} type="button" onClick={() => finish(() => skill.run(target))}><span className="skill-icon">{skill.icon || "✦"}</span><span>{skill.label}</span></button>
-          ))}
-          {skills.length === 0 && <div className="editor-menu-empty">没有已启用的笔记技能</div>}
-        </div>
-      </EditorPopover>
-    );
-  }
+  const flyout = subView && subAnchor
+    ? createPortal(
+        <div
+          className="editor-popover block-action-popover block-action-flyout"
+          style={{ left: subAnchor.left, top: subAnchor.top, maxHeight: "calc(100vh - 16px)" }}
+          onMouseEnter={cancelCloseTimer}
+          onMouseLeave={scheduleCloseSubView}
+        >
+          {subView === "transform" && (
+            <>
+              <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={subQuery} onChange={(event) => setSubQuery(event.target.value)} placeholder="搜索转换目标…" autoFocus /></div>
+              <div className="editor-menu-scroll compact" onMouseLeave={() => setPreview(null)}>
+                {!canTransformTarget && <div className="editor-menu-empty">{target.type} 是结构化区块，不能直接转换；请先复制其中的文本。</div>}
+                {canTransformTarget && transformCommands.map((command) => {
+                  const Icon = command.icon;
+                  return <button key={command.id} type="button"
+                    onMouseEnter={(event) => {
+                      if (!command.preview) {
+                        setPreview(null);
+                        return;
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setPreview({
+                        commandId: command.id,
+                        top: Math.max(8, Math.min(rect.top, window.innerHeight - 180)),
+                        left: Math.min(rect.right + 8, window.innerWidth - 216),
+                      });
+                    }}
+                    onClick={() => finish(() => {
+                      const pos = resolveTransformPos(editor, target);
+                      command.run(editor, pos);
+                      focusAndHighlightBlock(editor, target.id);
+                    })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
+                })}
+              </div>
+              {(() => {
+                const previewCommand = preview ? transformCommands.find((item) => item.id === preview.commandId) : null;
+                return previewCommand?.preview ? (
+                  <div className="block-transform-preview" style={{ top: preview!.top, left: preview!.left }} aria-hidden="true">
+                    <div className={`block-transform-preview-sample preview-${previewCommand.id}`}>{previewCommand.preview.sample}</div>
+                    <div className="block-transform-preview-caption">{previewCommand.preview.caption}</div>
+                  </div>
+                ) : null;
+              })()}
+            </>
+          )}
+          {subView === "color" && (
+            <div className="editor-menu-scroll compact color-menu">
+              <div className="editor-menu-label">文字颜色</div>
+              {TEXT_COLORS.map((color) => (
+                <button key={color.label} type="button" onClick={() => finish(() => {
+                  if (!selectBlockText(editor, target)) return;
+                  color.value ? editor.chain().focus().setColor(color.value).run() : editor.chain().focus().unsetColor().run();
+                })}>
+                  <span className="color-swatch text-swatch" style={{ color: color.value || "inherit" }}>A</span><span>{color.label}</span>
+                </button>
+              ))}
+              <div className="editor-menu-label">背景颜色</div>
+              {BACKGROUNDS.map((color) => (
+                <button key={color.label} type="button" onClick={() => finish(() => { editor.commands.setBlockBackground(target.pos, color.value); })}>
+                  <span className="color-swatch" style={{ background: color.value || "transparent" }} /><span>{color.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {subView === "list-style" && listParent && (
+            <div className="editor-menu-scroll compact">
+              <div className="editor-menu-label">列表格式</div>
+              {((
+                listParent.type === "orderedList"
+                  ? [
+                      { label: "默认", value: "default" },
+                      { label: "数字", value: "decimal" },
+                      { label: "字母", value: "lower-alpha" },
+                      { label: "罗马数字", value: "lower-roman" },
+                    ]
+                  : [
+                      { label: "默认", value: "default" },
+                      { label: "盘型", value: "disc" },
+                      { label: "圆形", value: "circle" },
+                      { label: "方形", value: "square" },
+                    ]
+              ) as Array<{ label: string; value: ListStyle }>).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={listParent.style === option.value ? "is-active" : ""}
+                  onClick={() =>
+                    finish(() => {
+                      setListStyle(editor, target.pos, option.value);
+                    })
+                  }
+                >
+                  <ListStylePreview type={listParent.type} style={option.value} />
+                  <span>{option.label}</span>
+                  {listParent.style === option.value && <Check className="h-4 w-4" />}
+                </button>
+              ))}
+            </div>
+          )}
+          {subView === "skills" && (
+            <>
+              <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={subQuery} onChange={(event) => setSubQuery(event.target.value)} placeholder="搜索技能…" autoFocus /></div>
+              <div className="editor-menu-scroll compact">
+                {skills.filter((skill) => skill.label.toLowerCase().includes(subQuery.toLowerCase())).map((skill) => (
+                  <button key={skill.id} type="button" onClick={() => finish(() => skill.run(target))}><span className="skill-icon">{skill.icon || "✦"}</span><span>{skill.label}</span></button>
+                ))}
+                {skills.length === 0 && <div className="editor-menu-empty">没有已启用的笔记技能</div>}
+              </div>
+            </>
+          )}
+        </div>,
+        document.body
+      )
+    : null;
 
   const copyLink = async () => {
     const href = `${window.location.origin}/notes/${noteId}#block-${target.id}`;
@@ -379,38 +408,41 @@ export function BlockActionMenu({
   };
 
   return (
-    <EditorPopover point={point} onClose={onClose} className="block-action-popover">
+    <EditorPopover point={point} onClose={onClose} className="block-action-popover" ignoreOutsideSelector=".block-action-flyout">
       <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索操作…" autoFocus /></div>
-      <div className="editor-menu-scroll compact" onMouseLeave={cancelSubView}>
+      <div className="editor-menu-scroll compact" onMouseLeave={subView ? scheduleCloseSubView : undefined}>
         <div className="editor-menu-label">文本</div>
-        <Action icon={FileInput} label="转换成" suffix={<ChevronRight />} onClick={() => setView("transform")} onMouseEnter={() => scheduleSubView("transform")} query={query} />
-        <Action icon={Palette} label="颜色" suffix={<ChevronRight />} onClick={() => setView("color")} onMouseEnter={() => scheduleSubView("color")} query={query} />
+        <Action icon={FileInput} label="转换成" suffix={<ChevronRight />} onClick={(event) => openSubView("transform", event.currentTarget.getBoundingClientRect())} onMouseEnter={scheduleOpenSubView("transform")} onMouseLeave={scheduleCloseSubView} active={subView === "transform"} query={query} />
+        <Action icon={Palette} label="颜色" suffix={<ChevronRight />} onClick={(event) => openSubView("color", event.currentTarget.getBoundingClientRect())} onMouseEnter={scheduleOpenSubView("color")} onMouseLeave={scheduleCloseSubView} active={subView === "color"} query={query} />
         {listParent && (
           <Action
             icon={ListIcon}
             label="列表格式"
             suffix={<ChevronRight />}
-            onClick={() => setView("list-style")}
-            onMouseEnter={() => scheduleSubView("list-style")}
+            onClick={(event) => openSubView("list-style", event.currentTarget.getBoundingClientRect())}
+            onMouseEnter={scheduleOpenSubView("list-style")}
+            onMouseLeave={scheduleCloseSubView}
+            active={subView === "list-style"}
             query={query}
           />
         )}
         <div className="editor-menu-separator" />
-        <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onClick={() => finish(copyLink)} query={query} />
-        <Action icon={Copy} label="创建副本" shortcut="⌘D" onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
-        {canMoveTarget && <Action icon={ArrowUp} label="上移" onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />}
-        {canMoveTarget && <Action icon={ArrowDown} label="下移" onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />}
-        <Action icon={FileInput} label="移动到" onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />
-        <Action icon={Trash2} label="删除" shortcut="Del" danger onClick={() => finish(() => deleteBlock(editor, target))} query={query} />
+        <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onMouseEnter={closeSubView} onClick={() => finish(copyLink)} query={query} />
+        <Action icon={Copy} label="创建副本" shortcut="⌘D" onMouseEnter={closeSubView} onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
+        {canMoveTarget && <Action icon={ArrowUp} label="上移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />}
+        {canMoveTarget && <Action icon={ArrowDown} label="下移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />}
+        <Action icon={FileInput} label="移动到" onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />
+        <Action icon={Trash2} label="删除" shortcut="Del" danger onMouseEnter={closeSubView} onClick={() => finish(() => deleteBlock(editor, target))} query={query} />
         <div className="editor-menu-separator" />
-        <Action icon={MessageSquare} label="评论" badge={commentCount || undefined} onClick={() => finish(() => dispatchDialog(editor, "comment", target))} query={query} />
-        <Action icon={WandSparkles} label="编辑建议" onClick={() => finish(() => dispatchDialog(editor, "suggestion", target))} query={query} />
+        <Action icon={MessageSquare} label="评论" badge={commentCount || undefined} onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "comment", target))} query={query} />
+        <Action icon={WandSparkles} label="编辑建议" onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "suggestion", target))} query={query} />
         <div className="editor-menu-separator" />
-        <Action icon={PlaySquare} label="从此处演示" onClick={() => finish(() => onPresent(target))} query={query} />
-        <Action icon={Bot} label="万事问 AI" onClick={() => finish(() => dispatchDialog(editor, "ask-ai", target))} query={query} />
-        <Action icon={Sparkles} label="技能" suffix={<ChevronRight />} onClick={() => setView("skills")} onMouseEnter={() => scheduleSubView("skills")} query={query} />
+        <Action icon={PlaySquare} label="从此处演示" onMouseEnter={closeSubView} onClick={() => finish(() => onPresent(target))} query={query} />
+        <Action icon={Bot} label="万事问 AI" onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "ask-ai", target))} query={query} />
+        <Action icon={Sparkles} label="技能" suffix={<ChevronRight />} onClick={(event) => openSubView("skills", event.currentTarget.getBoundingClientRect())} onMouseEnter={scheduleOpenSubView("skills")} onMouseLeave={scheduleCloseSubView} active={subView === "skills"} query={query} />
       </div>
       <div className="editor-menu-meta">当前块 · {target.type}</div>
+      {flyout}
     </EditorPopover>
   );
 }
@@ -441,19 +473,10 @@ function ListStylePreview({
   );
 }
 
-function MenuHeader({ title, query, onQuery, onBack, hideSearch = false }: { title: string; query: string; onQuery: (value: string) => void; onBack: () => void; hideSearch?: boolean }) {
-  return (
-    <>
-      <div className="editor-menu-subtitle"><button type="button" onClick={onBack}><ArrowLeft className="h-4 w-4" /></button><strong>{title}</strong></div>
-      {!hideSearch && <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={`搜索${title}…`} autoFocus /></div>}
-    </>
-  );
-}
-
-function Action({ icon: Icon, label, onClick, query, suffix, shortcut, danger, badge, onMouseEnter }: { icon: typeof Check; label: string; onClick: () => void; query: string; suffix?: React.ReactNode; shortcut?: string; danger?: boolean; badge?: number; onMouseEnter?: () => void }) {
+function Action({ icon: Icon, label, onClick, query, suffix, shortcut, danger, badge, onMouseEnter, onMouseLeave, active }: { icon: typeof Check; label: string; onClick: (() => void) | ((event: React.MouseEvent<HTMLButtonElement>) => void); query: string; suffix?: React.ReactNode; shortcut?: string; danger?: boolean; badge?: number; onMouseEnter?: (event: React.MouseEvent<HTMLButtonElement>) => void; onMouseLeave?: () => void; active?: boolean }) {
   if (query && !label.toLowerCase().includes(query.toLowerCase())) return null;
   return (
-    <button type="button" className={danger ? "danger" : ""} onClick={onClick} onMouseEnter={onMouseEnter}>
+    <button type="button" className={danger ? "danger" : active ? "is-active" : ""} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <Icon className="h-4 w-4" /><span>{label}</span>{badge ? <em>{badge}</em> : null}{shortcut && <kbd>{shortcut}</kbd>}{suffix && <span className="menu-suffix">{suffix}</span>}
     </button>
   );

@@ -8,19 +8,28 @@ export function EditorPopover({
   point,
   onClose,
   className = "",
+  ignoreOutsideSelector,
   children,
 }: {
   point: EditorMenuPoint;
   onClose: () => void;
   className?: string;
+  /** 命中该选择器的元素视为弹层的一部分（如二级 flyout 菜单），点它不算"点外面" */
+  ignoreOutsideSelector?: string;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(point);
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
 
+  const isIgnoredTarget = (target: EventTarget | null) => {
+    if (!ignoreOutsideSelector || !(target instanceof Element)) return false;
+    return target.closest(ignoreOutsideSelector) !== null;
+  };
+
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
+      if (isIgnoredTarget(event.target)) return;
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -35,7 +44,7 @@ export function EditorPopover({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, ignoreOutsideSelector]);
 
   useLayoutEffect(() => {
     const popover = ref.current;
@@ -76,6 +85,7 @@ export function EditorPopover({
     const onScroll = (event: Event) => {
       if (Date.now() - mountedAt < 200) return;
       if (popover.contains(event.target as Node)) return;
+      if (isIgnoredTarget(event.target)) return;
       onClose();
     };
     window.addEventListener("scroll", onScroll, true);
@@ -84,7 +94,7 @@ export function EditorPopover({
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [point, onClose]);
+  }, [point, onClose, ignoreOutsideSelector]);
 
   return createPortal(
     <div

@@ -2485,6 +2485,24 @@
   min-height: 32px;
   padding: 6px 12px;
 }
+/* 6 点菜单的二级 flyout：悬停带箭头的菜单项时在旁边弹出，一级菜单保持可见 */
+.block-action-flyout {
+  width: min(280px, calc(100vw - 24px));
+  overflow: hidden;
+  z-index: 110;
+}
+.block-action-flyout .editor-menu-scroll {
+  max-height: min(420px, calc(100vh - 120px));
+}
+.block-action-flyout .editor-menu-scroll button {
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 7px;
+  font-size: 14px;
+}
+.block-action-flyout .editor-menu-label {
+  padding: 6px 7px 3px;
+}
 .editor-popover kbd {
   margin-left: auto;
   color: hsl(var(--muted-foreground));
