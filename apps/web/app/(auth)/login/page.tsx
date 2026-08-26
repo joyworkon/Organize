@@ -32,7 +32,7 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
-        router.push("/inbox");
+        router.push("/library");
         router.refresh();
       }
     } catch (err) {

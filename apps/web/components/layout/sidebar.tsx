@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
   Home,
-  Inbox,
   Library,
   FileText,
   Puzzle,
@@ -41,8 +40,7 @@ import { showPrompt } from "@/components/ui/prompt-dialog";
 
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
-  { href: "/inbox", label: "收集箱", icon: Inbox },
-  { href: "/library", label: "阅读库", icon: Library },
+  { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tasks", label: "待办", icon: ListChecks },
   { href: "/lessons", label: "经验", icon: Lightbulb },
@@ -245,7 +243,7 @@ export function Sidebar() {
         )}
       >
         <Link
-          href="/inbox"
+          href="/library"
           className={cn("flex items-center font-bold text-lg", compact ? "gap-0" : "gap-2")}
           title={compact ? "Organize" : undefined}
           aria-label={compact ? "Organize 首页" : undefined}

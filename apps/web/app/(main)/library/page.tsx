@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ReadingCard } from "@/components/reading/reading-card";
+import { QuickAddBar } from "@/components/reading/quick-add-bar";
 import { VirtualList } from "@/components/ui/virtual-list";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { TagSelector } from "@/components/tags/tag-selector";
@@ -19,7 +20,6 @@ import {
   BookOpen,
   Clock,
   CheckCircle2,
-  BarChart3,
   Search,
   ListChecks,
   Trash2,
@@ -492,33 +492,17 @@ export default function LibraryPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold">阅读库</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">管理你保存的所有文章和链接</p>
+          <h1 className="text-xl sm:text-2xl font-bold">稍后读</h1>
+          <p className="text-muted-foreground mt-1 text-sm sm:text-base">保存链接稍后阅读，收集与阅读在同一处完成</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-        <div className="rounded-lg border p-2 sm:p-3 text-center">
-          <BarChart3 className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-          <p className="text-lg sm:text-xl font-bold">{stats.total}</p>
-          <p className="text-xs text-muted-foreground">总计</p>
-        </div>
-        <div className="rounded-lg border p-2 sm:p-3 text-center">
-          <Clock className="h-4 w-4 mx-auto mb-1 text-muted-foreground" />
-          <p className="text-lg sm:text-xl font-bold">{stats.unread}</p>
-          <p className="text-xs text-muted-foreground">未读</p>
-        </div>
-        <div className="rounded-lg border p-2 sm:p-3 text-center">
-          <BookOpen className="h-4 w-4 mx-auto mb-1 text-primary" />
-          <p className="text-lg sm:text-xl font-bold">{stats.reading}</p>
-          <p className="text-xs text-muted-foreground">在读</p>
-        </div>
-        <div className="rounded-lg border p-2 sm:p-3 text-center">
-          <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-primary" />
-          <p className="text-lg sm:text-xl font-bold">{stats.read}</p>
-          <p className="text-xs text-muted-foreground">已读</p>
-        </div>
-      </div>
+      <QuickAddBar
+        onAdded={() => {
+          void fetchItems(false);
+          void fetchStats();
+        }}
+      />
 
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
@@ -584,6 +568,15 @@ export default function LibraryPage() {
             )}
           >
             {tab.label}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              {tab.value === "all"
+                ? stats.total
+                : tab.value === "unread"
+                  ? stats.unread
+                  : tab.value === "reading"
+                    ? stats.reading
+                    : stats.read}
+            </span>
           </button>
         ))}
       </div>
@@ -639,13 +632,8 @@ export default function LibraryPage() {
           return (
             <EmptyState
               icon={BookOpen}
-              title={hasFilter ? "没有找到匹配的内容" : "还没有文章"}
-              description={hasFilter ? "试试调整筛选条件" : "去收集箱添加一些文章开始阅读吧"}
-              action={!hasFilter ? (
-                <Link href="/inbox" className={cn(buttonVariants({ variant: "default" }))}>
-                  去收集箱添加文章
-                </Link>
-              ) : undefined}
+              title={hasFilter ? "没有找到匹配的内容" : "还没有保存的内容"}
+              description={hasFilter ? "试试调整筛选条件" : "把链接粘贴到上方输入框，回车即可保存"}
             />
           );
         })()

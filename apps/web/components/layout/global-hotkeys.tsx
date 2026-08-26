@@ -15,8 +15,8 @@ const SHORTCUTS = [
   { keys: "⌘K", desc: "打开命令面板" },
   { keys: "⌘N", desc: "快捷添加" },
   { keys: "g h", desc: "跳转到首页" },
-  { keys: "g i", desc: "跳转到收集箱" },
-  { keys: "g l", desc: "跳转到阅读库" },
+  { keys: "g i", desc: "跳转到稍后读" },
+  { keys: "g l", desc: "跳转到稍后读" },
   { keys: "g n", desc: "跳转到笔记" },
   { keys: "g d", desc: "跳转到待办" },
   { keys: "g e", desc: "跳转到经验" },
@@ -54,7 +54,7 @@ const PAGE_SHORTCUTS = [
     items: [{ keys: "⌘S / Ctrl+S", desc: "立即保存" }],
   },
   {
-    page: "阅读库",
+    page: "稍后读",
     items: [
       { keys: "/", desc: "聚焦搜索框" },
       { keys: "Esc", desc: "退出多选 / 清空搜索" },
@@ -86,7 +86,8 @@ export function GlobalHotkeys() {
   useHotkeySequence(
     [
       { sequence: ["g", "h"], handler: () => go("/") },
-      { sequence: ["g", "i"], handler: () => go("/inbox") },
+      // g i 是整合前「收集箱」的肌肉记忆，与 g l 同指向稍后读
+      { sequence: ["g", "i"], handler: () => go("/library") },
       { sequence: ["g", "l"], handler: () => go("/library") },
       { sequence: ["g", "n"], handler: () => go("/notes") },
       { sequence: ["g", "d"], handler: () => go("/tasks") },

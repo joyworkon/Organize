@@ -383,7 +383,7 @@ export default function TodayView() {
             笔记
           </Button>
           <Link
-            href="/inbox"
+            href="/library"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             <LinkIcon className="h-4 w-4 mr-1.5" />
@@ -508,7 +508,7 @@ export default function TodayView() {
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                阅读清单已清空，去收集箱添加新文章
+                阅读清单已清空，去稍后读添加新文章
               </p>
             )}
           </CardContent>
@@ -661,7 +661,7 @@ export default function TodayView() {
         </div>
         <div className="p-5">
           {unreadArticles.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">阅读清单是空的，去收集箱添加一些文章</p>
+            <p className="text-sm text-muted-foreground text-center py-4">阅读清单是空的，去稍后读添加一些文章</p>
           ) : (
             <div className="space-y-2">
               {unreadArticles.slice(0, 3).map((article) => (

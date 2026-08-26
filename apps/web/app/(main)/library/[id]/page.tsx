@@ -737,7 +737,7 @@ export default function ReadingDetailPage() {
         内容不存在或已被删除
         <br />
         <Link href="/library" className="text-primary underline text-sm mt-2 inline-block">
-          返回阅读库
+          返回稍后读
         </Link>
       </div>
     );
@@ -781,7 +781,7 @@ export default function ReadingDetailPage() {
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden sm:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbLink href="/library">阅读库</BreadcrumbLink>
+                  <BreadcrumbLink href="/library">稍后读</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem className="min-w-0">
@@ -971,11 +971,11 @@ export default function ReadingDetailPage() {
               </div>
             </Link>
           ) : (
-            <Link href="/inbox">
+            <Link href="/library">
               <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer text-center">
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Inbox className="h-4 w-4" />
-                  <span>🎉 暂无更多文章，去收集箱看看</span>
+                  <span>🎉 暂无更多文章，回稍后读看看</span>
                 </div>
               </div>
             </Link>

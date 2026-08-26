@@ -66,7 +66,7 @@ export function QuickAdd() {
       });
       if (error) throw error;
 
-      toast({ title: "已添加到收集箱" });
+      toast({ title: "已添加到稍后读" });
       closePanel();
     } catch {
       toast({ title: "添加失败", variant: "destructive" });

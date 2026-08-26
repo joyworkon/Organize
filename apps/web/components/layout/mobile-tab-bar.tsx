@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Inbox, Library, FileText, Puzzle, ListChecks, Lightbulb } from "lucide-react";
+import { Library, FileText, Puzzle, ListChecks, Lightbulb } from "lucide-react";
 
 const tabs = [
-  { href: "/inbox", label: "收集", icon: Inbox },
-  { href: "/library", label: "阅读", icon: Library },
+  { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tasks", label: "待办", icon: ListChecks },
   { href: "/lessons", label: "经验", icon: Lightbulb },

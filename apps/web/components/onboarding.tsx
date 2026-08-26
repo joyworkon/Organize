@@ -116,7 +116,7 @@ export function Onboarding() {
               </div>
               <div>
                 <h3 className="font-semibold mb-1">保存文章</h3>
-                <p className="text-sm text-muted-foreground">粘贴链接到收集箱，自动抓取正文</p>
+                <p className="text-sm text-muted-foreground">粘贴链接到稍后读，自动抓取正文</p>
               </div>
             </div>
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
