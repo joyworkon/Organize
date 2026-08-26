@@ -909,6 +909,16 @@ function blockElementAtTarget(editorDom: HTMLElement, target: HTMLElement, clien
     if (best) return best;
   }
 
+  // 折叠列表 / 折叠标题的内容区：里面的直接子块是独立块（hover 出手柄、
+  // 可拖拽排序、6 点菜单作用在单个块上），而不是整体算到外层折叠块上。
+  // 嵌套折叠时 closest 取到最内层内容区，符合"最贴近指针的块"直觉。
+  const detailsContent = target.closest('div[data-type="detailsContent"]');
+  if (detailsContent instanceof HTMLElement && editorDom.contains(detailsContent)) {
+    let inner: HTMLElement | null = target;
+    while (inner?.parentElement && inner.parentElement !== detailsContent) inner = inner.parentElement;
+    if (inner?.parentElement === detailsContent) return inner;
+  }
+
   let block: HTMLElement | null = target;
   while (block?.parentElement && block.parentElement !== editorDom) block = block.parentElement;
   return block?.parentElement === editorDom ? block : null;
@@ -1120,7 +1130,20 @@ export function TipTapEditor({
       OrganizeTableRow,
       OrganizeTableCell,
       OrganizeTableHeader,
-      Details,
+      // persist: 展开/收起状态写入文档（刷新后保持）；默认展开，
+      // 新建折叠块直接进入可编辑状态，旧文档里没有 open 属性的折叠块也会展开显示。
+      Details.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            open: {
+              default: true,
+              parseHTML: (el) => (el as HTMLElement).hasAttribute("open"),
+              renderHTML: ({ open }) => (open ? { open: "" } : {}),
+            },
+          };
+        },
+      }).configure({ persist: true }),
       DetailsContent,
       // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
       DetailsSummary.extend({
@@ -1945,9 +1968,27 @@ export function TipTapEditor({
     const editorDom = drag.source.editor.view.dom;
     const sourceParent = drag.source.element.parentElement;
     const sourceIsListItem = drag.source.element.matches("li") && sourceParent?.matches("ul, ol");
-    const blocks = sourceIsListItem && sourceParent
-      ? Array.from(sourceParent.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches("li"))
-      : Array.from(editorDom.children) as HTMLElement[];
+    let blocks: HTMLElement[];
+    if (sourceIsListItem && sourceParent) {
+      blocks = Array.from(sourceParent.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches("li"));
+    } else {
+      // 指针悬在哪个折叠内容区上，候选块就是哪个内容区的直接子块；
+      // 不在任何折叠内容区上时回退到顶层块。这样既能拖入/拖出折叠区，
+      // 也能在折叠区内部排序。源块自己包含的内容区除外（不能拖进自己）。
+      const underPointer = document.elementFromPoint(event.clientX, event.clientY);
+      const detailsContent = underPointer instanceof HTMLElement
+        ? underPointer.closest('div[data-type="detailsContent"]')
+        : null;
+      if (
+        detailsContent instanceof HTMLElement
+        && editorDom.contains(detailsContent)
+        && !drag.source.element.contains(detailsContent)
+      ) {
+        blocks = Array.from(detailsContent.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+      } else {
+        blocks = Array.from(editorDom.children) as HTMLElement[];
+      }
+    }
     const shell = rootRef.current;
     if (!blocks.length || !shell) return;
 

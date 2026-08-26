@@ -167,4 +167,56 @@ describe("block utilities", () => {
     expect([0, 1].map((index) => movedList.child(index).textContent)).toEqual(["乙", "甲"]);
     expect(moveBlockTransaction(EditorState.create({ doc: movedDoc }), firstItemPos, firstItemPos)).toBeNull();
   });
+
+  it("backfills an empty paragraph when the only child is dragged out of details content", async () => {
+    const { default: Details } = await import("@tiptap/extension-details");
+    const { default: DetailsContent } = await import("@tiptap/extension-details-content");
+    const { default: DetailsSummary } = await import("@tiptap/extension-details-summary");
+    const schema = getSchema([StarterKit, Details, DetailsContent, DetailsSummary]);
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "外部" }] },
+        {
+          type: "details",
+          content: [
+            { type: "detailsSummary", content: [{ type: "text", text: "折叠" }] },
+            {
+              type: "detailsContent",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "唯一块" }] }],
+            },
+          ],
+        },
+      ],
+    });
+    const state = EditorState.create({ doc });
+    // 结构：doc(0) > paragraph「外部」| details > detailsSummary | detailsContent > paragraph「唯一块」
+    const detailsPos = doc.child(0).nodeSize;
+    const details = doc.child(1);
+    const detailsContentPos = detailsPos + 1 + details.child(0).nodeSize;
+    const innerPos = detailsContentPos + 1;
+
+    // 把唯一子块拖到折叠块之后（顶层）：原内容区应补一个空段落，而不是被掏空
+    const afterDetails = detailsPos + details.nodeSize;
+    const moveOut = moveBlockTransaction(state, innerPos, afterDetails);
+    expect(moveOut).not.toBeNull();
+    const movedDetails = moveOut!.doc.child(1);
+    expect(movedDetails.type.name).toBe("details");
+    const content = movedDetails.child(1);
+    expect(content.childCount).toBe(1);
+    expect(content.child(0).type.name).toBe("paragraph");
+    expect(content.child(0).textContent).toBe("");
+    expect(moveOut!.doc.child(2).textContent).toBe("唯一块");
+
+    // 目标落在源块内部（拖进自己）：不动作
+    expect(moveBlockTransaction(state, detailsPos, innerPos)).toBeNull();
+
+    // 顶层块拖进折叠内容区：插到内容区子块之前
+    const moveIn = moveBlockTransaction(state, 0, innerPos);
+    expect(moveIn).not.toBeNull();
+    const targetContent = moveIn!.doc.child(0).child(1);
+    expect(targetContent.childCount).toBe(2);
+    expect(targetContent.child(0).textContent).toBe("外部");
+    expect(targetContent.child(1).textContent).toBe("唯一块");
+  });
 });
