@@ -86,6 +86,18 @@ export function moveBlockTransaction(
   if (!sourceNode) return null;
   const sourceEnd = sourcePos + sourceNode.nodeSize;
   if (targetInsertPos === sourcePos || targetInsertPos === sourceEnd) return null;
+  // 目标落在源块内部（试图把块拖进自己，如折叠块拖进自己的内容区）：不动作
+  if (targetInsertPos > sourcePos && targetInsertPos < sourceEnd) return null;
+
+  const $source = state.doc.resolve(sourcePos);
+  const parent = $source.parent;
+  // 拖出折叠内容区时，若源块是内容区唯一子块，原地补一个空段落，
+  // 否则 detailsContent 被掏空（schema 要求 block+），折叠块也无法再点进去
+  if (parent.type.name === "detailsContent" && parent.childCount === 1) {
+    const tr = state.tr.replaceWith(sourcePos, sourceEnd, state.schema.nodes.paragraph.create());
+    tr.insert(tr.mapping.map(targetInsertPos, 1), sourceNode);
+    return tr.scrollIntoView();
+  }
 
   const insertPos = targetInsertPos > sourceEnd
     ? targetInsertPos - sourceNode.nodeSize
