@@ -408,10 +408,15 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
               <div className="divide-y">
                 {agenda.map((group) => (
                   <section key={keyFor(group.date)} className="px-4 py-4">
-                    <div className="mb-2 flex items-baseline gap-2">
+                    <button
+                      type="button"
+                      onClick={onDateClick ? () => onDateClick(group.date) : undefined}
+                      className={cn("mb-2 flex w-full items-baseline gap-2 rounded-md px-1 text-left", onDateClick && "hover:bg-muted/60")}
+                    >
                       <strong className="text-base">{group.date.getMonth() + 1}月{group.date.getDate()}日</strong>
                       <span className="text-xs text-muted-foreground">{WEEKDAYS[(group.date.getDay() + 6) % 7]}</span>
-                    </div>
+                      {onDateClick && <Plus className="ml-auto h-4 w-4 self-center text-muted-foreground" />}
+                    </button>
                     <div className="overflow-hidden rounded-xl border bg-background">
                       {(monthCountdowns.get(keyFor(group.date)) || []).map((item) => (
                         <div key={item.id} className="flex min-h-12 items-center gap-2 border-b bg-rose-50/50 px-3 py-2 dark:bg-rose-950/20">
@@ -465,10 +470,15 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                     if (date.getMonth() !== cursor.getMonth()) return null;
                     return (
                       <section key={key} className="px-4 py-4">
-                        <div className="mb-2 flex items-baseline gap-2">
+                        <button
+                          type="button"
+                          onClick={onDateClick ? () => onDateClick(date) : undefined}
+                          className={cn("mb-2 flex w-full items-baseline gap-2 rounded-md px-1 text-left", onDateClick && "hover:bg-muted/60")}
+                        >
                           <strong className="text-base">{date.getMonth() + 1}月{date.getDate()}日</strong>
                           <span className="text-xs text-muted-foreground">{WEEKDAYS[(date.getDay() + 6) % 7]}</span>
-                        </div>
+                          {onDateClick && <Plus className="ml-auto h-4 w-4 self-center text-muted-foreground" />}
+                        </button>
                         <div className="overflow-hidden rounded-xl border bg-background">
                           {items.map((item) => (
                             <div key={item.id} className="flex min-h-12 items-center gap-2 bg-rose-50/50 px-3 py-2 dark:bg-rose-950/20">
