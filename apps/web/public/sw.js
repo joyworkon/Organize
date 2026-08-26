@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = "organize-v1";
+const CACHE_NAME = "organize-v2";
 const STATIC_ASSETS = ["/", "/inbox", "/library", "/notes", "/plugins"];
 
 // 安装时缓存静态资源
@@ -52,16 +52,6 @@ self.addEventListener("fetch", (event) => {
         });
       })
   );
-});
-
-// 监听来自主线程的消息（离线操作队列）
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SYNC_PENDING") {
-    // 触发后台同步
-    if ("sync" in self.registration) {
-      self.registration.sync.register("organize-sync");
-    }
-  }
 });
 
 self.addEventListener("push", (event) => {
