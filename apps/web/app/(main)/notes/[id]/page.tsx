@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
 import { NoteAttachmentsButton } from "@/components/editor/note-attachments-panel";
+import { isOnline, useOnlineStatus } from "@/lib/offline/network";
+import { planSaveFailure } from "@/lib/offline/note-sync";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -18,7 +20,7 @@ import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2 } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
@@ -132,6 +134,13 @@ export default function NoteEditorPage() {
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // X1 离线同步：网络状态 + 未同步改动标记 + 自动重试计时
+  const online = useOnlineStatus();
+  const [offlinePending, setOfflinePending] = useState(false);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef(0);
+  // 幂等键缓存：同一内容批次的重试复用同一 mutation_id（防响应丢失造成重复写入/假冲突）
+  const lastAttemptRef = useRef<{ draft: NoteDraft; mutationId: string } | null>(null);
 
   const loadNoteTree = useCallback(async () => {
     const {
@@ -393,6 +402,15 @@ export default function NoteEditorPage() {
     const promise = (async () => {
       setSaving(true);
       setSaveError("");
+      // X1：离线时不发起 RPC（必然失败），保留草稿等 online 事件触发同步；
+      // 顶栏离线角标负责可见反馈，不占用 saveError。
+      if (!isOnline()) {
+        if (dirtyRef.current) {
+          persistCurrentDraft();
+          setOfflinePending(true);
+        }
+        return;
+      }
       while (dirtyRef.current) {
         dirtyRef.current = false;
         const snapshot = { ...draftRef.current };
@@ -400,6 +418,14 @@ export default function NoteEditorPage() {
           isTaskNoteLinkEnabled() && lastSourceRef.current === "user"
             ? extractTaskMutations(snapshot.content)
             : { mutations: [] };
+        // 幂等键：与上次尝试的内容一致（自动重试场景）时复用同一 mutation_id，
+        // 服务端 save_mutation_log 命中直接返回上次结果，不会重复写入或误报冲突。
+        const lastAttempt = lastAttemptRef.current;
+        const mutationId =
+          lastAttempt && areNoteDraftsEqual(lastAttempt.draft, snapshot)
+            ? lastAttempt.mutationId
+            : crypto.randomUUID();
+        lastAttemptRef.current = { draft: snapshot, mutationId };
         const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
           p_note_id: noteId,
           p_content: snapshot.content,
@@ -408,7 +434,7 @@ export default function NoteEditorPage() {
           p_task_mutations: mutations.length > 0 ? mutations : null,
           // 前端尚未维护任务 sync_version 缓存，传 null 只对笔记执行乐观锁。
           p_expected_task_revisions: null,
-          p_mutation_id: null,
+          p_mutation_id: mutationId,
           p_note_snapshot: snapshot,
         });
         const result = rpcResult as {
@@ -462,9 +488,38 @@ export default function NoteEditorPage() {
         if (rpcErr || status !== "ok" || typeof result?.note_revision !== "number") {
           dirtyRef.current = true;
           persistCurrentDraft();
-          setSaveError("保存失败，本地草稿已保留，请检查网络后重试");
+          // X1：失败分类——网络错误自动重试（指数退避）/离线等 online 事件/其他错误不自动重试
+          const action = planSaveFailure({
+            error: rpcErr,
+            retries: retryCountRef.current,
+            online: isOnline(),
+          });
+          if (action.type === "retry") {
+            retryCountRef.current += 1;
+            setOfflinePending(true);
+            setSaveError(
+              `网络异常，${Math.round(action.delayMs / 1000)} 秒后自动重试（第 ${retryCountRef.current} 次）`
+            );
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              void flushSaveRef.current?.();
+            }, action.delayMs);
+          } else if (action.type === "wait-online") {
+            setOfflinePending(true);
+            setSaveError("");
+          } else {
+            setSaveError("保存失败，本地草稿已保留，请检查网络后重试");
+          }
           break;
         }
+        // 成功：复位重试状态与离线标记
+        retryCountRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        setOfflinePending(false);
         contentRevisionRef.current = result.note_revision;
         setSaveConflict(null);
         setLastSaved(new Date());
@@ -481,6 +536,28 @@ export default function NoteEditorPage() {
     savingPromiseRef.current = promise;
     return promise;
   }, [noteId, persistCurrentDraft, supabase]);
+
+  // X1：flushSave 的最新引用，供重试定时器 / online 事件回调安全调用
+  const flushSaveRef = useRef<typeof flushSave | null>(null);
+  useEffect(() => {
+    flushSaveRef.current = flushSave;
+  }, [flushSave]);
+
+  // X1：联网后立即同步未保存改动；离线时若有改动则展示待同步标记
+  useEffect(() => {
+    if (online) {
+      if (dirtyRef.current) void flushSaveRef.current?.();
+    } else if (dirtyRef.current) {
+      setOfflinePending(true);
+    }
+  }, [online]);
+
+  // X1：卸载时清理重试定时器（保存本身的 pagehide/unmount 兜底在下方 effect）
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
 
   const queueSave = useCallback(() => {
     dirtyRef.current = true;
@@ -967,6 +1044,12 @@ export default function NoteEditorPage() {
           </div>
           <div className="note-topbar-group note-topbar-actions">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {!online && (
+                <span className="flex items-center gap-1" role="status">
+                  <WifiOff className="h-3 w-3" />
+                  离线中{offlinePending ? " · 更改将在联网后同步" : ""}
+                </span>
+              )}
               {saveError ? (
                 <span className="text-destructive">{saveError}</span>
               ) : saving ? (
