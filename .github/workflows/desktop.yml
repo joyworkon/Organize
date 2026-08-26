@@ -71,9 +71,10 @@ jobs:
         run: pnpm install --filter @organize/desktop
 
       # 壳加载远程 Web（devUrl/生产 URL），release 构建不需要 Next 产物
-      - name: tauri build（不签名，基座阶段）
+      # v2 默认不签名（未配置签名身份），无需额外参数
+      - name: tauri build
         working-directory: desktop
-        run: pnpm build -- --no-sign
+        run: pnpm build
 
       - name: 上传 macOS 产物
         if: matrix.os == 'macos-latest'
