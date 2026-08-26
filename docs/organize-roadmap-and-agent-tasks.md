@@ -68,7 +68,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
   - 分享接收（系统分享菜单“保存到 Organize”）需要原生 Share Extension（iOS）/ Intent Filter（Android），属于原生开发，依赖 Xcode/Android Studio 工具链。
   - 解锁条件：Web 公网部署 → Xcode + CocoaPods / Android Studio 就绪 → `npx cap add ios/android` 初始化工程 → 壳层加载远程 URL 验证登录闭环。
 - [ ] **X4 AI 边界**：先补数据发送提示、作用范围、限流和失败回滚，再增加更多 AI 动作。
-- [ ] **X5 知识图谱**：基于笔记间链接 / 任务依赖的可视化图谱（E4/E9 已落地，依赖已满足，可排期）。
+- [x] **X5 知识图谱**（PR #117，2026-08-26）：`/graph` 页面双视图——笔记图谱（内部链接边复用 `extractLinksFromContent`，与反链同判定；父子层级虚线边）+ 任务依赖图（前置→被阻塞箭头，已完成置灰）。`lib/graph/build-graph.ts`（9 测试）+ `force-layout.ts`（5 测试，零依赖确定性力导向：id 哈希扰动初始环形 + 固定迭代）。交互：滚轮缩放/拖拽平移/点击跳转/悬停高亮相邻/隐藏孤立节点（默认开）；侧栏 + 命令面板 + G G 快捷键入口。
 - [ ] **X6 多人协作**：实时协作编辑（依赖 G3 Realtime 基础设施 + 权限模型）。
 - [ ] **X7 语义 AI**：语义搜索 / 自动关联（依赖 X4 AI 边界）。
 
