@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
+import { setCurrentReadingItem } from "@/lib/plugin/current-context";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/reading/status-badge";
 import { Toc, extractHeadings } from "@/components/reading/toc";
@@ -140,6 +141,12 @@ export default function ReadingDetailPage() {
       )
     );
   }, [itemId, supabase]);
+
+  // 同步当前条目到插件上下文（ctx.getCurrentItem），卸载时清空
+  useEffect(() => {
+    setCurrentReadingItem(item);
+    return () => setCurrentReadingItem(null);
+  }, [item]);
 
   useEffect(() => {
     async function loadItem() {

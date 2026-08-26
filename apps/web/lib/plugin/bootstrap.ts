@@ -10,10 +10,12 @@
  * 注：提示文案刻意不包含接口返回的原始 error（可能带约束/RLS 细节），统一用固定话术。
  */
 
-import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
+import type { OrganizePlugin, PluginContext, PluginDataAccess } from "@organize/plugin-sdk";
 import type { PluginRecord } from "@organize/shared";
 import { commandRegistry, type CommandRegistry } from "@/lib/commands/registry";
 import { appEvents, type AppEventBus } from "@/lib/plugin/events";
+import { getCurrentReadingItem } from "@/lib/plugin/current-context";
+import { slashCommandRegistry, type SlashCommandRegistry } from "@/lib/plugin/slash-commands";
 
 export type FetchLike = (
   input: string,
@@ -38,6 +40,10 @@ export interface BootstrapDeps {
   commands?: CommandRegistry;
   /** 测试注入用；默认应用级单例 */
   events?: AppEventBus;
+  /** 测试注入用；默认应用级单例 */
+  slashCommands?: SlashCommandRegistry;
+  /** 宿主数据访问面；不注入则插件 ctx.data 为 undefined（插件需自行降级） */
+  dataAccess?: PluginDataAccess;
 }
 
 export interface BootstrapResult {
@@ -92,6 +98,8 @@ export async function bootstrapPlugins(deps: BootstrapDeps): Promise<BootstrapRe
     notify,
     commands = commandRegistry,
     events = appEvents,
+    slashCommands = slashCommandRegistry,
+    dataAccess,
   } = deps;
 
   // 1. 全部注册（store 内部对重复 id 去重）
@@ -147,7 +155,7 @@ export async function bootstrapPlugins(deps: BootstrapDeps): Promise<BootstrapRe
     const recordId = record.id;
     const ctx: PluginContext = {
       userId,
-      getCurrentItem: () => null,
+      getCurrentItem: () => getCurrentReadingItem(),
       getConfig: <T = Record<string, unknown>>() => currentConfig as T,
       setConfig: async (config) => {
         const updated = await fetchJson(fetchImpl, `/api/plugins/${recordId}`, {
@@ -176,10 +184,22 @@ export async function bootstrapPlugins(deps: BootstrapDeps): Promise<BootstrapRe
         });
         trackRegistration?.(plugin.id, dispose);
       },
+      registerSlashCommand: (command) => {
+        // 与命令面板同规则：id 加插件前缀避免跨插件冲突
+        const dispose = slashCommands.register({
+          id: `${plugin.id}:${command.id}`,
+          pluginId: plugin.id,
+          pluginName: plugin.name,
+          command,
+          ctx,
+        });
+        trackRegistration?.(plugin.id, dispose);
+      },
       onAppEvent: (event, handler) => {
         const dispose = events.on(event, handler);
         trackRegistration?.(plugin.id, dispose);
       },
+      data: dataAccess,
     };
     activatePlugin(plugin.id, ctx);
     result.activated += 1;

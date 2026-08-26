@@ -1,0 +1,94 @@
+name: desktop
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  push:
+    branches: [master]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+# PR 门禁：cargo check 快速验证 Rust 编译（双平台）
+# master / 手动触发：完整 tauri build，产出 mac(.app) / win(nsis) 安装包 artifact
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: 安装 desktop 依赖（tauri CLI）
+        run: pnpm install --filter @organize/desktop
+
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check
+
+  build:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: 安装 desktop 依赖（tauri CLI）
+        run: pnpm install --filter @organize/desktop
+
+      # 壳加载远程 Web（devUrl/生产 URL），release 构建不需要 Next 产物
+      - name: tauri build（不签名，基座阶段）
+        working-directory: desktop
+        run: pnpm build -- --no-sign
+
+      - name: 上传 macOS 产物
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: organize-macos
+          path: desktop/src-tauri/target/release/bundle/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: 上传 Windows 产物
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: organize-windows
+          path: desktop/src-tauri/target/release/bundle/
+          if-no-files-found: warn
+          retention-days: 7

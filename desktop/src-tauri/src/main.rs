@@ -1,18 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
+use tauri::Emitter;
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // 注册全局快捷键: Cmd/Ctrl+Shift+S 快速保存链接
+            // 全局快捷键只注册一次（Builder 上不再挂 global-shortcut 插件，重复注册会 panic）：
+            // Cmd/Ctrl+Shift+S → 向前端发 quick-save 事件，触发快速保存链接
             let handle = app.handle().clone();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |_app, _shortcut, event| {
                         if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                            // 发送事件到前端，触发快速保存对话框
                             let _ = handle.emit("quick-save", ());
                         }
                     })

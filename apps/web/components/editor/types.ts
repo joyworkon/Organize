@@ -1,7 +1,7 @@
 import type { Editor, JSONContent } from "@tiptap/core";
 import type { LucideIcon } from "lucide-react";
 
-export type BlockCommandCategory = "建议" | "基本区块" | "媒体" | "布局";
+export type BlockCommandCategory = "建议" | "基本区块" | "媒体" | "布局" | "插件";
 
 export interface EditorBlockTarget {
   pos: number;

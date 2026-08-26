@@ -43,7 +43,7 @@ function extractKeywords(text: string, maxTags: number): string[] {
 const tagSuggestPlugin = definePlugin({
   id: "tag-suggest",
   name: "标签推荐",
-  version: "0.1.0",
+  version: "0.2.0",
   description: "根据文章内容自动推荐标签，支持关键词提取和分类建议",
   author: "Organize Team",
   icon: "🏷️",
@@ -61,6 +61,29 @@ const tagSuggestPlugin = definePlugin({
       default: false,
     },
   ],
+  onActivate: (ctx) => {
+    ctx.registerCommand?.({
+      id: "suggest-tags-for-current-item",
+      title: "为当前阅读条目推荐标签",
+      icon: "🏷️",
+      keywords: ["tag", "标签", "推荐", "关键词"],
+      handler: (commandCtx) => {
+        const item = commandCtx.getCurrentItem();
+        if (!item) {
+          commandCtx.notify("请先打开一篇阅读条目，再执行本命令", "info");
+          return;
+        }
+        const config = commandCtx.getConfig<{ maxTags?: number }>();
+        const textToAnalyze = `${item.title || ""} ${item.excerpt || ""} ${item.content || ""}`;
+        const tags = extractKeywords(textToAnalyze, config.maxTags || 5);
+        if (tags.length > 0) {
+          commandCtx.notify(`推荐标签: ${tags.join(", ")}`, "success");
+        } else {
+          commandCtx.notify("未能提取到有效标签", "info");
+        }
+      },
+    });
+  },
   extensions: [
     {
       type: "content-processor",

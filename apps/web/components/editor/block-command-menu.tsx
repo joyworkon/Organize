@@ -1,11 +1,14 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
-import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Puzzle, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createEditorBridge } from "@/lib/plugin/editor-bridge";
+import { slashCommandRegistry } from "@/lib/plugin/slash-commands";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
 import { resolveTriggerDeleteRange } from "./slash-trigger";
+import type { BlockCommandDefinition } from "./types";
 import type { EditorMenuPoint } from "./types";
 
 // 不允许在嵌套块（表格/列表/分栏内）使用的命令
@@ -35,11 +38,33 @@ export function BlockCommandMenu({
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 嵌套场景下过滤掉不适用的命令
-  const availableCommands = useMemo(() => {
-    if (!nested) return BLOCK_COMMANDS;
-    return BLOCK_COMMANDS.filter((cmd) => !NESTED_BLOCKED_COMMANDS.has(cmd.id));
-  }, [nested]);
+  // 插件贡献的斜杠命令（注册表订阅；插件停用后自动消失）
+  const pluginSlashCommands = useSyncExternalStore(
+    (onStoreChange) => slashCommandRegistry.subscribe(onStoreChange),
+    () => slashCommandRegistry.list(),
+    () => []
+  );
+
+  // 嵌套场景下过滤掉不适用的命令；插件命令需要顶层块位置语义，嵌套场景不提供
+  const availableCommands = useMemo<BlockCommandDefinition[]>(() => {
+    const builtin = nested
+      ? BLOCK_COMMANDS.filter((cmd) => !NESTED_BLOCKED_COMMANDS.has(cmd.id))
+      : BLOCK_COMMANDS;
+    if (nested || pluginSlashCommands.length === 0) return builtin;
+    const pluginCommands: BlockCommandDefinition[] = pluginSlashCommands.map((entry) => ({
+      id: entry.id,
+      label: entry.command.icon ? `${entry.command.icon} ${entry.command.label}` : entry.command.label,
+      description: entry.command.description,
+      category: "插件",
+      icon: Puzzle,
+      keywords: entry.command.keywords ?? [],
+      run: (editor, pos) => {
+        const bridge = createEditorBridge(editor, pos);
+        return entry.command.handler(bridge, entry.ctx);
+      },
+    }));
+    return [...builtin, ...pluginCommands];
+  }, [nested, pluginSlashCommands]);
 
   const options = useMemo(() => availableCommands.filter((item) => commandMatches(item, query)), [availableCommands, query]);
 
@@ -100,7 +125,7 @@ export function BlockCommandMenu({
     onClose();
   };
 
-  const categories = ["建议", "基本区块", "媒体", "布局"] as const;
+  const categories = ["建议", "基本区块", "媒体", "布局", "插件"] as const;
 
   return (
     <EditorPopover point={point} onClose={handleClose} className="block-command-popover">

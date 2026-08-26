@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Task } from "@organize/shared";
 import { MAX_TIMEOUT_MS, buildDueReminders, buildOverdueSummary, effectiveDueDate, pruneNotifiedKeys } from "@/lib/tasks/notifications";
+import { getNotifier } from "@/lib/platform/notifications";
+import { getPlatform } from "@/lib/platform/detect";
 
 const NOTIFIED_STORAGE_KEY = "organize:notified-due";
 /** 每日逾期摘要：记录上次推送的日期串，同一天只推一次 */
@@ -39,22 +41,47 @@ function saveNotifiedTaskIds(ids: Set<string>) {
   }
 }
 
-function isNotificationSupported(): boolean {
-  return typeof window !== "undefined" && "Notification" in window;
+/** Web 推送订阅（Push API）只在浏览器平台有意义；桌面/移动壳用各自的原生通知 */
+async function subscribeWebPush(): Promise<boolean> {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return true;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  const existing = await registration.pushManager.getSubscription();
+  const subscription =
+    existing ||
+    (await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    }));
+  const response = await fetch("/api/push/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+  return response.ok;
 }
 
 export function useNotifications() {
   const [permission, setPermission] = useState<NotificationPermissionState>("default");
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const notifiedRef = useRef<Set<string>>(getNotifiedTaskIds());
+  const notifier = getNotifier();
 
   useEffect(() => {
-    if (isNotificationSupported()) {
-      setPermission(Notification.permission);
-    } else {
+    if (!notifier.isSupported()) {
       setPermission("unsupported");
+      return;
     }
-  }, []);
+    let active = true;
+    void notifier.queryPermission().then((state) => {
+      if (active) setPermission(state);
+    });
+    return () => {
+      active = false;
+    };
+  }, [notifier]);
 
   const clearAllTimeouts = useCallback(() => {
     timeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
@@ -68,61 +95,34 @@ export function useNotifications() {
   }, [clearAllTimeouts]);
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!isNotificationSupported()) {
+    if (!notifier.isSupported()) {
       return false;
     }
 
     try {
-      const result = await Notification.requestPermission();
-      setPermission(result);
-      if (result !== "granted") return false;
+      const granted = await notifier.requestPermission();
+      setPermission(granted ? "granted" : "denied");
+      if (!granted) return false;
 
-      const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-        return true;
+      // Web 平台顺带建立 Push 订阅（服务端推送用）；原生平台不需要
+      if (getPlatform() === "web") {
+        return await subscribeWebPush();
       }
-      const registration = await navigator.serviceWorker.ready;
-      const existing = await registration.pushManager.getSubscription();
-      const subscription =
-        existing ||
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
-        }));
-      const response = await fetch("/api/push/subscriptions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subscription.toJSON()),
-      });
-      return response.ok;
+      return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [notifier]);
 
-  const showNotification = useCallback((title: string, body: string) => {
-    if (!isNotificationSupported() || Notification.permission !== "granted") {
-      return;
-    }
-
-    try {
-      const notification = new Notification(title, {
-        body,
-        icon: "/favicon.ico",
-        tag: `due-${title}`,
-      });
-
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-    } catch {
-      // ignore
-    }
-  }, []);
+  const showNotification = useCallback(
+    (title: string, body: string) => {
+      void notifier.notify({ title, body, tag: `due-${title}` });
+    },
+    [notifier]
+  );
 
   const scheduleDueDateReminders = useCallback((tasks: Task[]) => {
-    if (!isNotificationSupported() || Notification.permission !== "granted") {
+    if (!notifier.isSupported() || permission !== "granted") {
       return;
     }
 
@@ -164,11 +164,11 @@ export function useNotifications() {
     });
 
     saveNotifiedTaskIds(notified);
-  }, [clearAllTimeouts, showNotification]);
+  }, [clearAllTimeouts, notifier, permission, showNotification]);
 
   /** 每日一次的逾期摘要通知（同一天只推一次；无逾期或当天到期不推） */
   const notifyOverdueSummary = useCallback((tasks: Task[]) => {
-    if (!isNotificationSupported() || Notification.permission !== "granted") return;
+    if (!notifier.isSupported() || permission !== "granted") return;
     const todayKey = new Date().toDateString();
     try {
       if (localStorage.getItem(OVERDUE_SUMMARY_DATE_KEY) === todayKey) return;
@@ -183,7 +183,7 @@ export function useNotifications() {
     } catch {
       // ignore
     }
-  }, [showNotification]);
+  }, [notifier, permission, showNotification]);
 
   return {
     permission,
