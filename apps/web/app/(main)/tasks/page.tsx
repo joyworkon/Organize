@@ -16,8 +16,21 @@ import {
   LockKeyhole,
   MoreHorizontal,
   Trash2,
+  WifiOff,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { isOnline, useOnlineStatus } from "@/lib/offline/network";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import {
+  enqueueTaskOp,
+  makeTaskCreateOp,
+  makeTaskUpdateOp,
+  readTaskOps,
+  replayTaskOps,
+  taskOpsCount,
+  writeTaskOps,
+  type TaskQueueWriter,
+} from "@/lib/offline/task-queue";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -282,6 +295,45 @@ function TasksPageInner() {
     return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
   }, [fetchTasks]);
 
+  // X1 离线同步：网络状态 + 待回放操作数
+  const online = useOnlineStatus();
+  const [pendingOps, setPendingOps] = useState(0);
+  useEffect(() => {
+    setPendingOps(taskOpsCount(localStorage));
+  }, []);
+
+  /** 回放离线队列：联网后按序推送，应用成功的触发一次列表刷新 */
+  const replayPendingOps = useCallback(async () => {
+    const ops = readTaskOps(localStorage);
+    if (ops.length === 0) {
+      setPendingOps(0);
+      return;
+    }
+    const writer: TaskQueueWriter = {
+      insertTask: async (task) => {
+        const { error } = await supabase.from("tasks").insert(task);
+        return { error };
+      },
+      updateTask: async (id, patch) => {
+        const { error } = await supabase.from("tasks").update(patch).eq("id", id);
+        return { error };
+      },
+    };
+    const result = await replayTaskOps(writer, ops);
+    writeTaskOps(localStorage, result.remaining);
+    setPendingOps(result.remaining.length);
+    if (result.applied > 0) {
+      await fetchTasks();
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      toast({ title: `已同步 ${result.applied} 项离线更改` });
+    }
+  }, [fetchTasks, supabase]);
+
+  // 联网即回放（含首次挂载时队列有积压的场景）
+  useEffect(() => {
+    if (online) void replayPendingOps();
+  }, [online, replayPendingOps]);
+
   useEffect(() => {
     if (searchParams.has("view")) updateUrl({ view: null });
   }, [searchParams, updateUrl]);
@@ -295,8 +347,22 @@ function TasksPageInner() {
     const normalized = { ...patch } as Partial<Task>;
     if ("schedule_start_at" in normalized || "schedule_end_at" in normalized) normalized.due_date = normalized.schedule_end_at || normalized.schedule_start_at || null;
     setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...normalized } : task));
+    // X1：离线时直接入队（避免必然失败的请求），乐观状态保留
+    if (!isOnline()) {
+      enqueueTaskOp(localStorage, makeTaskUpdateOp(taskId, normalized as Record<string, unknown>));
+      setPendingOps(taskOpsCount(localStorage));
+      toast({ title: "已离线保存，联网后自动同步" });
+      return;
+    }
     const { error } = await supabase.from("tasks").update(normalized).eq("id", taskId);
     if (error) {
+      // X1：网络错误按离线处理——入队待回放，不回滚乐观状态
+      if (isNetworkSaveError(error)) {
+        enqueueTaskOp(localStorage, makeTaskUpdateOp(taskId, normalized as Record<string, unknown>));
+        setPendingOps(taskOpsCount(localStorage));
+        toast({ title: "网络异常，已离线保存，联网后自动同步" });
+        return;
+      }
       setTasks(previous);
       toast({ title: "保存失败，已回滚", variant: "destructive" });
       return;
@@ -475,7 +541,10 @@ function TasksPageInner() {
     if (!title) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { error } = await supabase.from("tasks").insert({
+    const now = new Date().toISOString();
+    // X1：id 始终由客户端生成——离线创建可乐观入列，服务端主键唯一约束保证回放幂等
+    const insertPayload: Record<string, unknown> = {
+      id: crypto.randomUUID(),
       user_id: user.id,
       title,
       status: "todo",
@@ -483,8 +552,47 @@ function TasksPageInner() {
       category: "work",
       list_id: sidebarSelection.scope === "list" ? sidebarSelection.listId : null,
       due_date: quickAddDueDate(sidebarSelection.scope),
-    });
+    };
+    /** 离线创建：乐观入列 + 入队待回放 */
+    const applyOfflineCreate = () => {
+      const optimistic: TaskWithTags = {
+        id: insertPayload.id as string,
+        user_id: user.id,
+        title,
+        status: "todo",
+        priority: "medium",
+        category: "work",
+        list_id: (insertPayload.list_id as string | null) ?? null,
+        due_date: (insertPayload.due_date as string | null) ?? null,
+        description: null,
+        estimated_minutes: null,
+        actual_minutes: null,
+        reading_item_id: null,
+        note_id: null,
+        is_pinned: false,
+        sort_order: 0,
+        completed_at: null,
+        created_at: now,
+        updated_at: now,
+        tags: [],
+      };
+      setTasks((current) => [optimistic, ...current]);
+      enqueueTaskOp(localStorage, makeTaskCreateOp(insertPayload));
+      setPendingOps(taskOpsCount(localStorage));
+      input.value = "";
+      toast({ title: "已离线创建，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      applyOfflineCreate();
+      return;
+    }
+    const { error } = await supabase.from("tasks").insert(insertPayload);
     if (error) {
+      // X1：网络错误按离线创建处理（客户端 id 保证回放不重复）
+      if (isNetworkSaveError(error)) {
+        applyOfflineCreate();
+        return;
+      }
       toast({ title: "创建任务失败", description: error.message, variant: "destructive" });
       return;
     }
@@ -531,6 +639,12 @@ function TasksPageInner() {
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
+          {!online && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
+              <WifiOff className="h-3.5 w-3.5" />
+              离线中{pendingOps > 0 ? ` · ${pendingOps} 项待同步` : ""}
+            </span>
+          )}
           <TaskTemplatesDialog
             lists={lists}
             defaultListId={sidebarSelection.scope === "list" ? sidebarSelection.listId : null}
