@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
 import { NoteAttachmentsButton } from "@/components/editor/note-attachments-panel";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
-import { planSaveFailure } from "@/lib/offline/note-sync";
+import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
+import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -257,6 +258,33 @@ export default function NoteEditorPage() {
         } catch {
           /* localStorage 不可用时跳过迁移 */
         }
+      } else {
+        // X1-2B：服务端查不到（尚未回放的离线创建，或离线打开）→ 用队列载荷初始化编辑器；
+        // 联网后 flushSave 的「先落创建再走乐观锁保存」管线负责落库。
+        const pending = findNoteCreate(localStorage, noteId);
+        if (pending) {
+          const pendingNote = pending.note as { title?: unknown; content?: unknown };
+          const initTitle = typeof pendingNote.title === "string" ? pendingNote.title : "";
+          const initContent =
+            (pendingNote.content as Record<string, unknown> | null) ||
+            { type: "doc", content: [{ type: "paragraph" }] };
+          setTitle(initTitle);
+          setContent(initContent);
+          setCreatedAt(new Date(pending.created_at).toISOString());
+          contentRevisionRef.current = 0;
+          draftRef.current = {
+            title: initTitle,
+            content: initContent,
+            icon: null,
+            cover_url: null,
+            cover_position: 50,
+            parent_note_id: null,
+            full_width: false,
+            font_family: "default",
+            small_font: false,
+          };
+          setOfflinePending(true);
+        }
       }
       setLoading(false);
       void loadNoteTree();
@@ -411,6 +439,26 @@ export default function NoteEditorPage() {
         }
         return;
       }
+      // X1-2B：本条笔记的创建仍滞留离线队列 → 先落创建（主键幂等）再走乐观锁保存；
+      // 统一处理 online 事件 / 重试定时器 / 卸载兜底等各触发路径的时序。
+      const pendingCreate = findNoteCreate(localStorage, noteId);
+      if (pendingCreate) {
+        const { error: createErr } = await supabase.from("notes").insert(pendingCreate.note);
+        const createCode = (createErr as { code?: unknown } | null)?.code;
+        if (createErr && createCode !== "23505") {
+          if (isNetworkSaveError(createErr)) {
+            // 创建都发不出去 → 按离线处理，草稿保留待下次 online
+            if (dirtyRef.current) {
+              persistCurrentDraft();
+              setOfflinePending(true);
+            }
+            return;
+          }
+          // 业务错误：移出队列避免死循环，继续走 RPC 暴露真实错误给冲突/失败分支
+        }
+        removeNoteCreate(localStorage, noteId);
+        if (!dirtyRef.current) setOfflinePending(false);
+      }
       while (dirtyRef.current) {
         dirtyRef.current = false;
         const snapshot = { ...draftRef.current };
@@ -543,14 +591,14 @@ export default function NoteEditorPage() {
     flushSaveRef.current = flushSave;
   }, [flushSave]);
 
-  // X1：联网后立即同步未保存改动；离线时若有改动则展示待同步标记
+  // X1：联网后立即同步未保存改动（含滞留的离线创建）；离线时若有改动则展示待同步标记
   useEffect(() => {
     if (online) {
-      if (dirtyRef.current) void flushSaveRef.current?.();
+      if (dirtyRef.current || findNoteCreate(localStorage, noteId)) void flushSaveRef.current?.();
     } else if (dirtyRef.current) {
       setOfflinePending(true);
     }
-  }, [online]);
+  }, [online, noteId]);
 
   // X1：卸载时清理重试定时器（保存本身的 pagehide/unmount 兜底在下方 effect）
   useEffect(() => {
