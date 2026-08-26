@@ -9,6 +9,8 @@ import {
 } from "./bootstrap";
 import { CommandRegistry } from "@/lib/commands/registry";
 import { AppEventBus } from "./events";
+import { setCurrentReadingItem } from "./current-context";
+import { SlashCommandRegistry } from "./slash-commands";
 import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
 import type { PluginRecord } from "@organize/shared";
 
@@ -280,10 +282,33 @@ describe("bootstrapPlugins", () => {
       ]);
     });
 
-    it("getCurrentItem 恒为 null，userId 透传", async () => {
+    it("getCurrentItem 读取当前阅读条目 provider（默认 null），userId 透传", async () => {
       const { ctx } = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
       expect(ctx.getCurrentItem()).toBeNull();
       expect(ctx.userId).toBe("u1");
+    });
+
+    it("getCurrentItem 反映 provider 中的当前条目", async () => {
+      const { ctx } = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
+      const item = { id: "r1", url: "https://example.com", title: "示例" } as never;
+      setCurrentReadingItem(item);
+      expect(ctx.getCurrentItem()).toBe(item);
+      setCurrentReadingItem(null);
+      expect(ctx.getCurrentItem()).toBeNull();
+    });
+
+    it("注入 dataAccess 时 ctx.data 透传；未注入时为 undefined", async () => {
+      const askAI = vi.fn(async () => "摘要");
+      const withData = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
+      expect(withData.ctx.data).toBeUndefined();
+
+      const plugin = makePlugin("p2");
+      const harness = makeHarness([plugin], () => jsonResponse([makeRecord(plugin)]));
+      harness.deps.dataAccess = { askAI };
+      await bootstrapPlugins(harness.deps);
+      const ctx = harness.activated[0].ctx;
+      await expect(ctx.data!.askAI({ instruction: "i", text: "t" })).resolves.toBe("摘要");
+      expect(askAI).toHaveBeenCalledWith({ instruction: "i", text: "t" });
     });
   });
 
@@ -335,6 +360,30 @@ describe("bootstrapPlugins", () => {
       tracked[0].dispose();
       events.emit("note:saved", { noteId: "n2", title: "第二篇" });
       expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("registerSlashCommand 经 bootstrap 装配：前缀、插件名与清理登记齐全", async () => {
+      const plugin = makePlugin("p1", "测试插件");
+      const harness = makeHarness([plugin], () => jsonResponse([makeRecord(plugin)]));
+      const slashCommands = new SlashCommandRegistry();
+      const tracked: { pluginId: string; dispose: () => void }[] = [];
+      harness.deps.slashCommands = slashCommands;
+      harness.deps.trackRegistration = (pluginId, dispose) =>
+        tracked.push({ pluginId, dispose });
+      await bootstrapPlugins(harness.deps);
+      const ctx = harness.activated[0].ctx;
+
+      const handler = vi.fn();
+      ctx.registerSlashCommand!({ id: "weekly-review", label: "生成本周复盘", handler });
+
+      const entry = slashCommands.get("p1:weekly-review");
+      expect(entry?.pluginName).toBe("测试插件");
+      expect(entry?.command.label).toBe("生成本周复盘");
+      expect(entry?.ctx).toBe(ctx);
+      expect(tracked).toHaveLength(1);
+
+      tracked[0].dispose();
+      expect(slashCommands.get("p1:weekly-review")).toBeUndefined();
     });
   });
 });

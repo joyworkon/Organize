@@ -41,12 +41,64 @@ export interface CommandContribution {
   handler: (ctx: PluginContext) => void | Promise<void>;
 }
 
+// ============ 斜杠命令贡献（编辑器 "/" 菜单） ============
+
+/** 编辑器文档片段（与 TipTap JSONContent 结构兼容，SDK 不直接依赖 @tiptap/core） */
+export type PluginEditorContent = Record<string, unknown>;
+
+/**
+ * 受限编辑器操作面：插件斜杠命令执行时由宿主注入。
+ * 只暴露「读当前块文本 / 替换当前块 / 在块后插入」三个安全操作，
+ * 插件拿不到 Editor 实例，无法越权操作文档其他位置。
+ */
+export interface PluginEditorBridge {
+  /** 当前块纯文本 */
+  getBlockText: () => string;
+  /** 用给定内容替换当前块（原块文本会尽量带入新块） */
+  replaceBlock: (content: PluginEditorContent) => void;
+  /** 在当前块之后插入内容 */
+  insertAfter: (content: PluginEditorContent | PluginEditorContent[]) => void;
+}
+
+/** 插件贡献的斜杠命令：出现在编辑器 "/" 菜单的「插件」分组 */
+export interface SlashCommandContribution {
+  /** 插件内唯一 id；宿主会加上插件 id 前缀避免冲突 */
+  id: string;
+  /** 展示标题，如「生成本周复盘」 */
+  label: string;
+  /** 副标题描述 */
+  description?: string;
+  /** emoji 图标 */
+  icon?: string;
+  /** 搜索别名 */
+  keywords?: string[];
+  handler: (
+    editor: PluginEditorBridge,
+    ctx: PluginContext
+  ) => void | Promise<void>;
+}
+
+// ============ 数据访问面（data facade） ============
+
+/**
+ * 宿主数据访问面：插件读写数据 / 调用内部服务的唯一通道。
+ * 插件禁止直接 fetch / 访问 window——宿主（web / 桌面 / 移动）各自实现
+ * 本接口并注入，插件代码跨端零改动。
+ */
+export interface PluginDataAccess {
+  /**
+   * 调用宿主 AI 服务（遵循用户在设置里配置的 AI 提供商）。
+   * 失败时抛错，插件自行 catch 并 notify。
+   */
+  askAI: (request: { instruction: string; text: string }) => Promise<string>;
+}
+
 // ============ 插件上下文 ============
 
 export interface PluginContext {
   /** 当前用户 ID */
   userId: string;
-  /** 获取当前阅读条目 */
+  /** 获取当前阅读条目（位于阅读详情页时有值，其余场景为 null） */
   getCurrentItem: () => ReadingItem | null;
   /** 获取插件配置 */
   getConfig: <T = Record<string, unknown>>() => T;
@@ -63,11 +115,17 @@ export interface PluginContext {
    * 无需插件自行清理。
    */
   registerCommand?: (command: CommandContribution) => void;
+  /**
+   * 注册斜杠命令到编辑器 "/" 菜单。插件停用时自动注销，无需插件自行清理。
+   */
+  registerSlashCommand?: (command: SlashCommandContribution) => void;
   /** 订阅应用事件。插件停用时自动退订，无需插件自行清理。 */
   onAppEvent?: <K extends AppEventName>(
     event: K,
     handler: (payload: AppEventMap[K]) => void
   ) => void;
+  /** 宿主数据访问面（未注入的宿主环境下为 undefined，插件需做降级） */
+  data?: PluginDataAccess;
 }
 
 // ============ 插件配置 ============

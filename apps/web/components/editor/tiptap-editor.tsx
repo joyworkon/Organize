@@ -1685,6 +1685,9 @@ export function TipTapEditor({
           run: async (target) => {
             const baseContext = pluginContexts.get(pluginId);
             const context: PluginContext = {
+              // spread 透传 registerCommand / registerSlashCommand / onAppEvent / data 等宿主装配字段，
+              // 下方仅覆盖 note-block 场景化字段与兜底
+              ...baseContext,
               userId: baseContext?.userId || "current",
               getCurrentItem: baseContext?.getCurrentItem || (() => null),
               getCurrentNote: () => ({ id: noteId, title: noteTitle, content: editor?.getJSON() || null }),

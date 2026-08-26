@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePluginStore } from "./store";
 import { bootstrapPlugins } from "./bootstrap";
+import { createWebDataAccess } from "./data-access";
 import type { OrganizePlugin } from "@organize/plugin-sdk";
 import { toast } from "@/hooks/use-toast";
 
@@ -43,6 +44,7 @@ export function PluginLoader({ userId }: { userId: string }) {
         registerPlugin,
         activatePlugin,
         trackRegistration,
+        dataAccess: createWebDataAccess(fetch),
         notify: (message, variant) =>
           toast({ title: message, variant: variant === "destructive" ? "destructive" : "default" }),
       });
