@@ -31,6 +31,7 @@ async function loadBuiltinPlugins(): Promise<OrganizePlugin[]> {
 export function PluginLoader({ userId }: { userId: string }) {
   const registerPlugin = usePluginStore((state) => state.registerPlugin);
   const activatePlugin = usePluginStore((state) => state.activatePlugin);
+  const trackRegistration = usePluginStore((state) => state.trackRegistration);
 
   useEffect(() => {
     async function init() {
@@ -41,13 +42,14 @@ export function PluginLoader({ userId }: { userId: string }) {
         fetchImpl: fetch,
         registerPlugin,
         activatePlugin,
+        trackRegistration,
         notify: (message, variant) =>
           toast({ title: message, variant: variant === "destructive" ? "destructive" : "default" }),
       });
     }
 
     init();
-  }, [userId, registerPlugin, activatePlugin]);
+  }, [userId, registerPlugin, activatePlugin, trackRegistration]);
 
   return null;
 }

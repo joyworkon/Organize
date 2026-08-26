@@ -48,3 +48,50 @@ describe("usePluginStore 去重", () => {
     expect(usePluginStore.getState().contexts.size).toBe(0);
   });
 });
+
+describe("插件注册资源自动回收", () => {
+  it("停用时执行激活期登记的所有清理函数并清空登记表", () => {
+    const { registerPlugin, activatePlugin, trackRegistration, deactivatePlugin } =
+      usePluginStore.getState();
+    const calls: string[] = [];
+
+    registerPlugin(makePlugin("cleanup"));
+    activatePlugin("cleanup", makeCtx());
+    trackRegistration("cleanup", () => calls.push("a"));
+    trackRegistration("cleanup", () => calls.push("b"));
+    trackRegistration("cleanup", () => {
+      throw new Error("bad disposer"); // 单个清理失败不影响其他清理
+    });
+
+    deactivatePlugin("cleanup");
+
+    expect(calls.sort()).toEqual(["a", "b"]);
+    expect(usePluginStore.getState().registrations.has("cleanup")).toBe(false);
+
+    usePluginStore.setState({
+      plugins: [],
+      activePlugins: new Map(),
+      contexts: new Map(),
+      registrations: new Map(),
+    });
+  });
+
+  it("停用未注册的插件 id 是 no-op（不会误清别人的登记表）", () => {
+    const { registerPlugin, activatePlugin, trackRegistration, deactivatePlugin } =
+      usePluginStore.getState();
+    registerPlugin(makePlugin("keeper"));
+    activatePlugin("keeper", makeCtx());
+    trackRegistration("keeper", () => {});
+
+    deactivatePlugin("ghost-2");
+    expect(usePluginStore.getState().registrations.get("keeper")?.size).toBe(1);
+
+    deactivatePlugin("keeper");
+    usePluginStore.setState({
+      plugins: [],
+      activePlugins: new Map(),
+      contexts: new Map(),
+      registrations: new Map(),
+    });
+  });
+});

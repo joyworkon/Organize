@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { extractFirstUrl } from "@/lib/inbox/batch-import";
+import { appEvents } from "@/lib/plugin/events";
 import { toast } from "@/hooks/use-toast";
 import { ClipboardPaste, Layers, Link2, Loader2 } from "lucide-react";
 
@@ -68,17 +69,28 @@ export function QuickAddBar({ onAdded }: QuickAddBarProps) {
         toast({ title: "请先登录", variant: "destructive" });
         return;
       }
-      const { error } = await supabase.from("reading_items").insert({
-        user_id: user.id,
-        url: scraped?.url ?? normalizedUrl,
-        title: scraped?.title ?? normalizedUrl,
-        content: scraped?.content ?? null,
-        excerpt: scraped?.excerpt ?? null,
-        cover_image: scraped?.cover_image ?? null,
-        reading_status: "unread",
-        reading_progress: 0,
-      });
+      const { data: inserted, error } = await supabase
+        .from("reading_items")
+        .insert({
+          user_id: user.id,
+          url: scraped?.url ?? normalizedUrl,
+          title: scraped?.title ?? normalizedUrl,
+          content: scraped?.content ?? null,
+          excerpt: scraped?.excerpt ?? null,
+          cover_image: scraped?.cover_image ?? null,
+          reading_status: "unread",
+          reading_progress: 0,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      if (inserted) {
+        appEvents.emit("reading:item-created", {
+          itemId: inserted.id,
+          url: scraped?.url ?? normalizedUrl,
+          title: scraped?.title ?? normalizedUrl,
+        });
+      }
     } catch (err) {
       toast({
         title: "添加失败，请重试",

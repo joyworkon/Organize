@@ -29,6 +29,7 @@ import { ShareDialog } from "@/components/share/share-dialog";
 import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
 import { mutateTrash } from "@/lib/trash/client";
+import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
@@ -219,6 +220,7 @@ export default function NoteEditorPage() {
           small_font: dbSmallFont,
         };
         draftRef.current = remoteDraft;
+        appEvents.emit("note:opened", { noteId, title: loadedTitle });
 
         const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
         if (localDraft) {
@@ -572,6 +574,7 @@ export default function NoteEditorPage() {
         }
         setOfflinePending(false);
         contentRevisionRef.current = result.note_revision;
+        appEvents.emit("note:saved", { noteId, title: snapshot.title });
         setSaveConflict(null);
         setLastSaved(new Date());
         if (!dirtyRef.current && areNoteDraftsEqual(draftRef.current, snapshot)) {
