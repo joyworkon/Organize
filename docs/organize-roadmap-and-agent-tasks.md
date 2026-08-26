@@ -144,41 +144,31 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 - 空态、加载失败有明确表现；不直接操作 storage bucket。
 ```
 
-### C1 离线同步（设计已定，待评审后实现）
+### C1 离线同步（第一阶段已完成：PR #110 + #111）
 
-**等级：必须由强 Agent 实现并重点审查；设计评审通过后才能编码**
+**等级：必须由强 Agent 实现并重点审查**
+
+第一阶段（笔记单实体）已于 2026-08-26 落地。实现时对原协议设计做了裁剪——审计发现协议服务端已就绪（031/038 的 `save_note_with_tasks` 自带 content_revision 乐观锁 + save_mutation_log 幂等日志 + 冲突状态返回），localStorage 草稿已是本地镜像，冲突三选项对话框已存在，因此只补「网络感知 + 自动重试 + 幂等键接入」：
 
 ```text
-目标：断网时可继续创建/编辑笔记与任务，联网后自动同步，冲突可见可恢复。
+已实现（PR #110）：
+- lib/offline/network.ts：isOnline / onNetworkChange / useOnlineStatus
+- lib/offline/note-sync.ts（纯函数 + 12 测试）：网络错误指数退避 1s→60s 上限 10 次；
+  离线等 online 事件；带 code 的服务端错误不自动重试
+- 笔记页：离线短路不发起 RPC + 顶栏「离线中 · 更改将在联网后同步」角标；
+  online 事件自动 flushSave；网络错误自动重试（顶栏倒计时文案）
+- 幂等键：同一内容批次重试复用同一 p_mutation_id（areNoteDraftsEqual 判定），
+  响应丢失场景不误报冲突
+- 清理 0 引用死代码 lib/offline/queue.ts（IndexedDB 通用队列；职责已被
+  localStorage 草稿 + 原子 RPC 覆盖）
 
-协议设计 v1（2026-08-25）：
-1. 范围（第一阶段）：笔记创建/编辑（content jsonb）、任务创建/状态变更、标签。
-   暂不覆盖：synced blocks、分享、评论、数据库视图。
-2. 操作队列（IndexedDB pending_ops）：
-   - op_id = uuidv7()（客户端生成，时间有序，天然幂等键）
-   - 信封：{ op_id, entity, entity_id, base_revision, op_type, payload, created_at, retries }
-   - 入队即写本地镜像表，UI 立即乐观更新
-3. 同步协议：
-   - 按 op_id 时间序串行推送（同一实体必须串行）
-   - 服务端对 op_id 建唯一约束：重复推送返回原结果（幂等）
-   - 携带 base_revision 乐观锁；不匹配返回 409 + 服务端当前内容
-4. 冲突处理：
-   - 非阻塞横幅"该内容在其他设备被修改"
-   - 三选项：用我的覆盖（force）/ 保留服务端（丢弃本地）/ 另存副本（复用现有冲突副本机制）
-   - 冲突未解决前，该实体后续操作暂停（队列按依赖排序）
-5. 重试与上限：
-   - 网络错误指数退避 1s→60s，上限 10 次后标记 failed 需手动重试
-   - 4xx（除 409）不重试，标记 rejected 并提示
-   - 认证过期：暂停队列 → 引导重新登录 → 恢复
-6. 队列治理：schema_version 字段支持迁移；已确认操作 24h 内批量清理。
-7. 边界：现有 lib/offline/queue.ts 为 0 引用死代码，按新设计重写；
-   SW 从"页面缓存"收紧为"静态资源 + App Shell"，页面数据走 IndexedDB 镜像；
-   UI 明确显示"离线中，更改将在联网后同步"。
+SW 收紧（PR #111）：移除从未被主线程发送的 SYNC_PENDING 死代码；
+缓存版本 bump v2；保留 push 通知（任务提醒在用）。
 
-验收（设计评审通过后按此实现）：
-- 断网创建笔记 → 联网 → 列表出现且无重复。
-- 两端并发编辑 → 后同步方收到冲突横幅，三选项行为正确。
-- 刷新/重启浏览器 → 队列不丢、不重复执行。
+未做（后续阶段按需启动）：
+- 离线「创建」笔记/任务（需列表本地镜像 + 临时 ID 映射，改动大）
+- 任务、标签等其他实体的离线同步
+- Background Sync API（Chromium-only，页面内 flush 已覆盖主流场景）
 ```
 
 ### C2 桌面端 / 移动端发布
