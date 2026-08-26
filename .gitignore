@@ -40,6 +40,7 @@ next-env.d.ts
 
 # tauri
 desktop/src-tauri/target/
+desktop/src-tauri/gen/
 
 # capacitor
 mobile/android/
