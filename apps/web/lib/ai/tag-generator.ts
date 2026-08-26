@@ -3,13 +3,11 @@
  *
  * 设计：把"如何生成标签"和"何时生成标签"解耦。
  * - 默认实现：关键词提取（本地、零成本）
- * - 可选实现：调用 AI API（OpenAI / 通义 / Claude），通过环境变量切换
- *
- * 后续接入 AI 时，只需要：
- *   1. 在 .env.local 配置 OPENAI_API_KEY（或其它提供商）
- *   2. 本文件自动走 AI 分支
- *   不需要改其它代码。
+ * - AI 实现：OpenAI 兼容协议，配置来自「设置 › AI 服务」（user_ai_settings），
+ *   未配置时回退环境变量；AI 失败时业务层降级回关键词。
  */
+
+import { chatCompletion, type AIConfig } from "./server";
 
 export interface TagSuggestion {
   /** 标签名 */
@@ -116,66 +114,40 @@ export const keywordTagGenerator: TagGenerator = {
   },
 };
 
-// ---------- AI 实现（预留接口，后续接入） ----------
+// ---------- AI 实现（OpenAI 兼容协议） ----------
 
 /**
- * AI 标签生成器（占位实现）
- *
- * 接入步骤：
- * 1. pnpm add openai（或别的 SDK）
- * 2. 在 .env.local 配：
- *    OPENAI_API_KEY=sk-xxx
- *    AI_TAG_PROVIDER=openai   （可选，默认 keyword）
- * 3. 把下面的 generate 改成真正的 API 调用
- *
- * 这里保留骨架，不引入依赖，避免污染 bundle。
+ * 用用户配置的 AI 服务生成标签。
+ * 让模型返回严格 JSON，解析失败时抛错，由业务层降级到关键词生成器。
  */
-export const aiTagGenerator: TagGenerator = {
-  async generate(input) {
-    // ───── 后续接入 OpenAI 的参考代码（注释掉，避免未装依赖报错）─────
-    //
-    // if (!process.env.OPENAI_API_KEY) {
-    //   throw new Error("未配置 OPENAI_API_KEY");
-    // }
-    // const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    // const resp = await openai.chat.completions.create({
-    //   model: "gpt-4o-mini",
-    //   messages: [
-    //     {
-    //       role: "system",
-    //       content:
-    //         "根据用户提供的文章内容，推荐 3-5 个标签。要求简洁（2-6 字），" +
-    //         "优先复用用户已有的标签。返回 JSON 数组：[{\"name\":\"标签名\",\"score\":0.9}]",
-    //     },
-    //     {
-    //       role: "user",
-    //       content: `标题：${input.title}\n已有标签：${input.existingTagNames.join(", ")}\n内容：${input.text.slice(0, 3000)}`,
-    //     },
-    //   ],
-    //   temperature: 0.3,
-    //   response_format: { type: "json_object" },
-    // });
-    // return JSON.parse(resp.choices[0].message.content || "[]").tags;
-    //
-    // ──────────────────────────────────────────────────────────────
-
-    // 当前：未接入 AI，直接退化到关键词
-    void input;
-    throw new Error("AI 标签生成器未配置，请在 .env.local 设置 OPENAI_API_KEY 并实现 lib/ai/tag-generator.ts");
-  },
-};
-
-/**
- * 根据环境变量选择生成器。
- * 后续接入 AI 时，只要在 .env.local 加：
- *   AI_TAG_PROVIDER=openai
- *   OPENAI_API_KEY=sk-xxx
- * 就自动切换，无需改业务代码。
- */
-export function getTagGenerator(): TagGenerator {
-  const provider = process.env.AI_TAG_PROVIDER || process.env.NEXT_PUBLIC_AI_TAG_PROVIDER;
-  if (provider === "openai" || process.env.OPENAI_API_KEY) {
-    return aiTagGenerator;
-  }
-  return keywordTagGenerator;
+export function createAITagGenerator(config: AIConfig): TagGenerator {
+  return {
+    async generate(input) {
+      const max = input.maxTags ?? 5;
+      const raw = await chatCompletion(
+        config,
+        "根据文章内容推荐标签。要求：2-8 个字符的简短词；优先复用用户已有标签；" +
+          "只输出严格 JSON：{\"tags\":[{\"name\":\"标签名\",\"score\":0.9}]}，score 为 0-1 置信度。",
+        `标题：${input.title}\n已有标签：${input.existingTagNames.join(", ") || "（无）"}\n内容：${input.text.slice(0, 3000)}`
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("AI 未返回 JSON");
+      const parsed = JSON.parse(match[0]);
+      const tags = Array.isArray(parsed?.tags) ? parsed.tags : [];
+      const suggestions: TagSuggestion[] = [];
+      for (const tag of tags) {
+        const name = String(tag?.name || "").trim().replace(/^#/, "");
+        if (!name || name.length > 16) continue;
+        const score = Number(tag?.score);
+        suggestions.push({
+          name,
+          score: Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0.5,
+          source: "ai",
+        });
+        if (suggestions.length >= max) break;
+      }
+      if (!suggestions.length) throw new Error("AI 未返回有效标签");
+      return suggestions;
+    },
+  };
 }

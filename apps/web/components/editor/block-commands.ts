@@ -481,7 +481,18 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["tabs", "tab", "选项卡", "标签页"],
     canTransform: true,
     preview: { sample: "▢▢ 选项卡", caption: "可切换页签的容器" },
-    run: (editor, pos) => replaceBlock(editor, pos, { type: "tabs", attrs: { activeIndex: 0 } }),
+    // 必须带完整 content：schema 要求 tabs 至少含一个 tab。
+    // 只给 { type: "tabs" } 时 nodeFromJSON 会造出没有子节点的非法 tabs，
+    // 页面上是一个没有标签栏、无法交互的空盒子。
+    // 原块文字会由 buildBlockReplacement 注入第一个 tab 的段落里。
+    run: (editor, pos) => replaceBlock(editor, pos, {
+      type: "tabs",
+      attrs: { activeIndex: 0 },
+      content: [
+        { type: "tab", attrs: { title: "标签页 1", active: true }, content: [{ type: "paragraph" }] },
+        { type: "tab", attrs: { title: "标签页 2", active: false }, content: [{ type: "paragraph" }] },
+      ],
+    }),
   },
   {
     id: "mermaid",
