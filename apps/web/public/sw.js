@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = "organize-v2";
-const STATIC_ASSETS = ["/", "/inbox", "/library", "/notes", "/plugins"];
+const CACHE_NAME = "organize-v3";
+const STATIC_ASSETS = ["/", "/library", "/notes", "/plugins"];
 
 // 安装时缓存静态资源
 self.addEventListener("install", (event) => {

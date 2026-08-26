@@ -71,7 +71,7 @@ function ShareContent() {
 
       setTitle(data.title || sharedUrl);
 
-      // 保存到阅读库
+      // 保存到稍后读
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -120,10 +120,10 @@ function ShareContent() {
           {status === "saved" && (
             <div className="flex flex-col items-center gap-2">
               <Check className="h-6 w-6 text-green-500" />
-              <p className="text-sm font-medium">已保存到阅读库</p>
+              <p className="text-sm font-medium">已保存到稍后读</p>
               <p className="text-xs text-muted-foreground line-clamp-2">{title}</p>
               <Button size="sm" onClick={() => router.push("/library")}>
-                查看阅读库
+                查看稍后读
               </Button>
             </div>
           )}
@@ -131,7 +131,7 @@ function ShareContent() {
           {status === "error" && (
             <div className="flex flex-col items-center gap-2">
               <p className="text-sm text-destructive">保存失败</p>
-              <Button size="sm" variant="outline" onClick={() => router.push("/inbox")}>
+              <Button size="sm" variant="outline" onClick={() => router.push("/library")}>
                 手动添加
               </Button>
             </div>

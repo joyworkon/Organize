@@ -17,7 +17,6 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
   Home,
-  Inbox,
   BookOpen,
   FileText,
   ListChecks,
@@ -63,8 +62,7 @@ const SEARCH_LIMIT = 8;
 
 const NAV_ITEMS = [
   { label: "工作台", path: "/", icon: Home, shortcut: "G H" },
-  { label: "收集箱", path: "/inbox", icon: Inbox, shortcut: "G I" },
-  { label: "阅读库", path: "/library", icon: BookOpen, shortcut: "G L" },
+  { label: "稍后读", path: "/library", icon: BookOpen, shortcut: "G L" },
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
   { label: "经验", path: "/lessons", icon: Lightbulb, shortcut: "G E" },
@@ -320,11 +318,11 @@ export function CommandPalette() {
     }
 
     // 仅在入库成功后提示成功
-    toast({ title: scrapeFailed ? "已添加到收集箱（正文抓取失败）" : "已添加到收集箱" });
+    toast({ title: scrapeFailed ? "已添加到稍后读（正文抓取失败）" : "已添加到稍后读" });
     setLinkInputOpen(false);
     setLinkUrl("");
     setOpen(false);
-    router.push("/inbox");
+    router.push("/library");
   };
 
   const performSearch = useCallback(async (query: string) => {
@@ -652,7 +650,7 @@ export function CommandPalette() {
             <div className="p-3 space-y-3">
               <div className="flex items-center gap-2">
                 <LinkIcon className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">粘贴链接到收集箱</span>
+                <span className="text-sm font-medium">粘贴链接到稍后读</span>
               </div>
               <div className="flex gap-2">
                 <Input
@@ -778,7 +776,7 @@ export function CommandPalette() {
               <CommandGroup heading="快速新建">
                 <CommandItem onSelect={() => setLinkInputOpen(true)}>
                   <LinkIcon className="mr-2 h-4 w-4" />
-                  <span>粘贴链接到收集箱</span>
+                  <span>粘贴链接到稍后读</span>
                 </CommandItem>
                 <CommandItem onSelect={handleCreateNote}>
                   <FilePlus className="mr-2 h-4 w-4" />
