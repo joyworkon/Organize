@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MSG_CONFIG_LOAD_FAILED,
   MSG_CONFIG_SAVE_FAILED,
@@ -7,6 +7,8 @@ import {
   pluginDefaultConfig,
   type BootstrapDeps,
 } from "./bootstrap";
+import { CommandRegistry } from "@/lib/commands/registry";
+import { AppEventBus } from "./events";
 import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
 import type { PluginRecord } from "@organize/shared";
 
@@ -282,6 +284,57 @@ describe("bootstrapPlugins", () => {
       const { ctx } = await activateWith(() => jsonResponse(makeRecord(makePlugin("p1"))));
       expect(ctx.getCurrentItem()).toBeNull();
       expect(ctx.userId).toBe("u1");
+    });
+  });
+
+  describe("命令与事件注册", () => {
+    async function activateWithRegistries() {
+      const plugin = makePlugin("p1", "测试插件");
+      const harness = makeHarness([plugin], () =>
+        jsonResponse([makeRecord(plugin)])
+      );
+      const commands = new CommandRegistry();
+      const events = new AppEventBus();
+      const tracked: { pluginId: string; dispose: () => void }[] = [];
+      harness.deps.commands = commands;
+      harness.deps.events = events;
+      harness.deps.trackRegistration = (pluginId, dispose) =>
+        tracked.push({ pluginId, dispose });
+      await bootstrapPlugins(harness.deps);
+      return { harness, commands, events, tracked, ctx: harness.activated[0].ctx };
+    }
+
+    it("registerCommand：命令带插件前缀入注册表，section 缺省为插件名，并登记清理", async () => {
+      const { commands, tracked, ctx } = await activateWithRegistries();
+      const handler = vi.fn();
+      ctx.registerCommand!({ id: "summarize", title: "生成摘要", handler });
+
+      const command = commands.get("p1:summarize");
+      expect(command?.title).toBe("生成摘要");
+      expect(command?.section).toBe("测试插件");
+      expect(tracked).toHaveLength(1);
+      expect(tracked[0].pluginId).toBe("p1");
+
+      await command?.run();
+      expect(handler).toHaveBeenCalledWith(ctx);
+
+      // 登记的清理函数执行后命令从注册表消失（停用时自动回收链路）
+      tracked[0].dispose();
+      expect(commands.get("p1:summarize")).toBeUndefined();
+    });
+
+    it("onAppEvent：订阅进事件总线并登记清理，退订后不再接收", async () => {
+      const { events, tracked, ctx } = await activateWithRegistries();
+      const handler = vi.fn();
+      ctx.onAppEvent!("note:saved", handler);
+
+      events.emit("note:saved", { noteId: "n1", title: "日记" });
+      expect(handler).toHaveBeenCalledWith({ noteId: "n1", title: "日记" });
+      expect(tracked).toHaveLength(1);
+
+      tracked[0].dispose();
+      events.emit("note:saved", { noteId: "n2", title: "第二篇" });
+      expect(handler).toHaveBeenCalledTimes(1);
     });
   });
 });

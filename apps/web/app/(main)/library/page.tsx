@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { appEvents } from "@/lib/plugin/events";
 import { ReadingCard } from "@/components/reading/reading-card";
 import { QuickAddBar } from "@/components/reading/quick-add-bar";
 import { VirtualList } from "@/components/ui/virtual-list";
@@ -301,9 +302,14 @@ export default function LibraryPage() {
       .update({ reading_status: status })
       .eq("id", id);
     if (!error) {
+      const previous = items.find((it) => it.id === id)?.reading_status;
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, reading_status: status } : it))
       );
+      // 事件发射是副作用，放在 setState 更新器外面（项目约定）
+      if (previous && previous !== status) {
+        appEvents.emit("reading:status-changed", { itemId: id, from: previous, to: status });
+      }
       fetchStats();
     }
   };

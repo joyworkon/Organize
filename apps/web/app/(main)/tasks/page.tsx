@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
+import { appEvents } from "@/lib/plugin/events";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import {
   enqueueTaskOp,
@@ -369,6 +370,10 @@ function TasksPageInner() {
     }
     // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
     if (normalized.status === "done") {
+      appEvents.emit("task:completed", {
+        taskId,
+        title: tasks.find((task) => task.id === taskId)?.title ?? "",
+      });
       const newId = await generateNextRecurringTask(supabase, taskId);
       if (newId) {
         toast({ title: "已生成下一次重复任务" });

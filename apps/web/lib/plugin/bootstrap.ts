@@ -12,6 +12,8 @@
 
 import type { OrganizePlugin, PluginContext } from "@organize/plugin-sdk";
 import type { PluginRecord } from "@organize/shared";
+import { commandRegistry, type CommandRegistry } from "@/lib/commands/registry";
+import { appEvents, type AppEventBus } from "@/lib/plugin/events";
 
 export type FetchLike = (
   input: string,
@@ -29,7 +31,13 @@ export interface BootstrapDeps {
   fetchImpl: FetchLike;
   registerPlugin: (plugin: OrganizePlugin) => void;
   activatePlugin: (id: string, ctx: PluginContext) => void;
+  /** 记录插件激活期注册的清理函数（停用时统一回收）；缺省则不跟踪 */
+  trackRegistration?: (pluginId: string, dispose: () => void) => void;
   notify: BootstrapNotify;
+  /** 测试注入用；默认应用级单例 */
+  commands?: CommandRegistry;
+  /** 测试注入用；默认应用级单例 */
+  events?: AppEventBus;
 }
 
 export interface BootstrapResult {
@@ -74,7 +82,17 @@ async function fetchJson(
 }
 
 export async function bootstrapPlugins(deps: BootstrapDeps): Promise<BootstrapResult> {
-  const { plugins, userId, fetchImpl, registerPlugin, activatePlugin, notify } = deps;
+  const {
+    plugins,
+    userId,
+    fetchImpl,
+    registerPlugin,
+    activatePlugin,
+    trackRegistration,
+    notify,
+    commands = commandRegistry,
+    events = appEvents,
+  } = deps;
 
   // 1. 全部注册（store 内部对重复 id 去重）
   for (const plugin of plugins) {
@@ -145,6 +163,23 @@ export async function bootstrapPlugins(deps: BootstrapDeps): Promise<BootstrapRe
       },
       notify: (message, type = "info") =>
         notify(message, type === "error" ? "destructive" : "default"),
+      registerCommand: (command) => {
+        // 命令 id 加插件前缀避免跨插件冲突；section 缺省归到插件名分组
+        const dispose = commands.register({
+          id: `${plugin.id}:${command.id}`,
+          title: command.title,
+          section: command.section || plugin.name,
+          icon: command.icon,
+          shortcut: command.shortcut,
+          keywords: command.keywords,
+          run: () => command.handler(ctx),
+        });
+        trackRegistration?.(plugin.id, dispose);
+      },
+      onAppEvent: (event, handler) => {
+        const dispose = events.on(event, handler);
+        trackRegistration?.(plugin.id, dispose);
+      },
     };
     activatePlugin(plugin.id, ctx);
     result.activated += 1;

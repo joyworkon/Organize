@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { appEvents } from "@/lib/plugin/events";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/reading/status-badge";
 import { Toc, extractHeadings } from "@/components/reading/toc";
@@ -301,6 +302,12 @@ export default function ReadingDetailPage() {
         prev ? { ...prev, reading_progress: progress, reading_status: newStatus } : null
       );
 
+      // 事件发射是副作用，放在 setState 更新器外面（项目约定）
+      const previousStatus = item?.reading_status || "unread";
+      if (previousStatus !== newStatus) {
+        appEvents.emit("reading:status-changed", { itemId, from: previousStatus, to: newStatus });
+      }
+
       supabase
         .from("reading_items")
         .update({ reading_progress: Math.round(progressPercent) / 100, reading_status: newStatus })
@@ -494,7 +501,11 @@ export default function ReadingDetailPage() {
       .from("reading_items")
       .update({ reading_status: status })
       .eq("id", itemId);
+    const previous = item?.reading_status;
     setItem((prev) => prev ? { ...prev, reading_status: status } : null);
+    if (previous && previous !== status) {
+      appEvents.emit("reading:status-changed", { itemId, from: previous, to: status });
+    }
   };
 
   // 全宽 / 默认宽度切换：乐观更新，失败回滚（与笔记页 full_width 语义一致，按文章持久化）

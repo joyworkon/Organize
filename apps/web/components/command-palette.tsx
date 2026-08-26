@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   CommandDialog,
@@ -13,6 +13,8 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
+import { commandRegistry, type CommandDefinition } from "@/lib/commands/registry";
+import { appEvents } from "@/lib/plugin/events";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -73,6 +75,17 @@ const NAV_ITEMS = [
   { label: "插件", path: "/plugins", icon: Puzzle, shortcut: "G P" },
   { label: "设置", path: "/settings", icon: Settings, shortcut: "" },
 ];
+
+const NAV_SECTION = "导航";
+
+function CommandIcon({ icon }: { icon?: CommandDefinition["icon"] }) {
+  if (!icon) return null;
+  if (typeof icon === "string") {
+    return <span className="mr-2 w-4 text-center">{icon}</span>;
+  }
+  const Icon = icon;
+  return <Icon className="mr-2 h-4 w-4" />;
+}
 
 function getTypeIcon(type: SearchResult["type"]) {
   switch (type) {
@@ -253,6 +266,54 @@ export function CommandPalette() {
 
   const isMockMode = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
 
+  // 命令注册表（Obsidian 风格「一切皆命令」）：导航项注册为命令，
+  // 插件通过 ctx.registerCommand 贡献的命令也出现在这里。
+  const registryCommands = useSyncExternalStore(
+    (onStoreChange) => commandRegistry.subscribe(onStoreChange),
+    () => commandRegistry.list(),
+    () => [] as CommandDefinition[]
+  );
+
+  useEffect(() => {
+    const disposers = NAV_ITEMS.map((item) =>
+      commandRegistry.register({
+        id: `app:nav:${item.path}`,
+        title: item.label,
+        section: NAV_SECTION,
+        icon: item.icon,
+        shortcut: item.shortcut,
+        run: () => router.push(item.path),
+      })
+    );
+    return () => disposers.forEach((dispose) => dispose());
+  }, [router]);
+
+  const navCommands = registryCommands.filter((command) => command.section === NAV_SECTION);
+  const pluginCommandSections = new Map<string, CommandDefinition[]>();
+  registryCommands
+    .filter((command) => command.section !== NAV_SECTION)
+    .forEach((command) => {
+      const section = command.section || "命令";
+      const bucket = pluginCommandSections.get(section) ?? [];
+      bucket.push(command);
+      pluginCommandSections.set(section, bucket);
+    });
+
+  const renderRegistryCommand = (command: CommandDefinition) => (
+    <CommandItem
+      key={command.id}
+      value={[command.title, ...(command.keywords ?? [])].join(" ")}
+      onSelect={() => {
+        setOpen(false);
+        void command.run();
+      }}
+    >
+      <CommandIcon icon={command.icon} />
+      <span>{command.title}</span>
+      {command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
+    </CommandItem>
+  );
+
   useHotkey([
     {
       key: "k",
@@ -302,14 +363,25 @@ export function CommandPalette() {
         toast({ title: "请先登录", variant: "destructive" });
         return;
       }
-      const { error } = await supabase.from("reading_items").insert({
-        user_id: user.id,
-        url: linkUrl.trim(),
-        title: linkUrl.trim(),
-        reading_status: "unread",
-        reading_progress: 0,
-      });
+      const { data: inserted, error } = await supabase
+        .from("reading_items")
+        .insert({
+          user_id: user.id,
+          url: linkUrl.trim(),
+          title: linkUrl.trim(),
+          reading_status: "unread",
+          reading_progress: 0,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      if (inserted) {
+        appEvents.emit("reading:item-created", {
+          itemId: inserted.id,
+          url: linkUrl.trim(),
+          title: linkUrl.trim(),
+        });
+      }
     } catch {
       toast({ title: "添加失败，请重试", variant: "destructive" });
       return;
@@ -757,20 +829,7 @@ export function CommandPalette() {
               )}
 
               <CommandGroup heading="导航">
-                {NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <CommandItem
-                      key={item.path}
-                      value={item.label}
-                      onSelect={() => handleSelect(item.path)}
-                    >
-                      <Icon className="mr-2 h-4 w-4" />
-                      <span>{item.label}</span>
-                      <CommandShortcut>{item.shortcut}</CommandShortcut>
-                    </CommandItem>
-                  );
-                })}
+                {navCommands.map(renderRegistryCommand)}
               </CommandGroup>
               <CommandSeparator />
               <CommandGroup heading="快速新建">
@@ -783,6 +842,12 @@ export function CommandPalette() {
                   <span>新建笔记</span>
                 </CommandItem>
               </CommandGroup>
+              {pluginCommandSections.size > 0 && <CommandSeparator />}
+              {Array.from(pluginCommandSections.entries()).map(([section, commands]) => (
+                <CommandGroup heading={section} key={section}>
+                  {commands.map(renderRegistryCommand)}
+                </CommandGroup>
+              ))}
               <CommandSeparator />
               <CommandGroup heading="帮助">
                 <CommandItem onSelect={() => { resetOnboarding(); }}>

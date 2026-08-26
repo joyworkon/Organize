@@ -1,6 +1,46 @@
 import type { ComponentType } from "react";
 import type { EditorBlockContext, Note, ReadingItem, ScrapeResult } from "@organize/shared";
 
+// ============ 应用事件契约 ============
+
+/**
+ * 应用事件表：事件名 → payload 类型。
+ * 插件通过 ctx.onAppEvent 订阅，宿主应用在对应行为发生时发射。
+ */
+export interface AppEventMap {
+  /** 笔记内容保存成功（含自动保存） */
+  "note:saved": { noteId: string; title: string };
+  /** 笔记被打开 */
+  "note:opened": { noteId: string; title: string };
+  /** 新条目进入阅读库 */
+  "reading:item-created": { itemId: string; url: string; title: string };
+  /** 阅读状态流转（unread / reading / read） */
+  "reading:status-changed": { itemId: string; from: string; to: string };
+  /** 任务被标记完成 */
+  "task:completed": { taskId: string; title: string };
+}
+
+export type AppEventName = keyof AppEventMap;
+
+// ============ 命令贡献 ============
+
+/** 插件贡献的命令：出现在命令面板（Cmd/Ctrl+K），可被用户搜索执行 */
+export interface CommandContribution {
+  /** 插件内唯一 id；宿主会加上插件 id 前缀避免冲突 */
+  id: string;
+  /** 展示标题，如「为当前条目生成摘要」 */
+  title: string;
+  /** 分组标签，缺省用插件名 */
+  section?: string;
+  /** emoji 图标 */
+  icon?: string;
+  /** 展示用快捷键文本（仅展示） */
+  shortcut?: string;
+  /** 搜索别名 */
+  keywords?: string[];
+  handler: (ctx: PluginContext) => void | Promise<void>;
+}
+
 // ============ 插件上下文 ============
 
 export interface PluginContext {
@@ -18,6 +58,16 @@ export interface PluginContext {
   getCurrentNote?: () => Pick<Note, "id" | "title" | "content"> | null;
   /** 当前编辑器块，仅在 note-block 场景可用 */
   getCurrentBlock?: () => EditorBlockContext | null;
+  /**
+   * 注册命令到命令面板。插件停用时自动注销（Obsidian register* 语义），
+   * 无需插件自行清理。
+   */
+  registerCommand?: (command: CommandContribution) => void;
+  /** 订阅应用事件。插件停用时自动退订，无需插件自行清理。 */
+  onAppEvent?: <K extends AppEventName>(
+    event: K,
+    handler: (payload: AppEventMap[K]) => void
+  ) => void;
 }
 
 // ============ 插件配置 ============
