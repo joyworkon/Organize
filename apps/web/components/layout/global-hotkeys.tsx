@@ -20,6 +20,7 @@ const SHORTCUTS = [
   { keys: "g n", desc: "跳转到笔记" },
   { keys: "g d", desc: "跳转到待办" },
   { keys: "g e", desc: "跳转到经验" },
+  { keys: "g g", desc: "跳转到图谱" },
   { keys: "g f", desc: "跳转到收藏夹" },
   { keys: "g t", desc: "跳转到标签" },
   { keys: "g r", desc: "跳转到回顾" },
@@ -90,6 +91,7 @@ export function GlobalHotkeys() {
       { sequence: ["g", "n"], handler: () => go("/notes") },
       { sequence: ["g", "d"], handler: () => go("/tasks") },
       { sequence: ["g", "e"], handler: () => go("/lessons") },
+      { sequence: ["g", "g"], handler: () => go("/graph") },
       { sequence: ["g", "f"], handler: () => go("/favorites") },
       { sequence: ["g", "t"], handler: () => go("/tags") },
       { sequence: ["g", "r"], handler: () => go("/?view=review") },
@@ -109,7 +111,7 @@ export function GlobalHotkeys() {
     <>
       {gotoMode && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-popover text-popover-foreground border rounded-md px-3 py-1.5 text-sm">
-          按 g 后，按 h/i/l/n/d/e/f/t/r/s/p 跳转...
+          按 g 后，按 h/i/l/n/d/e/g/f/t/r/s/p 跳转...
         </div>
       )}
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
