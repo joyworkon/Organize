@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@capacitor/core": "^6.1.2",
+    "@capacitor/local-notifications": "^6.1.0",
     "@capacitor/share": "^6.0.2",
     "@capacitor/splash-screen": "^6.0.2"
   },
