@@ -394,9 +394,9 @@ export function Sidebar() {
                   </button>
                 </div>
                 {notesExpanded && (
-                  <div className="mt-1">
+                  <div className="mt-1 px-2">
                     {notesLoading && noteTree.length === 0 ? (
-                      <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         加载笔记...
                       </div>
@@ -525,56 +525,59 @@ function SidebarNoteTree({
     });
   };
 
-  const renderNodes = (branch: NoteTreeNode[], depth: number): React.ReactNode =>
-    branch.map((note) => {
-      const hasChildren = note.children.length > 0;
-      const childrenOpen = !collapsedIds.has(note.id);
-      const active = pathname === `/notes/${note.id}`;
-      return (
-        <div key={note.id}>
-          <div
-            className={cn(
-              "group flex min-w-0 items-center rounded-md text-xs",
-              active
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/70 hover:text-accent-foreground"
-            )}
-            style={{ paddingLeft: `${8 + Math.min(depth, 6) * 14}px` }}
-          >
-            {hasChildren ? (
-              <button
-                type="button"
-                className="grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-background/50"
-                onClick={() => toggle(note.id)}
-                aria-label={childrenOpen ? "收起子页面" : "展开子页面"}
-                aria-expanded={childrenOpen}
-              >
-                {childrenOpen ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-              </button>
-            ) : (
-              <span className="h-6 w-6 shrink-0" />
-            )}
-            <Link
-              href={`/notes/${note.id}`}
-              onClick={onNavigate}
-              className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2"
-              title={note.title || "无标题笔记"}
+  const renderNodes = (branch: NoteTreeNode[], depth: number): React.ReactNode => (
+    <div className="flex flex-col gap-1">
+      {branch.map((note) => {
+        const hasChildren = note.children.length > 0;
+        const childrenOpen = !collapsedIds.has(note.id);
+        const active = pathname === `/notes/${note.id}`;
+        return (
+          <div key={note.id}>
+            <div
+              className={cn(
+                "group flex min-w-0 items-center rounded-md text-sm transition-colors",
+                active
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+              style={{ paddingLeft: `${8 + Math.min(depth, 6) * 14}px` }}
             >
-              <span className="shrink-0">{note.icon || "📄"}</span>
-              <span className="truncate">{note.title || "无标题笔记"}</span>
-            </Link>
+              {hasChildren ? (
+                <button
+                  type="button"
+                  className="grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-background/50"
+                  onClick={() => toggle(note.id)}
+                  aria-label={childrenOpen ? "收起子页面" : "展开子页面"}
+                  aria-expanded={childrenOpen}
+                >
+                  {childrenOpen ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              ) : (
+                <span className="h-6 w-6 shrink-0" />
+              )}
+              <Link
+                href={`/notes/${note.id}`}
+                onClick={onNavigate}
+                className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
+                title={note.title || "无标题笔记"}
+              >
+                <span className="shrink-0">{note.icon || "📄"}</span>
+                <span className="truncate">{note.title || "无标题笔记"}</span>
+              </Link>
+            </div>
+            {hasChildren && childrenOpen && renderNodes(note.children, depth + 1)}
           </div>
-          {hasChildren && childrenOpen && renderNodes(note.children, depth + 1)}
-        </div>
-      );
-    });
+        );
+      })}
+    </div>
+  );
 
   if (nodes.length === 0) {
-    return <p className="px-4 py-2 text-xs text-muted-foreground">还没有笔记</p>;
+    return <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有笔记</p>;
   }
   return <>{renderNodes(nodes, 0)}</>;
 }
