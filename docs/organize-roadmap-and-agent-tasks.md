@@ -58,7 +58,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 ### P2：平台能力
 
-- [ ] **X1 离线同步**：协议设计已完成（见 C1），按“设计评审通过后才能编码”执行。`lib/offline/queue.ts` 当前是 0 引用死代码，实现时按新设计重写。
+- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（删除/排序/子任务离线化、标签等实体）按需启动。
 - [ ] **X2 桌面端最小发布版**：可行性已评估（见下）。**阻塞：本机无 Rust 工具链（cargo/rustc 缺失），无法本地验证构建。**
   - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
   - 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
