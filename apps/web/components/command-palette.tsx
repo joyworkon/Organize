@@ -37,6 +37,7 @@ import {
   X,
   HelpCircle,
   Settings,
+  Network,
 } from "lucide-react";
 import { resetOnboarding } from "@/components/onboarding";
 import type { Task, ReadingItem, Note, Lesson, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
@@ -67,6 +68,7 @@ const NAV_ITEMS = [
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
   { label: "经验", path: "/lessons", icon: Lightbulb, shortcut: "G E" },
+  { label: "图谱", path: "/graph", icon: Network, shortcut: "G G" },
   { label: "标签", path: "/tags", icon: Tag, shortcut: "G T" },
   { label: "回顾", path: "/?view=review", icon: CalendarDays, shortcut: "G R" },
   { label: "统计", path: "/?view=stats", icon: BarChart3, shortcut: "G S" },
