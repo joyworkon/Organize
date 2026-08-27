@@ -68,6 +68,18 @@ describe("buildDueReminders", () => {
     expect(today!.title).toBe("任务已过期");
   });
 
+  it("宽限期内（15 分钟内）到期的任务不当场报「已过期」", () => {
+    // 到期 10 分钟：仍在 OVERDUE_IMMEDIATE_GRACE_MS 内，措辞保持"即将到期"
+    const tenMinAgo = new Date(NOW.getTime() - 10 * 60 * 1000).toISOString();
+    const reminders = buildDueReminders(
+      { id: "t1", title: "刚到期任务", status: "todo", all_day: false, due_date: tenMinAgo },
+      NOW
+    );
+    const today = reminders.find((r) => r.key.endsWith(":today"));
+    expect(today).toBeDefined();
+    expect(today!.title).toBe("任务到期提醒");
+  });
+
   it("未来任务产生 15 分钟前与到期两条提醒", () => {
     const reminders = buildDueReminders(
       { id: "t1", title: "未来任务", status: "todo", all_day: false, due_date: LOCAL_TODAY_NOON },

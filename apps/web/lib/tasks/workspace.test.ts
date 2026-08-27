@@ -68,8 +68,16 @@ describe("task search", () => {
 describe("quickAddDueDate", () => {
   const now = new Date("2026-08-03T12:00:00.000Z");
 
-  it("给今天范围生成当天日期", () => {
-    expect(quickAddDueDate("today", now)).toBe(now.toISOString());
+  it("给今天范围生成当天 23:59:59，而不是创建瞬间（否则任务一落库就过期）", () => {
+    const due = new Date(quickAddDueDate("today", now)!);
+    // 用本地分量断言：存储值是本地当天的 23:59:59，与运行时区无关
+    expect(due.getFullYear()).toBe(now.getFullYear());
+    expect(due.getMonth()).toBe(now.getMonth());
+    expect(due.getDate()).toBe(now.getDate());
+    expect(due.getHours()).toBe(23);
+    expect(due.getMinutes()).toBe(59);
+    expect(due.getSeconds()).toBe(59);
+    expect(due.getTime()).toBeGreaterThan(now.getTime());
   });
 
   it("给最近7天范围生成明天上午的日期，避免请求完成时落到过去", () => {

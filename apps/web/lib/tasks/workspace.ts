@@ -47,7 +47,11 @@ export function quickAddDueDate(
   scope: SidebarSelection["scope"],
   now = new Date()
 ): string | null {
-  if (scope === "today") return now.toISOString();
+  // 存当天 23:59 而非"现在"：用创建瞬间当截止会让任务一落库就过期，
+  // fetchTasks 后的提醒调度立刻弹「任务已过期」——用户刚添加就收到过期通知
+  if (scope === "today") {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+  }
   if (scope === "upcoming") {
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
