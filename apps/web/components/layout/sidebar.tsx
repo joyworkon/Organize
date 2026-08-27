@@ -200,7 +200,8 @@ export function Sidebar() {
         .from("notes")
         .insert({
           user_id: user.id,
-          title: "无标题笔记",
+          // 空标题：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦；侧边栏树显示时回退
+          title: "",
           content: { type: "doc", content: [{ type: "paragraph" }] },
           icon: null,
           cover_url: null,
