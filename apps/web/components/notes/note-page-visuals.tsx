@@ -199,7 +199,7 @@ export function NotePageVisuals({
             </EmojiPopover>
           ) : (
             <EmojiPopover icon={null} onSelect={onIconChange}>
-              <Button type="button" variant="ghost" size="sm">
+              <Button type="button" variant="ghost" size="sm" className="note-page-add-btn">
                 <SmilePlus className="h-4 w-4" />
                 添加图标
               </Button>
@@ -212,6 +212,7 @@ export function NotePageVisuals({
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="note-page-add-btn"
                 onClick={() => inputRef.current?.click()}
                 disabled={uploading}
               >
@@ -225,8 +226,9 @@ export function NotePageVisuals({
             )}
             <Button
               type="button"
-              variant={commentsOpen ? "secondary" : "ghost"}
+              variant="ghost"
               size="sm"
+              className="note-page-add-btn"
               onClick={onToggleComments}
             >
               <MessageSquare className="h-4 w-4" />

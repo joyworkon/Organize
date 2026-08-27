@@ -20,6 +20,7 @@ import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
+import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff } from "lucide-react";
 import Link from "next/link";
@@ -59,6 +60,7 @@ import {
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
 const fontKey = (id: string) => `organize:note:${id}:font`;
 const smallFontKey = (id: string) => `organize:note:${id}:smallFont`;
+const tocKeyFor = (id: string) => `organize:note:${id}:toc`;
 
 function isTaskNoteLinkEnabled(): boolean {
   return true;
@@ -109,6 +111,7 @@ export default function NoteEditorPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null);
   const [contentLinkStates, setContentLinkStates] = useState<Record<string, InternalLinkStateRow>>({});
@@ -792,6 +795,26 @@ export default function NoteEditorPage() {
     autoGrowTitle();
   }, [title, fullWidth, loading, autoGrowTitle]);
 
+  // 新建/无标题笔记：加载完成后自动聚焦标题（光标闪动），便于立即输入。
+  const titleAutoFocusedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !content || title) return;
+    if (titleAutoFocusedRef.current === noteId) return;
+    titleAutoFocusedRef.current = noteId;
+    const el = titleRef.current;
+    if (!el) return;
+    el.focus();
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }, [loading, content, title, noteId]);
+
+  // 目录开关初始值：localStorage 记忆，默认关闭
+  useEffect(() => {
+    try {
+      setTocOpen(localStorage.getItem(tocKeyFor(noteId)) === "1");
+    } catch { /* 默认关闭 */ }
+  }, [noteId]);
+
   // T1/T2：在标题里按回车，把拆分点之后的文字迁移到正文顶部的新段落。
   const handleTitleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter") return;
@@ -854,6 +877,24 @@ export default function NoteEditorPage() {
     draftRef.current.small_font = next;
     queueSave();
   };
+
+  // 目录开关：持久化到 localStorage（纯 UI 状态，不入库）
+  const toggleToc = useCallback(() => {
+    setTocOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(tocKeyFor(noteId), next ? "1" : "0");
+      } catch { /* localStorage 不可用时仅内存态 */ }
+      return next;
+    });
+  }, [noteId]);
+
+  const closeToc = useCallback(() => {
+    setTocOpen(false);
+    try {
+      localStorage.setItem(tocKeyFor(noteId), "0");
+    } catch { /* ignore */ }
+  }, [noteId]);
 
   // 轻量内联提示：显示一条短消息，2 秒后自动消失。
   const showToast = useCallback((message: string) => {
@@ -1098,6 +1139,25 @@ export default function NoteEditorPage() {
     editor.view.dispatch(tr);
   };
 
+  // 页面信息统计：字数（去空白字符数）与块数（顶层块总数），供三点菜单底部展示。
+  // 必须放在 loading/!content 提前 return 之前，保证 hooks 顺序稳定。
+  const { wordCount, blockCount } = useMemo(() => {
+    if (!content || typeof content !== "object") return { wordCount: 0, blockCount: 0 };
+    const doc = content as { type?: string; content?: unknown[] };
+    const blocks = Array.isArray(doc.content) ? doc.content.length : 0;
+    let textLen = 0;
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      const record = node as { type?: string; text?: unknown; content?: unknown[] };
+      if (record.type === "text" && typeof record.text === "string") {
+        textLen += record.text.replace(/\s/g, "").length;
+      }
+      for (const child of record.content || []) walk(child);
+    };
+    walk(content);
+    return { wordCount: textLen, blockCount: blocks };
+  }, [content]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1140,7 +1200,8 @@ export default function NoteEditorPage() {
         "note-page mx-auto max-w-none",
         font === "serif" && "note-page-serif",
         font === "mono" && "note-page-mono",
-        smallFont && "note-page-small"
+        smallFont && "note-page-small",
+        tocOpen && "note-page-toc-open"
       )}
     >
       {/* Notion 风格顶栏：全宽吸顶 */}
@@ -1201,6 +1262,8 @@ export default function NoteEditorPage() {
               onFontChange={changeFont}
               smallFont={smallFont}
               onToggleSmallFont={toggleSmallFont}
+              tocOpen={tocOpen}
+              onToggleToc={toggleToc}
               onCopyLink={copyLink}
               onCopyContent={copyContent}
               onDuplicate={duplicateNote}
@@ -1208,43 +1271,51 @@ export default function NoteEditorPage() {
               onShowHistory={() => setHistoryOpen(true)}
               onExport={() => void exportMarkdown()}
               onDelete={() => void deleteNote()}
+              wordCount={wordCount}
+              blockCount={blockCount}
+              lastEditedAt={lastSaved}
             />
           </div>
         </div>
       </div>
 
-      <NotePageVisuals
-        noteId={noteId}
-        contentClassName={contentClassName}
-        icon={icon}
-        coverUrl={coverUrl}
-        coverPosition={coverPosition}
-        commentsOpen={commentsOpen}
-        commentCount={pageCommentCount}
-        onIconChange={(nextIcon) => updatePageMetadata({ icon: nextIcon })}
-        onCoverChange={(nextCover) =>
-          updatePageMetadata({ cover_url: nextCover })
-        }
-        onCoverPositionChange={(nextPosition) =>
-          updatePageMetadata({ cover_position: nextPosition })
-        }
-        onToggleComments={() => setCommentsOpen((open) => !open)}
-        onError={showToast}
-      />
-
-      <div className={cn(contentClassName, "note-page-main pt-2")}>
-        {/* 标题：自动增高、不限长度；回车执行 T1/T2 而非插入换行 */}
-        <textarea
-          ref={titleRef}
-          value={title}
-          onChange={(e) => handleTitleChange(e.target.value)}
-          onKeyDown={handleTitleKeyDown}
-          onInput={autoGrowTitle}
-          placeholder="笔记标题"
-          rows={1}
-          className="note-title w-full resize-none overflow-hidden break-words bg-transparent px-0 py-2 text-2xl font-bold leading-tight outline-none placeholder:text-muted-foreground"
+      {/* 标题区（图标/封面/评论 + 标题）与目录同处一个 hover 域：鼠标移入标题时显示三个「添加」操作 */}
+      <div className="note-page-title-zone">
+        <NotePageVisuals
+          noteId={noteId}
+          contentClassName={contentClassName}
+          icon={icon}
+          coverUrl={coverUrl}
+          coverPosition={coverPosition}
+          commentsOpen={commentsOpen}
+          commentCount={pageCommentCount}
+          onIconChange={(nextIcon) => updatePageMetadata({ icon: nextIcon })}
+          onCoverChange={(nextCover) =>
+            updatePageMetadata({ cover_url: nextCover })
+          }
+          onCoverPositionChange={(nextPosition) =>
+            updatePageMetadata({ cover_position: nextPosition })
+          }
+          onToggleComments={() => setCommentsOpen((open) => !open)}
+          onError={showToast}
         />
 
+        <div className={cn(contentClassName, "note-page-main pt-2")}>
+          {/* 标题：自动增高、不限长度；回车执行 T1/T2 而非插入换行 */}
+          <textarea
+            ref={titleRef}
+            value={title}
+            onChange={(e) => handleTitleChange(e.target.value)}
+            onKeyDown={handleTitleKeyDown}
+            onInput={autoGrowTitle}
+            placeholder="无标题笔记"
+            rows={1}
+            className="note-title w-full resize-none overflow-hidden break-words bg-transparent px-0 py-2 text-2xl font-bold leading-tight outline-none"
+          />
+        </div>
+      </div>
+
+      <div className={cn(contentClassName, "note-page-body")}>
         {/* 创建时间 */}
         {createdAt && (
           <div className="note-meta-row flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1283,6 +1354,11 @@ export default function NoteEditorPage() {
         {/* 反向链接 & 关联阅读 */}
         <Backlinks noteId={noteId} readingItemId={readingItemId} />
       </div>
+
+      {/* 页面目录：右侧固定栏，与正文之间灰色竖线分隔 */}
+      {tocOpen && (
+        <NoteTocPanel editor={editorInstance} content={content} onClose={closeToc} />
+      )}
 
       {/* 轻量内联提示 */}
       {toast && (

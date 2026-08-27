@@ -21,6 +21,7 @@ import {
   History,
   FileDown,
   Trash2,
+  ListTree,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NoteFont } from "@organize/shared";
@@ -32,6 +33,9 @@ interface NotePageMenuProps {
   onFontChange: (font: NoteFont) => void;
   smallFont: boolean;
   onToggleSmallFont: () => void;
+  /** 页面目录开关（不传则不显示） */
+  tocOpen?: boolean;
+  onToggleToc?: () => void;
   onCopyLink: () => void;
   onCopyContent: () => void;
   onDuplicate: () => void;
@@ -42,6 +46,10 @@ interface NotePageMenuProps {
   onExport?: () => void;
   /** 删除（移入垃圾箱；不传则不显示） */
   onDelete?: () => void;
+  /** 页面信息（字数/块数/编辑时间；不传则不显示） */
+  wordCount?: number;
+  blockCount?: number;
+  lastEditedAt?: Date | null;
 }
 
 /** 菜单项类型 */
@@ -92,6 +100,8 @@ export function NotePageMenu({
   onFontChange,
   smallFont,
   onToggleSmallFont,
+  tocOpen,
+  onToggleToc,
   onCopyLink,
   onCopyContent,
   onDuplicate,
@@ -99,6 +109,9 @@ export function NotePageMenu({
   onShowHistory,
   onExport,
   onDelete,
+  wordCount,
+  blockCount,
+  lastEditedAt,
 }: NotePageMenuProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -108,6 +121,30 @@ export function NotePageMenu({
 
   /** 构建菜单项数据（每次渲染从 props 派生，确保回调和 checked 状态是最新的） */
   const sections: MenuSection[] = useMemo(() => [
+    {
+      label: "页面显示",
+      labelIcon: Maximize2,
+      items: [
+        {
+          id: "full-width",
+          type: "toggle" as const,
+          label: "固定宽度",
+          keywords: ["full", "width", "quan kuan", "宽屏", "gu ding kuan du"],
+          icon: Maximize2,
+          checked: fullWidth,
+          onSelect: onToggleFullWidth,
+        },
+        ...(onToggleToc ? [{
+          id: "toc",
+          type: "toggle" as const,
+          label: "页面目录",
+          keywords: ["toc", "目录", "mu lu", "outline", "biao ti"],
+          icon: ListTree,
+          checked: tocOpen === true,
+          onSelect: onToggleToc,
+        }] : []),
+      ],
+    },
     {
       label: "字体",
       labelIcon: Type,
@@ -130,15 +167,6 @@ export function NotePageMenu({
           keywords: ["small", "font", "小号", "xiao zi hao"],
           checked: smallFont,
           onSelect: onToggleSmallFont,
-        },
-        {
-          id: "full-width",
-          type: "toggle" as const,
-          label: "全宽",
-          keywords: ["full", "width", "quan kuan", "宽屏"],
-          icon: Maximize2,
-          checked: fullWidth,
-          onSelect: onToggleFullWidth,
         },
       ],
     },
@@ -204,7 +232,7 @@ export function NotePageMenu({
         }] : []),
       ],
     },
-  ], [font, smallFont, fullWidth, onFontChange, onToggleSmallFont, onToggleFullWidth, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onExport, onDelete]);
+  ], [font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onExport, onDelete]);
 
   /** 打平的可选项列表（用于键盘导航和过滤） */
   const flatItems = useMemo(() => {
@@ -455,6 +483,17 @@ export function NotePageMenu({
             );
           })}
         </div>
+
+        {/* 页面信息（字数/块数/编辑时间），对齐截图底部统计区 */}
+        {(typeof wordCount === "number" || typeof blockCount === "number" || lastEditedAt) && (
+          <div className="border-t px-3 py-2.5 text-xs leading-5 text-muted-foreground">
+            {typeof wordCount === "number" && <div>字数统计: {wordCount}</div>}
+            {typeof blockCount === "number" && <div>块数统计: {blockCount}</div>}
+            {lastEditedAt && (
+              <div className="mt-1.5">最后编辑于 {lastEditedAt.toLocaleString("zh-CN")}</div>
+            )}
+          </div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
