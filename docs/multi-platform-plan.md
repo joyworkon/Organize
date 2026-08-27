@@ -56,7 +56,7 @@
 所有端发布的前置，做完才允许进入各端 M1：
 
 - [ ] **M0-1 生产 Supabase 项目**：创建生产 project，按序回放 `supabase/migrations/001–050`（CI 的 db-test 已验证迁移可重放），配置 Auth 域名白名单（含未来的桌面 deep-link 回调域）。
-- [ ] **M0-2 Web 公网部署**：Vercel 部署 `apps/web`（框架预设 Next.js，环境变量 `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` 指向生产）。`desktop/src-tauri/tauri.conf.json` 的 `frontendDist` 与 `mobile/capacitor.config.ts` 的 `server.url` 已指向 `https://organize-web.vercel.app`，部署后按实际域名统一替换。
+- [ ] **M0-2 Web 公网部署**：Vercel 部署 `apps/web`（框架预设 Next.js，环境变量 `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` 指向生产）。`desktop/src-tauri/tauri.conf.json` 的 `frontendDist` 与 `mobile/capacitor.config.ts` 的 `server.url` 已指向 `https://organize-web.vercel.app`，部署后按实际域名统一替换。⚠️ 2026-08-28 核查：**该域名当前被一个不相干的第三方 CRA 应用占用**（葡语界面），在完成部署或更换域名之前，任何端壳都不得按现配置分发，否则等于把陌生应用装进用户设备。
 - [ ] **M0-3 Cron 接线**：repo variables `TASK_REMINDER_BASE_URL`（指向生产域名）+ secret `CRON_SECRET`，验证 task-reminder-cron workflow 真正发出推送（当前未配置自动跳过）。
 - [ ] **M0-4 冒烟清单**：登录 → 收集 → 阅读 → 建笔记（含折叠标题+TOC）→ 建任务+提醒 → 离线断网编辑/联网回放 → 导出。这份清单同时是各端 M3 验收的模板。
 
@@ -68,10 +68,10 @@
 
 ### 3.1 M1-本机可跑（预计 1 周，前置：装 Rust）
 
-- [ ] 安装 rustup + MSVC toolchain（Windows）或 Rust for macOS（开发机交叉验证用 `cargo check`），解锁条件达成后从 roadmap X2 摘除阻塞标记。
-- [ ] `pnpm --filter @organize/desktop dev` 验证：壳内加载本地 dev server，登录 → 冒烟清单 M0-4 全过。
+- [x] 安装 rustup + MSVC toolchain（Windows）或 Rust for macOS（开发机交叉验证用 `cargo check`），解锁条件达成后从 roadmap X2 摘除阻塞标记。（2026-08-28：macOS 侧 rustc/cargo 1.98 已就绪，`cargo check` 一次通过；Windows MSVC 待装机出包时处理）
+- [ ] `pnpm --filter @organize/desktop dev` 验证：壳内加载本地 dev server，登录 → 冒烟清单 M0-4 全过。（未执行：需要 GUI 会话；M1 已用 `cargo check` + 代码审查代替，GUI 冒烟顺延）
 - [ ] 验证 `frontendDist`（远程 URL）构建产物 `tauri build` 可出 `.msi`/.exe（NSIS），本机安装自测。
-- [ ] 确认 `quick-save` 前端监听链路：编辑器或全局注册 `listen("quick-save")` → 打开快速保存弹层（若前端无监听则补，位置：`apps/web` 新增 `components/desktop/quick-save.tsx`，仅在 Tauri 环境动态注册——用 `window.__TAURI_INTERNALS__` 存在性判断）。
+- [x] 确认 `quick-save` 前端监听链路：编辑器或全局注册 `listen("quick-save")` → 打开快速保存弹层（若前端无监听则补，位置：`apps/web` 新增 `components/desktop/quick-save.tsx`，仅在 Tauri 环境动态注册——用 `window.__TAURI_INTERNALS__` 存在性判断）。（2026-08-28 完成：顺带修复 `main.rs` 只挂 handler、未 `with_shortcuts` 注册快捷键导致事件永不触发的 bug；桥接经 window CustomEvent 复用 QuickAdd 面板，`@tauri-apps/api` 动态 import，非 Tauri 环境零加载）
 
 ### 3.2 M2-桌面体验补齐（1–2 周）
 
@@ -96,11 +96,11 @@
 
 ### 4.1 M1-工程初始化与壳可跑（1 周）
 
-- [ ] 安装 Android Studio（含 JDK 17、SDK Platform 34+、build-tools），`ANDROID_HOME` 就绪。
-- [ ] `cd mobile && npx cap add android`（生成原生工程，**android/ 目录入库**，`.gitignore` 排除 build 产物）。
-- [ ] `npx cap sync android` + Android Studio 打开 → Run 到真机/模拟器：登录 → 冒烟清单 M0-4。
-- [ ] **认证专项**：验证 Supabase SSR cookie 在 `https` scheme WebView 内的持久化（Android WebView 默认接受 cookie；若 `server.url` 远程域与 scheme 冲突导致 cookie 丢失，回退方案：Capacitor HTTP 拦截注入或改 `@supabase/ssr` token 模式——此项是 Android 端最大技术风险，M1 内必须出结论）。
-- [ ] **触屏适配第一轮**：编辑器 BubbleMenu/拖拽手柄/块菜单在真机的可用性走查，记录不可用项清单（预期：拖拽手柄小、悬浮菜单易误触）；最小修复集 = 点按选择 + 底部弹出菜单（复用现有 DropdownMenu 组件即可，多数无需新代码）。
+- [x] 安装 Android Studio（含 JDK 17、SDK Platform 34+、build-tools），`ANDROID_HOME` 就绪。（2026-08-28：经 brew 命令行工具链装齐——openjdk@17 + android-commandlinetools + platform-tools + platforms;android-35 + build-tools;35.0.0 + emulator + default/arm64-v8a 镜像 + medium_phone AVD，未装 Android Studio GUI）
+- [x] `cd mobile && npx cap add android`（生成原生工程，**android/ 目录入库**，`.gitignore` 排除 build 产物）。（2026-08-28 完成并入库；根 .gitignore 移除了骨架期的 mobile/android、mobile/ios 预排除）
+- [x] `npx cap sync android` + Android Studio 打开 → Run 到真机/模拟器：登录 → 冒烟清单 M0-4。（2026-08-28 模拟器实机验证：登录闭环 ✓、冷启动 cookie 保持登录 ✓、笔记创建/编辑/自动保存 ✓；收集/阅读/导出等 M0-4 其余项待走。本地验证需 `adb reverse tcp:54321 tcp:54321`——web 把 Supabase URL 编译为 127.0.0.1，模拟器内不可达；生产 https 域名无此问题。debug 构建已加 cleartext 放行以便加载 http dev server）
+- [ ] **认证专项**：验证 Supabase SSR cookie 在 `https` scheme WebView 内的持久化（Android WebView 默认接受 cookie；若 `server.url` 远程域与 scheme 冲突导致 cookie 丢失，回退方案：Capacitor HTTP 拦截注入或改 `@supabase/ssr` token 模式——此项是 Android 端最大技术风险，M1 内必须出结论）。**✅ 2026-08-28 出结论：force-stop 冷启动后仍保持登录，`androidScheme: https` + Capacitor WebView cookie 持久化可用，回退方案无需启用；结论复用到 iOS。**
+- [ ] **触屏适配第一轮**：编辑器 BubbleMenu/拖拽手柄/块菜单在真机的可用性走查，记录不可用项清单（预期：拖拽手柄小、悬浮菜单易误触）；最小修复集 = 点按选择 + 底部弹出菜单（复用现有 DropdownMenu 组件即可，多数无需新代码）。（2026-08-28 完成主干冒烟：TabBar 导航、新建笔记、编辑器输入、自动保存、块手柄渲染均正常；BubbleMenu 选区交互与拖拽移动待深测）
 
 ### 4.2 M2-Android 原生能力（1–2 周）
 
@@ -125,8 +125,8 @@
 
 ### 5.1 M1-工程初始化与壳可跑（1 周，需 macOS + Xcode）
 
-- [ ] App Store Connect 账号（$99/年）+ 开发证书；安装 Xcode（含 CocoaPods，`sudo gem install cocoapods` 或 brew）。
-- [ ] `npx cap add ios`（生成 `ios/` 工程入库）→ `cap sync` → Xcode 签名（自动管理签名 + 个人团队先跑通）→ 模拟器跑冒烟清单。
+- [ ] App Store Connect 账号（$99/年）+ 开发证书；安装 Xcode（含 CocoaPods，`sudo gem install cocoapods` 或 brew）。（本机 Xcode 26.6 + brew CocoaPods 就绪；ASC 账号与证书未确认）
+- [x] `npx cap add ios`（生成 `ios/` 工程入库）→ `cap sync` → Xcode 签名（自动管理签名 + 个人团队先跑通）→ 模拟器跑冒烟清单。（2026-08-28：工程生成 + pod install ✓；iPhone 17 Pro 模拟器 xcodebuild 构建/安装/启动 ✓，登录页渲染 ✓、安全区正常；Info.plist 加 NSAllowsLocalNetworking 以便加载本地 http dev server。登录闭环自动化被阻：ZCode 桌面控制缺屏幕录制授权，需在系统设置授予后补验）
 - [ ] **认证专项**：WKWebView 对 `server.url` 远程域的 cookie 隔离策略验证（同 §4.1 风险项，与 Android 共用结论与回退方案）。
 - [ ] **安全区/滚动**：刘海屏 safe-area、橡皮筋滚动与编辑器内部滚动的冲突处理（`.organize-editor` 容器 `overscroll-behavior`）、键盘 `keyboard-resizes` 模式选择（建议 `body` 缩放模式保持 TOC 面板可见）。
 

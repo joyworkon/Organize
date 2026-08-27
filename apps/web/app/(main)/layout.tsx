@@ -9,6 +9,7 @@ import { QuickAdd } from "@/components/quick-add";
 import { Onboarding } from "@/components/onboarding";
 import { PromptHost } from "@/components/ui/prompt-dialog";
 import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
+import { QuickSaveBridge } from "@/components/desktop/quick-save";
 
 export default function MainLayout({
   children,
@@ -30,6 +31,7 @@ export default function MainLayout({
         <div className="container mx-auto p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
+      <QuickSaveBridge />
       <Onboarding />
       <PromptHost />
     </div>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegistrar } from "@/components/layout/sw-registrar";
+import { WebViewCompat } from "@/components/platform/webview-compat";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,6 +20,7 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={inter.className}>
         {children}
+        <WebViewCompat />
         <ServiceWorkerRegistrar />
       </body>
     </html>

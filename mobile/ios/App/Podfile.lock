@@ -1,0 +1,40 @@
+PODS:
+  - Capacitor (6.2.1):
+    - CapacitorCordova
+  - CapacitorCordova (6.2.1)
+  - CapacitorLocalNotifications (6.1.3):
+    - Capacitor
+  - CapacitorShare (6.0.4):
+    - Capacitor
+  - CapacitorSplashScreen (6.0.4):
+    - Capacitor
+
+DEPENDENCIES:
+  - "Capacitor (from `../../../node_modules/.pnpm/@capacitor+ios@6.2.1_@capacitor+core@6.2.1/node_modules/@capacitor/ios`)"
+  - "CapacitorCordova (from `../../../node_modules/.pnpm/@capacitor+ios@6.2.1_@capacitor+core@6.2.1/node_modules/@capacitor/ios`)"
+  - "CapacitorLocalNotifications (from `../../../node_modules/.pnpm/@capacitor+local-notifications@6.1.3_@capacitor+core@6.2.1/node_modules/@capacitor/local-notifications`)"
+  - "CapacitorShare (from `../../../node_modules/.pnpm/@capacitor+share@6.0.4_@capacitor+core@6.2.1/node_modules/@capacitor/share`)"
+  - "CapacitorSplashScreen (from `../../../node_modules/.pnpm/@capacitor+splash-screen@6.0.4_@capacitor+core@6.2.1/node_modules/@capacitor/splash-screen`)"
+
+EXTERNAL SOURCES:
+  Capacitor:
+    :path: "../../../node_modules/.pnpm/@capacitor+ios@6.2.1_@capacitor+core@6.2.1/node_modules/@capacitor/ios"
+  CapacitorCordova:
+    :path: "../../../node_modules/.pnpm/@capacitor+ios@6.2.1_@capacitor+core@6.2.1/node_modules/@capacitor/ios"
+  CapacitorLocalNotifications:
+    :path: "../../../node_modules/.pnpm/@capacitor+local-notifications@6.1.3_@capacitor+core@6.2.1/node_modules/@capacitor/local-notifications"
+  CapacitorShare:
+    :path: "../../../node_modules/.pnpm/@capacitor+share@6.0.4_@capacitor+core@6.2.1/node_modules/@capacitor/share"
+  CapacitorSplashScreen:
+    :path: "../../../node_modules/.pnpm/@capacitor+splash-screen@6.0.4_@capacitor+core@6.2.1/node_modules/@capacitor/splash-screen"
+
+SPEC CHECKSUMS:
+  Capacitor: c95400d761e376be9da6be5a05f226c0e865cebf
+  CapacitorCordova: 8d93e14982f440181be7304aa9559ca631d77fff
+  CapacitorLocalNotifications: 801867e687c42dd2b33c1e22e08f48e6738d2f72
+  CapacitorShare: 77ff779e3b7c6ae9fb5461e52cf7ef805d429491
+  CapacitorSplashScreen: ef140a8b1ea7244e0c245ce2dd4ce5251e7ab86a
+
+PODFILE CHECKSUM: 3cb66c7b1a945c1660b70424b56b2f2d065cfed2
+
+COCOAPODS: 1.17.0
