@@ -124,16 +124,16 @@ describe("NotePageMenu", () => {
       expect(input).toBeTruthy();
       expect(input!.placeholder).toBe("搜索命令...");
 
-      // 空查询显示所有选项（3 字体 + 2 开关 + 3 操作 = 8 项）
+      // 空查询显示所有选项（2 显示开关 + 3 字体 + 1 小字号 + 3 操作 = 9 项，无 onToggleToc 时为 8 项）
       const options = getVisibleOptions();
       expect(options).toHaveLength(8);
 
-      // 验证原分组顺序
-      expect(options[0].textContent).toContain("默认");
-      expect(options[1].textContent).toContain("衬线体");
-      expect(options[2].textContent).toContain("等宽体");
-      expect(options[3].textContent).toContain("小字号");
-      expect(options[4].textContent).toContain("全宽");
+      // 验证原分组顺序（页面显示 → 字体 → 小字号 → 操作）
+      expect(options[0].textContent).toContain("固定宽度");
+      expect(options[1].textContent).toContain("默认");
+      expect(options[2].textContent).toContain("衬线体");
+      expect(options[3].textContent).toContain("等宽体");
+      expect(options[4].textContent).toContain("小字号");
       expect(options[5].textContent).toContain("拷贝链接");
       expect(options[6].textContent).toContain("拷贝页面内容");
       expect(options[7].textContent).toContain("创建副本");
@@ -236,7 +236,7 @@ describe("NotePageMenu", () => {
 
       const active = getActiveOption();
       expect(active).toBeTruthy();
-      expect(active!.textContent).toContain("默认");
+      expect(active!.textContent).toContain("固定宽度");
     });
 
     it("ArrowDown 向下移动选中项", async () => {
@@ -246,10 +246,10 @@ describe("NotePageMenu", () => {
       await flush();
 
       dispatchKey("ArrowDown");
-      expect(getActiveOption()!.textContent).toContain("衬线体");
+      expect(getActiveOption()!.textContent).toContain("默认");
 
       dispatchKey("ArrowDown");
-      expect(getActiveOption()!.textContent).toContain("等宽体");
+      expect(getActiveOption()!.textContent).toContain("衬线体");
     });
 
     it("ArrowUp 向上移动选中项", async () => {
@@ -260,10 +260,10 @@ describe("NotePageMenu", () => {
 
       dispatchKey("ArrowDown");
       dispatchKey("ArrowDown");
-      expect(getActiveOption()!.textContent).toContain("等宽体");
+      expect(getActiveOption()!.textContent).toContain("衬线体");
 
       dispatchKey("ArrowUp");
-      expect(getActiveOption()!.textContent).toContain("衬线体");
+      expect(getActiveOption()!.textContent).toContain("默认");
     });
 
     it("ArrowDown 在最后一项时不越界", async () => {
@@ -289,7 +289,7 @@ describe("NotePageMenu", () => {
       dispatchKey("ArrowUp");
       dispatchKey("ArrowUp");
       const active = getActiveOption();
-      expect(active!.textContent).toContain("默认");
+      expect(active!.textContent).toContain("固定宽度");
     });
 
     it("搜索后 activeIndex 重置到第一项", async () => {
@@ -298,6 +298,7 @@ describe("NotePageMenu", () => {
       openMenu(container);
       await flush();
 
+      dispatchKey("ArrowDown");
       dispatchKey("ArrowDown");
       dispatchKey("ArrowDown");
       expect(getActiveOption()!.textContent).toContain("等宽体");
@@ -338,8 +339,8 @@ describe("NotePageMenu", () => {
       openMenu(container);
       await flush();
 
-      // "小字号" 是第 4 项（索引 3）
-      for (let i = 0; i < 3; i++) {
+      // "小字号" 是第 5 项（索引 4）
+      for (let i = 0; i < 4; i++) {
         dispatchKey("ArrowDown");
       }
       expect(getActiveOption()!.textContent).toContain("小字号");
@@ -357,7 +358,8 @@ describe("NotePageMenu", () => {
       openMenu(container);
       await flush();
 
-      // "衬线体" 是第 2 项（索引 1）
+      // "衬线体" 是第 3 项（索引 2）
+      dispatchKey("ArrowDown");
       dispatchKey("ArrowDown");
       expect(getActiveOption()!.textContent).toContain("衬线体");
 
@@ -391,7 +393,7 @@ describe("NotePageMenu", () => {
       await flush();
 
       const options = getVisibleOptions();
-      const fullWidthOption = options.find((o) => o.textContent!.includes("全宽"))!;
+      const fullWidthOption = options.find((o) => o.textContent!.includes("固定宽度"))!;
       act(() => {
         fullWidthOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
@@ -452,14 +454,14 @@ describe("NotePageMenu", () => {
       expect(checkSvg).toBeTruthy();
     });
 
-    it("全宽开启时显示勾选标记", async () => {
+    it("固定宽度开启时显示勾选标记", async () => {
       const props = createProps({ fullWidth: true });
       act(() => root.render(createElement(NotePageMenu, props)));
       openMenu(container);
       await flush();
 
       const options = getVisibleOptions();
-      const fullWidthOption = options.find((o) => o.textContent!.includes("全宽"))!;
+      const fullWidthOption = options.find((o) => o.textContent!.includes("固定宽度"))!;
       const checkArea = fullWidthOption.querySelector("span.absolute");
       expect(checkArea).toBeTruthy();
       const checkSvg = checkArea!.querySelector("svg");
@@ -535,25 +537,94 @@ describe("NotePageMenu", () => {
 
       const options = getVisibleOptions();
 
+      // 固定宽度 toggle - 点击后不关闭菜单
       act(() => { options[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(onToggleFullWidth).toHaveBeenCalledTimes(1);
+      onToggleFullWidth.mockClear();
+
+      act(() => { options[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       expect(onFontChange).toHaveBeenCalledWith("default");
       onFontChange.mockClear();
 
-      act(() => { options[1].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      act(() => { options[2].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       expect(onFontChange).toHaveBeenCalledWith("serif");
       onFontChange.mockClear();
 
-      act(() => { options[2].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      act(() => { options[3].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       expect(onFontChange).toHaveBeenCalledWith("mono");
       onFontChange.mockClear();
 
-      act(() => { options[3].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-      expect(onToggleSmallFont).toHaveBeenCalledTimes(1);
-      onToggleSmallFont.mockClear();
-
-      // 全宽 toggle - 点击后不关闭菜单
       act(() => { options[4].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-      expect(onToggleFullWidth).toHaveBeenCalledTimes(1);
+      expect(onToggleSmallFont).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("页面目录开关", () => {
+    it("传入 onToggleToc 时显示目录开关项并响应点击", async () => {
+      const onToggleToc = vi.fn();
+      const props = createProps({ onToggleToc, tocOpen: false });
+      act(() => root.render(createElement(NotePageMenu, props)));
+      openMenu(container);
+      await flush();
+
+      const options = getVisibleOptions();
+      expect(options).toHaveLength(9);
+      const tocOption = options.find((o) => o.textContent!.includes("页面目录"))!;
+      expect(tocOption).toBeTruthy();
+
+      act(() => { tocOption.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      expect(onToggleToc).toHaveBeenCalledTimes(1);
+      // toggle 类型不关闭菜单
+      expect(getSearchInput()).toBeTruthy();
+    });
+
+    it("不传 onToggleToc 时不显示目录开关项", async () => {
+      const props = createProps();
+      act(() => root.render(createElement(NotePageMenu, props)));
+      openMenu(container);
+      await flush();
+
+      const options = getVisibleOptions();
+      expect(options.some((o) => o.textContent!.includes("页面目录"))).toBe(false);
+    });
+
+    it("目录开启时显示勾选标记", async () => {
+      const props = createProps({ onToggleToc: vi.fn(), tocOpen: true });
+      act(() => root.render(createElement(NotePageMenu, props)));
+      openMenu(container);
+      await flush();
+
+      const options = getVisibleOptions();
+      const tocOption = options.find((o) => o.textContent!.includes("页面目录"))!;
+      const checkSvg = tocOption.querySelector("span.absolute svg");
+      expect(checkSvg).toBeTruthy();
+    });
+  });
+
+  describe("页面信息", () => {
+    it("传入统计信息时在菜单底部展示", async () => {
+      const props = createProps({
+        wordCount: 160,
+        blockCount: 6,
+        lastEditedAt: new Date("2026-08-27T15:29:00"),
+      });
+      act(() => root.render(createElement(NotePageMenu, props)));
+      openMenu(container);
+      await flush();
+
+      expect(document.body.textContent).toContain("字数统计: 160");
+      expect(document.body.textContent).toContain("块数统计: 6");
+      expect(document.body.textContent).toContain("最后编辑于");
+    });
+
+    it("不传统计信息时不渲染底部区域", async () => {
+      const props = createProps();
+      act(() => root.render(createElement(NotePageMenu, props)));
+      openMenu(container);
+      await flush();
+
+      expect(document.body.textContent).not.toContain("字数统计");
+      expect(document.body.textContent).not.toContain("块数统计");
     });
   });
 });
