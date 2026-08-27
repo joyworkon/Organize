@@ -7,6 +7,8 @@
 > 更新原则：每个 PR 合并后同步状态；历史方案只保留背景，不再复制待办。
 >
 > 2026-08-26 更新：P0 / P1 全部落地（E5→#108、E7→#106、E8→#107）；P2 平台项（离线/桌面/移动）为唯一剩余大项，详见各条目内评估。
+>
+> 2026-08-27 更新：X4 边界部分收官（限流 #136 + 数据发送披露 #137，「更多 AI 动作」按需启动）；X1 追加任务删除离线化（#138，含在线删除 RLS bug 修复）。
 
 ## 1. 产品方向
 
@@ -58,7 +60,8 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 ### P2：平台能力
 
-- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（删除/排序/子任务离线化、标签等实体）按需启动。
+- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序/子任务离线化、标签等实体）按需启动。
+  - **#138 顺带发现的既有 bug（待修）**：倒数日删除（countdown/page.tsx）与数据库行删除路由（db_rows）同样直写 deleted_at 被 RLS 拒，需改走 mutate_trash RPC（db_rows 需扩展 RPC 支持单行）；tasks 页 `?scope=trash` 渲染空列表（RLS 隐藏已删行未单独查询）。
 - [ ] **X2 桌面端最小发布版**：可行性已评估（见下）。**阻塞：本机无 Rust 工具链（cargo/rustc 缺失），无法本地验证构建。**
   - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
   - 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
@@ -67,7 +70,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
   - 同样的静态导出约束：Capacitor webDir 指向 `apps/web/out` 不可行；最快路径是 `server.url` 指向部署的 Web URL。
   - 分享接收（系统分享菜单“保存到 Organize”）需要原生 Share Extension（iOS）/ Intent Filter（Android），属于原生开发，依赖 Xcode/Android Studio 工具链。
   - 解锁条件：Web 公网部署 → Xcode + CocoaPods / Android Studio 就绪 → `npx cap add ios/android` 初始化工程 → 壳层加载远程 URL 验证登录闭环。
-- [ ] **X4 AI 边界**：先补数据发送提示、作用范围、限流和失败回滚，再增加更多 AI 动作。
+- [x] **X4 AI 边界（边界部分，PR #136 + #137，2026-08-27）**：限流——`lib/ai/rate-limit.ts` 按「用户+功能」固定窗口内存限流，问 AI / 标签推荐 20 次/分、AI 速记 5 次/分，429 + Retry-After，6 测试。数据发送披露——设置页「数据发送说明」区块 + 问 AI / AI 速记 / 标签推荐入口发送提示，修正过时的环境变量引导。失败回滚核查通过（问 AI 失败不插入 / 速记失败保留录音 / 标签推荐静默降级关键词）。剩余「增加更多 AI 动作」按需启动。
 - [x] **X5 知识图谱**（PR #117，2026-08-26）：`/graph` 页面双视图——笔记图谱（内部链接边复用 `extractLinksFromContent`，与反链同判定；父子层级虚线边）+ 任务依赖图（前置→被阻塞箭头，已完成置灰）。`lib/graph/build-graph.ts`（9 测试）+ `force-layout.ts`（5 测试，零依赖确定性力导向：id 哈希扰动初始环形 + 固定迭代）。交互：滚轮缩放/拖拽平移/点击跳转/悬停高亮相邻/隐藏孤立节点（默认开）；侧栏 + 命令面板 + G G 快捷键入口。
 - [ ] **X6 多人协作**：实时协作编辑（依赖 G3 Realtime 基础设施 + 权限模型）。
 - [ ] **X7 语义 AI**：语义搜索 / 自动关联（依赖 X4 AI 边界）。
