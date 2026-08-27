@@ -42,9 +42,9 @@ next-env.d.ts
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 
-# capacitor
-mobile/android/
-mobile/ios/
+# capacitor：原生工程自 M1 起入库（构建产物由 mobile/android/.gitignore、
+# mobile/ios/.gitignore 各自排除：build、Pods、DerivedData、local.properties、
+# 同步生成的 capacitor.config.json / public 资产）
 
 # supabase
 supabase/.branches

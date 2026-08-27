@@ -62,11 +62,11 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 - [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序/子任务离线化、标签等实体）按需启动。
   - **#138 顺带发现的遗留 bug（#140 已修复）**：数据库行删除路由改走 mutate_trash 新增的 database_row 分支（migration 050，此前编辑器删除行一直 500）；任务页 `?scope=trash` 经 list_trashed_tasks RPC 显示已删任务 + 侧栏计数（此前永远空/0）。倒数日删除经核实非 mock 路径本就走 RPC，无需修复。
-- [ ] **X2 桌面端最小发布版**：可行性已评估（见下），详细执行计划见 `docs/multi-platform-plan.md` §3（2026-08-27）。**阻塞：本机无 Rust 工具链（cargo/rustc 缺失），无法本地验证构建。**
+- [ ] **X2 桌面端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §3。**M1 本机验证大部分完成（2026-08-28）：Rust 1.98 已装、`cargo check` 通过、全局快捷键补注册（此前只挂 handler 未注册，事件永不触发）、前端 quick-save 桥接组件落地（`components/desktop/quick-save.tsx` → 复用 QuickAdd 弹层）。剩余：Windows 机器上 `tauri build` 出 NSIS 包 + 壳内 GUI 冒烟。**
   - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
   - 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
   - 解锁条件：安装 Rust 工具链 → 修 tauri.conf.json（devUrl + frontendDist 占位）→ `cargo check` 通过 → quick-save 全局快捷键事件链路验证。
-- [ ] **X3 移动端最小发布版**：可行性已评估（见下），详细执行计划见 `docs/multi-platform-plan.md` §4/§5（2026-08-27，Android 先行、iOS 随后）。**阻塞：无原生工程（mobile/ 仅 capacitor.config.ts，无 ios/android 目录）、无 CocoaPods（pod 命令缺失）、Web 应用未公网部署。**
+- [ ] **X3 移动端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §4/§5。**M1 大部分完成（2026-08-28）：android/ 与 ios/ 原生工程已生成入库；本机装齐 JDK17+Android SDK(API 35)+CocoaPods；Android 模拟器实机验证通过——登录闭环 ✓、冷启动 cookie 持久化 ✓（§4.1 最大风险解除，结论复用 iOS）、笔记创建/编辑/自动保存 ✓；iOS 模拟器构建运行 ✓、登录页渲染 ✓。剩余：iOS 登录闭环自动化验证（需给 ZCode 授屏幕录制权限）、编辑器触屏深度走查（BubbleMenu/拖拽手柄）、公网部署。**
   - 同样的静态导出约束：Capacitor webDir 指向 `apps/web/out` 不可行；最快路径是 `server.url` 指向部署的 Web URL。
   - 分享接收（系统分享菜单“保存到 Organize”）需要原生 Share Extension（iOS）/ Intent Filter（Android），属于原生开发，依赖 Xcode/Android Studio 工具链。
   - 解锁条件：Web 公网部署 → Xcode + CocoaPods / Android Studio 就绪 → `npx cap add ios/android` 初始化工程 → 壳层加载远程 URL 验证登录闭环。

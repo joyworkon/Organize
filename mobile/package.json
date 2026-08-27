@@ -9,7 +9,9 @@
     "clean": "rm -rf node_modules"
   },
   "dependencies": {
+    "@capacitor/android": "^6",
     "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6",
     "@capacitor/local-notifications": "^6.1.0",
     "@capacitor/share": "^6.0.2",
     "@capacitor/splash-screen": "^6.0.2"

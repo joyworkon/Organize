@@ -1,0 +1,5 @@
+<!-- 仅 debug 构建生效：M1 验证期壳需加载本机 dev server（http://10.0.2.2:3000），
+     允许明文本地回环流量；release 仍走 https 远程 URL，保持默认传输安全策略 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

@@ -121,6 +121,14 @@ export function QuickAdd() {
     }
   }, [supabase, router, closePanel]);
 
+  // 桌面壳全局快捷键（Cmd/Ctrl+Shift+S）：Rust 侧 emit "quick-save"，
+  // 经 components/desktop/quick-save.tsx 转发为 window 事件后打开同一面板
+  useEffect(() => {
+    const openQuickSave = () => openPanel();
+    window.addEventListener("organize:quick-save", openQuickSave);
+    return () => window.removeEventListener("organize:quick-save", openQuickSave);
+  }, [openPanel]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInputFocused = () => {
