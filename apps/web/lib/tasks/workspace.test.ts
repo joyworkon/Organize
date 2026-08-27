@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskList, TaskWithTags } from "@organize/shared";
-import { filterTasksByScope, quickAddDueDate, schedulableReminderTasks, searchTasks } from "./workspace";
+import { filterTasksByScope, isWithinNextSevenDays, quickAddDueDate, schedulableReminderTasks, searchTasks } from "./workspace";
 
 const task = (overrides: Partial<TaskWithTags>): TaskWithTags => ({
   id: "task-1",
@@ -138,5 +138,31 @@ describe("schedulableReminderTasks（提醒只吃可见集）", () => {
     const parent = task({ id: "p2", title: "p" });
     const child = task({ id: "c2", title: "c", parent_task_id: "p2" });
     expect(schedulableReminderTasks([parent, child]).length).toBe(2);
+  });
+});
+
+describe("isWithinNextSevenDays（自然日窗口）", () => {
+  const now = new Date(2026, 7, 19, 15, 0, 0); // 2026-08-19 15:00 本地
+
+  it("今天早些时候截止的任务仍然算在最近7天内", () => {
+    const thisMorning = new Date(2026, 7, 19, 9, 0, 0).toISOString();
+    expect(isWithinNextSevenDays(thisMorning, now)).toBe(true);
+  });
+
+  it("昨天及以前不算", () => {
+    const yesterday = new Date(2026, 7, 18, 12, 0, 0).toISOString();
+    expect(isWithinNextSevenDays(yesterday, now)).toBe(false);
+  });
+
+  it("第 7 天全天含当日结束，第 8 天排除", () => {
+    const day7 = new Date(2026, 7, 26, 23, 59, 59).toISOString();
+    const day8 = new Date(2026, 7, 27, 0, 0, 0).toISOString();
+    expect(isWithinNextSevenDays(day7, now)).toBe(true);
+    expect(isWithinNextSevenDays(day8, now)).toBe(false);
+  });
+
+  it("空值与非法值安全", () => {
+    expect(isWithinNextSevenDays(null, now)).toBe(false);
+    expect(isWithinNextSevenDays("bad-date", now)).toBe(false);
   });
 });

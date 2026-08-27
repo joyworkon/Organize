@@ -16,13 +16,16 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 }
 
 /**
- * 当前是否有打开的对话框（Radix Dialog 会渲染 role="dialog"）。
- * 页面级快捷键（如 n 新建、Esc 退出多选）应在弹层打开时让位，
- * 避免"关掉对话框的同时误触发页面动作"。
+ * 当前是否有打开的弹层：Radix Dialog 渲染 role="dialog"，
+ * DropdownMenu/ContextMenu 渲染 role="menu"，Select 列表渲染 role="listbox"。
+ * 页面级快捷键（如 n 新建、v 分组、Esc 关闭详情）应在这些弹层打开时让位，
+ * 否则 Select 展开时焦点不在输入框上，按 Esc/v/m 会同时误触发页面动作。
  */
 export function hasOpenDialog(): boolean {
   if (typeof document === "undefined") return false;
-  return Boolean(document.querySelector('[role="dialog"]'));
+  return Boolean(
+    document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')
+  );
 }
 
 export interface HotkeyHandler {

@@ -63,7 +63,7 @@ import {
   schedulableReminderTasks,
   taskDate,
 } from "@/lib/tasks/workspace";
-import { getBlockedTaskIds } from "@/lib/tasks/dependencies";
+import { getBlockedTaskIds, getTaskDependencyView } from "@/lib/tasks/dependencies";
 
 type StatusFilter = "all" | TaskStatus;
 type CategoryFilter = "all" | TaskCategory;
@@ -467,6 +467,12 @@ function TasksPageInner() {
     () => getBlockedTaskIds(tasks, dependencies),
     [dependencies, tasks]
   );
+  /** 当前详情任务的未完成前置：完成按钮二次确认用 */
+  const selectedBlockingPrerequisites = useMemo(() => {
+    if (!selectedTask) return [];
+    return getTaskDependencyView(tasks, dependencies, selectedTask.id).blockingPrerequisites
+      .map((task) => ({ id: task.id, title: task.title }));
+  }, [dependencies, selectedTask, tasks]);
   const listTitle = sidebarSelection.scope === "list" ? lists.find((list) => list.id === sidebarSelection.listId)?.name || "工作任务" : sidebarSelection.scope === "today" ? "今天" : sidebarSelection.scope === "upcoming" ? "最近7天" : sidebarSelection.scope === "completed" ? "已完成" : sidebarSelection.scope === "trash" ? "垃圾桶" : "全部任务";
   const currentList = lists.find((list) => list.id === sidebarSelection.listId);
 
@@ -698,6 +704,11 @@ function TasksPageInner() {
             <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
 
             {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
+            {permission === "denied" && (
+              <div className="mb-4 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。
+              </div>
+            )}
 
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
@@ -792,7 +803,7 @@ function TasksPageInner() {
         </div>
       </section>
 
-      {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} onOpenTask={(taskId) => updateUrl({ task: taskId })} />}
+      {selectedTask && <TaskInlineDetail task={selectedTask} lists={lists} onUpdate={updateTask} onDelete={deleteTask} onClose={closeTask} onOpenTask={(taskId) => updateUrl({ task: taskId })} blockingPrerequisites={selectedBlockingPrerequisites} />}
     </div>
   );
 }
