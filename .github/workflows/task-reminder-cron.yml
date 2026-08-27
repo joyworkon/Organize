@@ -1,0 +1,28 @@
+name: Task reminder cron
+
+# 服务端 Web Push 提醒链路（/api/cron/task-reminders + sw.js push handler）
+# 依赖外部定时触发：客户端 setTimeout 在标签页后台会被浏览器节流，
+# 应用完全关闭时只剩这条 cron 能把错过窗口的提醒补发出去（服务端支持 24h 内重试）。
+on:
+  schedule:
+    # 每 15 分钟一次；GitHub Actions 的 schedule 使用 UTC
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {} # 手动触发入口，部署后可用来验证配置
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    # 未配置环境时静默跳过，避免每 15 分钟红一次误导维护者
+    if: ${{ vars.TASK_REMINDER_BASE_URL != '' }}
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch reminder delivery
+        run: |
+          http_code=$(curl -sS -o /tmp/reminder-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.TASK_REMINDER_BASE_URL }}/api/cron/task-reminders")
+          echo "HTTP ${http_code}"
+          cat /tmp/reminder-response.json
+          test "$http_code" = "200"
