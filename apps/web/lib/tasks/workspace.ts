@@ -57,6 +57,34 @@ export function quickAddDueDate(
   return null;
 }
 
+/**
+ * 提醒/逾期汇总只吃可见集：
+ * 已软删的不提醒；父任务被软删后子任务在任何 scope 都不可见（幽灵），
+ * 但仍会留在全量 workspace.tasks 里——不过滤的话到期照样弹通知，用户找不到来源。
+ */
+export function schedulableReminderTasks(tasks: TaskWithTags[]): TaskWithTags[] {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const childrenOf = new Map<string, string[]>();
+  for (const task of tasks) {
+    if (task.parent_task_id) {
+      childrenOf.set(task.parent_task_id, [...(childrenOf.get(task.parent_task_id) || []), task.id]);
+    }
+  }
+  const blocked = new Set<string>();
+  for (const root of tasks) {
+    if (!root.deleted_at || blocked.has(root.id)) continue;
+    blocked.add(root.id);
+    const stack = [...(childrenOf.get(root.id) || [])];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (blocked.has(id)) continue;
+      blocked.add(id);
+      stack.push(...(childrenOf.get(id) || []));
+    }
+  }
+  return tasks.filter((task) => !blocked.has(task.id));
+}
+
 /** 将任务列表范围应用到一份已经加载的任务数组。 */
 export function filterTasksByScope(
   tasks: TaskWithTags[],

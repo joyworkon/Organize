@@ -60,6 +60,7 @@ import {
   filterTasksByScope,
   isOverdue,
   quickAddDueDate,
+  schedulableReminderTasks,
   taskDate,
 } from "@/lib/tasks/workspace";
 import { getBlockedTaskIds } from "@/lib/tasks/dependencies";
@@ -281,8 +282,11 @@ function TasksPageInner() {
       setLists(workspace.lists);
       setTasks(workspace.tasks);
       setDependencies(workspace.dependencies);
-      scheduleDueDateReminders(workspace.tasks);
-      notifyOverdueSummary(workspace.tasks);
+      // 提醒/逾期汇总只吃可见集：已软删、或父链上有软删（幽灵子任务）的不提醒，
+      // 否则任务在任何视图里都看不到却到期弹通知，用户找不到来源
+      const schedulable = schedulableReminderTasks(workspace.tasks);
+      scheduleDueDateReminders(schedulable);
+      notifyOverdueSummary(schedulable);
     } finally {
       setLoading(false);
     }

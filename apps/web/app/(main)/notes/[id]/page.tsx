@@ -954,6 +954,18 @@ export default function NoteEditorPage() {
     if (!window.confirm("将这篇笔记移入垃圾箱？")) return;
     try {
       await mutateTrash("note", [noteId], "soft_delete");
+      // 掐灭滞留的自动保存：900ms 防抖定时器 / 重试定时器 / 卸载兜底 flush
+      // 都会把删除瞬间之后的草稿写进已进垃圾箱的笔记（服务端 RPC 有软删校验，
+      // 但不该让请求发出去；同时避免垃圾箱快照漂移）。
+      dirtyRef.current = false;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       router.push("/notes");
     } catch {
       showToast("删除失败");
@@ -992,8 +1004,20 @@ export default function NoteEditorPage() {
     }
   };
 
-  /** 扫描 content 里无 taskId 的 taskItem，批量建任务并回填 taskId 到编辑器节点。 */
+  /** 扫描 content 里无 taskId 的 taskItem，批量建任务并回填 taskId 到编辑器节点。
+   *  加在途互斥：auth.getUser + 批量 insert 的网络窗口内，回填尚未发生，
+   *  连续编辑会重复收集同一批「无 taskId」块并重复建任务（孤儿由 orphaned 回收兜底但过程脏）。 */
+  const activateLegacyInFlightRef = useRef(false);
   const activateLegacyTaskItems = async (doc: Record<string, unknown>) => {
+    if (activateLegacyInFlightRef.current) return;
+    activateLegacyInFlightRef.current = true;
+    try {
+      await runLegacyActivation();
+    } finally {
+      activateLegacyInFlightRef.current = false;
+    }
+  };
+  const runLegacyActivation = async (): Promise<void> => {
     const editor = editorRef.current;
     if (!editor) return;
     // 收集所有 legacy taskItem 的 {pos, blockId, title, checked}。
