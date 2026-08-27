@@ -154,7 +154,7 @@ export async function fetchTaskWorkspace(
   } = await supabase.auth.getUser();
   if (!user) return { tasks: [], lists: [], tags: [], dependencies: [] };
 
-  const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }, { data: dependencyData }] =
+  const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }, { data: dependencyData }, { data: trashedData }] =
     await Promise.all([
       supabase
         .from("tasks")
@@ -175,6 +175,9 @@ export async function fetchTaskWorkspace(
         .from("task_dependencies")
         .select("*")
         .eq("user_id", user.id),
+      // 已删任务走 security definer RPC（RLS 下普通查询不可见，migration 050），
+      // 供垃圾桶 scope 列表与侧栏计数使用
+      supabase.rpc("list_trashed_tasks"),
     ]);
 
   const lists = (listData || []) as TaskList[];
@@ -209,8 +212,12 @@ export async function fetchTaskWorkspace(
     ...(tag as Tag),
     task_count: tagCounts.get(tag.id) || 0,
   }));
+  // RPC 失败（如库未跑 migration 050）不阻塞工作台主数据，仅垃圾桶视图拿不到已删项
+  const trashedTasks = Array.isArray(trashedData)
+    ? (trashedData as unknown as TaskWithTags[])
+    : [];
   return {
-    tasks,
+    tasks: [...tasks, ...trashedTasks],
     lists,
     tags,
     dependencies: (dependencyData || []) as TaskDependency[],

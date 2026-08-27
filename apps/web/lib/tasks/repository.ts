@@ -39,7 +39,7 @@ export function useTaskRepository() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [{ data: tasksData }, { data: listsData }, { data: tagLinks }, { data: tagsData }] = await Promise.all([
+      const [{ data: tasksData }, { data: listsData }, { data: tagLinks }, { data: tagsData }, { data: trashedData }] = await Promise.all([
         supabase.from("tasks").select("*").eq("user_id", user.id)
           .order("is_pinned", { ascending: false })
           .order("sort_order", { ascending: true })
@@ -49,6 +49,9 @@ export function useTaskRepository() {
           .is("deleted_at", null),
         supabase.from("task_tags").select("task_id, tag_id"),
         supabase.from("tags").select("id, name, color").eq("user_id", user.id),
+        // 已删任务走 security definer RPC（RLS 下普通查询不可见，migration 050），
+        // 供侧栏垃圾桶计数使用
+        supabase.rpc("list_trashed_tasks"),
       ]);
 
       const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
@@ -66,8 +69,13 @@ export function useTaskRepository() {
         ...(t as Task),
         tags: linksByTask.get((t as Task).id) || [],
       }));
+      // RPC 失败（如库未跑 migration 050）不阻塞主数据；合并已删任务只为侧栏计数，
+      // 各视图均按 deleted_at 过滤
+      const trashedTasks = Array.isArray(trashedData)
+        ? (trashedData as unknown as TaskWithTags[])
+        : [];
 
-      setTasks(tasksWithTags);
+      setTasks([...tasksWithTags, ...trashedTasks]);
       snapshotRef.current = tasksWithTags;
       setLists((listsData || []) as TaskList[]);
     } finally {

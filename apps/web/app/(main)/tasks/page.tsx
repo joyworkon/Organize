@@ -492,9 +492,11 @@ function TasksPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredTasks]);
 
-  const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
+  // 垃圾箱视图平铺展示全部已删任务（含 done/cancelled），不分待办/完成两组
+  const isTrashScope = sidebarSelection.scope === "trash";
+  const activeTasks = isTrashScope ? filteredTasks : filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   activeTasksRef.current = activeTasks;
-  const completedTasks = filteredTasks.filter((task) => task.status === "done");
+  const completedTasks = isTrashScope ? [] : filteredTasks.filter((task) => task.status === "done");
   // 日期分组只在分组开关打开时计算；组内保持手动排序的先后顺序
   const activeSections = useMemo(
     () => (groupByDate ? groupTasksByDate(activeTasks, taskDate) : null),
@@ -600,7 +602,7 @@ function TasksPageInner() {
       key: "m",
       ctrlKey: false,
       metaKey: false,
-      handler: () => { if (!hasOpenDialog()) { if (showCheckbox) exitSelection(); else setSelectionMode(true); } },
+      handler: () => { if (hasOpenDialog() || sidebarSelection.scope === "trash") return; if (showCheckbox) exitSelection(); else setSelectionMode(true); },
     },
     {
       key: "escape",
@@ -738,14 +740,21 @@ function TasksPageInner() {
             }}
           />
           <TaskAttachmentsDialog
-            tasks={tasks}
+            tasks={tasks.filter((task) => !task.deleted_at)}
             onOpenTask={(taskId) => updateUrl({ task: taskId })}
           />
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[820px] px-4 pb-12 pt-5 md:px-8">
-            <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
+            {sidebarSelection.scope !== "trash" && (
+              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
+            )}
+            {sidebarSelection.scope === "trash" && (
+              <p className="mb-6 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                垃圾箱中的任务为只读；恢复或永久删除请前往侧栏「垃圾箱」页面。
+              </p>
+            )}
 
             {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
             {permission === "denied" && (
@@ -770,16 +779,18 @@ function TasksPageInner() {
                   <Group className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">日期分组</span>
                 </Button>
-                <Button
-                  variant={showCheckbox ? "default" : "outline"}
-                  size="sm"
-                  className="gap-1.5"
-                  title="多选批量操作（按 m）"
-                  onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
-                >
-                  <ListChecks className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">多选</span>
-                </Button>
+                {sidebarSelection.scope !== "trash" && (
+                  <Button
+                    variant={showCheckbox ? "default" : "outline"}
+                    size="sm"
+                    className="gap-1.5"
+                    title="多选批量操作（按 m）"
+                    onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
+                  >
+                    <ListChecks className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">多选</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -805,7 +816,7 @@ function TasksPageInner() {
               />
             )}
 
-            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title="还没有任务" description="使用上方输入框，回车即可添加任务" /> : (
+            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "使用上方输入框，回车即可添加任务"} /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeSections ? (
                   activeSections.map((section) => (
