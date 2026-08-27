@@ -49,30 +49,26 @@ export async function POST(
 
   const { id, versionId } = await params;
 
-  // 拿历史版本内容（RLS 校验归属）
-  const { data: version, error: versionErr } = await supabase
-    .from("note_versions")
-    .select("content, title")
-    .eq("id", versionId)
-    .eq("note_id", id)
-    .maybeSingle();
-  if (versionErr) return serverError(versionErr);
-  if (!version) return NextResponse.json({ error: "版本不存在" }, { status: 404 });
+  // 必须经 restore_note_version 恢复：它会递增 content_revision。
+  // 若走普通 update，其他设备缓存的旧 revision 仍能通过乐观锁比对，
+  // 下次自动保存会静默覆盖刚恢复的内容（046 迁移）。
+  const { data, error } = await supabase.rpc("restore_note_version", {
+    p_note_id: id,
+    p_version_id: versionId,
+  });
+  if (error) return serverError(error);
 
-  // 把笔记的 content 恢复成这个版本
-  // 触发器会自动把当前内容存为新版本（所以恢复也是可逆的）
-  const { error: updateErr } = await supabase
-    .from("notes")
-    .update({
-      content: version.content,
-      title: version.title,
-    })
-    .eq("id", id)
-    .eq("user_id", user.id);
+  if (data?.status === "version_not_found") {
+    return NextResponse.json({ error: "版本不存在" }, { status: 404 });
+  }
+  if (data?.status === "note_not_found") {
+    return NextResponse.json({ error: "笔记不存在" }, { status: 404 });
+  }
+  if (data?.status !== "ok") {
+    return NextResponse.json({ error: "恢复失败" }, { status: 500 });
+  }
 
-  if (updateErr) return serverError(updateErr);
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, noteRevision: data.note_revision });
 }
 
 // DELETE /api/notes/[id]/versions/[versionId] - 删除某个历史版本
