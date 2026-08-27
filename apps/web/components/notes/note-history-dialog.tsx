@@ -45,6 +45,7 @@ export function NoteHistoryDialog({
   };
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
@@ -52,7 +53,17 @@ export function NoteHistoryDialog({
     setLoading(true);
     try {
       const res = await fetch(`/api/notes/${noteId}/versions`, { cache: "no-store" });
-      if (res.ok) setVersions(await res.json());
+      if (res.ok) {
+        setVersions(await res.json());
+        setLoadError(false);
+      } else {
+        // 加载失败与"暂无版本"是两回事：不能静默装作没有历史
+        setVersions([]);
+        setLoadError(true);
+      }
+    } catch {
+      setVersions([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -77,6 +88,9 @@ export function NoteHistoryDialog({
         setOpen(false);
         // 跳到笔记页让用户看效果
         window.location.href = `/notes/${noteId}`;
+      } else {
+        // 恢复失败必须让用户知道：否则以为恢复了，内容其实没变
+        alert(`恢复失败（${res.status}），请重试`);
       }
     } finally {
       setRestoringId(null);
@@ -88,6 +102,8 @@ export function NoteHistoryDialog({
     const res = await fetch(`/api/notes/${noteId}/versions/${vid}`, { method: "DELETE" });
     if (res.ok) {
       setVersions((prev) => prev.filter((v) => v.id !== vid));
+    } else {
+      alert(`删除版本失败（${res.status}），请重试`);
     }
   };
 
@@ -122,6 +138,11 @@ export function NoteHistoryDialog({
           {loading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <p className="text-sm text-destructive">历史版本加载失败，请重试</p>
+              <Button variant="outline" size="sm" onClick={() => void fetchVersions()}>重新加载</Button>
             </div>
           ) : versions.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-8">
