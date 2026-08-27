@@ -35,6 +35,14 @@ import {
   writeNoteCreates,
   type NoteCreateWriter,
 } from "@/lib/offline/note-queue";
+import {
+  enqueueNoteDelete,
+  noteDeletesCount,
+  readNoteDeletes,
+  replayNoteDeletes,
+  writeNoteDeletes,
+  type NoteDeleteWriter,
+} from "@/lib/offline/note-delete-queue";
 import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -75,12 +83,17 @@ export default function NotesPage() {
   const reqIdRef = useRef(0);
   const showCheckbox = selectionMode || isSelectMode;
 
-  // X1 离线同步：网络状态 + 待回放创建数
+  // X1 离线同步：网络状态 + 待回放操作数（离线创建 + 离线删除）
   const online = useOnlineStatus();
-  const [pendingCreates, setPendingCreates] = useState(0);
-  useEffect(() => {
-    setPendingCreates(noteCreatesCount(localStorage));
+  const [pendingOps, setPendingOps] = useState(0);
+  const refreshPendingOps = useCallback(() => {
+    const count = noteCreatesCount(localStorage) + noteDeletesCount(localStorage);
+    setPendingOps(count);
+    return count;
   }, []);
+  useEffect(() => {
+    refreshPendingOps();
+  }, [refreshPendingOps]);
 
   /** 待同步创建转为列表乐观条目（仅保留列表渲染所需字段） */
   const pendingCreatesAsNotes = useCallback((): NoteWithTags[] => {
@@ -166,35 +179,51 @@ export default function NotesPage() {
     setLoading(false);
   }, [search, sortBy, sortOrder, selectedTagIds, supabase, pendingCreatesAsNotes]);
 
-  /** 回放离线创建队列：联网后按序推送，应用成功的触发一次列表刷新 */
-  const replayPendingCreates = useCallback(async () => {
-    const ops = readNoteCreates(localStorage);
-    if (ops.length === 0) {
-      setPendingCreates(0);
+  /** 回放离线队列（创建 + 删除）：联网后按序推送，应用成功的触发一次列表刷新 */
+  const replayPendingOps = useCallback(async () => {
+    const createOps = readNoteCreates(localStorage);
+    const deleteOps = readNoteDeletes(localStorage);
+    if (createOps.length === 0 && deleteOps.length === 0) {
+      setPendingOps(0);
       return;
     }
-    const writer: NoteCreateWriter = {
+    const createWriter: NoteCreateWriter = {
       insertNote: async (note) => {
         const { error } = await supabase.from("notes").insert(note);
         return { error };
       },
     };
-    const result = await replayNoteCreates(writer, ops);
-    writeNoteCreates(localStorage, result.remaining);
-    setPendingCreates(result.remaining.length);
-    if (result.applied > 0) {
+    const createResult = await replayNoteCreates(createWriter, createOps);
+    writeNoteCreates(localStorage, createResult.remaining);
+    // 软删除必须走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
+    // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
+    const deleteWriter: NoteDeleteWriter = {
+      softDeleteNote: async (id) => {
+        const { error } = await supabase.rpc("mutate_trash", {
+          p_action: "soft_delete",
+          p_resource_type: "note",
+          p_ids: [id],
+        });
+        return { error };
+      },
+    };
+    const deleteResult = await replayNoteDeletes(deleteWriter, deleteOps);
+    writeNoteDeletes(localStorage, deleteResult.remaining);
+    setPendingOps(createResult.remaining.length + deleteResult.remaining.length);
+    const applied = createResult.applied + deleteResult.applied;
+    if (applied > 0) {
       await fetchNotes();
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-      toast({ title: `已同步 ${result.applied} 篇离线笔记` });
+      toast({ title: `已同步 ${applied} 项离线更改` });
     }
   }, [fetchNotes, supabase]);
 
   // 联网即回放（含首次挂载时队列有积压的场景）。
-  // replayPendingCreates 的引用随搜索/排序变化——直接放进依赖会变成
+  // replayPendingOps 的引用随搜索/排序变化——直接放进依赖会变成
   // 每次搜索按键都全量重放一遍队列，这里只跟随联网状态这一稳定触发源。
-  const replayRef = useRef(replayPendingCreates);
+  const replayRef = useRef(replayPendingOps);
   useEffect(() => {
-    replayRef.current = replayPendingCreates;
+    replayRef.current = replayPendingOps;
   });
   useEffect(() => {
     if (online) void replayRef.current();
@@ -268,7 +297,7 @@ export default function NotesPage() {
       };
       const applyOfflineCreate = () => {
         enqueueNoteCreate(localStorage, makeNoteCreateOp(insertPayload));
-        setPendingCreates(noteCreatesCount(localStorage));
+        refreshPendingOps();
         // 离线时客户端路由跳转不可靠（RSC 请求会失败）：就地插入列表顶部，
         // 联网回放后经 fetchNotes 去重收敛（serverIds 判定）
         const optimistic: NoteWithTags = {
@@ -343,17 +372,35 @@ export default function NotesPage() {
 
   const deleteNote = async (id: string) => {
     if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
+    // 仍在离线创建队列里的笔记（服务端还没有）：删除即丢弃草稿并刷新计数，
+    // 否则列表会经 pendingCreatesAsNotes 重新显示它，联网回放还会把它插回服务端
+    const discardPendingDraft = () => {
+      removeNoteCreate(localStorage, id);
+      refreshPendingOps();
+    };
+    // X1：离线软删除——乐观移出列表并入删除队列，联网回放 mutate_trash RPC
+    const offlineDelete = () => {
+      if (findNoteCreate(localStorage, id)) discardPendingDraft();
+      else enqueueNoteDelete(localStorage, id);
+      refreshPendingOps();
+      setNotes((prev) => removeNotes(prev, new Set([id])));
+      toast({ title: "已离线删除，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineDelete();
+      return;
+    }
     try {
       await mutateTrash("note", [id], "soft_delete");
-      // 仍在离线创建队列里的笔记（服务端还没有）：同步移出队列并刷新计数，
-      // 否则列表会经 pendingCreatesAsNotes 重新显示它，联网回放还会把它插回服务端
-      if (findNoteCreate(localStorage, id)) {
-        removeNoteCreate(localStorage, id);
-        setPendingCreates(noteCreatesCount(localStorage));
-      }
+      if (findNoteCreate(localStorage, id)) discardPendingDraft();
       setNotes((prev) => removeNotes(prev, new Set([id])));
       toast({ title: "笔记已移入垃圾箱" });
     } catch (error) {
+      // X1：网络错误按离线删除处理——入队待回放，不回滚乐观移除
+      if (isNetworkSaveError(error)) {
+        offlineDelete();
+        return;
+      }
       toast({
         title: "删除失败",
         description: error instanceof Error ? error.message : undefined,
@@ -391,15 +438,33 @@ export default function NotesPage() {
     const offlineIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
     const serverIds = ids.filter((id) => !offlineIds.has(id));
     const offlineCount = ids.length - serverIds.length;
-    // 丢弃离线草稿要真实生效：同步移出队列并刷新计数，
-    // 否则 pendingCreatesAsNotes 会把它们重新合并回列表、联网后被回放插入
-    if (offlineCount > 0) {
-      ids.forEach((id) => removeNoteCreate(localStorage, id));
-      setPendingCreates(noteCreatesCount(localStorage));
+    // X1：离线删除——草稿直接丢弃，服务端已有笔记入删除队列，联网回放
+    const offlineBatchDelete = () => {
+      if (offlineCount > 0) ids.forEach((id) => removeNoteCreate(localStorage, id));
+      serverIds.forEach((id) => enqueueNoteDelete(localStorage, id));
+      refreshPendingOps();
+      setNotes((prev) => removeNotes(prev, selectedIds));
+      exitSelection();
+      toast({
+        title:
+          offlineCount > 0
+            ? `${serverIds.length} 篇已离线删除、${offlineCount} 篇离线草稿已丢弃，联网后自动同步`
+            : `已离线删除 ${serverIds.length} 篇笔记，联网后自动同步`,
+      });
+    };
+    if (!isOnline()) {
+      offlineBatchDelete();
+      return;
     }
     try {
       if (serverIds.length > 0) {
         await mutateTrash("note", serverIds, "soft_delete");
+      }
+      if (offlineCount > 0) {
+        // 丢弃离线草稿要真实生效：同步移出队列并刷新计数，
+        // 否则 pendingCreatesAsNotes 会把它们重新合并回列表、联网后被回放插入
+        ids.forEach((id) => removeNoteCreate(localStorage, id));
+        refreshPendingOps();
       }
       setNotes((prev) => removeNotes(prev, selectedIds));
       exitSelection();
@@ -410,6 +475,11 @@ export default function NotesPage() {
             : `${serverIds.length} 篇笔记已移入垃圾箱`,
       });
     } catch (error) {
+      // X1：网络错误按离线删除处理——入队待回放，不回滚乐观移除
+      if (isNetworkSaveError(error)) {
+        offlineBatchDelete();
+        return;
+      }
       toast({
         title: "批量删除失败",
         description: error instanceof Error ? error.message : undefined,
@@ -539,7 +609,7 @@ export default function NotesPage() {
             {!online && (
               <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground" role="status">
                 <WifiOff className="h-3.5 w-3.5" />
-                离线中{pendingCreates > 0 ? ` · ${pendingCreates} 篇待同步` : ""}
+                离线中{pendingOps > 0 ? ` · ${pendingOps} 篇待同步` : ""}
               </span>
             )}
           </h1>

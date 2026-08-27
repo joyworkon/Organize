@@ -10,6 +10,7 @@ import { NoteAttachmentsButton } from "@/components/editor/note-attachments-pane
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
 import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
+import { enqueueNoteDelete } from "@/lib/offline/note-delete-queue";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -1034,15 +1035,11 @@ export default function NoteEditorPage() {
   /** 删除当前页（移入垃圾箱，可恢复） */
   const deleteNote = useCallback(async () => {
     if (!window.confirm("将这篇笔记移入垃圾箱？")) return;
-    try {
-      await mutateTrash("note", [noteId], "soft_delete");
-      // 掐灭滞留的自动保存：900ms 防抖定时器 / 重试定时器 / 卸载兜底 flush
-      // 都会把删除瞬间之后的草稿写进已进垃圾箱的笔记（服务端 RPC 有软删校验，
-      // 但不该让请求发出去；同时避免垃圾箱快照漂移）。
+    // 掐灭滞留的自动保存：900ms 防抖定时器 / 重试定时器 / 卸载兜底 flush
+    // 都会把删除瞬间之后的草稿写进已进垃圾箱的笔记（服务端 RPC 有软删校验，
+    // 但不该让请求发出去；同时避免垃圾箱快照漂移）。
+    const suppressAutosave = () => {
       dirtyRef.current = false;
-      // 仍在离线创建队列里的笔记（服务端还没有）：必须同步移出队列，
-      // 否则联网回放会把这篇已删除的笔记重新插进服务端（列表页也会一直显示它）
-      removeNoteCreate(localStorage, noteId);
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
@@ -1051,8 +1048,36 @@ export default function NoteEditorPage() {
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
+    };
+    // X1：离线删除——仍在离线创建队列里的笔记（服务端还没有）直接丢弃草稿；
+    // 服务端已有笔记入删除队列，联网回放 mutate_trash RPC
+    const offlineDelete = () => {
+      suppressAutosave();
+      if (findNoteCreate(localStorage, noteId)) {
+        removeNoteCreate(localStorage, noteId);
+      } else {
+        enqueueNoteDelete(localStorage, noteId);
+      }
+      showToast("已离线删除，联网后自动同步");
       router.push("/notes");
-    } catch {
+    };
+    if (!isOnline()) {
+      offlineDelete();
+      return;
+    }
+    try {
+      await mutateTrash("note", [noteId], "soft_delete");
+      suppressAutosave();
+      // 仍在离线创建队列里的笔记（服务端还没有）：必须同步移出队列，
+      // 否则联网回放会把这篇已删除的笔记重新插进服务端（列表页也会一直显示它）
+      removeNoteCreate(localStorage, noteId);
+      router.push("/notes");
+    } catch (error) {
+      // X1：网络错误按离线删除处理——入队待回放
+      if (isNetworkSaveError(error)) {
+        offlineDelete();
+        return;
+      }
       showToast("删除失败");
     }
   }, [noteId, router, showToast]);
