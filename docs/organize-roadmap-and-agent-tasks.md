@@ -8,7 +8,7 @@
 >
 > 2026-08-26 更新：P0 / P1 全部落地（E5→#108、E7→#106、E8→#107）；P2 平台项（离线/桌面/移动）为唯一剩余大项，详见各条目内评估。
 >
-> 2026-08-27 更新：X4 边界部分收官（限流 #136 + 数据发送披露 #137，「更多 AI 动作」按需启动）；X1 追加任务删除离线化（#138，含在线删除 RLS bug 修复）。
+> 2026-08-27 更新：X4 边界部分收官（限流 #136 + 数据发送披露 #137，「更多 AI 动作」按需启动）；X1 追加任务删除离线化（#138，含在线删除 RLS bug 修复）；#140 修复 #138 记录的两处同根因遗留 bug（数据库行删除 + 任务页垃圾桶视图）。
 
 ## 1. 产品方向
 
@@ -61,7 +61,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 ### P2：平台能力
 
 - [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序/子任务离线化、标签等实体）按需启动。
-  - **#138 顺带发现的既有 bug（待修）**：倒数日删除（countdown/page.tsx）与数据库行删除路由（db_rows）同样直写 deleted_at 被 RLS 拒，需改走 mutate_trash RPC（db_rows 需扩展 RPC 支持单行）；tasks 页 `?scope=trash` 渲染空列表（RLS 隐藏已删行未单独查询）。
+  - **#138 顺带发现的遗留 bug（#140 已修复）**：数据库行删除路由改走 mutate_trash 新增的 database_row 分支（migration 050，此前编辑器删除行一直 500）；任务页 `?scope=trash` 经 list_trashed_tasks RPC 显示已删任务 + 侧栏计数（此前永远空/0）。倒数日删除经核实非 mock 路径本就走 RPC，无需修复。
 - [ ] **X2 桌面端最小发布版**：可行性已评估（见下）。**阻塞：本机无 Rust 工具链（cargo/rustc 缺失），无法本地验证构建。**
   - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
   - 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
