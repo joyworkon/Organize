@@ -444,6 +444,13 @@ function TasksPageInner() {
     });
   }, [categoryFilter, priorityFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
 
+  // 筛选/scope 变化后裁掉不可见的选择项：防止批量操作作用到当前视野外的任务
+  useEffect(() => {
+    selection.retainOnly(filteredTasks.map((task) => task.id));
+    // selection 的方法均为稳定引用
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredTasks]);
+
   const activeTasks = filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   activeTasksRef.current = activeTasks;
   const completedTasks = filteredTasks.filter((task) => task.status === "done");
@@ -476,11 +483,18 @@ function TasksPageInner() {
     const previous = tasks;
     setTasks((current) => current.map((task) => selectedIds.has(task.id) ? { ...task, status: "done", completed_at: now } : task));
     const results = await Promise.all(
-      ids.map((id) => supabase.from("tasks").update({ status: "done", completed_at: now }).eq("id", id))
+      ids.map(async (id) => ({ id, error: (await supabase.from("tasks").update({ status: "done", completed_at: now }).eq("id", id)).error }))
     );
-    if (results.some((result) => result.error)) {
-      setTasks(previous);
-      toast({ title: "批量完成失败，已回滚", variant: "destructive" });
+    // 部分失败时只回滚失败项：成功项已真实落库，整体回滚会让界面与库长期相反
+    const failedIds = results.filter((result) => result.error).map((result) => result.id);
+    if (failedIds.length > 0) {
+      const failedSet = new Set(failedIds);
+      setTasks((current) => current.map((task) => {
+        if (!failedSet.has(task.id)) return task;
+        return previous.find((prevTask) => prevTask.id === task.id) ?? task;
+      }));
+      toast({ title: `${ids.length - failedIds.length} 个完成成功，${failedIds.length} 个失败已还原`, variant: "destructive" });
+      exitSelection();
       return;
     }
     exitSelection();
@@ -495,11 +509,18 @@ function TasksPageInner() {
     const previous = tasks;
     setTasks((current) => current.map((task) => selectedIds.has(task.id) ? { ...task, deleted_at: now } : task));
     const results = await Promise.all(
-      ids.map((id) => supabase.from("tasks").update({ deleted_at: now }).eq("id", id))
+      ids.map(async (id) => ({ id, error: (await supabase.from("tasks").update({ deleted_at: now }).eq("id", id)).error }))
     );
-    if (results.some((result) => result.error)) {
-      setTasks(previous);
-      toast({ title: "批量删除失败，已回滚", variant: "destructive" });
+    // 与批量完成同理：部分失败只回滚失败项，避免界面与库不一致
+    const failedIds = results.filter((result) => result.error).map((result) => result.id);
+    if (failedIds.length > 0) {
+      const failedSet = new Set(failedIds);
+      setTasks((current) => current.map((task) => {
+        if (!failedSet.has(task.id)) return task;
+        return previous.find((prevTask) => prevTask.id === task.id) ?? task;
+      }));
+      toast({ title: `${ids.length - failedIds.length} 个已入回收站，${failedIds.length} 个失败已还原`, variant: "destructive" });
+      exitSelection();
       return;
     }
     updateUrl({ task: null });

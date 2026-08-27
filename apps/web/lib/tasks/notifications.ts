@@ -15,6 +15,9 @@
 /** setTimeout 的最大安全延迟（2^31-1 ms ≈ 24.8 天），超过会溢出立即触发 */
 export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
+/** 即时「已过期」提醒的宽限期：到期后 15 分钟内不再当场弹过期通知 */
+export const OVERDUE_IMMEDIATE_GRACE_MS = 15 * 60 * 1000;
+
 export interface DueReminder {
   /** 幂等 key：任务 id + 到期时刻 + 类型（改期后自然失效旧 key） */
   key: string;
@@ -60,7 +63,9 @@ export function buildDueReminders(task: RemindableTask, now: Date): DueReminder[
   const reminders: DueReminder[] = [];
 
   if (isSameDay(now, due)) {
-    const overdue = dueMs <= nowMs;
+    // 宽限期内的"过期"不当场报：任务刚创建/刚到期几分钟就查看列表时，
+    // 立刻弹「已过期」只会是对用户自己刚做的操作的回声
+    const overdue = dueMs <= nowMs - OVERDUE_IMMEDIATE_GRACE_MS;
     reminders.push({
       key: `${keyBase}:today`,
       fireAt: nowMs,
