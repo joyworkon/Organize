@@ -170,6 +170,19 @@ export default function NoteEditorPage() {
   useEffect(() => {
     let active = true;
     async function loadNote() {
+      // 切换笔记（App Router 参数导航会复用页面实例）时彻底复位保存协议状态：
+      // 幂等键跨笔记复用会让新笔记首次保存命中上一笔记的历史结果被"吞"掉，
+      // 随后 revision 参照错乱陷入永久假冲突；重试定时器与冲突框同理不能串台。
+      lastAttemptRef.current = null;
+      retryCountRef.current = 0;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      setSaveConflict(null);
+      setSaveError("");
+      setLastSaved(null);
+      setOfflinePending(false);
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
       // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
