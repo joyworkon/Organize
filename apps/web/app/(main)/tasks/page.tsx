@@ -320,6 +320,16 @@ function TasksPageInner() {
         return { error };
       },
       updateTask: async (id, patch) => {
+        // 软删除补丁走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
+        // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
+        if (patch.deleted_at !== undefined) {
+          const { error } = await supabase.rpc("mutate_trash", {
+            p_action: "soft_delete",
+            p_resource_type: "task",
+            p_ids: [id],
+          });
+          return { error };
+        }
         const { error } = await supabase.from("tasks").update(patch).eq("id", id);
         return { error };
       },
@@ -388,8 +398,35 @@ function TasksPageInner() {
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (!window.confirm("将这个任务移入垃圾箱？")) return;
-    const { error } = await supabase.from("tasks").update({ deleted_at: new Date().toISOString() }).eq("id", taskId);
-    if (error) { toast({ title: "删除失败", variant: "destructive" }); return; }
+    const now = new Date().toISOString();
+    // X1：离线时软删除走离线队列（本质是 update），乐观从列表移除
+    const offlineDelete = () => {
+      setTasks((current) => current.map((task) => task.id === taskId ? { ...task, deleted_at: now } : task));
+      enqueueTaskOp(localStorage, makeTaskUpdateOp(taskId, { deleted_at: now }));
+      setPendingOps(taskOpsCount(localStorage));
+      updateUrl({ task: null });
+    };
+    if (!isOnline()) {
+      offlineDelete();
+      toast({ title: "已离线删除，联网后自动同步" });
+      return;
+    }
+    // 软删除必须走 mutate_trash RPC：直写 deleted_at 会被 RLS 拒绝（更新后的行
+    // 必须仍满足 SELECT 可见性），RPC 是 security definer 且自带子树级联
+    const { error } = await supabase.rpc("mutate_trash", {
+      p_action: "soft_delete",
+      p_resource_type: "task",
+      p_ids: [taskId],
+    });
+    if (error) {
+      if (isNetworkSaveError(error)) {
+        offlineDelete();
+        toast({ title: "网络异常，已离线删除，联网后自动同步" });
+        return;
+      }
+      toast({ title: "删除失败", variant: "destructive" });
+      return;
+    }
     updateUrl({ task: null });
     await fetchTasks();
     toast({ title: "任务已移入垃圾箱" });
@@ -518,18 +555,25 @@ function TasksPageInner() {
     const now = new Date().toISOString();
     const previous = tasks;
     setTasks((current) => current.map((task) => selectedIds.has(task.id) ? { ...task, deleted_at: now } : task));
-    const results = await Promise.all(
-      ids.map(async (id) => ({ id, error: (await supabase.from("tasks").update({ deleted_at: now }).eq("id", id)).error }))
-    );
-    // 与批量完成同理：部分失败只回滚失败项，避免界面与库不一致
-    const failedIds = results.filter((result) => result.error).map((result) => result.id);
-    if (failedIds.length > 0) {
-      const failedSet = new Set(failedIds);
-      setTasks((current) => current.map((task) => {
-        if (!failedSet.has(task.id)) return task;
-        return previous.find((prevTask) => prevTask.id === task.id) ?? task;
-      }));
-      toast({ title: `${ids.length - failedIds.length} 个已入回收站，${failedIds.length} 个失败已还原`, variant: "destructive" });
+    // X1：离线时批量软删除逐项入队（本质是 update 补丁），乐观移除已就绪
+    if (!isOnline()) {
+      ids.forEach((id) => enqueueTaskOp(localStorage, makeTaskUpdateOp(id, { deleted_at: now })));
+      setPendingOps(taskOpsCount(localStorage));
+      updateUrl({ task: null });
+      exitSelection();
+      toast({ title: "已离线删除，联网后自动同步" });
+      return;
+    }
+    // 软删除走 mutate_trash RPC（单次批量调用，子树级联由 RPC 处理）
+    const { error } = await supabase.rpc("mutate_trash", {
+      p_action: "soft_delete",
+      p_resource_type: "task",
+      p_ids: ids,
+    });
+    if (error) {
+      // 单次 RPC 全成或全败：失败整体还原
+      setTasks(previous);
+      toast({ title: "删除失败，已还原", variant: "destructive" });
       exitSelection();
       return;
     }

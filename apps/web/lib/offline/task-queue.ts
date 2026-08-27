@@ -1,11 +1,14 @@
 /**
- * 任务离线操作队列（X1 第二阶段）：localStorage 持久化，断网时的任务创建/字段更新
+ * 任务离线操作队列（X1 第二阶段）：localStorage 持久化，断网时的任务创建/字段更新/软删除
  * 先入队并乐观更新 UI，联网后按序回放。
  *
  * 幂等设计：
  * - 创建：id 由客户端 crypto.randomUUID() 生成，服务端主键唯一约束天然去重
  *   （回放遇 23505 视为「已应用」）；同一任务的后续离线更新会合入创建载荷。
  * - 更新：按任务 id 合并（后写的字段覆盖先写的），回放为普通 update（与在线行为一致）。
+ * - 删除（本质是带 deleted_at 的 update 补丁）：命中同 id 的 create 时合入创建载荷
+ *   （回放为「插入即软删」，依赖 migration 049 放宽 INSERT 策略）；独立 update 补丁
+ *   由调用方的 writer 路由到 mutate_trash RPC——直写 deleted_at 会被 RLS 拒绝。
  *
  * 失败分类复用 note-sync：网络错误中止回放等下次 online；带 code 的服务端错误
  * 丢弃该条（rejected）并继续后续操作。
