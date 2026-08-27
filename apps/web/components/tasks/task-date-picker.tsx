@@ -27,11 +27,15 @@ interface TaskDatePickerProps {
   onChange: (v: TaskSchedule) => void;
 }
 
-function toDateInput(iso: string | null): string {
+// 日期串必须按本地墙钟生成：全天任务存的是本地零点的 ISO（UTC 侧可能是前一天），
+// 用 toISOString 截断会把 <input type="date"> 回填成错的一天，确定时再写回就整体平移。
+export function toDateInput(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 function toTimeInput(iso: string | null): string {
   if (!iso) return "";
@@ -39,7 +43,7 @@ function toTimeInput(iso: string | null): string {
   if (isNaN(d.getTime())) return "";
   return d.toTimeString().slice(0, 5);
 }
-function fromDateInput(date: string, time?: string): string {
+export function fromDateInput(date: string, time?: string): string {
   const dt = new Date(date + (time ? `T${time}` : "T00:00:00"));
   return dt.toISOString();
 }
