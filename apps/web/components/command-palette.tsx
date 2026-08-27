@@ -579,7 +579,8 @@ export function CommandPalette() {
         .from("notes")
         .insert({
           user_id: user.id,
-          title: "无标题笔记",
+          // 空标题：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦
+          title: "",
           content: { type: "doc", content: [{ type: "paragraph" }] },
         })
         .select()

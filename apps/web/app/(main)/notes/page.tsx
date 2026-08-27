@@ -250,7 +250,8 @@ export default function NotesPage() {
       const insertPayload: Record<string, unknown> = {
         id: crypto.randomUUID(),
         user_id: user.id,
-        title: "无标题笔记",
+        // 空标题：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦；列表/侧边栏显示时回退
+        title: "",
         content: { type: "doc", content: [{ type: "paragraph" }] },
       };
       const applyOfflineCreate = () => {
@@ -261,7 +262,7 @@ export default function NotesPage() {
         const optimistic: NoteWithTags = {
           id: insertPayload.id as string,
           user_id: user.id,
-          title: "无标题笔记",
+          title: "",
           content: insertPayload.content as Record<string, unknown>,
           reading_item_id: null,
           is_pinned: false,

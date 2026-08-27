@@ -75,7 +75,8 @@ export async function POST(request: NextRequest) {
     .from("notes")
     .insert({
       user_id: user.id,
-      title: title || "无标题笔记",
+      // 空标题合法：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦（显示侧统一回退）
+      title: typeof title === "string" ? title : "",
       content: content || { type: "doc", content: [{ type: "paragraph" }] },
       reading_item_id: reading_item_id || null,
       icon: typeof icon === "string" ? icon : null,
