@@ -1,7 +1,7 @@
 -- 048 软删除边界加固 pgTAP 测试
 -- 覆盖：save RPC 拒绝已软删笔记、垃圾桶任务分支按子树级联软删与恢复
 BEGIN;
-SELECT plan(7);
+SELECT plan(8);
 
 DO $$ BEGIN
   INSERT INTO auth.users (id, email) VALUES
