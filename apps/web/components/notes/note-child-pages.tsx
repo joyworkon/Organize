@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "@/hooks/use-toast";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 
 interface NoteChildPagesProps {
@@ -39,7 +40,11 @@ export function NoteChildPages({ noteId, notes }: NoteChildPagesProps) {
         })
         .select()
         .single();
-      if (error || !data) return;
+      if (error || !data) {
+        // 与其他创建入口一致：失败必须可见，否则点击没有任何反应
+        toast({ title: "创建子页面失败", variant: "destructive" });
+        return;
+      }
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       router.push(`/notes/${data.id}`);
     } finally {

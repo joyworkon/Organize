@@ -14,11 +14,7 @@ const COLOR_DOT_CLASSES: Record<ThemeColor, string> = {
 
 const THEME_COLOR_LIST: ThemeColor[] = ["orange", "blue", "green", "purple", "pink"];
 
-interface ThemeColorPickerProps {
-  compact?: boolean;
-}
-
-export function ThemeColorPicker({ compact = false }: ThemeColorPickerProps) {
+export function ThemeColorPicker() {
   const [selected, setSelected] = useState<ThemeColor>("orange");
 
   useEffect(() => {
@@ -30,42 +26,17 @@ export function ThemeColorPicker({ compact = false }: ThemeColorPickerProps) {
     applyThemeColor(color);
   };
 
-  if (compact) {
-    return (
-      <div className="flex flex-col items-center gap-1 py-1">
-        {THEME_COLOR_LIST.map((color) => (
-          <button
-            key={color}
-            type="button"
-            onClick={() => handleSelect(color)}
-            className={cn(
-              "w-2 h-2 rounded-full border border-border/60 transition-all",
-              COLOR_DOT_CLASSES[color],
-              selected === color
-                ? "ring-1 ring-primary scale-125"
-                : "hover:scale-125"
-            )}
-            aria-label={`选择${color}主题色`}
-            title={`${color}主题`}
-          />
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-1.5 px-1 py-1.5">
+    <div className="flex items-center gap-2">
       {THEME_COLOR_LIST.map((color) => (
         <button
           key={color}
           type="button"
           onClick={() => handleSelect(color)}
           className={cn(
-            "w-3 h-3 rounded-full border border-border transition-all",
+            "w-6 h-6 rounded-full border border-border transition-all",
             COLOR_DOT_CLASSES[color],
-            selected === color
-              ? "ring-1 ring-offset-1 ring-primary scale-125"
-              : "hover:scale-125"
+            selected === color ? "ring-2 ring-offset-2 ring-primary scale-110" : "hover:scale-110"
           )}
           aria-label={`选择${color}主题色`}
           title={`${color}主题`}

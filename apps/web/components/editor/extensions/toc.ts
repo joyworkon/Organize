@@ -11,8 +11,9 @@ export interface TocEntry {
 
 /**
  * 收集文档里的标题作为目录条目。
- * - 只收 heading（level ∈ levels）
- * - details 内 summary 是 detailsSummary 节点，本身不是 heading，天然被排除
+ * - 收 heading（level ∈ levels）
+ * - 折叠标题（details 内 summary 是 detailsSummary 节点，level 属性 1-4）也收录；
+ *   level 0 是普通折叠块的 summary，不算标题
  * - details 内嵌套的普通 heading 仍会被收录（它们是真实标题）
  */
 export function collectTocEntries(
@@ -22,10 +23,12 @@ export function collectTocEntries(
   const levelSet = new Set(levels);
   const entries: TocEntry[] = [];
   doc.descendants((node, pos) => {
-    if (node.type.name === "heading" && levelSet.has(Number(node.attrs.level))) {
+    const name = node.type.name;
+    const level = Number(node.attrs.level);
+    if ((name === "heading" || name === "detailsSummary") && levelSet.has(level)) {
       entries.push({
         id: String(node.attrs.id || ""),
-        level: Number(node.attrs.level),
+        level,
         text: node.textContent || "无标题",
         pos,
       });

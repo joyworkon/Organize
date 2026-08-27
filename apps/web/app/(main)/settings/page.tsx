@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { AISettingsSection } from "@/components/settings/ai-settings";
+import { ThemeColorPicker } from "@/components/theme-color-picker";
 
 const APP_VERSION = "0.1.0";
 
@@ -356,9 +357,10 @@ export default function SettingsPage() {
             <Palette className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">外观</h2>
           </div>
-          <p className="text-sm text-muted-foreground">
-            主题切换可在侧边栏底部操作，支持明暗模式切换和主题色自定义。
+          <p className="text-sm text-muted-foreground mb-4">
+            选择主题色，明暗模式可在侧边栏底部切换。
           </p>
+          <ThemeColorPicker />
         </div>
 
         <AISettingsSection />

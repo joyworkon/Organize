@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { UniqueID } from "@tiptap/extension-unique-id";
-import { collectTocEntries, normalizeTocLevels, parseTocLevels, serializeTocLevels } from "./toc";
+import Details from "@tiptap/extension-details";
+import DetailsContent from "@tiptap/extension-details-content";
+import DetailsSummary from "@tiptap/extension-details-summary";import { collectTocEntries, normalizeTocLevels, parseTocLevels, serializeTocLevels } from "./toc";
 import { TableOfContents } from "./table-of-contents";
 
 function makeEditor() {
@@ -73,6 +75,53 @@ describe("collectTocEntries", () => {
       content: { type: "doc", content: [{ type: "paragraph", content: [] }] },
     });
     expect(collectTocEntries(editor.state.doc)).toEqual([]);
+    editor.destroy();
+  });
+
+  it("折叠标题（detailsSummary level>0）收录，普通折叠块的 summary 不收录", () => {
+    // level 属性来自项目对 DetailsSummary 的扩展（见 tiptap-editor.tsx）
+    const LeveledSummary = DetailsSummary.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          level: { default: 0 },
+        };
+      },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, Details, DetailsContent, LeveledSummary, TableOfContents],
+      content: {
+        type: "doc",
+        content: [
+          { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "概述" }] },
+          {
+            type: "details",
+            content: [
+              {
+                type: "detailsSummary",
+                attrs: { level: 2 },
+                content: [{ type: "text", text: "折叠标题" }],
+              },
+              { type: "detailsContent", content: [{ type: "paragraph" }] },
+            ],
+          },
+          {
+            type: "details",
+            content: [
+              {
+                type: "detailsSummary",
+                attrs: { level: 0 },
+                content: [{ type: "text", text: "普通折叠块" }],
+              },
+              { type: "detailsContent", content: [{ type: "paragraph" }] },
+            ],
+          },
+        ],
+      },
+    });
+    const entries = collectTocEntries(editor.state.doc);
+    expect(entries.map((e) => e.text)).toEqual(["概述", "折叠标题"]);
+    expect(entries.map((e) => e.level)).toEqual([1, 2]);
     editor.destroy();
   });
 });

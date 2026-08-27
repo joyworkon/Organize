@@ -131,6 +131,9 @@ export default function NoteEditorPage() {
     small_font: false,
   });
   const dirtyRef = useRef(false);
+  // draftRef/dirtyRef 当前归属的笔记 id：切换笔记的瞬间，旧笔记的在途保存
+  // 循环不得把新笔记的草稿写到旧笔记 id 下（flushSave 排空循环每轮前校验）
+  const draftNoteIdRef = useRef(noteId);
   // 最近一次内容变更的来源（user / hydrate / remote-sync / version-restore / backup-restore）
   const lastSourceRef = useRef<TransactionSource>("user");
   // notes.content_revision（G1 乐观锁），双链 RPC 保存时用
@@ -240,6 +243,7 @@ export default function NoteEditorPage() {
           small_font: dbSmallFont,
         };
         draftRef.current = remoteDraft;
+        draftNoteIdRef.current = noteId;
         appEvents.emit("note:opened", { noteId, title: loadedTitle });
 
         const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
@@ -308,6 +312,7 @@ export default function NoteEditorPage() {
             font_family: "default",
             small_font: false,
           };
+          draftNoteIdRef.current = noteId;
           setOfflinePending(true);
         } else if (!isOnline()) {
           // 离线打开一篇服务器上已有的笔记：查询失败≠笔记不存在，
@@ -317,6 +322,12 @@ export default function NoteEditorPage() {
           setLoadFailure("not-found");
         }
       }
+      // 版本恢复的「跳过卸载兜底」标志只该被恢复前那一次 flushSave 消费。
+      // 本页加载完成后 draftRef 已与服务端一致，不清掉的话（从列表页恢复后
+      // 跳转过来时标志无人消费）用户首次编辑会被它静默吞掉。
+      try {
+        sessionStorage.removeItem(`organize:skip-flush:${noteId}`);
+      } catch { /* sessionStorage 不可用时忽略 */ }
       setLoading(false);
       void loadNoteTree();
     }
@@ -493,6 +504,9 @@ export default function NoteEditorPage() {
         if (!dirtyRef.current) setOfflinePending(false);
       }
       while (dirtyRef.current) {
+        // 已切换到其他笔记：dirty/draft 现在归属新笔记，留给新笔记的保存管线，
+        // 绝不能把新笔记的草稿快照写到本循环捕获的旧 noteId 名下
+        if (draftNoteIdRef.current !== noteId) break;
         dirtyRef.current = false;
         const snapshot = { ...draftRef.current };
         const { mutations } =
@@ -518,6 +532,10 @@ export default function NoteEditorPage() {
           p_mutation_id: mutationId,
           p_note_snapshot: snapshot,
         });
+        // RPC 期间切换了笔记：共享 refs（contentRevision/dirty/draft）已归属新笔记，
+        // 任何失败补救/成功回写都会污染新笔记状态。保存结果以服务端为准；
+        // 本笔记未落库的改动已由编辑期 persistCurrentDraft 兜底，重开时可恢复。
+        if (draftNoteIdRef.current !== noteId) break;
         const result = rpcResult as {
           status?: string;
           note_revision?: number;
@@ -1022,6 +1040,9 @@ export default function NoteEditorPage() {
       // 都会把删除瞬间之后的草稿写进已进垃圾箱的笔记（服务端 RPC 有软删校验，
       // 但不该让请求发出去；同时避免垃圾箱快照漂移）。
       dirtyRef.current = false;
+      // 仍在离线创建队列里的笔记（服务端还没有）：必须同步移出队列，
+      // 否则联网回放会把这篇已删除的笔记重新插进服务端（列表页也会一直显示它）
+      removeNoteCreate(localStorage, noteId);
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;

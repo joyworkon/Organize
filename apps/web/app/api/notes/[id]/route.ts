@@ -124,6 +124,20 @@ export async function PATCH(
   }
   if (typeof small_font === "boolean") updateData.small_font = small_font;
 
+  // PATCH 会改动编辑器保存快照里的字段（标题/图标/父页面/排版等）。
+  // 不递增 content_revision 的话，另一个标签页里打开本笔记的编辑器仍持有
+  // 旧 revision，其下一次自动保存会通过乐观锁检查、把这里的修改静默还原
+  // （与 046/051 修的版本恢复、块移动问题同根因）。
+  if (Object.keys(updateData).length > 0) {
+    const { data: current } = await supabase
+      .from("notes")
+      .select("content_revision")
+      .eq("id", params.id)
+      .eq("user_id", user.id)
+      .single();
+    updateData.content_revision = Number(current?.content_revision ?? 0) + 1;
+  }
+
   const { data, error } = await supabase
     .from("notes")
     .update(updateData)

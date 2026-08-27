@@ -52,7 +52,8 @@ function scrollToTocItem(editor: Editor, item: TocItem) {
   if (!block) return;
   if (item.inCollapsed) expandCollapsedInBlock(block);
 
-  const selector = "h1, h2, h3";
+  // summary[data-level] 是折叠标题（普通折叠块的 summary 没有 data-level）
+  const selector = "h1, h2, h3, summary[data-level]";
   const candidates = Array.from(
     block.matches(selector) ? [block] : block.querySelectorAll(selector)
   );
@@ -166,7 +167,7 @@ export function NoteTocPanel({ editor, content, onClose }: NoteTocPanelProps) {
 
       <div className="note-toc-body">
         {displayRows.length === 0 ? (
-          <p className="note-toc-empty">暂无目录，在正文中使用标题（H1-H3）即可生成</p>
+          <p className="note-toc-empty">暂无目录，在正文中使用标题（H1-H3）或折叠标题即可生成</p>
         ) : (
           displayRows.map((row) => (
             <div
