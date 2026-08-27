@@ -112,7 +112,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登录重定向到 `(auth)/login`；`app/auth/callback` 处理回调。Supabase 客户端封装在 `lib/supabase/client.ts`（浏览器）与 `lib/supabase/server.ts`（服务端，@supabase/ssr）。
 
 ### 离线
-`public/sw.js` Service Worker（页面缓存 + 离线回退）+ `lib/offline/queue.ts`（离线操作队列）。
+`public/sw.js` Service Worker（页面缓存 + 离线回退 + Web Push 展示）；`lib/offline/` 下按域拆分的离线队列：`note-queue.ts`（笔记创建队列，主键幂等）/ `task-queue.ts` / `note-sync.ts`（保存失败分类与退避计划）/ `network.ts`（在线状态）。服务端 Web Push 提醒由 `.github/workflows/task-reminder-cron.yml` 每 15 分钟调用 `/api/cron/task-reminders` 触发（需配置 repo variable `TASK_REMINDER_BASE_URL` 与 secret `CRON_SECRET`，未配置时该工作流自动跳过）。
 
 ## 关键约定与陷阱
 
