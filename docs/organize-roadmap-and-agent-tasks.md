@@ -60,7 +60,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 ### P2：平台能力
 
-- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序/子任务离线化、标签等实体）按需启动。
+- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138；笔记删除离线化 #146）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。#146 补笔记删除：同一模式（列表页单删/批量删与详情页删除离线乐观移除，联网回放走 mutate_trash 既有 note 分支，无需新迁移）；离线「建后删」直接丢弃创建队列草稿、不入删除队列。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序/子任务离线化、标签等实体）按需启动。
   - **#138 顺带发现的遗留 bug（#140 已修复）**：数据库行删除路由改走 mutate_trash 新增的 database_row 分支（migration 050，此前编辑器删除行一直 500）；任务页 `?scope=trash` 经 list_trashed_tasks RPC 显示已删任务 + 侧栏计数（此前永远空/0）。倒数日删除经核实非 mock 路径本就走 RPC，无需修复。
 - [ ] **X2 桌面端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §3。**M1 本机验证大部分完成（2026-08-28）：Rust 1.98 已装、`cargo check` 通过、全局快捷键补注册（此前只挂 handler 未注册，事件永不触发）、前端 quick-save 桥接组件落地（`components/desktop/quick-save.tsx` → 复用 QuickAdd 弹层）。剩余：Windows 机器上 `tauri build` 出 NSIS 包 + 壳内 GUI 冒烟。**
   - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
@@ -183,7 +183,8 @@ localStorage 队列 + online 回放」模式，无需临时 ID 映射（id 即�
   「先落滞留创建（幂等）→ 再走乐观锁保存」，覆盖 online/重试/卸载兜底时序
 
 未做（后续阶段按需启动）：
-- 任务删除/拖拽排序/子任务、笔记删除等其他操作的离线化（当前离线响亮失败）
+- 任务删除（#138 完成）/笔记删除（#146 完成）已落地；剩余拖拽排序/子任务、
+  恢复与永久删除等其他操作的离线化（当前离线响亮失败）
 - 标签等其他实体的离线同步
 - Background Sync API（Chromium-only，页面内 flush 已覆盖主流场景）
 ```
