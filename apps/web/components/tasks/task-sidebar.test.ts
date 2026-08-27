@@ -30,8 +30,14 @@ describe("isUpcoming", () => {
     const d = new Date(Date.now() + 3 * 86400000);
     expect(isUpcoming(d.toISOString())).toBe(true);
   });
-  it("7 天后 → false（超出 6 天）", () => {
-    const d = new Date(Date.now() + 7 * 86400000);
+  it("第 7 天 → true（自然日窗口含第 7 天全天）", () => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 12, 0, 0);
+    expect(isUpcoming(d.toISOString())).toBe(true);
+  });
+  it("第 8 天 → false", () => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 8, 0, 0, 1);
     expect(isUpcoming(d.toISOString())).toBe(false);
   });
   it("昨天 → false", () => {

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/context-menu";
 import type { TaskList, TaskWithTags } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
+import { isWithinNextSevenDays } from "@/lib/tasks/workspace";
 
 const EXPANDED_KEY = "organize-sidebar-tasks-expanded";
 
@@ -45,12 +46,9 @@ export function isToday(dateStr: string | null | undefined): boolean {
   return d.toDateString() === now.toDateString();
 }
 export function isUpcoming(dateStr: string | null | undefined): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = (d.getTime() - now.getTime()) / 86400000;
-  // 今天算 upcoming（diff 可能为负的微秒级，用 -1 兜底）
-  return diff >= -1 && diff <= 6;
+  // 与列表页 filterTasksByScope 的「最近7天」同一自然日窗口口径，
+  // 避免侧栏计数与列表内容不一致（此前是"此刻±N 天"的近似口径）
+  return isWithinNextSevenDays(dateStr);
 }
 export function isOverdue(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;

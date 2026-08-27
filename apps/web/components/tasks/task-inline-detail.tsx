@@ -59,13 +59,22 @@ interface TaskInlineDetailProps {
   onDelete: (taskId: string) => Promise<void>;
   onClose: () => void;
   onOpenTask: (taskId: string) => void;
+  /** 未完成的前置依赖（父页已按当前任务算好）：完成时用于二次确认 */
+  blockingPrerequisites?: { id: string; title: string }[];
+}
+
+/** 状态切换到 done 前的阻塞确认：非强制拦截，但不应无声绕过依赖关系 */
+function confirmBlocking(blocking: { id: string; title: string }[]): boolean {
+  if (blocking.length === 0) return true;
+  const names = blocking.map((p) => `「${p.title}」`).join("、");
+  return window.confirm(`${blocking.length} 个前置任务尚未完成：${names}。仍要标记为完成吗？`);
 }
 
 function statusLabel(status: Task["status"]) {
   return status === "done" ? "已完成" : status === "in_progress" ? "进行中" : status === "cancelled" ? "已放弃" : "待办";
 }
 
-export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask }: TaskInlineDetailProps) {
+export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask, blockingPrerequisites = [] }: TaskInlineDetailProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -158,7 +167,11 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
       note_id: null,
     });
     if (error) toast({ title: "创建副本失败", variant: "destructive" });
-    else toast({ title: "副本已创建" });
+    else {
+      toast({ title: "副本已创建" });
+      // 通知任务页重新拉取：否则副本要等下一次无关刷新才可见
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+    }
   };
 
   const saveTemplate = async () => {
@@ -215,7 +228,11 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
   return (
     <aside className="organize-task-detail flex min-w-0 flex-1 flex-col bg-background md:max-w-[560px] lg:w-[34.5vw] lg:min-w-[420px] lg:max-w-[640px] lg:flex-none">
       <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
-        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={() => void onUpdate(task.id, { status: task.status === "done" ? "todo" : "done", completed_at: task.status === "done" ? null : new Date().toISOString() })} className={cn("grid h-6 w-6 place-items-center rounded-md border", task.status === "done" ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30 hover:border-primary")}>
+        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={() => {
+          const toDone = task.status !== "done";
+          if (toDone && !confirmBlocking(blockingPrerequisites)) return;
+          void onUpdate(task.id, { status: toDone ? "done" : "todo", completed_at: toDone ? new Date().toISOString() : null });
+        }} className={cn("grid h-6 w-6 place-items-center rounded-md border", task.status === "done" ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30 hover:border-primary")}>
           {task.status === "done" && <Check className="h-4 w-4" />}
         </button>
         <span className="h-6 w-px bg-border" />

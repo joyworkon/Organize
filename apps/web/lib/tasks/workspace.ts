@@ -36,10 +36,21 @@ export function isOverdue(value: string | null | undefined): boolean {
   return date < now && !isSameDay(date, now);
 }
 
-export function isWithinNextSevenDays(value: string | null | undefined): boolean {
+/**
+ * 「最近7天」按自然日窗口：今天 00:00 起、第 7 天当天结束止。
+ * 此前以"此刻 +7×24h"为界——今天早些时候截止的任务下午查看时 diff<0
+ * 被排除，既不算逾期也不在今天 scope 里，从视图中凭空消失。
+ */
+export function isWithinNextSevenDays(
+  value: string | null | undefined,
+  now = new Date()
+): boolean {
   if (!value) return false;
-  const diff = (new Date(value).getTime() - Date.now()) / 86400000;
-  return diff >= 0 && diff < 7;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return false;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59, 59, 999).getTime();
+  return date.getTime() >= start && date.getTime() <= end;
 }
 
 /** 快速添加任务时，日期范围页需要给新任务一个可见的默认日期。 */
