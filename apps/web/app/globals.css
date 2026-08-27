@@ -2858,6 +2858,7 @@
   line-height: 1.55;
 }
 .comment-thread-list { display: grid; gap: 10px; max-height: 330px; padding: 0 16px; overflow-y: auto; }
+.ai-privacy-note { margin: -6px 16px 0; color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.5; }
 .comment-thread-list section { border: 1px solid hsl(var(--border)); border-radius: 9px; overflow: hidden; }
 .comment-thread-list section.is-resolved { opacity: .65; }
 .comment-thread-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: hsl(var(--muted) / .6); font-size: 11px; }

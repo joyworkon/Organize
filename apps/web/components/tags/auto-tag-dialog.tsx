@@ -161,8 +161,8 @@ export function AutoTagDialog({
               AI 自动打标签
             </DialogTitle>
             <DialogDescription>
-              根据内容自动推荐标签，勾选后一键应用
-              {generatorName === "ai" ? "（AI 模式）" : "（关键词模式，配置 OPENAI_API_KEY 启用 AI）"}
+              根据内容自动推荐标签，勾选后一键应用。AI 模式会把标题与正文发送至「设置 › AI 服务」配置的服务商；关键词模式在本地完成。
+              {generatorName === "ai" ? "（当前：AI 模式）" : "（当前：关键词模式）"}
             </DialogDescription>
           </DialogHeader>
 
