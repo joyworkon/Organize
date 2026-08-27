@@ -29,7 +29,6 @@ import {
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
-import { ThemeColorPicker } from "@/components/theme-color-picker";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
 import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
@@ -436,23 +435,9 @@ export function Sidebar() {
       </nav>
 
       <div className={cn("border-t", compact ? "p-2" : "p-3")}>
-        {compact ? (
-          <div className="flex flex-col items-center gap-1">
-            <ThemeToggle />
-            <ThemeColorPicker compact />
-          </div>
-        ) : onClose ? (
-          <div className="mb-2 space-y-2">
-            <div className="flex justify-start">
-              <ThemeToggle />
-            </div>
-            <ThemeColorPicker />
-          </div>
-        ) : (
-          <div className="mb-2">
-            <ThemeColorPicker />
-          </div>
-        )}
+        <div className={cn("mb-2", compact ? "flex justify-center" : "flex justify-start")}>
+          <ThemeToggle />
+        </div>
         <Button
           variant="ghost"
           size={compact ? "icon" : "default"}

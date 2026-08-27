@@ -26,9 +26,11 @@ import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import {
   enqueueNoteCreate,
+  findNoteCreate,
   makeNoteCreateOp,
   noteCreatesCount,
   readNoteCreates,
+  removeNoteCreate,
   replayNoteCreates,
   writeNoteCreates,
   type NoteCreateWriter,
@@ -156,6 +158,10 @@ export default function NotesPage() {
       const serverIds = new Set((data as NoteWithTags[]).map((note) => note.id));
       const pending = pendingCreatesAsNotes().filter((note) => !serverIds.has(note.id));
       setNotes([...pending, ...(data as NoteWithTags[])]);
+    } else if (error && isOnline()) {
+      // 失败不能静默：否则列表停在旧数据上，用户无从得知已经看不到最新内容。
+      // 离线时的查询失败是预期行为，由顶栏离线角标表达，不另弹 toast。
+      toast({ title: "加载笔记列表失败", description: error.message, variant: "destructive" });
     }
     setLoading(false);
   }, [search, sortBy, sortOrder, selectedTagIds, supabase, pendingCreatesAsNotes]);
@@ -183,10 +189,16 @@ export default function NotesPage() {
     }
   }, [fetchNotes, supabase]);
 
-  // 联网即回放（含首次挂载时队列有积压的场景）
+  // 联网即回放（含首次挂载时队列有积压的场景）。
+  // replayPendingCreates 的引用随搜索/排序变化——直接放进依赖会变成
+  // 每次搜索按键都全量重放一遍队列，这里只跟随联网状态这一稳定触发源。
+  const replayRef = useRef(replayPendingCreates);
   useEffect(() => {
-    if (online) void replayPendingCreates();
-  }, [online, replayPendingCreates]);
+    replayRef.current = replayPendingCreates;
+  });
+  useEffect(() => {
+    if (online) void replayRef.current();
+  }, [online]);
 
   useEffect(() => {
     const timer = setTimeout(fetchNotes, 300);
@@ -333,6 +345,12 @@ export default function NotesPage() {
     if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
     try {
       await mutateTrash("note", [id], "soft_delete");
+      // 仍在离线创建队列里的笔记（服务端还没有）：同步移出队列并刷新计数，
+      // 否则列表会经 pendingCreatesAsNotes 重新显示它，联网回放还会把它插回服务端
+      if (findNoteCreate(localStorage, id)) {
+        removeNoteCreate(localStorage, id);
+        setPendingCreates(noteCreatesCount(localStorage));
+      }
       setNotes((prev) => removeNotes(prev, new Set([id])));
       toast({ title: "笔记已移入垃圾箱" });
     } catch (error) {
@@ -373,6 +391,12 @@ export default function NotesPage() {
     const offlineIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
     const serverIds = ids.filter((id) => !offlineIds.has(id));
     const offlineCount = ids.length - serverIds.length;
+    // 丢弃离线草稿要真实生效：同步移出队列并刷新计数，
+    // 否则 pendingCreatesAsNotes 会把它们重新合并回列表、联网后被回放插入
+    if (offlineCount > 0) {
+      ids.forEach((id) => removeNoteCreate(localStorage, id));
+      setPendingCreates(noteCreatesCount(localStorage));
+    }
     try {
       if (serverIds.length > 0) {
         await mutateTrash("note", serverIds, "soft_delete");
@@ -471,9 +495,19 @@ export default function NotesPage() {
       );
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       try {
+        // parent_note_id 在编辑器保存快照里：必须同步递增 content_revision，
+        // 否则其他标签页的编辑器下次自动保存会把这次移动静默还原
+        const { data: current } = await supabase
+          .from("notes")
+          .select("content_revision")
+          .eq("id", noteId)
+          .single();
         const { error } = await supabase
           .from("notes")
-          .update({ parent_note_id: nextParentId })
+          .update({
+            parent_note_id: nextParentId,
+            content_revision: Number(current?.content_revision ?? 0) + 1,
+          })
           .eq("id", noteId);
         if (error) throw error;
         toast({ title: "已移动" });

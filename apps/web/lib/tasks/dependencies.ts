@@ -24,7 +24,11 @@ export function getTaskDependencyView(
   return {
     prerequisites,
     dependents,
-    blockingPrerequisites: prerequisites.filter((task) => task.status !== "done"),
+    // 已删/已放弃的前置不算阻塞：它们对用户不可见或永不发生，
+    // 继续阻塞会让「全部任务」里挂着看不见的前置、确认框点名幽灵任务
+    blockingPrerequisites: prerequisites.filter(
+      (task) => task.status !== "done" && !task.deleted_at && task.status !== "cancelled"
+    ),
   };
 }
 
@@ -32,12 +36,14 @@ export function getBlockedTaskIds(
   tasks: Task[],
   dependencies: TaskDependency[]
 ): Set<string> {
-  const doneIds = new Set(
-    tasks.filter((task) => task.status === "done").map((task) => task.id)
+  const clearedIds = new Set(
+    tasks
+      .filter((task) => task.status === "done" || task.status === "cancelled" || Boolean(task.deleted_at))
+      .map((task) => task.id)
   );
   return new Set(
     dependencies
-      .filter((edge) => !doneIds.has(edge.depends_on_task_id))
+      .filter((edge) => !clearedIds.has(edge.depends_on_task_id))
       .map((edge) => edge.task_id)
   );
 }

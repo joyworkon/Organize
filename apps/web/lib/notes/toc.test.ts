@@ -17,6 +17,20 @@ const paragraph = (text: string) => ({
   type: "paragraph",
   content: [{ type: "text", text }],
 });
+const details = (open: boolean, content: unknown[]) => ({
+  type: "details",
+  attrs: { open },
+  content,
+});
+const detailsSummary = (level: number, text: string) => ({
+  type: "detailsSummary",
+  attrs: { level },
+  content: [{ type: "text", text }],
+});
+const detailsContent = (content: unknown[]) => ({
+  type: "detailsContent",
+  content,
+});
 
 describe("extractTocItems", () => {
   it("提取 1-3 级标题并记录顶层块索引", () => {
@@ -56,6 +70,40 @@ describe("extractTocItems", () => {
     expect(items.find((i) => i.text === "外层")?.inCollapsed).toBe(false);
     expect(items.find((i) => i.text === "折叠内")?.inCollapsed).toBe(true);
     expect(items.find((i) => i.text === "同步内")?.inCollapsed).toBe(true);
+  });
+
+  it("折叠标题（detailsSummary）作为目录条目收集，收起时依然可见", () => {
+    const content = doc([
+      paragraph("intro"),
+      details(true, [
+        detailsSummary(1, "折叠标题一"),
+        detailsContent([paragraph("内容"), heading(2, "内容里的标题")]),
+      ]),
+      details(false, [
+        detailsSummary(2, "收起的折叠标题"),
+        detailsContent([paragraph("隐藏内容")]),
+      ]),
+      details(true, [detailsSummary(0, "普通折叠块"), detailsContent([paragraph("x")])]),
+    ]);
+    const items = extractTocItems(content);
+    expect(items.map((i) => [i.text, i.level, i.blockIndex])).toEqual([
+      ["折叠标题一", 1, 1],
+      ["内容里的标题", 2, 1],
+      ["收起的折叠标题", 2, 2],
+    ]);
+    // summary 行在折叠块收起时依然可见，不标记 inCollapsed；其内容才标记
+    expect(items.find((i) => i.text === "折叠标题一")?.inCollapsed).toBe(false);
+    expect(items.find((i) => i.text === "内容里的标题")?.inCollapsed).toBe(true);
+  });
+
+  it("折叠标题支持 4 级，5 级被忽略", () => {
+    const items = extractTocItems(
+      doc([
+        details(true, [detailsSummary(4, "四级"), detailsContent([])]),
+        details(true, [detailsSummary(5, "五级"), detailsContent([])]),
+      ])
+    );
+    expect(items.map((i) => i.text)).toEqual(["四级"]);
   });
 
   it("非法输入返回空数组", () => {

@@ -6,7 +6,7 @@
 export interface TocItem {
   /** 标题文本 */
   text: string;
-  /** 标题层级 1-3 */
+  /** 标题层级 1-3（折叠标题为 1-4） */
   level: number;
   /** 顶层块在文档中的索引（用于 DOM 定位与同步块内展开） */
   blockIndex: number;
@@ -24,7 +24,18 @@ interface WalkState {
   items: TocItem[];
 }
 
-/** 递归遍历节点：收集 heading（1-3 级），跟踪折叠容器。 */
+/** 折叠标题（detailsSummary level 属性）支持的层级：折叠标题菜单提供 1-4 级。 */
+const SUMMARY_MAX_LEVEL = 4;
+const HEADING_MAX_LEVEL = 3;
+
+/** 折叠标题的 level>0 才算标题（level 0 是普通折叠块的 summary）。 */
+function isTocTitle(type: string, level: number): boolean {
+  if (type === "heading") return level >= 1 && level <= HEADING_MAX_LEVEL;
+  if (type === "detailsSummary") return level >= 1 && level <= SUMMARY_MAX_LEVEL;
+  return false;
+}
+
+/** 递归遍历节点：收集 heading 与折叠标题（detailsSummary 1-4 级），跟踪折叠容器。 */
 function walkNode(node: unknown, state: WalkState): void {
   if (!node || typeof node !== "object") return;
   const record = node as {
@@ -36,9 +47,9 @@ function walkNode(node: unknown, state: WalkState): void {
   const childCollapsed =
     state.collapsed || type === "details" || type === "syncedBlock" || type === "synced_block";
 
-  if (type === "heading") {
-    const level = Number(record.attrs?.level ?? 1);
-    if (level >= 1 && level <= 3) {
+  if (type === "heading" || type === "detailsSummary") {
+    const level = Number(record.attrs?.level ?? (type === "detailsSummary" ? 0 : 1));
+    if (isTocTitle(type, level)) {
       const text = (record.content || [])
         .map((child) =>
           child && typeof child === "object"
@@ -56,7 +67,20 @@ function walkNode(node: unknown, state: WalkState): void {
         });
       }
     }
-    return; // heading 不递归（内容即文本）
+    return; // 标题内容即文本，不递归
+  }
+
+  if (type === "details") {
+    // summary 是折叠块的头，收起时依然可见；detailsContent 内的块才随折叠隐藏
+    for (const child of record.content || []) {
+      const childType =
+        child && typeof child === "object" ? String((child as { type?: unknown }).type ?? "") : "";
+      walkNode(child, {
+        ...state,
+        collapsed: childType === "detailsSummary" ? state.collapsed : childCollapsed,
+      });
+    }
+    return;
   }
 
   for (const child of record.content || []) {

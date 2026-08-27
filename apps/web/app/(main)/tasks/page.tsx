@@ -76,8 +76,9 @@ interface TaskRowProps {
   listColor?: string | null;
   blocked?: boolean;
   onOpen: () => void;
-  onStatus: () => void;
-  onDateChange: (value: TaskSchedule) => Promise<void>;
+  /** 垃圾箱等只读视图不传：隐藏完成勾选/日期入口 */
+  onStatus?: () => void;
+  onDateChange?: (value: TaskSchedule) => Promise<void>;
   /** 多选模式：显示勾选框 */
   selectionMode?: boolean;
   checked?: boolean;
@@ -128,7 +129,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); return; }
         // 行聚焦时按 x 切换完成状态（x 未占用全局 g 序列，避免与导航冲突）
-        if (event.key === "x" || event.key === "X") { event.preventDefault(); event.stopPropagation(); onStatus(); }
+        if (onStatus && (event.key === "x" || event.key === "X")) { event.preventDefault(); event.stopPropagation(); onStatus(); }
       }}
       onPointerDown={(event) => {
         if (event.pointerType !== "touch" || !onMoveRow || (event.target as HTMLElement).closest("button,input")) return;
@@ -163,9 +164,11 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           />
         </span>
       )}
-      <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
-        {task.status === "done" && <Check className="h-3.5 w-3.5" />}
-      </button>
+      {onStatus && (
+        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
+          {task.status === "done" && <Check className="h-3.5 w-3.5" />}
+        </button>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {/* 优先级旗标（medium 为默认不显示，减少视觉噪声） */}
@@ -200,12 +203,16 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           <FileText className="h-3.5 w-3.5" />
         </button>
       )}
-      <TaskDatePopover
-        value={schedule}
-        onChange={onDateChange}
-        align="end"
-        trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
-      />
+      {onDateChange ? (
+        <TaskDatePopover
+          value={schedule}
+          onChange={onDateChange}
+          align="end"
+          trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
+        />
+      ) : (
+        <span className={cn("shrink-0 px-1.5 py-1 text-xs text-muted-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</span>
+      )}
       {onMoveRow && (
         <DropdownMenu open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <DropdownMenuTrigger asChild>
@@ -320,9 +327,16 @@ function TasksPageInner() {
         return { error };
       },
       updateTask: async (id, patch) => {
-        // 软删除补丁走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
-        // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
+        // 「update 后 delete」合并成的补丁：先落其余字段再软删，直接软删会把
+        // 这些修改静默丢弃（离线先改标题/日期、再删除同一任务的真实路径）
         if (patch.deleted_at !== undefined) {
+          const { deleted_at: _deletedAt, ...rest } = patch;
+          if (Object.keys(rest).length > 0) {
+            const { error } = await supabase.from("tasks").update(rest).eq("id", id);
+            if (error) return { error };
+          }
+          // 软删除走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
+          // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
           const { error } = await supabase.rpc("mutate_trash", {
             p_action: "soft_delete",
             p_resource_type: "task",
@@ -331,7 +345,13 @@ function TasksPageInner() {
           return { error };
         }
         const { error } = await supabase.from("tasks").update(patch).eq("id", id);
-        return { error };
+        if (error) return { error };
+        // 重复任务在离线期间被勾完成：回放后必须补生成下一次实例
+        // （RPC 自检幂等，非重复任务返回 null），否则该重复链就此断链
+        if (patch.status === "done") {
+          await generateNextRecurringTask(supabase, id);
+        }
+        return { error: null };
       },
     };
     const result = await replayTaskOps(writer, ops);
@@ -494,6 +514,15 @@ function TasksPageInner() {
 
   // 垃圾箱视图平铺展示全部已删任务（含 done/cancelled），不分待办/完成两组
   const isTrashScope = sidebarSelection.scope === "trash";
+  // 手动排序只在「单个清单 + 无筛选」视图开放：跨清单/筛选后的拖拽会把
+  // 可见子集的 sort_order 归一成 0..n-1，与不可见任务（其他清单、被筛掉的
+  // 行）的既有顺序交错，切回清单视图后顺序错乱
+  const canReorderRows =
+    sidebarSelection.scope === "list" &&
+    statusFilter === "all" &&
+    categoryFilter === "all" &&
+    priorityFilter === "all" &&
+    selectedTagIds.length === 0;
   const activeTasks = isTrashScope ? filteredTasks : filteredTasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   activeTasksRef.current = activeTasks;
   const completedTasks = isTrashScope ? [] : filteredTasks.filter((task) => task.status === "done");
@@ -685,15 +714,18 @@ function TasksPageInner() {
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
-  /** 行公共 props：平铺（拖拽）与分组两种渲染分支共用；已完成任务不展示阻塞标识（保持旧行为） */
+  /** 行公共 props：平铺（拖拽）与分组两种渲染分支共用；已完成任务不展示阻塞标识（保持旧行为）。
+   * 垃圾箱行为只读（软删行被 RLS 拒绝写入）：不传 onStatus/onDateChange，行内入口直接隐藏。 */
   const commonRowProps = (task: TaskWithTags) => ({
     task,
     selected: task.id === selectedTaskId,
     listColor: lists.find((list) => list.id === task.list_id)?.color,
     blocked: task.status === "done" ? false : blockedTaskIds.has(task.id),
     onOpen: () => openTask(task),
-    onStatus: () => toggleStatus(task),
-    onDateChange: (value: TaskSchedule) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule }),
+    onStatus: isTrashScope ? undefined : () => toggleStatus(task),
+    onDateChange: isTrashScope
+      ? undefined
+      : (value: TaskSchedule) => updateTask(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule }),
     selectionMode: showCheckbox,
     checked: selectedIds.has(task.id),
     onCheckedChange: (checked: boolean) => { if (checked) selection.select(task.id); else selection.deselect(task.id); },
@@ -832,20 +864,20 @@ function TasksPageInner() {
                       <TaskRow
                         key={task.id}
                         {...commonRowProps(task)}
-                        draggableRow
+                        draggableRow={canReorderRows}
                         dropPosition={dropTarget?.id === task.id ? dropTarget.position : null}
-                        onDragStartRow={() => setDragTaskId(task.id)}
-                        onDragOverRow={(event) => {
+                        onDragStartRow={canReorderRows ? () => setDragTaskId(task.id) : undefined}
+                        onDragOverRow={canReorderRows ? (event) => {
                           if (!dragTaskId || dragTaskId === task.id) return;
                           const rect = event.currentTarget.getBoundingClientRect();
                           const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
                           setDropTarget((current) => (current?.id === task.id && current.position === position ? current : { id: task.id, position }));
-                        }}
-                        onDropRow={() => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); }}
-                        onDragEndRow={() => { setDragTaskId(null); setDropTarget(null); }}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < activeTasks.length - 1}
-                        onMoveRow={(offset) => void handleMoveRow(task.id, offset)}
+                        } : undefined}
+                        onDropRow={canReorderRows ? () => { if (dropTarget && dropTarget.id === task.id) void handleDropRow(task.id, dropTarget.position); } : undefined}
+                        onDragEndRow={canReorderRows ? () => { setDragTaskId(null); setDropTarget(null); } : undefined}
+                        canMoveUp={canReorderRows && index > 0}
+                        canMoveDown={canReorderRows && index < activeTasks.length - 1}
+                        onMoveRow={canReorderRows ? (offset) => void handleMoveRow(task.id, offset) : undefined}
                       />
                     ))}
                   </>
