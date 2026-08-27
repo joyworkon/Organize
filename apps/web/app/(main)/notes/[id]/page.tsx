@@ -98,6 +98,8 @@ export default function NoteEditorPage() {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [pageCommentCount, setPageCommentCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  /** 加载失败原因：not-found=在线确认不存在；offline=离线导致查询失败（服务器可能有数据） */
+  const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -131,7 +133,8 @@ export default function NoteEditorPage() {
   // notes.content_revision（G1 乐观锁），双链 RPC 保存时用
   const contentRevisionRef = useRef(0);
   const userIdRef = useRef<string | null>(null);
-  const savingPromiseRef = useRef<Promise<void> | null>(null);
+  /** 在途保存互斥：resolve 值表示本轮是否真正落库（⌘S 提示据此如实反馈） */
+  const savingPromiseRef = useRef<Promise<boolean> | null>(null);
   const editorRef = useRef<Editor | null>(null);
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
@@ -183,6 +186,7 @@ export default function NoteEditorPage() {
       setSaveError("");
       setLastSaved(null);
       setOfflinePending(false);
+      setLoadFailure(null);
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
       // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
@@ -302,6 +306,12 @@ export default function NoteEditorPage() {
             small_font: false,
           };
           setOfflinePending(true);
+        } else if (!isOnline()) {
+          // 离线打开一篇服务器上已有的笔记：查询失败≠笔记不存在，
+          // 明确告知离线不可读，联网后重新进入本页即可恢复
+          setLoadFailure("offline");
+        } else {
+          setLoadFailure("not-found");
         }
       }
       setLoading(false);
@@ -441,21 +451,23 @@ export default function NoteEditorPage() {
         dirtyRef.current = false;
         const userId = userIdRef.current;
         if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
-        return;
+        return true; // 本地草稿已被服务端快照替代：与服务器一致
       }
     } catch { /* sessionStorage 不可用时按正常流程 */ }
     if (savingPromiseRef.current) return savingPromiseRef.current;
-    const promise = (async () => {
+    const promise = (async (): Promise<boolean> => {
       setSaving(true);
       setSaveError("");
+      let failed = false;
       // X1：离线时不发起 RPC（必然失败），保留草稿等 online 事件触发同步；
       // 顶栏离线角标负责可见反馈，不占用 saveError。
       if (!isOnline()) {
         if (dirtyRef.current) {
           persistCurrentDraft();
           setOfflinePending(true);
+          return false; // 有未落库改动且当前无法保存
         }
-        return;
+        return true; // 无未落库改动
       }
       // X1-2B：本条笔记的创建仍滞留离线队列 → 先落创建（主键幂等）再走乐观锁保存；
       // 统一处理 online 事件 / 重试定时器 / 卸载兜底等各触发路径的时序。
@@ -470,7 +482,7 @@ export default function NoteEditorPage() {
               persistCurrentDraft();
               setOfflinePending(true);
             }
-            return;
+            return false;
           }
           // 业务错误：移出队列避免死循环，继续走 RPC 暴露真实错误给冲突/失败分支
         }
@@ -548,10 +560,12 @@ export default function NoteEditorPage() {
             remoteUpdatedAt: remote?.updated_at || null,
           });
           setSaveError("检测到其他位置的修改，请处理保存冲突");
+          failed = true;
           break;
         }
 
         if (rpcErr || status !== "ok" || typeof result?.note_revision !== "number") {
+          failed = true;
           dirtyRef.current = true;
           persistCurrentDraft();
           // X1：失败分类——网络错误自动重试（指数退避）/离线等 online 事件/其他错误不自动重试
@@ -596,6 +610,7 @@ export default function NoteEditorPage() {
         }
         window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       }
+      return !failed;
     })().finally(() => {
       setSaving(false);
       savingPromiseRef.current = null;
@@ -860,14 +875,22 @@ export default function NoteEditorPage() {
       metaKey: true,
       ctrlKey: false,
       allowInInput: true,
-      handler: () => { void flushSave().then(() => showToast("已保存")); },
+      handler: () => {
+        // 按保存结果如实提示：离线/冲突/失败时 flushSave 返回 false，
+        // 此时顶部已有对应状态（离线角标/冲突框/错误条），toast 不再谎报"已保存"
+        void flushSave().then((saved) => showToast(saved ? "已保存" : "尚未同步，请注意顶栏保存状态"));
+      },
     },
     {
       key: "s",
       ctrlKey: true,
       metaKey: false,
       allowInInput: true,
-      handler: () => { void flushSave().then(() => showToast("已保存")); },
+      handler: () => {
+        // 按保存结果如实提示：离线/冲突/失败时 flushSave 返回 false，
+        // 此时顶部已有对应状态（离线角标/冲突框/错误条），toast 不再谎报"已保存"
+        void flushSave().then((saved) => showToast(saved ? "已保存" : "尚未同步，请注意顶栏保存状态"));
+      },
     },
   ]);
 
@@ -1084,11 +1107,17 @@ export default function NoteEditorPage() {
   }
 
   if (!content) {
+    // 离线打开一篇服务器上完好的笔记时，查询必然失败——不能误报"笔记不存在"
+    const offlineUnavailable = loadFailure === "offline";
     return (
       <EmptyState
         icon={FileText}
-        title="笔记不存在"
-        description="笔记可能已被删除或链接无效"
+        title={offlineUnavailable ? "离线暂不可读" : "笔记不存在"}
+        description={
+          offlineUnavailable
+            ? "当前无网络连接，联网后将自动恢复阅读与编辑"
+            : "笔记可能已被删除或链接无效"
+        }
         action={
           <Link href="/notes">
             <Button variant="outline" size="sm">

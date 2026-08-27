@@ -11,6 +11,15 @@ import { useMemo } from "react";
  * 点击公式可重新编辑 LaTeX 源码。
  */
 
+/** KaTeX 之外的兜底路径必须按纯文本转义：latex 是用户可控输入，直接注入 innerHTML 会形成 XSS 面 */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function MathNodeView({ node, updateAttributes, extension }: NodeViewProps) {
   const isBlock = extension.name === "mathBlock";
   const latex = (node.attrs.latex as string) || "";
@@ -22,7 +31,7 @@ function MathNodeView({ node, updateAttributes, extension }: NodeViewProps) {
         displayMode: isBlock,
       });
     } catch {
-      return latex;
+      return `<span class="text-destructive">${escapeHtml(latex)}</span>`;
     }
   }, [latex, isBlock]);
 
@@ -76,7 +85,7 @@ function createMathNode(name: string, isBlock: boolean) {
           displayMode: isBlock,
         });
       } catch {
-        rendered = node.attrs.latex as string;
+        rendered = `<span class="text-destructive">${escapeHtml(node.attrs.latex as string)}</span>`;
       }
       const wrapper = document.createElement(isBlock ? "div" : "span");
       wrapper.setAttribute(`data-${isBlock ? "math-block" : "math-inline"}`, "");

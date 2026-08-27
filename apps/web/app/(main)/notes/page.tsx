@@ -109,7 +109,11 @@ export default function NotesPage() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) return;
+    if (!user) {
+      // 未登录/会话失效时也必须结束 loading：否则骨架屏永不消失，页面像卡死
+      if (reqIdRef.current === myReqId) setLoading(false);
+      return;
+    }
 
     let scopedIds: string[] | null = null;
     if (selectedTagIds.length > 0) {
@@ -363,12 +367,23 @@ export default function NotesPage() {
     if (selectedIds.size === 0) return;
     if (!confirm(`将选中的 ${selectedIds.size} 篇笔记移入垃圾箱？`)) return;
     const ids = Array.from(selectedIds);
-    const count = ids.length;
+    // 离线队列里尚未落库的条目只在本地存在：不进服务端垃圾桶 RPC，
+    // 单独按"丢弃离线草稿"如实计数
+    const offlineIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
+    const serverIds = ids.filter((id) => !offlineIds.has(id));
+    const offlineCount = ids.length - serverIds.length;
     try {
-      await mutateTrash("note", ids, "soft_delete");
+      if (serverIds.length > 0) {
+        await mutateTrash("note", serverIds, "soft_delete");
+      }
       setNotes((prev) => removeNotes(prev, selectedIds));
       exitSelection();
-      toast({ title: `${count} 篇笔记已移入垃圾箱` });
+      toast({
+        title:
+          offlineCount > 0
+            ? `${serverIds.length} 篇已移入垃圾箱，${offlineCount} 篇离线草稿已丢弃`
+            : `${serverIds.length} 篇笔记已移入垃圾箱`,
+      });
     } catch (error) {
       toast({
         title: "批量删除失败",
@@ -396,7 +411,10 @@ export default function NotesPage() {
   };
 
   const handleSelectAllVisible = () => {
-    selectAll(notes.map((n) => n.id));
+    // 排除仍在离线队列、尚未落库的条目：全选后批量删除/置顶对它们必然无效，
+    // 却会提示"成功处理 N 篇"，制造假成功
+    const pendingIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
+    selectAll(notes.filter((n) => !pendingIds.has(n.id)).map((n) => n.id));
   };
 
   // 高亮匹配要遍历每篇笔记的正文 JSON，按 150ms 防抖避免击键卡顿（取数本身已有 300ms 防抖）
