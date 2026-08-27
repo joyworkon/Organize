@@ -67,12 +67,13 @@ export async function DELETE(
   if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
   if (!db) return NextResponse.json({ error: "数据库不存在" }, { status: 404 });
 
-  const { error } = await supabase
-    .from("db_rows")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", rowId)
-    .eq("database_id", id)
-    .is("deleted_at", null);
+  // 软删除走 mutate_trash RPC（database_row 分支，migration 050）：
+  // 直写 deleted_at 会被 RLS 拒绝（UPDATE 时 SELECT 策略 USING 作为新行隐式检查）
+  const { error } = await supabase.rpc("mutate_trash", {
+    p_action: "soft_delete",
+    p_resource_type: "database_row",
+    p_ids: [rowId],
+  });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
