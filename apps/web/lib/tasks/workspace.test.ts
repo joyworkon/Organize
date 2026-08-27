@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskList, TaskWithTags } from "@organize/shared";
-import { filterTasksByScope, quickAddDueDate, searchTasks } from "./workspace";
+import { filterTasksByScope, quickAddDueDate, schedulableReminderTasks, searchTasks } from "./workspace";
 
 const task = (overrides: Partial<TaskWithTags>): TaskWithTags => ({
   id: "task-1",
@@ -114,5 +114,29 @@ describe("filterTasksByScope", () => {
       .toEqual(["root"]);
     expect(filterTasksByScope(tasks, { scope: "trash", listId: null }).map((item) => item.id))
       .toEqual(["deleted-root"]);
+  });
+});
+
+describe("schedulableReminderTasks（提醒只吃可见集）", () => {
+
+  it("已软删的任务被剔除", () => {
+    const deleted = task({ id: "deleted", title: "d", deleted_at: "2026-08-01T00:00:00Z" });
+    const alive = task({ id: "alive", title: "a" });
+    expect(schedulableReminderTasks([deleted, alive]).map((t) => t.id)).toEqual(["alive"]);
+  });
+
+  it("父任务软删后的幽灵子任务一并剔除", () => {
+    const parent = task({ id: "p1", title: "p", deleted_at: "2026-08-01T00:00:00Z" });
+    const child = task({ id: "c1", title: "c", parent_task_id: "p1" });
+    const grandchild = task({ id: "g1", title: "g", parent_task_id: "c1" });
+    const unrelated = task({ id: "u1", title: "u", parent_task_id: null });
+    expect(schedulableReminderTasks([parent, child, grandchild, unrelated]).map((t) => t.id))
+      .toEqual(["u1"]);
+  });
+
+  it("未删除的父任务下所有子任务保留", () => {
+    const parent = task({ id: "p2", title: "p" });
+    const child = task({ id: "c2", title: "c", parent_task_id: "p2" });
+    expect(schedulableReminderTasks([parent, child]).length).toBe(2);
   });
 });

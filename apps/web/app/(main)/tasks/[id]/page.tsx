@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
+import { claimTaskNoteCreation, releaseTaskNoteCreation } from "@/lib/tasks/note-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -260,21 +261,32 @@ export default function TaskDetailPage() {
   async function handleOpenNote() {
     if (!task) return;
     if (task.note_id) { router.push(`/notes/${task.note_id}`); return; }
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: checklistRows } = await supabase
-      .from("task_checklists")
-      .select("content, is_completed")
-      .eq("task_id", task.id)
-      .order("sort_order", { ascending: true });
-    const { data: note, error } = await supabase.from("notes").insert({
-      user_id: user.id,
-      title: `${task.title} - 便签`,
-      content: buildTaskNoteContent(task, checklistRows || []),
-    }).select("id").single();
-    if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
-    await supabase.from("tasks").update({ note_id: note.id }).eq("id", task.id);
-    router.push(`/notes/${note.id}`);
+    // 创建在途时忽略重复点击：双击会各自 insert，后写覆盖关联，前者成孤儿便签
+    if (!claimTaskNoteCreation(task.id)) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: checklistRows } = await supabase
+        .from("task_checklists")
+        .select("content, is_completed")
+        .eq("task_id", task.id)
+        .order("sort_order", { ascending: true });
+      const { data: note, error } = await supabase.from("notes").insert({
+        user_id: user.id,
+        title: `${task.title} - 便签`,
+        content: buildTaskNoteContent(task, checklistRows || []),
+      }).select("id").single();
+      if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
+      // 关联写失败时不导航：note_id 没落库就跳走，下次点击会再建一条孤儿便签
+      const { error: linkErr } = await supabase.from("tasks").update({ note_id: note.id }).eq("id", task.id);
+      if (linkErr) {
+        toast({ title: "便签已创建但关联失败，请在笔记列表中查看", variant: "destructive" });
+        return;
+      }
+      router.push(`/notes/${note.id}`);
+    } finally {
+      releaseTaskNoteCreation(task.id);
+    }
   }
 
   /** 保存为模板 */
