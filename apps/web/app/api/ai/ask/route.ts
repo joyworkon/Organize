@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { askAI, getAIConfig } from "@/lib/ai/server";
+import { AI_RATE_LIMITS, checkRateLimit } from "@/lib/ai/rate-limit";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const limit = checkRateLimit(`ai:ask:${user.id}`, AI_RATE_LIMITS.ask);
+  if (!limit.allowed) {
+    return NextResponse.json({ error: "AI 请求过于频繁，请稍后再试" }, {
+      status: 429,
+      headers: { "Retry-After": String(Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000))) },
+    });
+  }
   const body = await request.json();
   const instruction = String(body.instruction || "").trim();
   const text = String(body.text || "").trim();
