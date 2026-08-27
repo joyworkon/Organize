@@ -117,6 +117,15 @@ export function AISettingsSection() {
       <p className="text-sm text-muted-foreground mb-4">
         配置 OpenAI 兼容接口后，一处配置全模块生效：笔记「问 AI」「AI 速记」、笔记与阅读库的「标签智能推荐」。
       </p>
+      <details className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        <summary className="cursor-pointer select-none font-medium text-foreground">数据发送说明（点开查看）</summary>
+        <div className="mt-2 space-y-1.5">
+          <p><strong className="text-foreground">问 AI</strong>：发送所选笔记文本（最多 2 万字符）和你的指令。</p>
+          <p><strong className="text-foreground">AI 速记</strong>：发送录音音频（≤25MB，仅本次转写用完即弃）和转写出的文字。</p>
+          <p><strong className="text-foreground">标签智能推荐</strong>：发送笔记或文章的标题与正文、你已有的标签名。</p>
+          <p className="pt-1 border-t">以上内容经本站服务端转发到你配置的服务商，本站不留存 AI 处理结果；各功能均有限流（问 AI / 标签推荐 20 次/分钟，AI 速记 5 次/分钟）。API 密钥仅保存在你的账户数据中；标签推荐在 AI 不可用时自动降级为本地关键词模式。</p>
+        </div>
+      </details>
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />

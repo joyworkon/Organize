@@ -278,6 +278,7 @@ function AskAIDialog({ editor, target, onClose }: { editor: Editor; target: Edit
     <Modal title="万事问 AI" icon={<Bot className="h-4 w-4" />} onClose={onClose} wide>
       <label className="editor-field"><span>告诉 AI 要做什么</span><textarea autoFocus value={instruction} onChange={(event) => setInstruction(event.target.value)} /></label>
       <div className="ai-source-preview">{target.text || `［${target.type} 区块］`}</div>
+      <p className="ai-privacy-note">以上内容与指令将发送至你在「设置 › AI 服务」配置的服务商。</p>
       {error && <p className="editor-dialog-error">{error}</p>}
       {result && <label className="editor-field"><span>结果预览</span><textarea value={result} onChange={(event) => setResult(event.target.value)} /></label>}
       <div className="editor-dialog-actions">{result && <><button type="button" onClick={() => insert(false)}>插入到下方</button><button type="button" className="primary" onClick={() => insert(true)}>替换原区块</button></>} {!result && <button type="button" className="primary" disabled={loading || !instruction.trim()} onClick={run}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}生成</button>}</div>
@@ -364,7 +365,7 @@ function AINotesDialog({ editor, pos, onClose }: { editor: Editor; pos: number; 
   const time = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   return (
     <Modal title="AI 速记" icon={<Mic className="h-4 w-4" />} onClose={onClose}>
-      <div className={`recording-state ${status}`}><div className="recording-pulse"><Mic className="h-7 w-7" /></div><strong>{status === "recording" ? time : status === "processing" ? "正在转写并整理…" : status === "ready" ? "录音已完成" : "录制会议或灵感"}</strong><p>录音只用于本次转写，处理完成后不会保存音频。</p></div>
+      <div className={`recording-state ${status}`}><div className="recording-pulse"><Mic className="h-7 w-7" /></div><strong>{status === "recording" ? time : status === "processing" ? "正在转写并整理…" : status === "ready" ? "录音已完成" : "录制会议或灵感"}</strong><p>录音将发送至你在「设置 › AI 服务」配置的服务商，只用于本次转写，处理完成后不会保存音频。</p></div>
       {error && <p className="editor-dialog-error">{error}</p>}
       <div className="editor-dialog-actions centered">{status === "idle" && <button type="button" className="primary" onClick={start}><Mic className="h-4 w-4" />开始录音</button>}{status === "recording" && <button type="button" className="danger-button" onClick={stop}><CircleStop className="h-4 w-4" />停止录音</button>}{status === "ready" && <><button type="button" onClick={start}>重新录制</button><button type="button" className="primary" onClick={process}><Bot className="h-4 w-4" />生成速记</button></>}{status === "processing" && <button type="button" disabled><Loader2 className="h-4 w-4 animate-spin" />处理中</button>}</div>
     </Modal>
