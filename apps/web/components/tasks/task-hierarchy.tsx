@@ -7,6 +7,10 @@ import type { Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { isOnline } from "@/lib/offline/network";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { enqueueTaskOp, makeTaskCreateOp, makeTaskUpdateOp } from "@/lib/offline/task-queue";
+import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 
 interface TaskHierarchyProps {
   task: Task;
@@ -57,27 +61,70 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       (max, child) => Math.max(max, child.sort_order || 0),
       -1
     );
+    // X1：id 始终由客户端生成——离线创建可入队回放（主键唯一约束保证幂等），
+    // 子任务即带 parent_task_id 的任务行，走任务队列同一套 create
+    const insertPayload = {
+      id: crypto.randomUUID(),
+      user_id: task.user_id,
+      parent_task_id: task.id,
+      title: nextTitle,
+      status: "todo" as const,
+      priority: "medium" as const,
+      category: task.category,
+      list_id: task.list_id || null,
+      sort_order: maxOrder + 1,
+    };
+    // X1：乐观插入子任务列表，服务端失败（非网络）时回滚
+    const now = new Date().toISOString();
+    const optimistic: Task = {
+      ...insertPayload,
+      description: null,
+      due_date: null,
+      estimated_minutes: null,
+      actual_minutes: null,
+      reading_item_id: null,
+      note_id: null,
+      is_pinned: false,
+      completed_at: null,
+      deleted_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    setChildren((current) => [...current, optimistic]);
+    setTitle("");
+    const rollback = () => {
+      setChildren((current) => current.filter((item) => item.id !== insertPayload.id));
+      setTitle(nextTitle);
+    };
+    const offlineCreate = () => {
+      enqueueTaskOp(localStorage, makeTaskCreateOp(insertPayload));
+      setSaving(false);
+      toast({ title: "已离线创建，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineCreate();
+      return;
+    }
     const { data, error } = await supabase
       .from("tasks")
-      .insert({
-        user_id: task.user_id,
-        parent_task_id: task.id,
-        title: nextTitle,
-        status: "todo",
-        priority: "medium",
-        category: task.category,
-        list_id: task.list_id || null,
-        sort_order: maxOrder + 1,
-      })
+      .insert(insertPayload)
       .select()
       .single();
     setSaving(false);
     if (error || !data) {
+      // X1：网络错误按离线创建处理（客户端 id 保证回放不重复）
+      if (isNetworkSaveError(error)) {
+        offlineCreate();
+        return;
+      }
+      rollback();
       toast({ title: "添加子任务失败", variant: "destructive" });
       return;
     }
-    setChildren((current) => [...current, data as Task]);
-    setTitle("");
+    // 用服务端返回行替换乐观条目（补全生成列与默认值）
+    setChildren((current) =>
+      current.map((item) => item.id === insertPayload.id ? data as Task : item)
+    );
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 
@@ -87,17 +134,38 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       status: done ? "todo" : "done",
       completed_at: done ? null : new Date().toISOString(),
     } satisfies Partial<Task>;
+    // X1：先乐观更新；离线（或网络异常）直接入队，联网后回放
+    setChildren((current) =>
+      current.map((item) => item.id === child.id ? { ...item, ...patch } : item)
+    );
+    const offlineUpdate = () => {
+      enqueueTaskOp(localStorage, makeTaskUpdateOp(child.id, patch as Record<string, unknown>));
+      toast({ title: "已离线保存，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineUpdate();
+      return;
+    }
     const { error } = await supabase
       .from("tasks")
       .update(patch)
       .eq("id", child.id);
     if (error) {
+      // X1：网络错误按离线处理——入队待回放，不回滚乐观状态
+      if (isNetworkSaveError(error)) {
+        offlineUpdate();
+        return;
+      }
+      setChildren((current) =>
+        current.map((item) => item.id === child.id ? { ...item, status: child.status, completed_at: child.completed_at } : item)
+      );
       toast({ title: "更新子任务失败", variant: "destructive" });
       return;
     }
-    setChildren((current) =>
-      current.map((item) => item.id === child.id ? { ...item, ...patch } : item)
-    );
+    if (patch.status === "done") {
+      // 与工作台一致：完成触发重复任务下一实例生成（RPC 自检幂等）
+      await generateNextRecurringTask(supabase, child.id);
+    }
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
 

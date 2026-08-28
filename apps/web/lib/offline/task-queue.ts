@@ -1,5 +1,6 @@
 /**
- * 任务离线操作队列（X1 第二阶段）：localStorage 持久化，断网时的任务创建/字段更新/软删除
+ * 任务离线操作队列（X1 第二阶段）：localStorage 持久化，断网时的任务创建/字段更新/软删除、
+ * 子任务增删改（子任务即带 parent_task_id 的任务行，走同一套 create/update）、清单项勾选/删除。
  * 先入队并乐观更新 UI，联网后按序回放。
  *
  * 幂等设计：
@@ -9,6 +10,9 @@
  * - 删除（本质是带 deleted_at 的 update 补丁）：命中同 id 的 create 时合入创建载荷
  *   （回放为「插入即软删」，依赖 migration 049 放宽 INSERT 策略）；独立 update 补丁
  *   由调用方的 writer 路由到 mutate_trash RPC——直写 deleted_at 会被 RLS 拒绝。
+ * - 清单勾选：按清单项 id 合并（最终态覆盖）；清单删除：按 id 去重，并连带丢弃
+ *   同一项的滞留勾选（都要删了，勾选无需回放）。清单行直写 task_checklists 表，
+ *   与在线行为完全一致（UI 本就直写该表），目标行已不存在时更新/删除 0 行不报错。
  *
  * 失败分类复用 note-sync：网络错误中止回放等下次 online；带 code 的服务端错误
  * 丢弃该条（rejected）并继续后续操作。
@@ -34,7 +38,28 @@ export interface PendingTaskUpdate {
   created_at: number;
 }
 
-export type PendingTaskOp = PendingTaskCreate | PendingTaskUpdate;
+export interface PendingChecklistUpdate {
+  op_id: string;
+  type: "checklist_update";
+  /** task_checklists 行 id */
+  id: string;
+  patch: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface PendingChecklistDelete {
+  op_id: string;
+  type: "checklist_delete";
+  /** task_checklists 行 id */
+  id: string;
+  created_at: number;
+}
+
+export type PendingTaskOp =
+  | PendingTaskCreate
+  | PendingTaskUpdate
+  | PendingChecklistUpdate
+  | PendingChecklistDelete;
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
@@ -59,6 +84,8 @@ export function writeTaskOps(storage: StorageLike, ops: PendingTaskOp[]): void {
  * 入队并合并：
  * - update 命中同 id 的 create → 合入创建载荷（保证回放时先建后改且只插一次）；
  * - update 命中同 id 的 update → 合并 patch（后者覆盖同名字段）；
+ * - checklist_update 命中同 id 的 checklist_update → 合并 patch（最终态覆盖）；
+ * - checklist_delete 命中同 id 的 checklist_delete → 去重，并连带丢弃同项滞留勾选；
  * - 其余追加到队尾（保持时间序）。
  */
 export function enqueueTaskOp(storage: StorageLike, op: PendingTaskOp): PendingTaskOp[] {
@@ -78,6 +105,26 @@ export function enqueueTaskOp(storage: StorageLike, op: PendingTaskOp): PendingT
       writeTaskOps(storage, ops);
       return ops;
     }
+  }
+  if (op.type === "checklist_update") {
+    const updateIndex = ops.findIndex(
+      (item) => item.type === "checklist_update" && item.id === op.id
+    );
+    if (updateIndex >= 0) {
+      const existing = ops[updateIndex] as PendingChecklistUpdate;
+      ops[updateIndex] = { ...existing, patch: { ...existing.patch, ...op.patch } };
+      writeTaskOps(storage, ops);
+      return ops;
+    }
+  }
+  if (op.type === "checklist_delete") {
+    // 该项已待删：本次入队是重复删除；同时丢弃滞留勾选（回放无意义）
+    const isChecklistOpOnSameItem = (item: PendingTaskOp) =>
+      (item.type === "checklist_delete" || item.type === "checklist_update") && item.id === op.id;
+    const filtered = ops.filter((item) => !isChecklistOpOnSameItem(item));
+    filtered.push(op);
+    writeTaskOps(storage, filtered);
+    return filtered;
   }
   ops.push(op);
   writeTaskOps(storage, ops);
@@ -102,10 +149,23 @@ export function makeTaskUpdateOp(id: string, patch: Record<string, unknown>): Pe
   return { op_id: crypto.randomUUID(), type: "update", id, patch, created_at: Date.now() };
 }
 
+export function makeChecklistUpdateOp(
+  id: string,
+  patch: Record<string, unknown>
+): PendingChecklistUpdate {
+  return { op_id: crypto.randomUUID(), type: "checklist_update", id, patch, created_at: Date.now() };
+}
+
+export function makeChecklistDeleteOp(id: string): PendingChecklistDelete {
+  return { op_id: crypto.randomUUID(), type: "checklist_delete", id, created_at: Date.now() };
+}
+
 /** 回放依赖的最小写入接口（由 supabase client 适配而来，便于测试注入） */
 export interface TaskQueueWriter {
   insertTask(task: Record<string, unknown>): Promise<{ error: unknown }>;
   updateTask(id: string, patch: Record<string, unknown>): Promise<{ error: unknown }>;
+  updateChecklist(id: string, patch: Record<string, unknown>): Promise<{ error: unknown }>;
+  deleteChecklist(id: string): Promise<{ error: unknown }>;
 }
 
 export interface ReplayResult {
@@ -137,7 +197,11 @@ export async function replayTaskOps(
     }
     const { error } = op.type === "create"
       ? await writer.insertTask(op.task)
-      : await writer.updateTask(op.id, op.patch);
+      : op.type === "update"
+        ? await writer.updateTask(op.id, op.patch)
+        : op.type === "checklist_update"
+          ? await writer.updateChecklist(op.id, op.patch)
+          : await writer.deleteChecklist(op.id);
 
     if (!error) {
       applied += 1;

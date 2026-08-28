@@ -30,9 +30,9 @@ import {
   replayTaskOps,
   taskOpsCount,
   writeTaskOps,
-  type TaskQueueWriter,
 } from "@/lib/offline/task-queue";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
+import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -321,40 +321,7 @@ function TasksPageInner() {
       setPendingOps(0);
       return;
     }
-    const writer: TaskQueueWriter = {
-      insertTask: async (task) => {
-        const { error } = await supabase.from("tasks").insert(task);
-        return { error };
-      },
-      updateTask: async (id, patch) => {
-        // 「update 后 delete」合并成的补丁：先落其余字段再软删，直接软删会把
-        // 这些修改静默丢弃（离线先改标题/日期、再删除同一任务的真实路径）
-        if (patch.deleted_at !== undefined) {
-          const { deleted_at: _deletedAt, ...rest } = patch;
-          if (Object.keys(rest).length > 0) {
-            const { error } = await supabase.from("tasks").update(rest).eq("id", id);
-            if (error) return { error };
-          }
-          // 软删除走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
-          // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
-          const { error } = await supabase.rpc("mutate_trash", {
-            p_action: "soft_delete",
-            p_resource_type: "task",
-            p_ids: [id],
-          });
-          return { error };
-        }
-        const { error } = await supabase.from("tasks").update(patch).eq("id", id);
-        if (error) return { error };
-        // 重复任务在离线期间被勾完成：回放后必须补生成下一次实例
-        // （RPC 自检幂等，非重复任务返回 null），否则该重复链就此断链
-        if (patch.status === "done") {
-          await generateNextRecurringTask(supabase, id);
-        }
-        return { error: null };
-      },
-    };
-    const result = await replayTaskOps(writer, ops);
+    const result = await replayTaskOps(createTaskQueueWriter(supabase), ops);
     writeTaskOps(localStorage, result.remaining);
     setPendingOps(result.remaining.length);
     if (result.applied > 0) {
