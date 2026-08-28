@@ -1326,29 +1326,39 @@ export default function NoteEditorPage() {
               )}
               {saveError ? (
                 <span className="text-destructive">{saveError}</span>
-              ) : saving ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  保存中...
-                </>
-              ) : lastSaved ? (
-                <>
-                  <Check className="h-3 w-3 text-green-500" />
-                  已保存 {lastSaved.toLocaleTimeString("zh-CN")}
-                </>
-              ) : null}
+              ) : (
+                // 例行的「保存中/已保存」是桌面端状态区的一部分；移动端顶栏
+                // 只留 分享 + 更多（Notion 移动端样式），具体状态收进更多菜单
+                <span className="hidden items-center gap-1.5 md:flex">
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      保存中...
+                    </>
+                  ) : lastSaved ? (
+                    <>
+                      <Check className="h-3 w-3 text-green-500" />
+                      已保存 {lastSaved.toLocaleTimeString("zh-CN")}
+                    </>
+                  ) : null}
+                </span>
+              )}
             </div>
-            <FavoriteButton targetType="note" targetId={noteId} />
+            <div className="hidden md:flex items-center">
+              <FavoriteButton targetType="note" targetId={noteId} />
+            </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setHistoryOpen((open) => !open)}
               title="版本历史"
-              className={cn(historyOpen && "text-primary bg-primary/10")}
+              className={cn("hidden md:inline-flex", historyOpen && "text-primary bg-primary/10")}
             >
               <History className="h-4 w-4" />
             </Button>
-            <NoteAttachmentsButton editor={editorInstance} />
+            <div className="hidden md:inline-flex">
+              <NoteAttachmentsButton editor={editorInstance} />
+            </div>
             <Button
               variant="ghost"
               size="sm"

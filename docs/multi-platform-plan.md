@@ -37,7 +37,7 @@
 | 笔记 | 编辑器全家桶（折叠/表格/公式/列/附件…） | ✅ | 🔧 触屏 | 🔧 触屏 | 拖拽手柄、BubbleMenu 需触屏适配（点按替代长按拖动、工具栏安全区）；附带上传 Web 端用拖入/粘贴，移动端补 `<input type=file>` 与相机入口 |
 | 笔记 | 目录 TOC / 折叠标题 / 块搜索 ⌘F | ✅ | 🔧 | 🔧 | 快捷键在移动端不可用，需给 TOC 面板、搜索入口补可点按钮（搜索入口移动端常缺，列入适配清单） |
 | 笔记 | 反链/子页面树/移动到/版本/评论/分享/收藏 | ✅ | ✅ | ✅ | 纯 Web 功能 |
-| 任务 | 三栏工作台（列表/看板/月历）/子任务/依赖/倒数日 | ✅ | ✅ | ✅ | PR #65–#103 已含响应式手机布局与 MobileTabBar |
+| 任务 | 三栏工作台（列表/看板/月历）/子任务/依赖/倒数日 | ✅ | ✅ | ✅ | PR #65–#103 已含响应式手机布局；底部导航已重构为 Notion 风格悬浮搜索 + 新建（PR #161） |
 | 任务 | 提醒通知（Web Push + 15min cron） | 🔧 | ★🚫 | 🚫 | Windows WebView2 支持 Service Worker Push（需验证后台存活，兜底 Tauri notification 插件轮询）；移动端必须走 FCM/APNs，见 §3.4 |
 | 工作台 | 今天/回顾/统计 | ✅ | ✅ | ✅ | 纯 Web 功能 |
 | 图谱 | 笔记图谱/任务依赖图 | ✅ | ✅ | ✅ | canvas 交互需触屏手势适配（捏合缩放），P1 |
@@ -100,14 +100,14 @@
 - [x] `cd mobile && npx cap add android`（生成原生工程，**android/ 目录入库**，`.gitignore` 排除 build 产物）。（2026-08-28 完成并入库；根 .gitignore 移除了骨架期的 mobile/android、mobile/ios 预排除）
 - [x] `npx cap sync android` + Android Studio 打开 → Run 到真机/模拟器：登录 → 冒烟清单 M0-4。（2026-08-28 模拟器实机验证：登录闭环 ✓、冷启动 cookie 保持登录 ✓、笔记创建/编辑/自动保存 ✓；收集/阅读/导出等 M0-4 其余项待走。本地验证需 `adb reverse tcp:54321 tcp:54321`——web 把 Supabase URL 编译为 127.0.0.1，模拟器内不可达；生产 https 域名无此问题。debug 构建已加 cleartext 放行以便加载 http dev server）
 - [ ] **认证专项**：验证 Supabase SSR cookie 在 `https` scheme WebView 内的持久化（Android WebView 默认接受 cookie；若 `server.url` 远程域与 scheme 冲突导致 cookie 丢失，回退方案：Capacitor HTTP 拦截注入或改 `@supabase/ssr` token 模式——此项是 Android 端最大技术风险，M1 内必须出结论）。**✅ 2026-08-28 出结论：force-stop 冷启动后仍保持登录，`androidScheme: https` + Capacitor WebView cookie 持久化可用，回退方案无需启用；结论复用到 iOS。**
-- [ ] **触屏适配第一轮**：编辑器 BubbleMenu/拖拽手柄/块菜单在真机的可用性走查，记录不可用项清单（预期：拖拽手柄小、悬浮菜单易误触）；最小修复集 = 点按选择 + 底部弹出菜单（复用现有 DropdownMenu 组件即可，多数无需新代码）。（2026-08-28 完成主干冒烟：TabBar 导航、新建笔记、编辑器输入、自动保存、块手柄渲染均正常；BubbleMenu 选区交互与拖拽移动待深测）
+- [ ] **触屏适配第一轮**：编辑器 BubbleMenu/拖拽手柄/块菜单在真机的可用性走查，记录不可用项清单（预期：拖拽手柄小、悬浮菜单易误触）；最小修复集 = 点按选择 + 底部弹出菜单（复用现有 DropdownMenu 组件即可，多数无需新代码）。（2026-08-28 完成主干冒烟：底部导航、新建笔记、编辑器输入、自动保存、块手柄渲染均正常；BubbleMenu 选区交互与拖拽移动待深测。同日底部导航重构为 Notion 风格悬浮搜索 + 新建按钮，导航统一走顶栏汉堡抽屉）
 
 ### 4.2 M2-Android 原生能力（1–2 周）
 
 - [ ] **分享接收（★P0）**：`android/app/src/main/AndroidManifest.xml` 给 MainActivity 加 `intent-filter`（`android.intent.action.SEND`，`text/plain` + `image/*`）；自定义 Capacitor 插件 `ShareReceiver`（~100 行 Java：onNewIntent 取 `EXTRA_TEXT/EXTRA_STREAM` → emit 到 WebView）→ 前端监听后跳转收集箱并预填 URL，或直接调 `/api/scrape`。冷启动（intent 落在 getIntent）与热启动（onNewIntent）两条路径都要测。
 - [ ] **推送（★P0）**：Firebase 项目 + `google-services.json`；`@capacitor/push-notifications` 获取 FCM token；**后端改造**：新表 `push_tokens(user_id, platform, token, created_at)` + `POST /api/push/register`；`/api/cron/task-reminders` 改为按用户订阅渠道分发——Web 订阅走现有 Web Push，Android/iOS 订阅走 FCM HTTP v1 API（服务帐号密钥放 GitHub secret）。同一条提醒去重逻辑不变（现有 cron 幂等键机制继续用）。
 - [ ] **返回键**：Capacitor 默认返回键=浏览器 back，编辑器内会误退出丢焦点——监听 `backButton` 事件，编辑器有未保存改动时先确认（复用现有冲突对话框文案）。
-- [ ] **安全区/键盘**：`@capacitor/status-bar` + viewport-fit=cover 核查顶栏遮挡；键盘弹出时底部 MobileTabBar 收起（`ion-keyboard` 类问题用 `window.visualViewport` 监听处理）。
+- [ ] **安全区/键盘**：`@capacitor/status-bar` + viewport-fit=cover 核查顶栏遮挡；键盘弹出时底部悬浮搜索/新建按钮收起或避让（`window.visualViewport` 监听处理）。
 - [ ] **应用内文件**：导出 JSON/MD 用 `@capacitor/filesystem` 写到 Downloads + `@capacitor/share` 弹系统分享（P1）。
 
 ### 4.3 M3-Play Store 发布（1 周 + 审核）

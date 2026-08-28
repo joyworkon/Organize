@@ -129,6 +129,20 @@ export function QuickAdd() {
     return () => window.removeEventListener("organize:quick-save", openQuickSave);
   }, [openPanel]);
 
+  // 移动端底部「+」按钮（components/layout/mobile-bottom-bar.tsx）：再点一次收起
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+  useEffect(() => {
+    const toggleFromBottomBar = () => {
+      if (openRef.current) closePanel();
+      else openPanel();
+    };
+    window.addEventListener("organize:quick-add", toggleFromBottomBar);
+    return () => window.removeEventListener("organize:quick-add", toggleFromBottomBar);
+  }, [openPanel, closePanel]);
+
   // 移动壳系统分享（components/mobile/share-bridge.tsx 转发）：
   // 从分享文本提取第一个 URL，跳过菜单直接进入保存面板并预填
   useEffect(() => {
@@ -204,10 +218,11 @@ export function QuickAdd() {
       <Button
         size="icon"
         className={cn(
-          "fixed right-4 sm:right-6 z-40 w-12 h-12 rounded-full",
+          // 移动端新建入口在底部操作栏（mobile-bottom-bar），桌面端保留悬浮 FAB
+          "fixed right-4 sm:right-6 z-40 hidden md:inline-flex w-12 h-12 rounded-full",
           "shadow-sm border-2 border-primary/20",
           "hover:scale-105 transition-transform duration-200",
-          "bottom-[max(6rem,calc(env(safe-area-inset-bottom)+6rem))] sm:bottom-6"
+          "bottom-6"
         )}
         onClick={open ? closePanel : openPanel}
       >
@@ -222,7 +237,8 @@ export function QuickAdd() {
             "bg-card border rounded-lg p-2",
             "origin-bottom-right transition-all duration-150",
             isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95",
-            "bottom-[calc(env(safe-area-inset-bottom)+9.5rem)] sm:bottom-20"
+            // 移动端面板悬在底部操作栏「+」按钮上方；md 起与桌面 FAB 对齐
+            "max-md:bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] md:bottom-20"
           )}
         >
           {mode === "menu" && (

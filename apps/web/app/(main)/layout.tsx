@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
-import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
+import { MobileBottomBar } from "@/components/layout/mobile-bottom-bar";
 import { GlobalHotkeys } from "@/components/layout/global-hotkeys";
 import { PluginBootstrap } from "@/components/plugin/plugin-bootstrap";
 import { CommandPalette } from "@/components/command-palette";
@@ -24,7 +24,7 @@ export default function MainLayout({
       <Suspense fallback={null}>
         <Sidebar />
       </Suspense>
-      <MobileTabBar />
+      <MobileBottomBar />
       <GlobalHotkeys />
       <CommandPalette />
       <Toaster />
