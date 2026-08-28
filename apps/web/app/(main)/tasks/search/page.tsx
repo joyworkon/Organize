@@ -32,7 +32,7 @@ function SearchPageInner() {
   };
 
   return (
-    <section className="mx-auto flex min-h-[calc(100vh-11rem)] w-full max-w-4xl flex-col gap-6 rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
+    <section className="flex min-h-[calc(100vh-11rem)] w-full flex-col gap-6 rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
       <header>
         <h1 className="text-2xl font-semibold">搜索任务</h1>
         <p className="mt-1 text-sm text-muted-foreground">搜索所有未删除任务，包括已完成和已取消的任务</p>

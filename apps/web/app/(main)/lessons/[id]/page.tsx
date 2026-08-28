@@ -325,7 +325,7 @@ export default function LessonEditorPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="w-full space-y-6">
       <div className="flex items-center gap-2">
         <Link href="/lessons">
           <Button variant="ghost" size="icon" className="h-9 w-9">

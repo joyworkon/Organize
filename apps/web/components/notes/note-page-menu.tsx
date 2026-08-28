@@ -128,8 +128,8 @@ export function NotePageMenu({
         {
           id: "full-width",
           type: "toggle" as const,
-          label: "固定宽度",
-          keywords: ["full", "width", "quan kuan", "宽屏", "gu ding kuan du"],
+          label: "全宽",
+          keywords: ["full", "width", "quan kuan", "宽屏"],
           icon: Maximize2,
           checked: fullWidth,
           onSelect: onToggleFullWidth,
