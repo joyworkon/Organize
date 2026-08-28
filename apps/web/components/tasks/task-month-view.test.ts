@@ -1,6 +1,6 @@
 // TaskMonthView 纯逻辑测试（不依赖 React DOM 渲染）
 import { describe, it, expect } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments } from "./task-month-view";
+import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents } from "./task-month-view";
 import type { TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -194,5 +194,78 @@ describe("layoutWeekSegments（跨天任务连续条布局）", () => {
       week
     );
     expect(segments).toHaveLength(0);
+  });
+});
+
+describe("snapMinutes（周视图拖拽吸附）", () => {
+  it("按 30 分钟吸附并夹到非负", () => {
+    expect(snapMinutes(0)).toBe(0);
+    expect(snapMinutes(14)).toBe(0);
+    expect(snapMinutes(16)).toBe(30);
+    expect(snapMinutes(50)).toBe(60);
+    expect(snapMinutes(-8)).toBe(0);
+  });
+});
+
+describe("weekDaysOf（周视图日期范围）", () => {
+  it("周一开头，返回 7 天", () => {
+    // 2026-08-28 是周五
+    const days = weekDaysOf(new Date(2026, 7, 28));
+    expect(days).toHaveLength(7);
+    expect(days[0].getDay()).toBe(1);
+    expect(days[0].getDate()).toBe(24);
+    expect(days[6].getDate()).toBe(30);
+  });
+
+  it("周日归入本周", () => {
+    const days = weekDaysOf(new Date(2026, 7, 30));
+    expect(days[0].getDate()).toBe(24);
+    expect(days[6].getDate()).toBe(30);
+  });
+
+  it("mondayOf 幂等", () => {
+    const monday = mondayOf(new Date(2026, 7, 24));
+    expect(mondayOf(monday).getDate()).toBe(24);
+  });
+});
+
+describe("layoutDayTimedEvents（周视图单日时间事件布局）", () => {
+  const day = new Date(2026, 7, 26); // 周三
+  const T = (id: string, sh: number, sm: number, eh: number, em: number) =>
+    ({
+      ...mkTask(id, new Date(2026, 7, 26, sh, sm).toISOString()),
+      schedule_end_at: new Date(2026, 7, 26, eh, em).toISOString(),
+    }) as TaskWithTags;
+
+  it("重叠事件分列且上报列数", () => {
+    const events = layoutDayTimedEvents([T("a", 10, 0, 11, 0), T("b", 10, 30, 11, 30)], day);
+    expect(events).toHaveLength(2);
+    expect(events[0].lane).toBe(0);
+    expect(events[1].lane).toBe(1);
+    expect(events.every((e) => e.lanes === 2)).toBe(true);
+  });
+
+  it("先后不重叠的事件复用同列", () => {
+    const events = layoutDayTimedEvents([T("a", 9, 0, 10, 0), T("b", 10, 0, 11, 0)], day);
+    expect(events.map((e) => e.lane)).toEqual([0, 0]);
+    expect(events[0].lanes).toBe(1);
+  });
+
+  it("排除全天与跨天任务", () => {
+    const allDay = {
+      ...mkTask("all", new Date(2026, 7, 26, 0, 0).toISOString()),
+      all_day: true,
+    } as TaskWithTags;
+    const cross = {
+      ...mkTask("cross", new Date(2026, 7, 26, 23, 0).toISOString()),
+      schedule_end_at: new Date(2026, 7, 27, 1, 0).toISOString(),
+    } as TaskWithTags;
+    const events = layoutDayTimedEvents([allDay, cross], day);
+    expect(events).toHaveLength(0);
+  });
+
+  it("零时长任务默认占 60 分钟（避免卡片薄到不可见）", () => {
+    const events = layoutDayTimedEvents([T("a", 10, 0, 10, 0)], day);
+    expect(events[0].endMin - events[0].startMin).toBe(60);
   });
 });
