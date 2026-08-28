@@ -242,8 +242,9 @@ export function NoteCard({
           onClick={stop}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") stop(e); }}
           className={cn(
-            "p-1 rounded hover:bg-accent text-muted-foreground shrink-0",
-            !selectionMode && !showCheckbox && "opacity-40 group-hover:opacity-100"
+            "p-1 rounded hover:bg-accent text-muted-foreground shrink-0 transition-opacity duration-150",
+            !selectionMode && !showCheckbox &&
+              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
           )}
           title="更多操作"
         >
@@ -344,7 +345,11 @@ export function NoteCard({
       <Checkbox
         checked={selected}
         onCheckedChange={(c) => onSelectChange!(note.id, c === true)}
-        className={cn(!selectionMode && "opacity-40 group-hover:opacity-100")}
+        className={cn(
+          "transition-opacity duration-150",
+          !selectionMode &&
+            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=checked]:opacity-100"
+        )}
       />
     </div>
   );

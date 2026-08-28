@@ -62,6 +62,16 @@ const config: Config = {
         "2xl": "var(--radius-2xl)",
         full: "9999px",
       },
+      boxShadow: {
+        xs: "var(--shadow-xs)",
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+        xl: "var(--shadow-lg)",
+        "2xl": "var(--shadow-lg)",
+        none: "0 0 #0000",
+        inner: "inset 0 2px 4px 0 hsl(20 14% 9% / 0.05)",
+      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },

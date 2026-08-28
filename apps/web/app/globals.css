@@ -4,6 +4,8 @@
 
 @layer base {
   :root {
+    /* Notion 极简风色板：黑白灰打底，品牌橙只出现在主操作上；
+       hover/选中底色一律中性灰（accent），彩色仅用于语义状态 */
     --background: 0 0% 100%;
     --foreground: 20 14.3% 9.1%;
     --card: 0 0% 100%;
@@ -12,16 +14,16 @@
     --popover-foreground: 20 14.3% 9.1%;
     --primary: 16 85% 50%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 20 40% 96%;
-    --secondary-foreground: 20 40% 15%;
-    --muted: 20 30% 96%;
-    --muted-foreground: 25 10% 45%;
-    --accent: 16 70% 95%;
-    --accent-foreground: 16 80% 25%;
+    --secondary: 20 16% 95%;
+    --secondary-foreground: 20 14.6% 15%;
+    --muted: 20 16% 96%;
+    --muted-foreground: 25 8% 45%;
+    --accent: 20 16% 94%;
+    --accent-foreground: 20 14.3% 9.1%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 20 20% 88%;
-    --input: 20 20% 88%;
+    --border: 20 14% 90%;
+    --input: 20 14% 88%;
     --ring: 16 85% 50%;
     --radius: 0.5rem;
     /* 连续曲率圆角层级（参考 Apple HIG）：
@@ -33,6 +35,12 @@
     --radius-lg: 12px;  /* 弹层、菜单、小卡片 */
     --radius-xl: 16px;  /* 卡片、面板 */
     --radius-2xl: 20px; /* 对话框、大浮层 */
+    /* 阴影层级：极简风以边框分工为主，阴影只做轻浮动提示
+       （xs 列表悬浮 / sm 小浮层 / md 弹层菜单 / lg 对话框） */
+    --shadow-xs: 0 1px 2px hsl(20 14% 9% / 0.05);
+    --shadow-sm: 0 1px 3px hsl(20 14% 9% / 0.07), 0 1px 2px hsl(20 14% 9% / 0.04);
+    --shadow-md: 0 4px 12px hsl(20 14% 9% / 0.10), 0 2px 4px hsl(20 14% 9% / 0.05);
+    --shadow-lg: 0 12px 32px hsl(20 14% 9% / 0.14), 0 4px 8px hsl(20 14% 9% / 0.05);
   }
 
   /* 连续曲率圆角：corner-shape 可继承，根节点启用一次全局生效；
@@ -44,25 +52,26 @@
   }
 
   .dark {
-    --background: 20 15% 8%;
-    --foreground: 20 10% 95%;
-    --card: 20 15% 10%;
-    --card-foreground: 20 10% 95%;
-    --popover: 20 15% 10%;
-    --popover-foreground: 20 10% 95%;
-    --primary: 16 85% 55%;
-    --primary-foreground: 20 15% 8%;
-    --secondary: 20 10% 18%;
-    --secondary-foreground: 20 10% 95%;
-    --muted: 20 10% 18%;
-    --muted-foreground: 20 8% 65%;
-    --accent: 16 30% 22%;
-    --accent-foreground: 16 70% 85%;
-    --destructive: 0 62.8% 40%;
+    /* 暗色降饱和：中性炭灰打底（chroma 8% 以下），品牌橙降亮度防刺眼 */
+    --background: 20 8% 9%;
+    --foreground: 20 6% 93%;
+    --card: 20 8% 11%;
+    --card-foreground: 20 6% 93%;
+    --popover: 20 8% 11%;
+    --popover-foreground: 20 6% 93%;
+    --primary: 16 78% 56%;
+    --primary-foreground: 20 8% 9%;
+    --secondary: 20 6% 17%;
+    --secondary-foreground: 20 6% 93%;
+    --muted: 20 6% 17%;
+    --muted-foreground: 20 6% 64%;
+    --accent: 20 6% 16%;
+    --accent-foreground: 20 6% 93%;
+    --destructive: 0 62.8% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 20 10% 22%;
-    --input: 20 10% 22%;
-    --ring: 16 85% 55%;
+    --border: 20 6% 20%;
+    --input: 20 6% 20%;
+    --ring: 16 78% 56%;
   }
 }
 
