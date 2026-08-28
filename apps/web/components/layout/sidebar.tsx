@@ -67,6 +67,8 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
+  // 「最近」分组折叠态：折叠时显示 6 条，展开显示全部（12 条）；记忆到 localStorage
+  const [recentsExpanded, setRecentsExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
@@ -83,6 +85,7 @@ export function Sidebar() {
     setNotesExpanded(storedNotesExpanded || pathname.startsWith("/notes/"));
     const storedTasksExpanded = localStorage.getItem(TASK_NAV_EXPANDED_KEY) === "1";
     setTasksExpanded(storedTasksExpanded || isTaskWorkspace);
+    setRecentsExpanded(localStorage.getItem("organize-sidebar-recents-expanded") === "true");
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
@@ -301,34 +304,51 @@ export function Sidebar() {
       </div>
 
       <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
-        {/* 最近打开的笔记（来自标签页 store 的访问记录） */}
+        {/* 最近打开的笔记（来自标签页 store 的访问记录）：折叠显示 6 条，展开 12 条 */}
         {!compact && recentNotes.length > 0 && (
           <div className="pb-2">
-            <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+            <button
+              type="button"
+              className="flex w-full items-center gap-1 rounded px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => {
+                const next = !recentsExpanded;
+                setRecentsExpanded(next);
+                localStorage.setItem("organize-sidebar-recents-expanded", String(next));
+              }}
+              aria-expanded={recentsExpanded}
+              title={recentsExpanded ? "收起最近列表" : "展开更多最近笔记"}
+            >
+              {recentsExpanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
               最近
-            </p>
-            {recentNotes.slice(0, 6).map((item) => {
-              const active = pathname === `/notes/${item.id}`;
-              return (
-                <Link
-                  key={item.id}
-                  href={`/notes/${item.id}`}
-                  onClick={() => setMobileOpen(false)}
-                  className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                    active
-                      ? "bg-primary/10 font-medium text-primary"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  )}
-                  title={item.title || "无标题笔记"}
-                >
-                  <span className="shrink-0 text-[13px] leading-none">
-                    {item.icon || "📄"}
-                  </span>
-                  <span className="truncate">{item.title || "无标题笔记"}</span>
-                </Link>
-              );
-            })}
+            </button>
+            {recentNotes
+              .slice(0, recentsExpanded ? 12 : 6)
+              .map((item) => {
+                const active = pathname === `/notes/${item.id}`;
+                return (
+                  <Link
+                    key={item.id}
+                    href={`/notes/${item.id}`}
+                    onClick={() => setMobileOpen(false)}
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                    title={item.title || "无标题笔记"}
+                  >
+                    <span className="shrink-0 text-[13px] leading-none">
+                      {item.icon || "📄"}
+                    </span>
+                    <span className="truncate">{item.title || "无标题笔记"}</span>
+                  </Link>
+                );
+              })}
             <div className="mt-2 border-t" />
           </div>
         )}
