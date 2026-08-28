@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -461,19 +462,19 @@ export default function TagsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">标签管理</h1>
-          <p className="text-muted-foreground mt-1">
-            共 {tags.length} 个标签，累计使用 {tags.reduce((sum, t) => sum + totalUsage(t), 0)} 次
-          </p>
-        </div>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <PageHeader
+        icon={TagIcon}
+        title="标签管理"
+        description={`共 ${tags.length} 个标签，累计使用 ${tags.reduce((sum, t) => sum + totalUsage(t), 0)} 次`}
+        actions={
           <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />
             新建标签
           </Button>
-          <DialogContent>
+        }
+      />
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
             <DialogHeader>
               <DialogTitle>新建标签</DialogTitle>
             </DialogHeader>
@@ -508,7 +509,6 @@ export default function TagsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

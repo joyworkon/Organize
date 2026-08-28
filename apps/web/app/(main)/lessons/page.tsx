@@ -21,6 +21,7 @@ import {
   Plus,
   Search,
 } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -166,18 +167,17 @@ export default function LessonsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">经验总结</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            共 {stats.total} 条经验 · {stats.reflection} 篇复盘 · {stats.lesson} 条经验 · {stats.insight} 个灵感
-          </p>
-        </div>
-        <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline ml-2">记录经验</span>
-        </Button>
-      </div>
+      <PageHeader
+        icon={Lightbulb}
+        title="经验总结"
+        description={`共 ${stats.total} 条经验 · ${stats.reflection} 篇复盘 · ${stats.lesson} 条经验 · ${stats.insight} 个灵感`}
+        actions={
+          <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline ml-2">记录经验</span>
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 max-w-sm">

@@ -26,8 +26,10 @@ import {
   Trash2,
   Pin,
   Sparkles,
+  Library,
 } from "lucide-react";
 import Link from "next/link";
+import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Select,
@@ -496,12 +498,11 @@ export default function LibraryPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">稍后读</h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">保存链接稍后阅读，收集与阅读在同一处完成</p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Library}
+        title="稍后读"
+        description="保存链接稍后阅读，收集与阅读在同一处完成"
+      />
 
       <QuickAddBar
         onAdded={() => {

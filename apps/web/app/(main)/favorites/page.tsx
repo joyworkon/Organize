@@ -13,6 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { PageHeader } from "@/components/layout/page-header";
 import { Star, BookOpen, FileText, ListChecks, LayoutList, Loader2, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -140,15 +141,11 @@ export default function FavoritesPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Star className="h-6 w-6 text-yellow-500 fill-yellow-500" />
-          收藏夹
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          共 {counts.all} 个收藏
-        </p>
-      </div>
+      <PageHeader
+        icon={Star}
+        title="收藏夹"
+        description={`共 ${counts.all} 个收藏`}
+      />
 
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit flex-wrap">
         {([

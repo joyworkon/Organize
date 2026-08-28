@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { AISettingsSection } from "@/components/settings/ai-settings";
+import { PageHeader } from "@/components/layout/page-header";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
 
 const APP_VERSION = "0.1.0";
@@ -346,10 +347,7 @@ export default function SettingsPage() {
 
   return (
     <div className="w-full space-y-6">
-      <div className="flex items-center gap-3">
-        <SettingsIcon className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">设置</h1>
-      </div>
+      <PageHeader icon={SettingsIcon} title="设置" />
 
       <div className="rounded-lg border bg-card">
         <div className="p-5 border-b">
