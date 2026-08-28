@@ -124,13 +124,20 @@
   margin-top: 0.75rem;
 }
 
-/* 笔记页面根容器：抵消主布局 container 的 p-4 / md:p-6，让顶栏和封面通栏 */
+/* 笔记页面根容器：抵消主布局 container 的 p-4 / md:p-6，让顶栏和封面通栏；
+   flex 纵向布局 + 最小高度撑满视口，让子页面区块能推到页面最底部 */
 .note-page {
   margin: 0 -1rem;
+  display: flex;
+  flex-direction: column;
+  /* 移动端扣除：外层 p-4(2rem) + 顶栏 3.5rem + 底部 tab 4rem */
+  min-height: calc(100dvh - 9.5rem);
 }
 @media (min-width: 768px) {
   .note-page {
     margin: 0 -1.5rem;
+    /* 桌面端只扣除外层 p-6(3rem) */
+    min-height: calc(100dvh - 3rem);
   }
 }
 
@@ -140,6 +147,13 @@
 .note-page-body .note-meta-row {
   margin-top: 0.25rem;
   margin-bottom: 0.5rem;
+}
+/* 正文区纵向弹性布局：撑满 .note-page 剩余高度，让子页面区块 margin-top:auto 推底 */
+.note-page-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 /* ------------------------- 笔记页面外观与层级 ------------------------- */
@@ -636,7 +650,7 @@
   margin-left: var(--organize-content-lane-inset);
 }
 .note-child-pages {
-  margin-top: 1rem;
+  margin-top: auto;
   padding: 0.75rem 0;
   border-top: 1px solid hsl(var(--border));
 }
@@ -679,7 +693,12 @@
 }
 .note-create-child {
   width: calc(100% - var(--organize-content-lane-inset));
-  margin-top: 1rem;
+  /* 推到笔记最底部，并与 .note-child-pages 一样带横线分隔 */
+  margin-top: auto;
+  border-top: 1px solid hsl(var(--border));
+  border-radius: 0 0 5px 5px;
+  padding-top: 12px;
+  padding-bottom: 4px;
 }
 
 /* 反向链接区域对齐 */
