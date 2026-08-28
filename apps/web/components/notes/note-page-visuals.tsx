@@ -185,7 +185,7 @@ export function NotePageVisuals({
           coverUrl && "has-cover"
         )}
       >
-        <div className="note-page-icon-actions">
+        <div className={cn("note-page-icon-actions", !icon && "no-icon")}>
           {icon ? (
             <EmojiPopover icon={icon} onSelect={onIconChange}>
               <button

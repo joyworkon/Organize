@@ -206,9 +206,15 @@
   position: relative;
   z-index: 2;
   display: flex;
+  gap: 2px;
   min-height: 44px;
   align-items: flex-end;
   padding-left: 0;
+}
+/* 无图标时按钮组对齐标题/正文的内容轴：负补偿按钮自身 px-3，让首个图标与标题文字同轴；
+   有图标时页面图标保持通栏左缘（Notion 风格） */
+.note-page-icon-actions.no-icon {
+  padding-left: calc(var(--organize-content-lane-inset) - 0.75rem);
 }
 .note-page-icon-actions > button,
 .note-page-add-actions > button {
@@ -236,11 +242,11 @@
   flex-wrap: wrap;
   gap: 2px;
   min-width: 0;
-  padding: 6px 0 3px;
+  padding: 0;
   color: hsl(var(--muted-foreground));
 }
 .note-page-add-actions.has-icon {
-  margin-left: 8px;
+  margin-left: 6px;
 }
 .note-page-comment-count {
   display: grid;
