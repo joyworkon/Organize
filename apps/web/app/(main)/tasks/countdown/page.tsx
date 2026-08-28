@@ -126,7 +126,7 @@ function CountdownPageInner() {
 
   const sorted = useMemo(() => sortCountdownDays(days), [days]);
   return (
-    <section className="mx-auto min-h-[calc(100vh-11rem)] w-full max-w-4xl rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
+    <section className="min-h-[calc(100vh-11rem)] w-full rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">倒数日</h1>

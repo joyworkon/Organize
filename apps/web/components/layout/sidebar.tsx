@@ -266,7 +266,7 @@ export function Sidebar() {
               <X className="h-4 w-4" />
             </button>
           )}
-          {!compact && !onClose && <ThemeToggle />}
+          {!compact && <ThemeToggle />}
           {collapsible && !onClose && (
             <button
               type="button"
@@ -435,9 +435,12 @@ export function Sidebar() {
       </nav>
 
       <div className={cn("border-t", compact ? "p-2" : "p-3")}>
-        <div className={cn("mb-2", compact ? "flex justify-center" : "flex justify-start")}>
-          <ThemeToggle />
-        </div>
+        {/* 折叠模式下顶栏放不下主题按钮，保留在底部；展开时顶栏已有，不重复 */}
+        {compact && (
+          <div className="mb-2 flex justify-center">
+            <ThemeToggle />
+          </div>
+        )}
         <Button
           variant="ghost"
           size={compact ? "icon" : "default"}

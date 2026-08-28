@@ -140,7 +140,7 @@ export default function TrashPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-xl font-bold sm:text-2xl">垃圾箱</h1>

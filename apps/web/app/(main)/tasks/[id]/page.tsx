@@ -537,7 +537,7 @@ export default function TaskDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl min-w-0 space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
           <Link href="/tasks">

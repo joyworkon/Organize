@@ -745,7 +745,7 @@ function TasksPageInner() {
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[820px] px-4 pb-12 pt-5 md:px-8">
+          <div className="w-full px-4 pb-12 pt-5 md:px-8">
             {sidebarSelection.scope !== "trash" && (
               <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
             )}

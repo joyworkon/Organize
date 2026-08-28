@@ -129,7 +129,7 @@ describe("NotePageMenu", () => {
       expect(options).toHaveLength(8);
 
       // 验证原分组顺序（页面显示 → 字体 → 小字号 → 操作）
-      expect(options[0].textContent).toContain("固定宽度");
+      expect(options[0].textContent).toContain("全宽");
       expect(options[1].textContent).toContain("默认");
       expect(options[2].textContent).toContain("衬线体");
       expect(options[3].textContent).toContain("等宽体");
@@ -236,7 +236,7 @@ describe("NotePageMenu", () => {
 
       const active = getActiveOption();
       expect(active).toBeTruthy();
-      expect(active!.textContent).toContain("固定宽度");
+      expect(active!.textContent).toContain("全宽");
     });
 
     it("ArrowDown 向下移动选中项", async () => {
@@ -289,7 +289,7 @@ describe("NotePageMenu", () => {
       dispatchKey("ArrowUp");
       dispatchKey("ArrowUp");
       const active = getActiveOption();
-      expect(active!.textContent).toContain("固定宽度");
+      expect(active!.textContent).toContain("全宽");
     });
 
     it("搜索后 activeIndex 重置到第一项", async () => {
@@ -393,7 +393,7 @@ describe("NotePageMenu", () => {
       await flush();
 
       const options = getVisibleOptions();
-      const fullWidthOption = options.find((o) => o.textContent!.includes("固定宽度"))!;
+      const fullWidthOption = options.find((o) => o.textContent!.includes("全宽"))!;
       act(() => {
         fullWidthOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
@@ -454,14 +454,14 @@ describe("NotePageMenu", () => {
       expect(checkSvg).toBeTruthy();
     });
 
-    it("固定宽度开启时显示勾选标记", async () => {
+    it("全宽开启时显示勾选标记", async () => {
       const props = createProps({ fullWidth: true });
       act(() => root.render(createElement(NotePageMenu, props)));
       openMenu(container);
       await flush();
 
       const options = getVisibleOptions();
-      const fullWidthOption = options.find((o) => o.textContent!.includes("固定宽度"))!;
+      const fullWidthOption = options.find((o) => o.textContent!.includes("全宽"))!;
       const checkArea = fullWidthOption.querySelector("span.absolute");
       expect(checkArea).toBeTruthy();
       const checkSvg = checkArea!.querySelector("svg");
@@ -537,7 +537,7 @@ describe("NotePageMenu", () => {
 
       const options = getVisibleOptions();
 
-      // 固定宽度 toggle - 点击后不关闭菜单
+      // 全宽 toggle - 点击后不关闭菜单
       act(() => { options[0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
       expect(onToggleFullWidth).toHaveBeenCalledTimes(1);
       onToggleFullWidth.mockClear();

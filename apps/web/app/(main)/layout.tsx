@@ -28,7 +28,7 @@ export default function MainLayout({
       <CommandPalette />
       <Toaster />
       <main className="organize-sidebar-offset pt-14 transition-[padding] duration-200 md:pt-0 pb-16 md:pb-0">
-        <div className="container mx-auto p-4 md:p-6">{children}</div>
+        <div className="p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
       <QuickSaveBridge />

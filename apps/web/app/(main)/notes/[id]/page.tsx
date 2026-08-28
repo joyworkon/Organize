@@ -106,7 +106,7 @@ export default function NoteEditorPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [fullWidth, setFullWidth] = useState(false);
+  const [fullWidth, setFullWidth] = useState(true);
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -127,7 +127,7 @@ export default function NoteEditorPage() {
     cover_url: null,
     cover_position: 50,
     parent_note_id: null,
-    full_width: false,
+    full_width: true,
     font_family: "default",
     small_font: false,
   });
@@ -309,7 +309,7 @@ export default function NoteEditorPage() {
             cover_url: null,
             cover_position: 50,
             parent_note_id: null,
-            full_width: false,
+            full_width: true,
             font_family: "default",
             small_font: false,
           };

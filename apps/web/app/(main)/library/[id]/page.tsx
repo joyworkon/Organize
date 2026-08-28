@@ -110,7 +110,7 @@ export default function ReadingDetailPage() {
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [fullWidth, setFullWidth] = useState(false);
+  const [fullWidth, setFullWidth] = useState(true);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const renderedContent = useMemo(
@@ -158,7 +158,7 @@ export default function ReadingDetailPage() {
 
       if (!error && data) {
         setItem(data as ReadingItem);
-        setFullWidth(data.full_width ?? false);
+        setFullWidth(data.full_width ?? true);
         progressRef.current = data.reading_progress || 0;
         if (data.reading_status === "unread") {
           await supabase
