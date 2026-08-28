@@ -13,6 +13,7 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
@@ -141,24 +142,23 @@ export default function TrashPage() {
 
   return (
     <div className="w-full space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold sm:text-2xl">垃圾箱</h1>
-          <p className="mt-1 text-sm text-muted-foreground sm:text-base">
-            已删除内容会保留在这里，直到你永久删除
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => void loadItems()}
-          disabled={loading}
-          title="刷新"
-          aria-label="刷新垃圾箱"
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        </Button>
-      </header>
+      <PageHeader
+        icon={Trash2}
+        title="垃圾箱"
+        description="已删除内容会保留在这里，直到你永久删除"
+        actions={
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => void loadItems()}
+            disabled={loading}
+            title="刷新"
+            aria-label="刷新垃圾箱"
+          >
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </Button>
+        }
+      />
 
       <div
         className="flex max-w-full gap-1 overflow-x-auto border-b pb-2"

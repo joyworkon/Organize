@@ -16,6 +16,7 @@ import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
 import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
+import { PageHeader } from "@/components/layout/page-header";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
@@ -602,9 +603,10 @@ export default function NotesPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+      <PageHeader
+        icon={FileText}
+        title={
+          <>
             笔记
             {!online && (
               <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground" role="status">
@@ -612,26 +614,26 @@ export default function NotesPage() {
                 离线中{pendingOps > 0 ? ` · ${pendingOps} 篇待同步` : ""}
               </span>
             )}
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            记录你的想法和阅读笔记
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)} className="hidden sm:flex">
-            <FileDown className="h-4 w-4 mr-2" />
-            从 JoySpace 导入
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setMdImportOpen(true)} className="shrink-0">
-            <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline ml-2">导入MD</span>
-          </Button>
-          <Button onClick={createNote} disabled={creating} className="shrink-0" title="新建笔记（按 n）">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline ml-2">新建笔记</span>
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        description="记录你的想法和阅读笔记"
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setImportOpen(true)} className="hidden sm:flex">
+              <FileDown className="h-4 w-4 mr-2" />
+              从 JoySpace 导入
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setMdImportOpen(true)} className="shrink-0">
+              <Upload className="h-4 w-4" />
+              <span className="hidden sm:inline ml-2">导入MD</span>
+            </Button>
+            <Button onClick={createNote} disabled={creating} className="shrink-0" title="新建笔记（按 n）">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline ml-2">新建笔记</span>
+            </Button>
+          </>
+        }
+      />
 
       <JoyspaceImportDialog
         open={importOpen}

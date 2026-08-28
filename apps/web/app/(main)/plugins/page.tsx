@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePluginStore } from "@/lib/plugin/store";
 import { Button } from "@/components/ui/button";
 import { Puzzle, Power, PowerOff } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 
 export default function PluginsPage() {
@@ -35,12 +36,11 @@ export default function PluginsPage() {
 
   return (
     <div className="w-full space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">插件管理</h1>
-        <p className="text-muted-foreground mt-1">
-          管理已安装的插件，启用或禁用功能扩展
-        </p>
-      </div>
+      <PageHeader
+        icon={Puzzle}
+        title="插件管理"
+        description="管理已安装的插件，启用或禁用功能扩展"
+      />
 
       {pluginError && <p className="text-sm text-destructive">{pluginError}</p>}
 
