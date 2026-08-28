@@ -152,7 +152,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
       onDragOver={draggableRow ? (event) => { event.preventDefault(); onDragOverRow?.(event); } : undefined}
       onDrop={draggableRow ? (event) => { event.preventDefault(); event.stopPropagation(); onDropRow?.(); } : undefined}
       onDragEnd={draggableRow ? () => onDragEndRow?.() : undefined}
-      className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors hover:bg-muted/50", selected && "bg-muted", task.status === "done" && "text-muted-foreground", dropPosition === "before" && "border-t-2 border-t-primary", dropPosition === "after" && "border-b-2 border-b-primary", draggableRow && "cursor-grab active:cursor-grabbing")}
+      className={cn("group flex min-h-[74px] items-start gap-3 border-b px-5 py-3 text-left transition-colors", selectionMode ? "hover:bg-primary/5" : "hover:bg-accent", selected && "bg-muted", task.status === "done" && "text-muted-foreground", dropPosition === "before" && "border-t-2 border-t-primary", dropPosition === "after" && "border-b-2 border-b-primary", draggableRow && "cursor-grab active:cursor-grabbing")}
       style={{ borderLeft: `3px solid ${listColor || "transparent"}` }}
     >
       {selectionMode && (
@@ -198,7 +198,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           aria-label="打开关联便签"
           title="打开关联便签"
           onClick={(event) => { event.stopPropagation(); onOpenNote(); }}
-          className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-primary"
+          className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-background hover:text-primary group-hover:opacity-100 focus-visible:opacity-100"
         >
           <FileText className="h-3.5 w-3.5" />
         </button>
