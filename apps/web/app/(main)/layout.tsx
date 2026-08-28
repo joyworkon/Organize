@@ -10,6 +10,7 @@ import { Onboarding } from "@/components/onboarding";
 import { PromptHost } from "@/components/ui/prompt-dialog";
 import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
 import { QuickSaveBridge } from "@/components/desktop/quick-save";
+import { ShareBridge } from "@/components/mobile/share-bridge";
 
 export default function MainLayout({
   children,
@@ -31,6 +32,7 @@ export default function MainLayout({
         <div className="p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
+      <ShareBridge />
       <QuickSaveBridge />
       <Onboarding />
       <PromptHost />

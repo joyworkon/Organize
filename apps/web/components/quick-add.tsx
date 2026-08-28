@@ -129,6 +129,22 @@ export function QuickAdd() {
     return () => window.removeEventListener("organize:quick-save", openQuickSave);
   }, [openPanel]);
 
+  // 移动壳系统分享（components/mobile/share-bridge.tsx 转发）：
+  // 从分享文本提取第一个 URL，跳过菜单直接进入保存面板并预填
+  useEffect(() => {
+    const handleSharePrefill = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string }>).detail;
+      const match = (detail?.text ?? "").match(/https?:\/\/[^\s"'）)]+/i);
+      if (!match) return;
+      setOpen(true);
+      setMode("url");
+      setUrl(match[0]);
+      requestAnimationFrame(() => setIsVisible(true));
+    };
+    window.addEventListener("organize:share-prefill", handleSharePrefill);
+    return () => window.removeEventListener("organize:share-prefill", handleSharePrefill);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInputFocused = () => {
