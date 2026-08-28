@@ -62,19 +62,19 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO note_versions (note_id, content, title, message, created_at) VALUES
   -- 90 天前：未命名版本应全删
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','旧一', now() - interval '100 days'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','旧二', now() - interval '95 days'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','旧一', NULL, now() - interval '100 days'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','旧二', NULL, now() - interval '95 days'),
   -- 命名版本：100 天前也不清理
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','里程碑', now() - interval '100 days', '手动保存'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','里程碑', '手动保存', now() - interval '100 days'),
   -- 7~90 天：同一天两版（只留最新）+ 另一天一版（保留）
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', date_trunc('day', now()) - interval '30 days' + interval '10 hours'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', date_trunc('day', now()) - interval '30 days' + interval '11 hours'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', date_trunc('day', now()) - interval '31 days' + interval '10 hours'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', NULL, date_trunc('day', now()) - interval '30 days' + interval '10 hours'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', NULL, date_trunc('day', now()) - interval '30 days' + interval '11 hours'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','中期', NULL, date_trunc('day', now()) - interval '31 days' + interval '10 hours'),
   -- 7 天内：同一小时两版（只留最新）+ 另两个不同小时各一版（都保留）
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', date_trunc('hour', now()) - interval '2 hours' + interval '10 minutes'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', date_trunc('hour', now()) - interval '2 hours' + interval '20 minutes'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', date_trunc('hour', now()) - interval '1 hour'),
-  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', now());
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, date_trunc('hour', now()) - interval '2 hours' + interval '10 minutes'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, date_trunc('hour', now()) - interval '2 hours' + interval '20 minutes'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, date_trunc('hour', now()) - interval '1 hour'),
+  ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, now());
 
 SELECT public.prune_note_versions('48000001-0000-0000-0000-000000000002');
 
