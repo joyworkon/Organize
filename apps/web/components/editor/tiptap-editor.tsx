@@ -1201,6 +1201,7 @@ export function TipTapEditor({
     },
     editorProps: {
       attributes: {
+        // 正文 16px（sm 以下 prose-sm）：与阅读页 17px/1.8 有意区分——编辑态需要操作密度
         class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
       },
       handleKeyDown: (view, event) => {
