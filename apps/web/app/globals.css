@@ -24,6 +24,23 @@
     --input: 20 20% 88%;
     --ring: 16 85% 50%;
     --radius: 0.5rem;
+    /* 连续曲率圆角层级（参考 Apple HIG）：
+       外层容器大、内层元素递减；嵌套时内圆角 ≈ 外圆角 − 内边距，保持同心。
+       在支持 corner-shape 的浏览器中全局启用 squircle（连续曲率），其余回退普通圆角。 */
+    --radius-xs: 6px;   /* 极小元素：徽标、计数角标 */
+    --radius-sm: 8px;   /* 小控件：chip、checkbox、小按钮 */
+    --radius-md: 10px;  /* 按钮、输入框、日历事件卡（16px 容器内 6px 内边距的同心内层） */
+    --radius-lg: 12px;  /* 弹层、菜单、小卡片 */
+    --radius-xl: 16px;  /* 卡片、面板 */
+    --radius-2xl: 20px; /* 对话框、大浮层 */
+  }
+
+  /* 连续曲率圆角：corner-shape 可继承，根节点启用一次全局生效；
+     不支持的浏览器（如 Safari 18 及更早）自动回退为普通圆角 */
+  @supports (corner-shape: squircle) {
+    :root {
+      corner-shape: squircle;
+    }
   }
 
   .dark {
