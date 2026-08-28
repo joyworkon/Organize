@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
@@ -18,7 +18,516 @@ const LANE_HEIGHT_PX = 22;
 /** 单元格底部为倒数日徽章预留的条带高度 */
 const COUNTDOWN_STRIP_PX = 20;
 
-export type CalendarMode = "day" | "month" | "year";
+export type CalendarMode = "day" | "week" | "month" | "year";
+
+/* ------------------------- 周视图（时间网格） ------------------------- */
+
+const HOUR_HEIGHT = 56; // 1 小时网格高度
+const SNAP_MIN = 30; // 拖拽吸附粒度
+const GUTTER_W = 48; // 左侧小时轴宽度
+const WEEK_DAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+/** 给定任意日期，返回其所在周的周一 */
+export function mondayOf(date: Date): Date {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+/** 周视图的 7 天（周一到周日） */
+export function weekDaysOf(anchor: Date): Date[] {
+  const monday = mondayOf(anchor);
+  return Array.from(
+    { length: 7 },
+    (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)
+  );
+}
+
+/** 拖拽落点按 30 分钟吸附 */
+export function snapMinutes(minutes: number): number {
+  return Math.max(0, Math.round(minutes / SNAP_MIN) * SNAP_MIN);
+}
+
+interface WeekTimedEvent {
+  task: TaskWithTags;
+  startMin: number;
+  endMin: number;
+  lane: number;
+  lanes: number;
+}
+
+/** 单日定时事件布局：只收「起止都在当天」的事件，重叠的贪心分列 */
+export function layoutDayTimedEvents(
+  tasks: TaskWithTags[],
+  day: Date
+): WeekTimedEvent[] {
+  const dayTime = dateOnly(day).getTime();
+  const plain: Array<Omit<WeekTimedEvent, "lane" | "lanes">> = [];
+  for (const task of tasks) {
+    const start = getTaskDate(task);
+    if (!start || task.all_day) continue;
+    const end = taskEnd(task);
+    if (!end) continue;
+    if (dateOnly(start).getTime() !== dayTime || dateOnly(end).getTime() !== dayTime) {
+      continue; // 跨天任务走全天条
+    }
+    const startMin = start.getHours() * 60 + start.getMinutes();
+    const rawEndMin = end.getHours() * 60 + end.getMinutes();
+    const endMin = Math.max(startMin + 30, rawEndMin === startMin ? startMin + 60 : rawEndMin);
+    plain.push({ task, startMin, endMin });
+  }
+  plain.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+
+  const result: WeekTimedEvent[] = [];
+  let cluster: Array<Omit<WeekTimedEvent, "lanes"> & { _end: number }> = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    const lanes = cluster.reduce((max, e) => Math.max(max, e.lane + 1), 0);
+    for (const e of cluster) result.push({ ...e, lanes });
+    cluster = [];
+    clusterEnd = -1;
+  };
+  for (const ev of plain) {
+    if (cluster.length > 0 && ev.startMin >= clusterEnd) flush();
+    let lane = 0;
+    while (cluster.some((e) => e.lane === lane && e._end > ev.startMin)) lane += 1;
+    cluster.push({ ...ev, lane, _end: ev.endMin });
+    clusterEnd = Math.max(clusterEnd, ev.endMin);
+  }
+  flush();
+  return result;
+}
+
+interface WeekDragState {
+  taskId: string;
+  allDayChip: boolean;
+  grabOffsetMin: number;
+  origDayIdx: number;
+  origSlotMin: number;
+  dayIdx: number;
+  slotMin: number;
+  moved: boolean;
+}
+
+function minutesLabel(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+interface WeekGridViewProps {
+  days: Date[];
+  tasks: TaskWithTags[];
+  countdowns: CountdownDay[];
+  today: Date;
+  onTaskClick?: (task: TaskWithTags) => void;
+  onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
+  onDateClick?: (date: Date) => void;
+}
+
+/** 周视图：7 天 × 24 小时时间网格，事件卡可拖拽换日/换时间（30 分钟吸附，跟手幽灵卡 + 目标时间标签） */
+function WeekGridView({
+  days,
+  tasks,
+  countdowns,
+  today,
+  onTaskClick,
+  onUpdateTaskSchedule,
+  onDateClick,
+}: WeekGridViewProps) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const movedRef = useRef(false);
+  const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0 });
+  const [drag, setDrag] = useState<WeekDragState | null>(null);
+
+  const dragTask = (drag && tasks.find((t) => t.id === drag.taskId)) || null;
+
+  useEffect(() => {
+    // 默认滚动到早上 7 点
+    if (gridRef.current) gridRef.current.scrollTop = 7 * HOUR_HEIGHT - 8;
+  }, []);
+
+  const weekCountdowns = useMemo(
+    () => countdownsInRange(countdowns, days[0], days[6]),
+    [countdowns, days]
+  );
+
+  const dayEvents = useMemo(
+    () => days.map((day) => layoutDayTimedEvents(tasks, day)),
+    [days, tasks]
+  );
+
+  // 全天行：全天任务 + 跨天任务（含与当日有交集的）
+  const dayAllDay = useMemo(
+    () =>
+      days.map((day) => {
+        const dayStart = dateOnly(day).getTime();
+        const dayEnd = dayStart + 86400000;
+        return tasks.filter((task) => {
+          const start = getTaskDate(task);
+          if (!start) return false;
+          const end = taskEnd(task);
+          if (!end) return false;
+          const singleTimed =
+            !task.all_day && dateOnly(start).getTime() === dateOnly(end).getTime();
+          if (singleTimed) return false;
+          return (
+            Math.max(dateOnly(start).getTime(), dayStart) <=
+            Math.min(dateOnly(end).getTime(), dayEnd - 1)
+          );
+        });
+      }),
+    [days, tasks]
+  );
+
+  const startTimedDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    task: TaskWithTags,
+    dayIdx: number,
+    ev: WeekTimedEvent
+  ) => {
+    if (!onUpdateTaskSchedule) return;
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetMin = Math.min(
+      ev.endMin - ev.startMin,
+      Math.max(0, ((event.clientY - rect.top) / HOUR_HEIGHT) * 60)
+    );
+    grabRef.current = { offsetMin, origDayIdx: dayIdx, origSlotMin: ev.startMin };
+    movedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDrag({
+      taskId: task.id,
+      allDayChip: false,
+      grabOffsetMin: offsetMin,
+      origDayIdx: dayIdx,
+      origSlotMin: ev.startMin,
+      dayIdx,
+      slotMin: ev.startMin,
+      moved: false,
+    });
+  };
+
+  const startChipDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    task: TaskWithTags,
+    dayIdx: number
+  ) => {
+    if (!onUpdateTaskSchedule) return;
+    event.stopPropagation();
+    grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0 };
+    movedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDrag({
+      taskId: task.id,
+      allDayChip: true,
+      grabOffsetMin: 0,
+      origDayIdx: dayIdx,
+      origSlotMin: 0,
+      dayIdx,
+      slotMin: 0,
+      moved: false,
+    });
+  };
+
+  const moveDrag = (event: React.PointerEvent) => {
+    if (!drag || !gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    const colWidth = (rect.width - GUTTER_W) / 7;
+    const dayIdx = Math.min(
+      6,
+      Math.max(0, Math.floor((event.clientX - rect.left - GUTTER_W) / colWidth))
+    );
+    const yMin =
+      ((event.clientY - rect.top + gridRef.current.scrollTop) / HOUR_HEIGHT) * 60 -
+      drag.grabOffsetMin;
+    const slotMin = drag.allDayChip
+      ? 0
+      : Math.min(1440 - 30, snapMinutes(yMin));
+    const moved =
+      dayIdx !== grabRef.current.origDayIdx ||
+      (!drag.allDayChip && slotMin !== grabRef.current.origSlotMin);
+    if (moved) movedRef.current = true;
+    if (dayIdx !== drag.dayIdx || slotMin !== drag.slotMin || moved !== drag.moved) {
+      setDrag({ ...drag, dayIdx, slotMin, moved });
+    }
+  };
+
+  const endDrag = () => {
+    if (!drag || !dragTask) {
+      setDrag(null);
+      return;
+    }
+    const current = drag;
+    setDrag(null);
+    const changed =
+      current.moved &&
+      (current.dayIdx !== current.origDayIdx ||
+        (!current.allDayChip && current.slotMin !== current.origSlotMin));
+    if (!changed || !onUpdateTaskSchedule) return;
+    const task = dragTask;
+    const start = getTaskDate(task);
+    if (!start) return;
+    const end = taskEnd(task);
+    if (!end) return;
+    const duration = Math.max(0, end.getTime() - start.getTime());
+    const day = days[current.dayIdx];
+    const newStart = current.allDayChip
+      ? new Date(day.getFullYear(), day.getMonth(), day.getDate())
+      : new Date(
+          day.getFullYear(),
+          day.getMonth(),
+          day.getDate(),
+          Math.floor(current.slotMin / 60),
+          current.slotMin % 60
+        );
+    const newEnd = new Date(newStart.getTime() + duration);
+    void onUpdateTaskSchedule(task.id, {
+      schedule_start_at: newStart.toISOString(),
+      schedule_end_at: newEnd.toISOString(),
+      all_day: Boolean(task.all_day),
+      timezone: task.timezone || null,
+      recurrence_rule: task.recurrence_rule || null,
+    });
+  };
+
+  const ghostDurationMin = (() => {
+    if (!drag || !dragTask) return 60;
+    if (drag.allDayChip) return 60;
+    const start = getTaskDate(dragTask);
+    const end = taskEnd(dragTask);
+    if (!start || !end) return 60;
+    return Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
+  })();
+
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* 星期表头 */}
+      <div className="flex shrink-0 border-b bg-background">
+        <div className="w-12 shrink-0" />
+        {days.map((day, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex-1 border-l px-1 py-2 text-center",
+              isSameDay(day, today) && "bg-blue-50/50 dark:bg-blue-950/20"
+            )}
+          >
+            <div className="text-xs text-muted-foreground">{WEEK_DAY_LABELS[i]}</div>
+            <div
+              className={cn(
+                "mx-auto mt-0.5 grid h-6 w-6 place-items-center rounded-full text-sm",
+                isSameDay(day, today) && "bg-blue-500 font-semibold text-white"
+              )}
+            >
+              {day.getDate()}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 全天 / 跨天 / 倒数日 条 */}
+      <div className="flex shrink-0 border-b bg-muted/20">
+        <div className="grid w-12 shrink-0 place-items-center text-[10px] text-muted-foreground">
+          全天
+        </div>
+        {days.map((day, di) => {
+          const chips = dayAllDay[di];
+          const chips_countdown = weekCountdowns.get(keyFor(day)) || [];
+          return (
+            <div
+              key={di}
+              className={cn(
+                "min-h-[38px] flex-1 space-y-1 border-l p-1",
+                isSameDay(day, today) && "bg-blue-50/50 dark:bg-blue-950/20"
+              )}
+            >
+              {chips_countdown.map((item) => (
+                <CountdownChip key={item.id} item={item} compact />
+              ))}
+              {chips.map((task) => {
+                const isDragged = drag?.taskId === task.id && drag.allDayChip;
+                const placeholderHere =
+                  isDragged && drag!.moved && drag!.dayIdx === di;
+                return (
+                  <div key={task.id}>
+                    {/* 占位符渲染在目标列；原卡片保持挂载以维持 pointer capture */}
+                    {placeholderHere && (
+                      <div className="h-6 rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5" />
+                    )}
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
+                        categoryClass(task),
+                        isDragged && "opacity-30"
+                      )}
+                      style={{ touchAction: "none" }}
+                      onPointerDown={(e) => startChipDrag(e, task, di)}
+                      onPointerMove={isDragged ? moveDrag : undefined}
+                      onPointerUp={isDragged ? endDrag : undefined}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (movedRef.current) {
+                          movedRef.current = false;
+                          return;
+                        }
+                        onTaskClick?.(task);
+                      }}
+                    >
+                      <span className="truncate">{task.title}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 时间网格 */}
+      <div ref={gridRef} className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="flex" style={{ height: 24 * HOUR_HEIGHT }}>
+          {/* 小时轴 */}
+          <div className="relative w-12 shrink-0">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute right-1 -translate-y-1/2 text-[10px] text-muted-foreground"
+                style={{ top: h * HOUR_HEIGHT }}
+              >
+                {h}:00
+              </div>
+            ))}
+          </div>
+          <div className="relative grid flex-1 grid-cols-7">
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="pointer-events-none absolute inset-x-0 border-t border-border/50"
+                style={{ top: h * HOUR_HEIGHT }}
+              />
+            ))}
+            {days.map((day, di) => {
+              const target = drag && drag.moved && drag.dayIdx === di;
+              return (
+                <div
+                  key={di}
+                  className={cn(
+                    "relative border-l",
+                    isSameDay(day, today) && "bg-blue-50/40 dark:bg-blue-950/20",
+                    target && "bg-primary/5"
+                  )}
+                  onClick={
+                    onDateClick
+                      ? (e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const yMin =
+                            ((e.clientY - rect.top + (gridRef.current?.scrollTop ?? 0)) /
+                              HOUR_HEIGHT) *
+                            60;
+                          const slot = snapMinutes(yMin);
+                          onDateClick(
+                            new Date(
+                              day.getFullYear(),
+                              day.getMonth(),
+                              day.getDate(),
+                              Math.floor(slot / 60),
+                              slot % 60
+                            )
+                          );
+                        }
+                      : undefined
+                  }
+                >
+                  {dayEvents[di].map((ev) => {
+                    const isDragged =
+                      drag?.taskId === ev.task.id && !drag.allDayChip;
+                    return (
+                      <button
+                        key={ev.task.id}
+                        type="button"
+                        className={cn(
+                          "absolute inset-x-0.5 z-10 flex flex-col items-start gap-0.5 overflow-hidden px-1.5 py-1 text-left text-xs font-medium",
+                          categoryClass(ev.task),
+                          isDragged && "opacity-30"
+                        )}
+                        style={{
+                          top: (ev.startMin / 60) * HOUR_HEIGHT + 1,
+                          height: Math.max(
+                            ((ev.endMin - ev.startMin) / 60) * HOUR_HEIGHT - 2,
+                            22
+                          ),
+                          width: ev.lanes > 1 ? `calc(${100 / ev.lanes}% - 4px)` : undefined,
+                          left: ev.lanes > 1 ? `calc(${(ev.lane * 100) / ev.lanes}% + 2px)` : undefined,
+                          touchAction: "none",
+                        }}
+                        onPointerDown={(e) => startTimedDrag(e, ev.task, di, ev)}
+                        onPointerMove={isDragged ? moveDrag : undefined}
+                        onPointerUp={isDragged ? endDrag : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (movedRef.current) {
+                            movedRef.current = false;
+                            return;
+                          }
+                          onTaskClick?.(ev.task);
+                        }}
+                      >
+                        <span className="w-full truncate opacity-80">
+                          {minutesLabel(ev.startMin)}
+                        </span>
+                        <span className="line-clamp-3 w-full">{ev.task.title}</span>
+                      </button>
+                    );
+                  })}
+                  {/* 拖拽中的虚线占位框（仅目标列） */}
+                  {drag && !drag.allDayChip && drag.moved && drag.dayIdx === di && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0.5 z-20 rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5"
+                      style={{
+                        top: (drag.slotMin / 60) * HOUR_HEIGHT + 1,
+                        height: Math.max((ghostDurationMin / 60) * HOUR_HEIGHT - 2, 26),
+                      }}
+                    />
+                  )}
+                  {/* 拖拽幽灵卡：跟手吸附到 30 分钟槽位，带目标日时间标签 */}
+                  {drag &&
+                  !drag.allDayChip &&
+                  drag.moved &&
+                  drag.dayIdx === di &&
+                  dragTask && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0.5 z-30"
+                      style={{
+                        top: (drag.slotMin / 60) * HOUR_HEIGHT + 1,
+                        height: Math.max(
+                          ((ghostDurationMin) / 60) * HOUR_HEIGHT - 2,
+                          26
+                        ),
+                      }}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-full w-full -rotate-2 items-center justify-center overflow-hidden rounded-[--radius-md] px-1.5 opacity-80 shadow-lg",
+                          categoryClass(dragTask)
+                        )}
+                      >
+                        <span className="truncate text-sm font-semibold">
+                          {WEEK_DAY_LABELS[drag.dayIdx]} {minutesLabel(drag.slotMin)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** 把倒数日按可视范围铺开成 日期key → 倒数日列表；每年重复的按年展开 */
 export function countdownsInRange(
@@ -241,6 +750,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const cells = useMemo(() => getMonthCells(cursor), [cursor]);
+  const weekDays = useMemo(() => weekDaysOf(cursor), [cursor]);
   const monthTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
   const weeks = useMemo(() => {
     const result: Date[][] = [];
@@ -268,6 +778,8 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
       const next = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + direction);
       setSelectedDate(next);
       setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
+    } else if (mode === "week") {
+      setCursor(new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + direction * 7));
     } else if (mode === "month") {
       setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + direction, 1));
     } else {
@@ -276,7 +788,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   };
   const goToday = () => {
     setSelectedDate(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-    setCursor(new Date(today.getFullYear(), today.getMonth(), 1));
+    setCursor(new Date(today.getFullYear(), today.getMonth(), mode === "week" ? today.getDate() : 1));
   };
   const switchMode = (next: CalendarMode) => {
     setMode(next);
@@ -286,6 +798,17 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   const title =
     mode === "year" ? `${cursor.getFullYear()}年`
     : mode === "month" ? `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`
+    : mode === "week"
+      ? (() => {
+          const first = weekDays[0];
+          const last = weekDays[6];
+          const head = `${first.getMonth() + 1}月${first.getDate()}日`;
+          const tail =
+            first.getMonth() === last.getMonth()
+              ? `${last.getDate()}日`
+              : `${last.getMonth() + 1}月${last.getDate()}日`;
+          return `${head} - ${tail}`;
+        })()
     : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日 ${WEEKDAYS[(selectedDate.getDay() + 6) % 7]}`;
 
   /** 从拖拽事件的横坐标算出目标列（0-6），用于行级 drop */
@@ -302,14 +825,14 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
         <h2 className="text-xl font-semibold">{title}</h2>
         <div className="ml-auto flex items-center gap-1">
           <div className="mr-2 flex rounded-lg bg-muted p-1 text-sm">
-            {(["day", "month", "year"] as CalendarMode[]).map((item) => (
+            {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
               <button
                 key={item}
                 type="button"
                 onClick={() => switchMode(item)}
                 className={cn("rounded-md px-3 py-1.5", mode === item ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
               >
-                {item === "day" ? "日" : item === "month" ? "月" : "年"}
+                {item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}
               </button>
             ))}
           </div>
@@ -318,6 +841,18 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
           <button type="button" aria-label="下一页" onClick={() => step(1)} className="rounded-lg border p-2 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
         </div>
       </header>
+
+      {mode === "week" && (
+        <WeekGridView
+          days={weekDays}
+          tasks={monthTasks}
+          countdowns={countdowns}
+          today={today}
+          onTaskClick={onTaskClick}
+          onUpdateTaskSchedule={onUpdateTaskSchedule}
+          onDateClick={onDateClick}
+        />
+      )}
 
       {mode === "month" && (
         <>

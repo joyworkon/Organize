@@ -60,7 +60,12 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
       setTab("task");
       setTitle("");
       setAllDay(false);
-      setTime("09:00");
+      // 从时间网格空白处点击进来时带具体时刻；月视图日期点击是零点，回落 09:00
+      const clickedTime =
+        date.getHours() !== 0 || date.getMinutes() !== 0
+          ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+          : "09:00";
+      setTime(clickedTime);
       setRepeat("none");
       setRepeatAnnually(false);
     }
@@ -248,16 +253,14 @@ function CalendarPageInner() {
     [refetch, supabase]
   );
 
-  if (loading) {
-    return (
-      <div className="grid h-[calc(100vh-11rem)] place-items-center rounded-lg border bg-background text-muted-foreground md:h-[calc(100vh-6rem)]">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
-
   return (
-    <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
+    <div className="organize-task-screen relative flex h-[calc(100vh-11rem)] min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
+      {/* 刷新时用遮罩而非卸载视图：保住周/月/日视图的内部状态（如当前模式与拖拽） */}
+      {loading && (
+        <div className="absolute inset-0 z-20 grid place-items-center rounded-lg bg-background/60">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      )}
       <TaskMonthView
         tasks={visibleTasks}
         countdowns={countdowns}
