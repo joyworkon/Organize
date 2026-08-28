@@ -164,8 +164,8 @@
   .note-page {
     margin: 0 -1.5rem;
     padding-bottom: 0;
-    /* 桌面端只扣除外层 p-6(3rem) */
-    min-height: calc(100dvh - 3rem);
+    /* 桌面端扣除外层 p-6(3rem) + 标签页条 40px */
+    min-height: calc(100dvh - 3rem - 40px);
   }
 }
 
@@ -315,6 +315,18 @@
   font-size: 11px;
 }
 
+/* === 桌面端笔记标签页条（Chrome 式，挂在主布局、笔记页之外） === */
+.note-tabs-bar {
+  /* 与下方 .note-topbar 的吸顶偏移联动（40px） */
+  box-shadow: inset 0 -1px 0 hsl(var(--border) / 0.6);
+}
+.note-tabs-scroll {
+  scrollbar-width: none;
+}
+.note-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* === Notion 风格顶栏 === */
 .note-topbar {
   position: sticky;
@@ -325,6 +337,12 @@
   -webkit-backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s ease;
+}
+/* 桌面端标签页条常驻吸顶（高 40px），笔记页顶栏贴其下方吸顶 */
+@media (min-width: 768px) {
+  .note-topbar {
+    top: 40px;
+  }
 }
 .note-topbar.scrolled {
   border-bottom-color: hsl(var(--border));
@@ -384,6 +402,12 @@
   border-left: 1px solid hsl(var(--border)); /* 目录与正文之间的灰色竖线 */
   background: hsl(var(--background));
   z-index: 30;
+}
+/* 桌面端顶部还有 40px 标签页条 */
+@media (min-width: 768px) {
+  .note-toc {
+    top: 84px;
+  }
 }
 .note-toc-header {
   display: flex;

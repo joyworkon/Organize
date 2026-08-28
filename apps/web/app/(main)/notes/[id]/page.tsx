@@ -832,6 +832,18 @@ export default function NoteEditorPage() {
     el.setSelectionRange(len, len);
   }, [loading, content, title, noteId]);
 
+  // 顶部标签页条 / 侧边栏「最近」：笔记加载完成后及标题、图标变化时回填展示信息。
+  // noteLoaded 是布尔值（而非 content 对象），避免每次击键都重复派发事件。
+  const noteLoaded = !loading && content !== null;
+  useEffect(() => {
+    if (!noteLoaded) return;
+    window.dispatchEvent(
+      new CustomEvent("organize:note-tab", {
+        detail: { id: noteId, title, icon },
+      })
+    );
+  }, [noteLoaded, noteId, title, icon]);
+
   // 目录开关初始值：localStorage 记忆，默认关闭
   useEffect(() => {
     try {
@@ -1099,6 +1111,9 @@ export default function NoteEditorPage() {
     // 服务端已有笔记入删除队列，联网回放 mutate_trash RPC
     const offlineDelete = () => {
       suppressAutosave();
+      window.dispatchEvent(
+        new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } })
+      );
       if (findNoteCreate(localStorage, noteId)) {
         removeNoteCreate(localStorage, noteId);
       } else {
@@ -1114,6 +1129,9 @@ export default function NoteEditorPage() {
     try {
       await mutateTrash("note", [noteId], "soft_delete");
       suppressAutosave();
+      window.dispatchEvent(
+        new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } })
+      );
       // 仍在离线创建队列里的笔记（服务端还没有）：必须同步移出队列，
       // 否则联网回放会把这篇已删除的笔记重新插进服务端（列表页也会一直显示它）
       removeNoteCreate(localStorage, noteId);
