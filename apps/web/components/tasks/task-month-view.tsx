@@ -228,30 +228,87 @@ function WeekGridView({
     });
   };
 
-  const moveDrag = (event: React.PointerEvent) => {
-    if (!drag || !gridRef.current) return;
+  /** 把指针位置换算成拖拽目标（列 + 吸附槽位），供 moveDrag 与边缘自动滚动共用 */
+  const computeDragTarget = (clientX: number, clientY: number) => {
+    if (!drag || !gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
     const colWidth = (rect.width - GUTTER_W) / 7;
     const dayIdx = Math.min(
       6,
-      Math.max(0, Math.floor((event.clientX - rect.left - GUTTER_W) / colWidth))
+      Math.max(0, Math.floor((clientX - rect.left - GUTTER_W) / colWidth))
     );
     const yMin =
-      ((event.clientY - rect.top + gridRef.current.scrollTop) / HOUR_HEIGHT) * 60 -
+      ((clientY - rect.top + gridRef.current.scrollTop) / HOUR_HEIGHT) * 60 -
       drag.grabOffsetMin;
     const slotMin = drag.allDayChip
       ? 0
       : Math.min(1440 - 30, snapMinutes(yMin));
-    const moved =
-      dayIdx !== grabRef.current.origDayIdx ||
-      (!drag.allDayChip && slotMin !== grabRef.current.origSlotMin);
-    if (moved) movedRef.current = true;
-    if (dayIdx !== drag.dayIdx || slotMin !== drag.slotMin || moved !== drag.moved) {
-      setDrag({ ...drag, dayIdx, slotMin, moved });
-    }
+    return { dayIdx, slotMin };
   };
 
+  // 指针悬在网格上下边缘时持续滚动，让长距离拖拽够得着视口外的时段
+  const edgeScrollRef = useRef<number | null>(null);
+  const lastPointerRef = useRef({ x: 0, y: 0 });
+  const stopEdgeScroll = () => {
+    if (edgeScrollRef.current !== null) {
+      cancelAnimationFrame(edgeScrollRef.current);
+      edgeScrollRef.current = null;
+    }
+  };
+  const edgeScroll = (clientY: number) => {
+    const grid = gridRef.current;
+    if (!grid || !drag) {
+      stopEdgeScroll();
+      return;
+    }
+    const rect = grid.getBoundingClientRect();
+    const EDGE = 48;
+    let delta = 0;
+    if (clientY < rect.top + EDGE) delta = -Math.ceil((rect.top + EDGE - clientY) / 6);
+    else if (clientY > rect.bottom - EDGE) delta = Math.ceil((clientY - (rect.bottom - EDGE)) / 6);
+    if (delta === 0) {
+      stopEdgeScroll();
+      return;
+    }
+    const maxScroll = grid.scrollHeight - grid.clientHeight;
+    if (grid.scrollTop <= 0 && delta < 0) return;
+    if (grid.scrollTop >= maxScroll && delta > 0) return;
+    grid.scrollTop = Math.max(0, Math.min(maxScroll, grid.scrollTop + delta));
+    const target = computeDragTarget(lastPointerRef.current.x, lastPointerRef.current.y);
+    if (target) {
+      const moved =
+        target.dayIdx !== grabRef.current.origDayIdx ||
+        (!drag.allDayChip && target.slotMin !== grabRef.current.origSlotMin);
+      if (moved) movedRef.current = true;
+      setDrag((cur) =>
+        cur && (cur.dayIdx !== target.dayIdx || cur.slotMin !== target.slotMin || cur.moved !== moved)
+          ? { ...cur, ...target, moved }
+          : cur
+      );
+    }
+    edgeScrollRef.current = requestAnimationFrame(() => edgeScroll(clientY));
+  };
+
+  const moveDrag = (event: React.PointerEvent) => {
+    if (!drag || !gridRef.current) return;
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    const target = computeDragTarget(event.clientX, event.clientY);
+    if (!target) return;
+    const moved =
+      target.dayIdx !== grabRef.current.origDayIdx ||
+      (!drag.allDayChip && target.slotMin !== grabRef.current.origSlotMin);
+    if (moved) movedRef.current = true;
+    if (target.dayIdx !== drag.dayIdx || target.slotMin !== drag.slotMin || moved !== drag.moved) {
+      setDrag({ ...drag, ...target, moved });
+    }
+    if (!drag.allDayChip) edgeScroll(event.clientY);
+    else stopEdgeScroll();
+  };
+
+  useEffect(() => stopEdgeScroll, []);
+
   const endDrag = () => {
+    stopEdgeScroll();
     if (!drag || !dragTask) {
       setDrag(null);
       return;
