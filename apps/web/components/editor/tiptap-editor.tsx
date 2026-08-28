@@ -87,6 +87,8 @@ import {
   internalLinkKeyFromHref,
   type InternalLinkStateRow,
 } from "@/lib/note-links";
+import { createClient } from "@/lib/supabase/client";
+import { createNewNote } from "@/lib/notes/create-note";
 import {
   Bold,
   Italic,
@@ -1071,6 +1073,7 @@ export function TipTapEditor({
 }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
   const initialContentRef = useRef(content);
@@ -1491,7 +1494,10 @@ export function TipTapEditor({
     setTablePicker(null);
   }, [editor]);
 
-  // 「转换成 → 页面」：以块文本为标题创建子笔记，并把块替换为指向它的链接段落
+  // 「转换成 → 页面」：以块文本为标题创建子笔记，并把块替换为指向它的链接段落。
+  // 必须走浏览器端 Supabase 客户端（会话内 RLS）：/api/notes 是服务端路由，
+  // 假后端（NEXT_PUBLIC_MOCK_BACKEND）模式下不可用——走它会导致转换静默失败，
+  // 块原地不动也点击不进去（这正是历史 bug）。
   const convertBlockToPage = useCallback(async (pos: number) => {
     if (!editor) return;
     const node = editor.state.doc.nodeAt(pos);
@@ -1499,35 +1505,33 @@ export function TipTapEditor({
     const blockId = String(node.attrs?.id || "");
     if (!blockId) return;
     const title = node.textContent.trim() || "无标题笔记";
-    try {
-      const response = await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, parent_note_id: noteId }),
-      });
-      if (!response.ok) {
-        console.warn("[editor] 转换成页面失败", response.status);
-        return;
-      }
-      const created = (await response.json()) as { id: string; title: string };
-      // 创建期间块可能已被删除/移动：校验同位置的块仍是原来那个（按 block id）
-      const current = editor.state.doc.nodeAt(pos);
-      if (!current || String(current.attrs?.id || "") !== blockId) return;
-      replaceAt(editor, pos, {
-        type: "paragraph",
-        content: [
-          { type: "text", text: "📄 " },
-          {
-            type: "text",
-            marks: [{ type: "link", attrs: { href: `/notes/${created.id}` } }],
-            text: created.title,
-          },
-        ],
-      });
-    } catch (error) {
-      console.warn("[editor] 转换成页面失败", error);
+    const created = await createNewNote(supabase, {
+      title,
+      parent_note_id: noteId ?? null,
+    });
+    if (!created) {
+      toast({ title: "转换成页面失败，请重试", variant: "destructive" });
+      return;
     }
-  }, [editor, noteId]);
+    // 创建期间块可能已被删除/移动：校验同位置的块仍是原来那个（按 block id）
+    const current = editor.state.doc.nodeAt(pos);
+    if (!current || String(current.attrs?.id || "") !== blockId) return;
+    replaceAt(editor, pos, {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "📄 " },
+        {
+          type: "text",
+          marks: [{ type: "link", attrs: { href: `/notes/${created.id}` } }],
+          text: title,
+        },
+      ],
+    });
+    // 刷新父页的笔记树：子页面列表（页面最底部）立即出现新页面，
+    // 内容里的链接状态校验（internal link states）也会随之重取
+    window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+    toast({ title: `已转换为子页面「${title}」` });
+  }, [editor, noteId, supabase]);
 
   useEffect(() => {
     if (!editor) return;

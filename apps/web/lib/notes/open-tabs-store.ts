@@ -18,6 +18,8 @@ interface OpenTabsState {
   openTab: (meta: NoteTabMeta) => void;
   /** 笔记标题/图标变化后同步标签页与最近列表的展示 */
   updateMeta: (meta: NoteTabMeta) => void;
+  /** 拖拽排序：把 fromId 移动到 toId 的位置 */
+  moveTab: (fromId: string, toId: string) => void;
   /** 关闭标签页；返回关闭后应导航到的相邻标签页 id（Chrome 行为），无则 null */
   removeTab: (id: string) => string | null;
   /** 从标签页与最近列表中彻底移除（笔记被删除/移入垃圾箱时） */
@@ -25,7 +27,7 @@ interface OpenTabsState {
 }
 
 const MAX_TABS = 20;
-const MAX_RECENTS = 8;
+const MAX_RECENTS = 12;
 
 export const useOpenTabsStore = create<OpenTabsState>()(
   persist(
@@ -51,6 +53,18 @@ export const useOpenTabsStore = create<OpenTabsState>()(
           tabs: state.tabs.map((tab) => (tab.id === meta.id ? meta : tab)),
           recents: state.recents.map((item) => (item.id === meta.id ? meta : item)),
         })),
+
+      /** 拖拽排序：把 fromId 移动到 toId 的位置（Chrome 式拖拽换位） */
+      moveTab: (fromId, toId) =>
+        set((state) => {
+          const from = state.tabs.findIndex((tab) => tab.id === fromId);
+          const to = state.tabs.findIndex((tab) => tab.id === toId);
+          if (from < 0 || to < 0 || from === to) return state;
+          const tabs = [...state.tabs];
+          const [moved] = tabs.splice(from, 1);
+          tabs.splice(to, 0, moved);
+          return { tabs };
+        }),
 
       removeTab: (id) => {
         const { tabs } = get();

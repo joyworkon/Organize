@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { findBlockById, isSameNodeSnapshot, nodeText } from "./block-utils";
 import { SearchInNoteDialog } from "./note-search-dialog";
 import type { EditorBlockTarget, EditorDialog } from "./types";
@@ -67,11 +68,30 @@ function MoveDialog({ editor, noteId, target, onClose }: { editor: Editor; noteI
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/notes?sortBy=updated_at&sortOrder=desc")
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("无法加载笔记")))
-      .then((data) => setNotes(data.filter((note: Note) => note.id !== noteId)))
-      .catch((reason) => setError(reason.message))
-      .finally(() => setLoading(false));
+    // 笔记列表走浏览器端 Supabase 客户端：会话内 RLS 查询，
+    // 假后端（NEXT_PUBLIC_MOCK_BACKEND）模式下同样可用
+    const supabase = createClient();
+    void (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) throw new Error("未登录");
+        const { data, error } = await supabase
+          .from("notes")
+          .select("id, title, icon, updated_at")
+          .eq("user_id", user.id)
+          .neq("id", noteId)
+          .is("deleted_at", null)
+          .order("updated_at", { ascending: false });
+        if (error) throw new Error("无法加载笔记");
+        setNotes((data || []) as unknown as Note[]);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "无法加载笔记");
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [noteId]);
 
   const filtered = notes.filter((note) => (note.title || "无标题").toLowerCase().includes(query.toLowerCase()));

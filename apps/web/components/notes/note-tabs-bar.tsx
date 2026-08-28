@@ -33,10 +33,13 @@ export function NoteTabsBar() {
   const updateMeta = useOpenTabsStore((state) => state.updateMeta);
   const removeTab = useOpenTabsStore((state) => state.removeTab);
   const forgetNote = useOpenTabsStore((state) => state.forgetNote);
+  const moveTab = useOpenTabsStore((state) => state.moveTab);
 
   // zustand persist 在客户端挂载后才回放 localStorage，先渲染空条避免 SSR 水合不一致
   const [mounted, setMounted] = useState(false);
   const [creating, setCreating] = useState(false);
+  // 拖拽排序进行中的标签 id（Chrome 式：悬停到目标标签上即实时换位）
+  const [dragId, setDragId] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -124,6 +127,21 @@ export function NoteTabsBar() {
             return (
               <div
                 key={tab.id}
+                draggable
+                onDragStart={(event) => {
+                  setDragId(tab.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  // Firefox 需要 setData 才会启动拖拽
+                  event.dataTransfer.setData("text/plain", tab.id);
+                }}
+                onDragOver={(event) => {
+                  if (!dragId || dragId === tab.id) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  moveTab(dragId, tab.id);
+                }}
+                onDrop={(event) => event.preventDefault()}
+                onDragEnd={() => setDragId(null)}
                 onAuxClick={(event) => {
                   // 中键点标签任意位置即关闭（Chrome 行为），并拦截浏览器「新窗口打开」
                   event.preventDefault();
@@ -133,11 +151,13 @@ export function NoteTabsBar() {
                   "note-tab group/tab relative flex h-8 max-w-[200px] min-w-[100px] shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 text-xs",
                   active
                     ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  dragId === tab.id && "opacity-40"
                 )}
               >
                 <Link
                   href={`/notes/${tab.id}`}
+                  draggable={false}
                   className="flex min-w-0 flex-1 items-center gap-1.5"
                   title={tab.title || "无标题笔记"}
                 >
