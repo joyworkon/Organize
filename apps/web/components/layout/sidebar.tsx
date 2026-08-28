@@ -159,6 +159,14 @@ export function Sidebar() {
     };
   }, [searchParams]);
 
+  // 移动端顶栏展示当前所在分区（Notion 移动端模式：汉堡 + 位置名），根路径回退到产品名
+  const mobileSectionLabel = useMemo(() => {
+    const match = [...navItems]
+      .sort((a, b) => b.href.length - a.href.length)
+      .find((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)));
+    return match?.label ?? "Organize";
+  }, [pathname]);
+
   const navigateToTasks = (selection: SidebarSelection) => {
     const params = new URLSearchParams();
     params.set("scope", selection.scope);
@@ -475,7 +483,7 @@ export function Sidebar() {
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <span className="ml-3 font-bold text-lg">Organize</span>
+        <span className="ml-3 truncate font-bold text-lg">{mobileSectionLabel}</span>
       </header>
 
       {/* 移动端抽屉 */}

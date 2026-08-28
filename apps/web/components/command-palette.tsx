@@ -329,6 +329,13 @@ export function CommandPalette() {
     },
   ]);
 
+  // 移动端底部搜索按钮：无实体键盘，经 window 事件打开同一面板
+  useEffect(() => {
+    const openPalette = () => setOpen(true);
+    window.addEventListener("organize:command-palette", openPalette);
+    return () => window.removeEventListener("organize:command-palette", openPalette);
+  }, []);
+
   useEffect(() => {
     if (open) {
       setSearchQuery("");

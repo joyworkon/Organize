@@ -156,14 +156,27 @@
   margin: 0 -1rem;
   display: flex;
   flex-direction: column;
-  /* 移动端扣除：外层 p-4(2rem) + 顶栏 3.5rem + 底部 tab 4rem */
-  min-height: calc(100dvh - 9.5rem);
+  /* 移动端扣除：外层 p-4(2rem) + 移动顶栏 3.5rem；底部为悬浮搜索/新建按钮预留空间 */
+  min-height: calc(100dvh - 5.5rem);
+  padding-bottom: 4.5rem;
 }
 @media (min-width: 768px) {
   .note-page {
     margin: 0 -1.5rem;
+    padding-bottom: 0;
     /* 桌面端只扣除外层 p-6(3rem) */
     min-height: calc(100dvh - 3rem);
+  }
+}
+
+/* 移动端不展示桌面端标题上方的三个「添加」功能（添加图标/封面/评论）：
+   仅保留已设置的页面图标本身，行高压紧贴近 Notion 移动端新页面观感 */
+@media (max-width: 767px) {
+  .note-page-icon-actions .note-page-add-btn {
+    display: none;
+  }
+  .note-page-icon-actions {
+    min-height: 56px;
   }
 }
 
@@ -247,7 +260,9 @@
   z-index: 2;
   display: flex;
   gap: 2px;
-  min-height: 44px;
+  /* 无图标的新笔记：三组「添加」操作距顶部留白为原来的两倍（44→88）。
+     有图标时行高由 88px 图标撑起，视觉不变 */
+  min-height: 88px;
   align-items: flex-end;
   padding-left: 0;
 }
