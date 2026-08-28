@@ -14,6 +14,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   X,
   ListChecks,
   Lightbulb,
@@ -31,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
+import { createNewNote } from "@/lib/notes/create-note";
+import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
 import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
 import type { TaskList } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
@@ -69,6 +72,7 @@ export function Sidebar() {
   const [creatingNote, setCreatingNote] = useState(false);
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
+  const recentNotes = useOpenTabsStore((state) => state.recents);
   useThemeColor();
 
   useEffect(() => {
@@ -199,30 +203,13 @@ export function Sidebar() {
     if (creatingNote) return;
     setCreatingNote(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data, error } = await supabase
-        .from("notes")
-        .insert({
-          user_id: user.id,
-          // 空标题：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦；侧边栏树显示时回退
-          title: "",
-          content: { type: "doc", content: [{ type: "paragraph" }] },
-          icon: null,
-          cover_url: null,
-          cover_position: 50,
-          parent_note_id: null,
-        })
-        .select()
-        .single();
-      if (error || !data) return;
+      const note = await createNewNote(supabase);
+      if (!note) return;
       setNotesExpanded(true);
       localStorage.setItem("organize-sidebar-notes-expanded", "true");
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       setMobileOpen(false);
-      router.push(`/notes/${data.id}`);
+      router.push(`/notes/${note.id}`);
     } finally {
       setCreatingNote(false);
     }
@@ -244,9 +231,28 @@ export function Sidebar() {
     onClose?: () => void;
   }) => (
     <div className="flex h-full flex-col">
+      {/* 展开态：顶部搜索入口（打开全局命令面板）+ 品牌行，参考 Capacities 侧边栏 */}
+      {!compact && (
+        <div className="border-b px-3 pb-2.5 pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              onClose?.();
+              window.dispatchEvent(new CustomEvent("organize:command-palette"));
+            }}
+            title="搜索或访问（⌘K）"
+            aria-label="搜索或访问"
+            className="flex w-full items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate text-left">搜索或访问</span>
+            <kbd className="rounded border bg-background px-1 font-mono text-[10px]">⌘K</kbd>
+          </button>
+        </div>
+      )}
       <div
         className={cn(
-          "flex h-14 items-center border-b",
+          "flex h-12 items-center border-b",
           compact ? "justify-center gap-0 px-0.5" : "justify-between px-4"
         )}
       >
@@ -295,6 +301,37 @@ export function Sidebar() {
       </div>
 
       <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
+        {/* 最近打开的笔记（来自标签页 store 的访问记录） */}
+        {!compact && recentNotes.length > 0 && (
+          <div className="pb-2">
+            <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+              最近
+            </p>
+            {recentNotes.slice(0, 6).map((item) => {
+              const active = pathname === `/notes/${item.id}`;
+              return (
+                <Link
+                  key={item.id}
+                  href={`/notes/${item.id}`}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                    active
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                  title={item.title || "无标题笔记"}
+                >
+                  <span className="shrink-0 text-[13px] leading-none">
+                    {item.icon || "📄"}
+                  </span>
+                  <span className="truncate">{item.title || "无标题笔记"}</span>
+                </Link>
+              );
+            })}
+            <div className="mt-2 border-t" />
+          </div>
+        )}
         {navItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"

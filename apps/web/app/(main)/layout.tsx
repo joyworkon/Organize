@@ -11,6 +11,7 @@ import { PromptHost } from "@/components/ui/prompt-dialog";
 import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
 import { QuickSaveBridge } from "@/components/desktop/quick-save";
 import { ShareBridge } from "@/components/mobile/share-bridge";
+import { NoteTabsBar } from "@/components/notes/note-tabs-bar";
 
 export default function MainLayout({
   children,
@@ -29,6 +30,8 @@ export default function MainLayout({
       <CommandPalette />
       <Toaster />
       <main className="organize-sidebar-offset pt-14 transition-[padding] duration-200 md:pt-0 pb-16 md:pb-0">
+        {/* 桌面端 Chrome 式笔记标签页条：吸顶，笔记页顶栏在其下方吸顶（见 globals.css 偏移） */}
+        <NoteTabsBar />
         <div className="p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
