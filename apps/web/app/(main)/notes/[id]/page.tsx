@@ -23,12 +23,14 @@ import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff, History } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
 import { ShareDialog } from "@/components/share/share-dialog";
-import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
+import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
+import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
+import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
@@ -112,6 +114,9 @@ export default function NoteEditorPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState<
+    (NoteVersionMeta & { content: Record<string, unknown> | null }) | null
+  >(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null);
@@ -922,6 +927,47 @@ export default function NoteEditorPage() {
     toastTimerRef.current = setTimeout(() => setToast(""), 2000);
   }, []);
 
+  // ---- 版本历史：预览 / 恢复 ----
+  const selectPreviewVersion = useCallback(
+    async (version: NoteVersionMeta) => {
+      const { data, error } = await supabase
+        .from("note_versions")
+        .select("content")
+        .eq("id", version.id)
+        .single();
+      if (error || !data) {
+        showToast("加载版本失败");
+        return;
+      }
+      setPreviewVersion({
+        ...version,
+        content: (data.content ?? null) as Record<string, unknown> | null,
+      });
+    },
+    [supabase, showToast]
+  );
+
+  const exitPreview = useCallback(() => setPreviewVersion(null), []);
+
+  const restorePreviewVersion = useCallback(async () => {
+    if (!previewVersion) return;
+    if (!window.confirm("恢复这个版本？当前内容会先自动保存为一个新版本（恢复可撤销）。")) return;
+    const res = await fetch(`/api/notes/${noteId}/versions/${previewVersion.id}`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      showToast(`恢复失败（${res.status}）`);
+      return;
+    }
+    try {
+      // 恢复成功后整页刷新；跳过卸载时的本地草稿兜底保存，
+      // 否则未落库的草稿会把刚恢复的内容盖掉
+      clearLocalNoteDraftForNote(localStorage, noteId);
+      sessionStorage.setItem(`organize:skip-flush:${noteId}`, "1");
+    } catch { /* sessionStorage 不可用时忽略 */ }
+    window.location.href = `/notes/${noteId}`;
+  }, [noteId, previewVersion, showToast]);
+
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1241,15 +1287,16 @@ export default function NoteEditorPage() {
     : "mx-auto w-full max-w-3xl px-4 md:px-6";
 
   return (
-    <div
-      className={cn(
-        "note-page mx-auto max-w-none",
-        font === "serif" && "note-page-serif",
-        font === "mono" && "note-page-mono",
-        smallFont && "note-page-small",
-        tocOpen && "note-page-toc-open"
-      )}
-    >
+      <div
+        className={cn(
+          "note-page mx-auto max-w-none",
+          font === "serif" && "note-page-serif",
+          font === "mono" && "note-page-mono",
+          smallFont && "note-page-small",
+          tocOpen && "note-page-toc-open",
+          historyOpen && "note-page-history-open"
+        )}
+      >
       {/* Notion 风格顶栏：全宽吸顶 */}
       <div className="note-topbar">
         <div className="note-topbar-inner">
@@ -1292,6 +1339,15 @@ export default function NoteEditorPage() {
               ) : null}
             </div>
             <FavoriteButton targetType="note" targetId={noteId} />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setHistoryOpen((open) => !open)}
+              title="版本历史"
+              className={cn(historyOpen && "text-primary bg-primary/10")}
+            >
+              <History className="h-4 w-4" />
+            </Button>
             <NoteAttachmentsButton editor={editorInstance} />
             <Button
               variant="ghost"
@@ -1380,20 +1436,49 @@ export default function NoteEditorPage() {
           />
         )}
 
-        {/* 编辑器 */}
-        <TipTapEditor
-          key={noteId}
-          noteId={noteId}
-          noteTitle={title}
-          content={content}
-          onUpdate={handleContentUpdate}
-          noteTree={allNotes}
-          internalLinkStates={contentLinkStates}
-          onEditorReady={(editor) => {
-            editorRef.current = editor;
-            setEditorInstance(editor);
-          }}
-        />
+        {/* 编辑器 / 历史版本预览 */}
+        {previewVersion ? (
+          <div className="note-history-view">
+            <div className="note-history-banner">
+              <span className="note-history-banner-text">
+                正在查看{" "}
+                {new Date(previewVersion.created_at).toLocaleString("zh-CN", {
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}{" "}
+                的版本{previewVersion.message ? ` · ${previewVersion.message}` : ""}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="outline" onClick={() => void restorePreviewVersion()}>
+                  恢复此版本
+                </Button>
+                <Button size="sm" variant="ghost" onClick={exitPreview}>
+                  退出预览
+                </Button>
+              </div>
+            </div>
+            <NoteHistoryPreview
+              versionContent={(previewVersion.content ?? null) as never}
+              currentContent={(content ?? null) as never}
+            />
+          </div>
+        ) : (
+          <TipTapEditor
+            key={noteId}
+            noteId={noteId}
+            noteTitle={title}
+            content={content}
+            onUpdate={handleContentUpdate}
+            noteTree={allNotes}
+            internalLinkStates={contentLinkStates}
+            onEditorReady={(editor) => {
+              editorRef.current = editor;
+              setEditorInstance(editor);
+            }}
+          />
+        )}
 
         {/* 反向链接 & 关联阅读 */}
         <Backlinks noteId={noteId} readingItemId={readingItemId} />
@@ -1510,10 +1595,15 @@ export default function NoteEditorPage() {
         onConfirm={handleMove}
       />
 
-      <NoteHistoryDialog
+      <NoteHistoryPanel
         noteId={noteId}
         open={historyOpen}
-        onOpenChange={setHistoryOpen}
+        activeVersionId={previewVersion?.id ?? null}
+        onClose={() => {
+          setHistoryOpen(false);
+          setPreviewVersion(null);
+        }}
+        onSelect={(version) => void selectPreviewVersion(version)}
       />
     </div>
   );
