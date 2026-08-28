@@ -27,6 +27,9 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
+import { isOnline } from "@/lib/offline/network";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { enqueueTaskOp, makeChecklistUpdateOp } from "@/lib/offline/task-queue";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -130,9 +133,26 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
   };
 
   const toggleChecklist = async (item: TaskChecklist) => {
-    const { error } = await supabase.from("task_checklists").update({ is_completed: !item.is_completed }).eq("id", item.id);
-    if (error) toast({ title: "更新子任务失败", variant: "destructive" });
-    else setChecklists((current) => current.map((row) => row.id === item.id ? { ...row, is_completed: !row.is_completed } : row));
+    // X1：先乐观更新；离线（或网络异常）直接入队，联网后由任务工作台回放
+    const nextCompleted = !item.is_completed;
+    setChecklists((current) => current.map((row) => row.id === item.id ? { ...row, is_completed: nextCompleted } : row));
+    const offlineUpdate = () => {
+      enqueueTaskOp(localStorage, makeChecklistUpdateOp(item.id, { is_completed: nextCompleted }));
+      toast({ title: "已离线保存，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineUpdate();
+      return;
+    }
+    const { error } = await supabase.from("task_checklists").update({ is_completed: nextCompleted }).eq("id", item.id);
+    if (error) {
+      if (isNetworkSaveError(error)) {
+        offlineUpdate();
+        return;
+      }
+      setChecklists((current) => current.map((row) => row.id === item.id ? { ...row, is_completed: item.is_completed } : row));
+      toast({ title: "更新子任务失败", variant: "destructive" });
+    }
   };
 
   const addTag = async () => {

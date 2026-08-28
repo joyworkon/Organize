@@ -1,12 +1,24 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
 import { claimTaskNoteCreation, releaseTaskNoteCreation } from "@/lib/tasks/note-link";
+import { isOnline, useOnlineStatus } from "@/lib/offline/network";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import {
+  enqueueTaskOp,
+  makeChecklistDeleteOp,
+  makeChecklistUpdateOp,
+  makeTaskUpdateOp,
+  readTaskOps,
+  replayTaskOps,
+  writeTaskOps,
+} from "@/lib/offline/task-queue";
+import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -116,6 +128,22 @@ export default function TaskDetailPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
 
+  // X1 离线同步：联网（含挂载时有积压）即回放队列，与任务工作台共用同一回放 writer
+  const online = useOnlineStatus();
+  const replayRef = useRef<() => Promise<void>>(async () => {});
+  replayRef.current = async () => {
+    const ops = readTaskOps(localStorage);
+    if (ops.length === 0) return;
+    const result = await replayTaskOps(createTaskQueueWriter(supabase), ops);
+    writeTaskOps(localStorage, result.remaining);
+    if (result.applied > 0) {
+      toast({ title: `已同步 ${result.applied} 项离线更改` });
+    }
+  };
+  useEffect(() => {
+    if (online) void replayRef.current();
+  }, [online]);
+
   useEffect(() => {
     loadTask();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadTask 非 memoized，加入会触发重渲染循环；按 taskId 变化加载
@@ -195,29 +223,54 @@ export default function TaskDetailPage() {
   }
 
   async function toggleChecklist(checklistId: string, isCompleted: boolean) {
-    try {
-      const { error } = await supabase
-        .from("task_checklists")
-        .update({ is_completed: isCompleted })
-        .eq("id", checklistId);
-      if (error) throw error;
-      setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, is_completed: isCompleted } : c));
-    } catch (err) {
-      console.error("更新子任务失败:", err);
+    // X1：先乐观更新；离线（或网络异常）直接入队，联网后回放
+    setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, is_completed: isCompleted } : c));
+    const offlineUpdate = () => {
+      enqueueTaskOp(localStorage, makeChecklistUpdateOp(checklistId, { is_completed: isCompleted }));
+      toast({ title: "已离线保存，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineUpdate();
+      return;
+    }
+    const { error } = await supabase
+      .from("task_checklists")
+      .update({ is_completed: isCompleted })
+      .eq("id", checklistId);
+    if (error) {
+      if (isNetworkSaveError(error)) {
+        offlineUpdate();
+        return;
+      }
+      console.error("更新子任务失败:", error);
+      setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, is_completed: !isCompleted } : c));
       toast({ title: "更新失败", variant: "destructive" });
     }
   }
 
   async function deleteChecklist(checklistId: string) {
-    try {
-      const { error } = await supabase
-        .from("task_checklists")
-        .delete()
-        .eq("id", checklistId);
-      if (error) throw error;
-      setChecklists(prev => prev.filter(c => c.id !== checklistId));
-    } catch (err) {
-      console.error("删除子任务失败:", err);
+    // X1：先乐观移除；离线（或网络异常）直接入队，联网后回放
+    const previous = checklists;
+    setChecklists(prev => prev.filter(c => c.id !== checklistId));
+    const offlineDelete = () => {
+      enqueueTaskOp(localStorage, makeChecklistDeleteOp(checklistId));
+      toast({ title: "已离线删除，联网后自动同步" });
+    };
+    if (!isOnline()) {
+      offlineDelete();
+      return;
+    }
+    const { error } = await supabase
+      .from("task_checklists")
+      .delete()
+      .eq("id", checklistId);
+    if (error) {
+      if (isNetworkSaveError(error)) {
+        offlineDelete();
+        return;
+      }
+      console.error("删除子任务失败:", error);
+      setChecklists(previous);
       toast({ title: "删除失败", variant: "destructive" });
     }
   }
@@ -342,11 +395,26 @@ export default function TaskDetailPage() {
 
   async function handleDelete() {
     if (!task) return;
+    // X1：离线软删除走队列（回放经 mutate_trash RPC，直写 deleted_at 被 RLS 拒绝）
+    const offlineDelete = () => {
+      enqueueTaskOp(localStorage, makeTaskUpdateOp(task.id, { deleted_at: new Date().toISOString() }));
+      toast({ title: "已离线删除，联网后自动同步" });
+      router.push("/tasks");
+    };
+    if (!isOnline()) {
+      offlineDelete();
+      return;
+    }
     try {
       await mutateTrash("task", [task.id], "soft_delete");
       toast({ title: "任务已移入垃圾箱" });
       router.push("/tasks");
     } catch (err) {
+      // X1：网络错误按离线删除处理——入队待回放
+      if (isNetworkSaveError(err)) {
+        offlineDelete();
+        return;
+      }
       console.error("删除任务失败:", err);
       toast({ title: "删除失败", variant: "destructive" });
     } finally {
