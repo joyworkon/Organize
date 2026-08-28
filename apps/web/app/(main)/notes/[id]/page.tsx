@@ -1395,10 +1395,11 @@ export default function NoteEditorPage() {
           }}
         />
 
-        <NoteChildPages noteId={noteId} notes={allNotes} />
-
         {/* 反向链接 & 关联阅读 */}
         <Backlinks noteId={noteId} readingItemId={readingItemId} />
+
+        {/* 子页面：始终在笔记最底部（flex 布局 margin-top:auto 推底） */}
+        <NoteChildPages noteId={noteId} notes={allNotes} />
       </div>
 
       {/* 页面目录：右侧固定栏，与正文之间灰色竖线分隔 */}
