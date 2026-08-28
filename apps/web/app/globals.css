@@ -4574,7 +4574,8 @@ mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; paddi
 /* ------------------------- 阅读器正文排版（.reader-content） ------------------------- */
 /* 抓取正文（Readability HTML）的统一排版。不依赖 Tailwind prose：
    prose 在 ≥640px 会重新施加 max-width: 65ch 压过 max-w-none，且自带
-   引用引号 / 行内代码反引号等伪元素，这里全部自定义，与编辑器视觉语言一致。 */
+   引用引号 / 行内代码反引号等伪元素，这里全部自定义，与编辑器视觉语言一致。
+   正文字号与笔记编辑器（prose 16px）有意区分：阅读页 17px/1.8 是长文阅读的舒适字号。 */
 .reader-content {
   font-size: 1.0625rem; /* 17px，中文长文阅读的舒适字号 */
   line-height: 1.8;
