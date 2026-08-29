@@ -6,7 +6,7 @@ import { Plus, Link, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
-import { appEvents } from "@/lib/plugin/events";
+import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -47,45 +47,20 @@ export function QuickAdd() {
   }, []);
 
   const handleAddUrl = useCallback(async () => {
-    const trimmedUrl = urlRef.current.trim();
-    if (!trimmedUrl) return;
+    const rawInput = urlRef.current.trim();
+    if (!rawInput) return;
 
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: "请先登录", variant: "destructive" });
-        return;
-      }
-
-      const { data: inserted, error } = await supabase
-        .from("reading_items")
-        .insert({
-          user_id: user.id,
-          url: trimmedUrl,
-          title: trimmedUrl,
-          reading_status: "unread",
-          reading_progress: 0,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      if (inserted) {
-        appEvents.emit("reading:item-created", {
-          itemId: inserted.id,
-          url: trimmedUrl,
-          title: trimmedUrl,
-        });
-      }
-
-      toast({ title: "已添加到稍后读" });
+      // 收集语义统一走 collectReadingItem：规范化、抓取（失败仅存链接）、去重、事件
+      const result = await collectReadingItem(rawInput);
+      toast(collectResultToast(result));
+      if (result.status === "error") return;
       closePanel();
-    } catch {
-      toast({ title: "添加失败", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
-  }, [supabase, closePanel]);
+  }, [closePanel]);
 
   const handleCreateNote = useCallback(async () => {
     setIsSubmitting(true);

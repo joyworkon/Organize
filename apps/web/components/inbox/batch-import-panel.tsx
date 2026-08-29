@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { parseBatchUrls, createConcurrencyGate, type BatchItem } from "@/lib/inbox/batch-import";
-import { scrapeUrl } from "@/lib/scraper/client";
-import type { ScrapeResult } from "@organize/shared";
+import { collectReadingItem } from "@/lib/reading/collect";
 import {
   Link2,
   Loader2,
@@ -15,13 +13,14 @@ import {
   XCircle,
   RotateCw,
   AlertCircle,
+  Copy,
 } from "lucide-react";
 
 const CONCURRENCY = 3;
 
 interface BatchImportPanelProps {
-  /** 全部完成后回调（成功数 / 失败数） */
-  onComplete?: (successCount: number, failedCount: number) => void;
+  /** 全部完成后回调（成功数 / 失败数 / 重复跳过数） */
+  onComplete?: (successCount: number, failedCount: number, skippedCount: number) => void;
 }
 
 export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
@@ -30,58 +29,60 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
   const [running, setRunning] = useState(false);
   // 原始文本保留，便于失败后重试
   const lastRawRef = useRef<string>("");
-  const supabase = useMemo(() => createClient(), []);
 
   const updateItem = (id: string, patch: Partial<BatchItem>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   };
 
   const processOne = useCallback(
-    async (item: BatchItem) => {
-      updateItem(item.id, { status: "scraping", error: undefined });
-      // 抓取
-      let scrapeData: ScrapeResult;
-      try {
-        scrapeData = await scrapeUrl(item.url);
-      } catch (err) {
-        updateItem(item.id, {
-          status: "failed",
-          error: err instanceof Error ? err.message : "抓取失败",
-        });
-        return false;
+    async (item: BatchItem): Promise<"success" | "failed" | "skipped"> => {
+      updateItem(item.id, { status: "scraping", error: undefined, note: undefined });
+      // 收集语义统一走 collectReadingItem（抓取/仅存链接降级/去重/事件），本面板只呈现逐条结果
+      const result = await collectReadingItem(item.url);
+      if (result.status === "error") {
+        updateItem(item.id, { status: "failed", error: result.message || "保存失败" });
+        return "failed";
       }
-
-      // 保存
-      updateItem(item.id, { status: "saving", title: scrapeData?.title });
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) throw new Error("未登录");
-
-        const { error: dbError } = await supabase.from("reading_items").insert({
-          user_id: user.id,
-          url: scrapeData.url,
-          title: scrapeData.title,
-          content: scrapeData.content,
-          excerpt: scrapeData.excerpt,
-          cover_image: scrapeData.cover_image,
-          reading_status: "unread",
-          reading_progress: 0,
-        });
-        if (dbError) throw dbError;
-
-        updateItem(item.id, { status: "done" });
-        return true;
-      } catch (err) {
+      if (result.status === "duplicate") {
         updateItem(item.id, {
-          status: "failed",
-          error: err instanceof Error ? err.message : "保存失败",
+          status: "duplicate",
+          title: result.title ?? undefined,
+          note: "已存在，跳过",
         });
-        return false;
+        return "skipped";
       }
+      updateItem(item.id, {
+        status: "done",
+        title: result.title ?? undefined,
+        note: result.status === "saved-link-only" ? "抓取失败，仅存链接" : undefined,
+      });
+      return "success";
     },
-    [supabase]
+    []
+  );
+
+  const runItems = useCallback(
+    async (targets: BatchItem[]) => {
+      if (targets.length === 0) return;
+      setRunning(true);
+
+      const gate = createConcurrencyGate(CONCURRENCY);
+      let success = 0;
+      let failed = 0;
+      let skipped = 0;
+      await Promise.all(
+        targets.map(async (it) => {
+          const outcome = await gate(() => processOne(it));
+          if (outcome === "success") success += 1;
+          else if (outcome === "skipped") skipped += 1;
+          else failed += 1;
+        })
+      );
+
+      setRunning(false);
+      onComplete?.(success, failed, skipped);
+    },
+    [processOne, onComplete]
   );
 
   const start = useCallback(async () => {
@@ -95,47 +96,19 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
       status: "pending",
     }));
     setItems(initial);
-    setRunning(true);
-
-    const gate = createConcurrencyGate(CONCURRENCY);
-    let success = 0;
-    let failed = 0;
-    await Promise.all(
-      initial.map(async (it) => {
-        const ok = await gate(() => processOne(it));
-        if (ok) success += 1;
-        else failed += 1;
-      })
-    );
-
-    setRunning(false);
-    onComplete?.(success, failed);
-  }, [text, processOne, onComplete]);
+    await runItems(initial);
+  }, [text, runItems]);
 
   const retryFailed = useCallback(async () => {
-    if (running) return;
     const failedItems = items.filter((i) => i.status === "failed");
-    if (failedItems.length === 0) return;
-
-    setRunning(true);
-    const gate = createConcurrencyGate(CONCURRENCY);
-    let success = 0;
-    let failed = 0;
-    await Promise.all(
-      failedItems.map(async (it) => {
-        const ok = await gate(() => processOne(it));
-        if (ok) success += 1;
-        else failed += 1;
-      })
-    );
-    setRunning(false);
-    onComplete?.(success, failed);
-  }, [items, running, processOne, onComplete]);
+    await runItems(failedItems);
+  }, [items, runItems]);
 
   const stats = {
     pending: items.filter((i) => i.status === "pending").length,
     active: items.filter((i) => i.status === "scraping" || i.status === "saving").length,
     done: items.filter((i) => i.status === "done").length,
+    duplicate: items.filter((i) => i.status === "duplicate").length,
     failed: items.filter((i) => i.status === "failed").length,
   };
   const hasResults = items.length > 0;
@@ -147,7 +120,7 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
         <div>
           <label className="text-sm font-medium">批量粘贴链接</label>
           <p className="text-xs text-muted-foreground mt-1">
-            一行一个 URL，或用逗号/空格分隔。支持自动去重、并发抓取（最多 {CONCURRENCY} 个同时）。
+            一行一个 URL，或用逗号/空格分隔。支持自动去重、并发抓取（最多 {CONCURRENCY} 个同时）；已收藏过的链接会跳过。
           </p>
         </div>
 
@@ -201,6 +174,12 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 成功 {stats.done}
               </span>
+              {stats.duplicate > 0 && (
+                <span className="text-amber-600 flex items-center gap-1">
+                  <Copy className="h-3.5 w-3.5" />
+                  跳过 {stats.duplicate}
+                </span>
+              )}
               {stats.failed > 0 && (
                 <span className="text-destructive flex items-center gap-1">
                   <XCircle className="h-3.5 w-3.5" />
@@ -224,7 +203,7 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                 <div
                   className="h-full bg-primary transition-all duration-300"
                   style={{
-                    width: `${Math.round(((stats.done + stats.failed) / items.length) * 100)}%`,
+                    width: `${Math.round(((stats.done + stats.duplicate + stats.failed) / items.length) * 100)}%`,
                   }}
                 />
               </div>
@@ -238,11 +217,13 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                   className={cn(
                     "flex items-center gap-2 px-2 py-1.5 rounded text-sm",
                     it.status === "done" && "bg-green-50 dark:bg-green-950/30",
+                    it.status === "duplicate" && "bg-amber-50 dark:bg-amber-950/30",
                     it.status === "failed" && "bg-destructive/5"
                   )}
                 >
                   <div className="shrink-0">
                     {it.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                    {it.status === "duplicate" && <Copy className="h-4 w-4 text-amber-600" />}
                     {it.status === "failed" && <XCircle className="h-4 w-4 text-destructive" />}
                     {(it.status === "scraping" || it.status === "saving") && (
                       <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
@@ -255,6 +236,12 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                     <p className="truncate font-medium">
                       {it.title || it.url}
                     </p>
+                    {it.note && (
+                      <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        {it.note}
+                      </p>
+                    )}
                     {it.error && (
                       <p className="text-xs text-destructive flex items-center gap-1 mt-0.5">
                         <AlertCircle className="h-3 w-3 shrink-0" />

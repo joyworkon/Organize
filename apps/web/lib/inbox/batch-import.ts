@@ -3,7 +3,7 @@
  * 不含任何 React / DOM 依赖，方便单测。
  */
 
-export type BatchItemStatus = "pending" | "scraping" | "saving" | "done" | "failed";
+export type BatchItemStatus = "pending" | "scraping" | "saving" | "done" | "duplicate" | "failed";
 
 export interface BatchItem {
   /** 客户端生成的临时 id（用 url 当 id 也行，但去重后保证唯一） */
@@ -13,6 +13,8 @@ export interface BatchItem {
   error?: string;
   /** 抓取得到的标题（用于展示） */
   title?: string;
+  /** 非失败类提示（如「已存在，跳过」「抓取失败，仅存链接」） */
+  note?: string;
 }
 
 const EXPLICIT_HTTP_URL = /https?:\/\/[^\s<>"'，。；！？、）】》]+/gi;

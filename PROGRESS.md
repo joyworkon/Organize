@@ -1,5 +1,46 @@
 # PROGRESS
 
+## P1-01 统一稍后读收集链路（2026-08-29）
+
+- 分支 `feat/p1-01-unify-collection`（master = 222fe4b，P0-04 合并后）
+
+### 盘点出的五个入口、四套写法（含 3 个真 bug）
+
+1. `command-palette`：抓取结果**直接丢弃**——抓取成功也只存 url+原文做标题，正文永远不落库
+2. `share` 页：绕过 `scrapeUrl()` 直连 `/api/scrape`——mock 模式下分享保存必坏；失败也不降级
+3. `batch-import`：抓取失败整条失败，与 Quick Add 的「仅存链接」降级不一致；不发 `reading:item-created` 事件
+4. `QuickAdd` FAB：「添加文章」完全不抓取；`quick-add-bar` 是唯一全字段正确写入的入口
+
+### 实现
+
+- **新服务 `lib/reading/collect.ts`**：collectReadingItem 唯一入口——extractFirstUrl
+  规范化 → 去重查询（显式 `eq user_id` + `is deleted_at null`，RLS 双保险）→ scrapeUrl
+  （失败降级仅存链接）→ 固定 8 字段插入 → 发 `reading:item-created`；collectResultToast
+  统一五入口文案
+- **冻结语义**（写在服务头注释 + 测试固化）：抓取失败=仅存链接（title=规范化 URL，
+  正文字段 null，UI 必须明示）；去重仅对活跃条目、限定 user_id、规范化 URL 精确匹配，
+  命中返回 duplicate 不插新行不发事件；软删除行对客户端不可见（021 RLS），再次保存
+  产生新条目、回收站副本不动（垃圾箱走 050 RPC 恢复）；查询/写入失败一律 error 结局
+- **五个入口全部改为薄壳**：quick-add-bar / command-palette / quick-add FAB /
+  batch-import-panel / share 页只留输入、进度与反馈；share 页补 duplicate 态，
+  batch 面板新增「跳过」状态与统计（duplicate 琥珀色 + note 文案）
+- 无迁移：不加 (user_id,url) 部分唯一索引——restore RPC 明文插入且历史数据可能有
+  同 URL 活跃重复行，会破坏 P0-04 刚冻结的 v4 备份往返（详见 BLOCKED.md）
+
+### 测试（+2 文件 / +14 用例，全量 114 文件 / 833 用例）
+
+- `lib/reading/collect.test.ts`（11 条）：固定抓取响应下插入字段逐项一致（含字段
+  清单冻结断言：恰好 8 字段）、杂讯文本规范化、仅存链接降级、同用户 duplicate
+  不插不发、`eq user_id` 显式在查询过滤器里（跨用户不命中）、软删除行排除、
+  invalid-url/unauthenticated/查询失败 fail-closed/插入失败均不假成功、事件
+  payload 契约、toast 统一文案
+- `lib/reading/collect.mock.test.ts`（3 条）：真实 mock 客户端集成——保存样例文章
+  + 重复提交 duplicate 不新增行、他人同 URL 不拦、与 seed 活跃条目去重
+- 本地门禁：tsc exit 0、vitest 114/833 全过 skip=0、next build exit 0、改动文件
+  lint 零告警；无迁移故无 pgTAP 变更（存量 12 文件 126 断言不变）
+
+# PROGRESS
+
 ## P0-04 备份恢复合同重建（2026-08-29）
 
 - 分支 `chore/p0-04-backup-contract`（基于 P0-03 合并后的 master = d3ae007，串行第二 PR）

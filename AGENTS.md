@@ -98,6 +98,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 ### 阅读链路
 收集箱（`app/(main)/inbox`）粘贴 URL → `POST /api/scrape` 抓取正文（`lib/scraper/index.ts`，用 @mozilla/readability + cheerio + jsdom）→ 写入 `reading_items` → 阅读库（`app/(main)/library`）展示与状态流转 → 详情页 `library/[id]` 按滚动进度更新 reading_progress / status。
 客户端统一走 `lib/scraper/client.ts` 的 `scrapeUrl()`（quick-add-bar / 命令面板 / 批量导入三个入口）；`/api/scrape` 带内存缓存（ISR 风格，支持 `force` 参数强制刷新）。
+**稍后读保存一律走 `lib/reading/collect.ts` 的 `collectReadingItem()`（P1-01）**——「规范化 URL（extractFirstUrl）→ 去重（显式 user_id 限定 + 活跃条目）→ 抓取（失败降级仅存链接）→ 固定 8 字段插入 → `reading:item-created` 事件」的唯一入口，五个收集入口（QuickAddBar / 命令面板 / QuickAdd FAB / 批量导入 / 系统分享页）都是薄壳；新增收集入口必须复用它，不得直插 `reading_items`。冻结语义与已知并发限制见该文件头注释与测试。
 
 ### 笔记编辑器
 `components/editor/tiptap-editor.tsx` 是 Notion 风格编辑器：无边框、无顶部工具栏，选中文字弹出 BubbleMenu（文本格式 + 块类型二级菜单 + 插入菜单 + 表情选择器 + 更多菜单）。

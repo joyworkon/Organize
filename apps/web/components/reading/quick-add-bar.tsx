@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,9 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { extractFirstUrl } from "@/lib/inbox/batch-import";
-import { scrapeUrl } from "@/lib/scraper/client";
-import type { ScrapeResult } from "@organize/shared";
-import { appEvents } from "@/lib/plugin/events";
+import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { toast } from "@/hooks/use-toast";
 import { ClipboardPaste, Layers, Link2, Loader2 } from "lucide-react";
 
@@ -26,74 +23,25 @@ interface QuickAddBarProps {
 
 /**
  * 稍后读·快速添加条：一步直接入库。
- * 抓取成功 → 用正文入库；抓取失败 → 以 URL 为标题兜底入库（与命令面板快速添加同一安全网），
- * 不让用户为坏内容多走一步删除流程之外的回头路。
+ * 收集语义（抓取、降级、去重、事件）统一走 lib/reading/collect.ts，本组件只负责输入与反馈。
  */
 export function QuickAddBar({ onAdded }: QuickAddBarProps) {
-  const supabase = useMemo(() => createClient(), []);
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
 
   const handleAdd = async () => {
-    const normalizedUrl = extractFirstUrl(url);
-    if (!normalizedUrl) {
-      toast({ title: "没有找到有效的链接", variant: "destructive" });
-      return;
-    }
     setAdding(true);
-    let scrapeFailed = false;
-    let scraped: ScrapeResult | null = null;
     try {
-      scraped = await scrapeUrl(normalizedUrl);
-    } catch {
-      scrapeFailed = true;
-    }
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: "请先登录", variant: "destructive" });
-        return;
-      }
-      const { data: inserted, error } = await supabase
-        .from("reading_items")
-        .insert({
-          user_id: user.id,
-          url: scraped?.url ?? normalizedUrl,
-          title: scraped?.title ?? normalizedUrl,
-          content: scraped?.content ?? null,
-          excerpt: scraped?.excerpt ?? null,
-          cover_image: scraped?.cover_image ?? null,
-          reading_status: "unread",
-          reading_progress: 0,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      if (inserted) {
-        appEvents.emit("reading:item-created", {
-          itemId: inserted.id,
-          url: scraped?.url ?? normalizedUrl,
-          title: scraped?.title ?? normalizedUrl,
-        });
-      }
-    } catch (err) {
-      toast({
-        title: "添加失败，请重试",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      });
-      return;
+      const result = await collectReadingItem(url);
+      toast(collectResultToast(result));
+      if (result.status === "error") return;
+      setUrl("");
+      // duplicate 不改变列表，无需刷新
+      if (result.status !== "duplicate") onAdded();
     } finally {
       setAdding(false);
     }
-
-    toast({ title: scrapeFailed ? "已保存（正文抓取失败，仅存链接）" : "已保存到稍后读" });
-    setUrl("");
-    onAdded();
   };
 
   const handlePasteFromClipboard = async () => {
@@ -154,10 +102,13 @@ export function QuickAddBar({ onAdded }: QuickAddBarProps) {
             <DialogDescription>一次粘贴多个链接，自动并发抓取并保存到稍后读。</DialogDescription>
           </DialogHeader>
           <BatchImportPanel
-            onComplete={(success, failed) => {
+            onComplete={(success, failed, skipped) => {
               // 不自动关 Dialog：失败项列表和「重试失败项」按钮需要留在用户眼前
-              if (success > 0) {
-                toast({ title: `批量导入完成：成功 ${success} 条${failed > 0 ? `，失败 ${failed} 条` : ""}` });
+              if (success > 0 || skipped > 0) {
+                const parts = [`成功 ${success} 条`];
+                if (skipped > 0) parts.push(`跳过 ${skipped} 条（已存在）`);
+                if (failed > 0) parts.push(`失败 ${failed} 条`);
+                toast({ title: `批量导入完成：${parts.join("，")}` });
                 onAdded();
               } else if (failed > 0) {
                 toast({ title: `批量导入失败 ${failed} 条`, variant: "destructive" });

@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useState, useMemo } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { collectReadingItem, type CollectResult } from "@/lib/reading/collect";
 import { Loader2, Check, Share2 } from "lucide-react";
 
 export default function ShareTargetPage() {
@@ -22,18 +22,16 @@ export default function ShareTargetPage() {
 function ShareContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = useMemo(() => createClient(), []);
 
-  const [url, setUrl] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "duplicate" | "error">("idle");
   const [title, setTitle] = useState("");
+  const [linkOnly, setLinkOnly] = useState(false);
 
   useEffect(() => {
-    // 从 URL 参数获取分享的链接
+    // 从 URL 参数获取分享的链接（text 参数可能是「看看这篇 https://…」形态，服务内会规范化提取）
     const sharedUrl = searchParams.get("url") || searchParams.get("text") || "";
     if (sharedUrl) {
-      setUrl(sharedUrl);
-      handleSave(sharedUrl);
+      void handleSave(sharedUrl);
     }
 
     // 监听 Capacitor App 的 share 事件（仅在移动端环境）
@@ -44,8 +42,7 @@ function ShareContent() {
           capApp.addListener("appUrlOpen", (event: any) => {
             const sharedUrl = event.url;
             if (sharedUrl) {
-              setUrl(sharedUrl);
-              handleSave(sharedUrl);
+              void handleSave(sharedUrl);
             }
           });
         }
@@ -58,42 +55,15 @@ function ShareContent() {
 
   const handleSave = async (sharedUrl: string) => {
     setStatus("saving");
-    try {
-      // 先抓取内容
-      const res = await fetch("/api/scrape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sharedUrl }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error);
-
-      setTitle(data.title || sharedUrl);
-
-      // 保存到稍后读
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) throw new Error("未登录");
-
-      const { error } = await supabase.from("reading_items").insert({
-        user_id: user.id,
-        url: data.url,
-        title: data.title,
-        content: data.content,
-        excerpt: data.excerpt,
-        cover_image: data.cover_image,
-        reading_status: "unread",
-        reading_progress: 0,
-      });
-
-      if (error) throw error;
-      setStatus("saved");
-    } catch {
+    // 收集语义统一走 collectReadingItem：规范化、抓取（失败仅存链接）、去重、事件
+    const result: CollectResult = await collectReadingItem(sharedUrl);
+    if (result.status === "error") {
       setStatus("error");
+      return;
     }
+    setTitle(result.title || sharedUrl);
+    setLinkOnly(result.status === "saved-link-only");
+    setStatus(result.status === "duplicate" ? "duplicate" : "saved");
   };
 
   return (
@@ -119,8 +89,22 @@ function ShareContent() {
 
           {status === "saved" && (
             <div className="flex flex-col items-center gap-2">
-              <Check className="h-6 w-6 text-green-500" />
+              <Check className="h-8 w-8 text-green-500" />
               <p className="text-sm font-medium">已保存到稍后读</p>
+              <p className="text-xs text-muted-foreground line-clamp-2">{title}</p>
+              {linkOnly && (
+                <p className="text-xs text-amber-600">正文抓取失败，仅存链接</p>
+              )}
+              <Button size="sm" onClick={() => router.push("/library")}>
+                查看稍后读
+              </Button>
+            </div>
+          )}
+
+          {status === "duplicate" && (
+            <div className="flex flex-col items-center gap-2">
+              <Check className="h-8 w-8 text-amber-500" />
+              <p className="text-sm font-medium">该链接已在稍后读中</p>
               <p className="text-xs text-muted-foreground line-clamp-2">{title}</p>
               <Button size="sm" onClick={() => router.push("/library")}>
                 查看稍后读
