@@ -271,14 +271,14 @@ export default function LessonEditorPage() {
 
   const handleDelete = async () => {
     if (isNew) {
-      router.push("/lessons");
+      router.push("/tasks/lessons");
       return;
     }
     if (!confirm("将这条经验移入垃圾箱？之后可以恢复。")) return;
     try {
       await mutateTrash("lesson", [lessonId], "soft_delete");
       toast({ title: "经验已移入垃圾箱" });
-      router.push("/lessons");
+      router.push("/tasks/lessons");
     } catch (error) {
       toast({
         title: "删除失败",
@@ -306,7 +306,7 @@ export default function LessonEditorPage() {
         description="已删除的经验可以在垃圾箱中恢复"
         action={
           <div className="flex items-center gap-2">
-            <Link href="/lessons">
+            <Link href="/tasks/lessons">
               <Button variant="outline">返回经验列表</Button>
             </Link>
             <Link href="/trash">
@@ -327,7 +327,7 @@ export default function LessonEditorPage() {
   return (
     <div className="w-full space-y-6">
       <div className="flex items-center gap-2">
-        <Link href="/lessons">
+        <Link href="/tasks/lessons">
           <Button variant="ghost" size="icon" className="h-9 w-9">
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -339,7 +339,7 @@ export default function LessonEditorPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator className="hidden sm:block" />
             <BreadcrumbItem>
-              <BreadcrumbLink href="/lessons">经验总结</BreadcrumbLink>
+              <BreadcrumbLink href="/tasks/lessons">经验总结</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem className="min-w-0">
@@ -490,7 +490,7 @@ export default function LessonEditorPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => isNew ? router.push("/lessons") : setEditing(false)} disabled={saving}>
+              <Button variant="outline" onClick={() => isNew ? router.push("/tasks/lessons") : setEditing(false)} disabled={saving}>
                 取消
               </Button>
               <Button onClick={handleSave} disabled={saving}>

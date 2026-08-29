@@ -16,7 +16,7 @@ export async function GET() {
   // 一次性查出标签 + 两个关联表的使用计数
   const { data: tags, error: tagsError } = await supabase
     .from("tags")
-    .select("id, name, created_at")
+    .select("id, name, color, created_at")
     .eq("user_id", user.id)
     .order("name", { ascending: true });
 
@@ -57,6 +57,7 @@ export async function GET() {
     id: t.id,
     user_id: user.id,
     name: t.name,
+    color: t.color,
     ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 }),
   }));
 
