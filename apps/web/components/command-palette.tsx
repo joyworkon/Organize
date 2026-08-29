@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/command";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { commandRegistry, type CommandDefinition } from "@/lib/commands/registry";
+import { scrapeUrl } from "@/lib/scraper/client";
 import { appEvents } from "@/lib/plugin/events";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -353,12 +354,7 @@ export function CommandPalette() {
     setSubmittingLink(true);
     let scrapeFailed = false;
     try {
-      const response = await fetch("/api/scrape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: linkUrl.trim() }),
-      });
-      if (!response.ok) scrapeFailed = true;
+      await scrapeUrl(linkUrl.trim());
     } catch {
       scrapeFailed = true;
     }
