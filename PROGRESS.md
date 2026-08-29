@@ -1,5 +1,53 @@
 # PROGRESS
 
+## P0-02 数据库越权热修（2026-08-29）
+
+- 分支 `chore/p0-02-db-authorization`（master = 519bead，P0-01 之后）
+- 盘点：28 个迁移文件含 SECURITY DEFINER；逐函数核对 security/search_path/属主校验/调用方
+
+### 修复内容（迁移 056_db_authorization.sql）
+
+1. **prune_note_versions 属主校验**（核心洞）：它是 DEFINER 且 EXECUTE 默认 PUBLIC——
+   任意认证（甚至匿名）用户可直接调用裁剪**他人**笔记的历史版本。修复：函数体开头
+   校验 `notes.user_id = auth.uid()`，非属主抛 'Note not found or access denied'
+2. **save_note_version 触发器适配**：prune 加校验后，无 JWT 的笔记写入（服务端/
+   管理上下文，auth.uid() 为 NULL）会被触发器链炸掉——触发器内改为仅在用户上下文
+   执行裁剪（`auth.uid() is not null`），时间分级由下一次用户编辑补做（纯维护操作，
+   无正确性影响）。存量 036 测试验证：line74 的 UPDATE 触发的裁剪原本就是 no-op
+   （不同小时桶），断言不受影响
+3. **search_path 补齐**：save_note_version（并入 1b 重写）、update_updated_at_column、
+   extract_task_items 统一 `set search_path = public`（只动盘点出的未设置函数，
+   不误伤引用 extensions schema 的函数）
+4. **EXECUTE 分层授权**（消除 PostgreSQL 默认 PUBLIC EXECUTE）：全 public 函数
+   revoke PUBLIC + anon 后分层——cron 三函数（claim_due_task_reminder_deliveries/
+   reset_task_reminder_delivery/reset_task_reminders_after_schedule_change）仅
+   service_role（/api/cron 经 service_role 客户端调用，已核实应用侧唯一调用点）；
+   get_public_share 与 tiptap_extract_text 另授 anon（匿名分享页/生成列求值）；
+   其余 authenticated + service_role（函数内部已有属主校验或由 RLS 兜底）
+5. **父子同租户复合外键**（八处）：task_reminders→tasks、task_attachments→tasks、
+   task_item_refs→tasks/notes、task_dependencies→tasks(双向)、
+   note_comment_threads→notes、note_comments→threads、tasks→tasks(自引用子任务)。
+   外键升级为 (parent_id, user_id) → parent(id, user_id)，DB 层拒绝跨租户挂靠
+  （含跨租户级联删除/置空向量——原 040 自引用 `on delete set null` 会连 user_id
+   一起置空违反 NOT NULL，改用 PG15 列清单语法 `on delete set null (parent_task_id)`）。
+   无 user_id 的 note_versions/task_checklists 由既有 RLS WITH CHECK(EXISTS 父) 覆盖
+
+### 存量测试适配（断言零改动）
+- 036 测试 line79 的 prune 直调：补 `set role authenticated + jwt sub`（以属主身份
+  调用，语义更真实）+ 调用后 `reset role`；12 条断言与预期不变
+
+### 新增测试
+- supabase/tests/056_db_authorization.test.sql：18 断言——prune 跨用户拒绝/数量
+  不变/自己可裁剪/时间分级与命名版本保留；七处复合外键 23503 + 正常路径 lives_ok；
+  EXECUTE 分层 has_function_privilege ×6（anon/authenticated/service_role ×
+  prune/claim/get_public_share）
+
+### 验证方式说明
+本机无 Docker/Supabase CLI，pgTAP（含新 18 断言与存量 96 断言）由 PR 的 CI
+db-test job（supabase db start + test db）实跑验证；应用侧 tsc/vitest/build 本地跑。
+
+# PROGRESS
+
 ## P0-01 生产依赖安全升级（进行中，2026-08-29 开工）
 
 - master = `66283ea`（PR #175 已合并，与任务书基线一致），分支 `chore/security-dependencies`
@@ -107,3 +155,12 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 - audit（--audit-level high）exit 0；全量剩 1 moderate（uuid，不可达，随 P2-01 处理）
 - React 18.3.1 / TipTap 2.27.2 未动；测试 111 文件 / 803 用例（≥基线）；skip=0
 - ROADMAP：P0-01 ✅、P0-02 标记为下一项
+
+### P0-02 CI 验证（2 轮）
+- 第 1 轮 db-test：迁移应用成功、存量 10 文件全过、安全控制全部真实生效
+  （复合外键 23503 / RLS 42501 / 表权限 42501 均真实拒绝）——失败 9 处全是
+  测试断言写法：throws_ok 第 3 参是「期望错误消息」；越权后计数需绕 RLS；
+  11/12/13 实际拒绝发生在表权限/RLS 层（42501）而非外键层；plan 数错
+- 第 2 轮 db-test：**Files=11, Tests=116（存量 96 + 新增 20）→ Result: PASS**；
+  verify（tsc + vitest 111/803 + next build + 审计门禁）全过
+- 合并：PR #177 squash → master
