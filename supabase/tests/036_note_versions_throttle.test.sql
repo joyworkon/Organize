@@ -76,7 +76,11 @@ INSERT INTO note_versions (note_id, content, title, message, created_at) VALUES
   ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, date_trunc('hour', now()) - interval '1 hour'),
   ('48000001-0000-0000-0000-000000000002','{"type":"doc","content":[]}','近期', NULL, now());
 
+-- P0-02：prune_note_versions 增加属主校验后，需以属主身份调用（断言与预期不变）
+set role authenticated;
+set request.jwt.claim.sub to '47000001-0000-0000-0000-000000000001';
 SELECT public.prune_note_versions('48000001-0000-0000-0000-000000000002');
+reset role;
 
 SELECT is(
   (SELECT count(*)::int FROM note_versions

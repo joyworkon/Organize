@@ -1,5 +1,12 @@
 # BLOCKED
 
+## P0-02（进行中）
+无阻塞。两点环境说明（非阻塞）：
+1. 本机无 Docker/Supabase CLI，pgTAP 验证由 PR 的 CI db-test job 实跑（迁移 001–056 + 全部测试文件）
+2. 继承自 P0-01 的 1 个 moderate（uuid，TipTap 锚定、不可达）不变，随 P2-01 处理
+
+# BLOCKED — 任务工作台与月历（历史）
+
 ## P0-01（已完成，2026-08-29）
 无阻塞。基线数字与任务书完全一致并全部达成。遗留（非阻塞）：1 个 moderate（uuid，TipTap 锚定不可升级，实测仅 v4 用法、公告影响 v3/v5/v6——不可达），登记随 P2-01 TipTap 升级决策一并处理。
 
