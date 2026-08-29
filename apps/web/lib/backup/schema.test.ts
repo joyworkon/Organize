@@ -27,6 +27,9 @@ const ids = {
   // 033 任务工作台
   taskList: "10000000-0000-4000-8000-000000000002",
   taskReminder: "20000000-0000-4000-8000-000000000002",
+  // 058（P0-04）
+  memo: "30000000-0000-4000-8000-000000000002",
+  taskItemRef: "40000000-0000-4000-8000-000000000002",
 };
 const timestamp = "2026-07-29T12:00:00.000Z";
 
@@ -81,6 +84,18 @@ function fixtureData(): BackupData {
             {
               type: "syncedBlock",
               attrs: { syncedId: "", hydrated: true },
+              content: [{ type: "paragraph" }],
+            },
+            // P0-04：任务绑定块——taskItem.attrs.taskId 必须被重映射；
+            // 未绑定（taskId 为 null）原样保留
+            {
+              type: "taskItem",
+              attrs: { taskId: ids.task },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "task-bound" }] }],
+            },
+            {
+              type: "taskItem",
+              attrs: { taskId: null },
               content: [{ type: "paragraph" }],
             },
           ],
@@ -277,6 +292,25 @@ function fixtureData(): BackupData {
     task_activities: [],
     task_templates: [],
     countdown_days: [],
+    memos: [
+      {
+        id: ids.memo,
+        content: "备份往返 #合同",
+        tags: ["合同"],
+        deleted_at: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    task_item_refs: [
+      {
+        id: ids.taskItemRef,
+        task_id: ids.task,
+        note_id: ids.note,
+        block_id: "blk-backup-1",
+        created_at: timestamp,
+      },
+    ],
   };
 }
 
@@ -341,6 +375,40 @@ describe("Backup V2", () => {
     );
     expect(JSON.stringify(payload)).not.toContain(ids.note);
     expect(JSON.stringify(payload)).not.toContain(ids.reading);
+    // P0-04：任务绑定块与两张新表的重映射
+    const restoredTaskId = String(payload.data.tasks[0].id);
+    const taskItems = (payload.data.notes[0].content as { content?: Array<{ attrs?: { taskId?: unknown } }> }).content?.filter((node) => (node as { type?: string }).type === "taskItem") ?? [];
+    expect(taskItems[0]?.attrs?.taskId).toBe(restoredTaskId);
+    expect(taskItems[1]?.attrs?.taskId).toBeNull();
+    expect(String(payload.data.task_item_refs[0].task_id)).toBe(restoredTaskId);
+    expect(String(payload.data.task_item_refs[0].note_id)).toBe(restoredNoteId);
+    expect(String(payload.data.memos[0].id)).not.toBe(ids.memo);
+    expect((payload.data.memos[0].tags as string[]).join()).toBe("合同");
+    // 重映射后旧 ID 不再出现在 payload 任何位置
+    expect(JSON.stringify(payload)).not.toContain(ids.taskItemRef);
+    expect(JSON.stringify(payload)).not.toContain(ids.memo);
+  });
+
+  it("v3 老备份（缺 memos/task_item_refs 键）补空后可导入（P0-04 兼容）", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as unknown as Record<string, unknown>;
+    backup.version = 3;
+    const data = backup.data as Record<string, unknown>;
+    const counts = (backup.manifest as { counts: Record<string, number> }).counts;
+    delete data.memos;
+    delete data.task_item_refs;
+    // 真实 v3 文件的 manifest 也没有新表键
+    delete counts.memos;
+    delete counts.task_item_refs;
+    const result = inspectBackupV2(backup);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.backup.data.memos).toEqual([]);
+      expect(result.backup.data.task_item_refs).toEqual([]);
+    }
+    // v4 备份缺新表则必须报错（新格式不允许含糊）
+    const v4 = createBackupV2(fixtureData(), timestamp) as unknown as Record<string, unknown>;
+    delete (v4.data as Record<string, unknown>).memos;
+    expect(inspectBackupV2(v4).ok).toBe(false);
   });
 
   it("接受完整父子链并在恢复时重映射 parent_task_id", () => {
