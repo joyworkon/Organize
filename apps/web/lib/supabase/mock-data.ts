@@ -430,6 +430,54 @@ const lessonTags = lessons.flatMap((l) =>
   (l.tags || []).map((tag) => ({ lesson_id: l.id, tag_id: tag.id }))
 );
 
+// ---- 编辑器协作种子（历史版本 / 块评论；由 mock API shim 消费）----
+const noteVersions = [
+  {
+    id: "mock-version-1",
+    note_id: "note-1",
+    title: "读《useEffect 完全指南》的笔记",
+    message: "初次保存",
+    content: doc("历史版本快照：初次保存的标题"),
+    created_at: iso(3),
+  },
+  {
+    id: "mock-version-2",
+    note_id: "note-1",
+    title: "读《useEffect 完全指南》的笔记",
+    message: "补充要点",
+    content: doc("历史版本快照：补充要点后的标题"),
+    created_at: iso(1),
+  },
+];
+
+const noteCommentThreadSeeds = [
+  {
+    id: "mock-thread-1",
+    note_id: "note-1",
+    block_id: "mock-block-1",
+    user_id: MOCK_USER.id,
+    resolved_at: null,
+    created_at: iso(1),
+  },
+];
+
+const noteCommentSeeds = [
+  {
+    id: "mock-comment-1",
+    thread_id: "mock-thread-1",
+    user_id: MOCK_USER.id,
+    body: "这一段读完可以对照原文的「和渲染同步」小节再核对一遍。",
+    created_at: iso(1),
+  },
+  {
+    id: "mock-comment-2",
+    thread_id: "mock-thread-1",
+    user_id: MOCK_USER.id,
+    body: "已对照，要点二可以补充一个具体例子。",
+    created_at: iso(0.5),
+  },
+];
+
 // 内存表：用可变数组，让增删改在会话内「像真的」
 export const mockDb: Record<string, any[]> = {
   tags,
@@ -445,9 +493,9 @@ export const mockDb: Record<string, any[]> = {
   lesson_tags: lessonTags,
   plugins: [],
   shares: [],
-  note_versions: [],
-  note_comment_threads: [],
-  note_comments: [],
+  note_versions: noteVersions,
+  note_comment_threads: noteCommentThreadSeeds,
+  note_comments: noteCommentSeeds,
   note_suggestions: [],
   highlights: [],
   favorites: [],
