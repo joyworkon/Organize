@@ -1,5 +1,43 @@
 # PROGRESS
 
+## P0-03 AI 地址与密钥安全（2026-08-29）
+
+- 分支 `chore/p0-03-ai-url-key-security`（基于 P0-02 合并后的 master = e42a58d）
+
+### 实现
+
+1. **SSRF 安全请求层 `lib/ai/safe-request.ts`**：safeAIRequest 复用抓取模块的
+   validatePublicUrl（协议白名单 http(s)/无凭据/主机名黑名单/全部解析地址须公网），
+   连接钉扎在已校验地址（防 DNS 重绑定 TOCTOU），逐跳重定向重新校验（上限 8 跳），
+   超时控制；AIRequestError 分类（INVALID_URL/URL_BLOCKED/DNS_FAILED/TIMEOUT/
+   TOO_MANY_REDIRECTS/REQUEST_FAILED/HTTP_ERROR）
+2. **密钥不出服务端**：`lib/ai/server.ts` getAIConfig/getAISettingsView——真实后端经
+   service_role 读 user_ai_settings（057 已收回客户端 SELECT），展示态只回
+   maskApiKey 掩码；ask/tags/notes 三个使用方路由全部经 getAIConfig → safeAIRequest
+3. **受控配置接口 `/api/ai/settings`**：GET 掩码展示态；PUT 保存时即 SSRF 校验
+   base_url + api_key 留空保持不变；DELETE 清除
+4. **设置 UI 重写 `components/settings/ai-settings.tsx`**：读写一律走 /api/ai/settings，
+   页面只见掩码，输入新密钥即更换
+5. **迁移 057_lock_ai_settings**：authenticated/anon 对 user_ai_settings 全部表权限
+   收回，仅 service_role（RLS policy 保留作为第二层）
+6. 错误脱敏：server.ts request() 包装 + redactSecret——错误消息中回显的
+   Authorization（含裸密钥）一律替换 ***（恶意端点可能在响应里回显）
+7. mock：user_ai_settings 显式空表声明；settings API 的 isMockBackend 分支走
+   supabase client（内存态）
+
+### 测试（+1 文件 / +15 用例，全量 112 文件 / 818 用例）
+
+- `lib/ai/safe-request.test.ts`：SSRF 全场景——非 HTTP(S)/localhost/IPv4 私网环回
+  云元数据/IPv6 环回链路本地 ULA/带凭据 URL/DNS 解析私网/混合记录/公网放行+
+  地址钉扎（断言 transport 收到的 address）/重定向到私网拒绝/公网重定向链走通/
+  跳数上限/redactSecret 三态
+- 本地门禁：tsc exit 0、vitest 112/818 全过、next build exit 0
+- 测试修正记录：首个版本误把 HTTP_ERROR 断言放在 safeAIRequest 层——分层契约是
+  safeAIRequest 返回响应对象、上层 request() 抛错并脱敏；按实现语义修正测试并
+  为 redactSecret 补单测（安全语义未削弱，覆盖面增加）
+
+# PROGRESS
+
 ## P0-02 数据库越权热修（2026-08-29）
 
 - 分支 `chore/p0-02-db-authorization`（master = 519bead，P0-01 之后）

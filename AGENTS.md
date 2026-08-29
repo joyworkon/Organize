@@ -84,7 +84,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–055；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好和速记 memos）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–057；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好、速记 memos、数据库越权热修和 AI 密钥锁定）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
@@ -132,3 +132,10 @@ Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登�
 - **Supabase key 格式**：`@supabase/ssr@0.5.2` 只认 JWT 格式 anon key（`eyJ...`，从 `supabase status -o json` 取），不支持新版 `sb_publishable_` 格式。
 - **微信文章抓取**：正文在带 `visibility:hidden` 的 `#js_content` 容器，Readability 会跳过；`lib/scraper/index.ts` 的 `parseWechat` 专用解析器处理它（并把图片 `data-src` 还原为 `src`）。
 - **React 副作用分离**：数据库写入等副作用不得放在 `setState` 更新器（reducer）内部，必须置于 `useEffect` 或事件处理器中，避免状态与持久化不一致。
+
+### AI 服务配置与密钥安全（P0-03）
+用户自定义 OpenAI 兼容端点存在 SSRF 面，密钥不得回浏览器：
+- 出网一律走 `lib/ai/safe-request.ts` 的 `safeAIRequest`（复用 `lib/scraper/url-safety` 的 validatePublicUrl：协议白名单、无凭据、全部解析地址须公网；连接钉扎防 DNS 重绑定；逐跳重定向复检）
+- `user_ai_settings` 客户端角色已无表权限（057）——前端**不得直查该表**（会权限拒绝），读写一律走 `/api/ai/settings`（GET 只回掩码，PUT 时 SSRF 校验）
+- 错误消息经 `redactSecret` 脱敏（防恶意端点回显 Authorization）
+- mock 后端：设置读写走内存 client，SSRF 校验同样生效；真实 AI 调用不可用（无外部服务）
