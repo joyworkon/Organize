@@ -1,5 +1,24 @@
 # PROGRESS
 
+## P1 门禁核对（2026-08-29，P1-04 合并后）
+
+门禁要求：核心收集、任务、工作台、速记在刷新、离线和换设备后不产生假成功或静默丢失；
+相关真实/mock 测试齐全。逐项核对（证据见各卡 PROGRESS 段落）：
+
+- **收集（P1-01）**：统一服务 collectReadingItem——失败 fail-closed 不假成功（单测），
+  真实+mock 双分支测试（collect.test.ts / collect.mock.test.ts）
+- **任务（P1-03）**：原子协议 expected sync_version+mutation id（pgTAP 059 + 单测），
+  非网络失败进 dead-letter UI 可见不静默，队列按用户隔离（测试）
+- **工作台（P1-02）**：完成率/连续天数纯函数基于持久化数据，固定时钟「同输入重复
+  计算一致=刷新/换设备等价」测试
+- **速记（P1-04）**：垃圾箱软删/恢复/永久删双用户隔离 pgTAP 060；命令面板搜索
+  真实+mock 双分支
+- 测试基线：118 文件 / 862 用例全绿 skip=0；pgTAP 13 文件 163 断言（CI 实跑）
+
+**结论：P1 门禁通过，P2-01 开工。**
+
+# PROGRESS
+
 ## P1-04 速记生命周期补齐（2026-08-29）
 
 - 分支 `feat/p1-04-memo-lifecycle`（master = 9e8cfa2，P1-03 合并后）
