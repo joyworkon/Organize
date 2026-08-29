@@ -84,7 +84,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–054；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态和阅读全宽偏好）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–055；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好和速记 memos）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
@@ -104,7 +104,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色/单元格背景持久化，含 `OrganizeTableCell` / `OrganizeTableHeader`）、`resizable-image.tsx`（图片宽度拖拽手柄）、`file-attachment.tsx`（附件块：视频/音频内联播放、其余文件卡片）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。外部文件可通过拖入 / 粘贴 / 插入菜单「上传附件」进入笔记（`/api/upload` 上传，图片失败回退 base64）。
 
 ### 导航结构
-侧边栏一级导航：工作台 / 稍后读 / 笔记 / 待办 / 图谱 / 收藏夹 / 插件 / 垃圾箱 / 设置。「经验」并入待办工作台 tab（`/tasks/lessons`，旧 `/lessons` 重定向兼容深链）；「标签」收进稍后读分组的标签快捷列表（点标签带 `?tags=` 进稍后读，列表内筛选与 URL 双向同步），`/tags` 管理页从分组内「管理标签」或命令面板（G T）进入。Chrome 式笔记标签页条（`components/notes/note-tabs-bar.tsx`）仅在 `/notes` 与 `/notes/[id]` 渲染。手动打标签入口在四处齐全：笔记编辑器正文属性行、文章详情页 `library/[id]`、任务对话框、经验详情页，统一走 `components/tags/use-tags.ts`。
+侧边栏一级导航：工作台 / 稍后读 / 笔记 / 待办 / 速记 / 图谱 / 收藏夹 / 插件 / 垃圾箱 / 设置。「速记」（`/memos`，flomo 式碎片捕捉，055 迁移 `memos` 表 + `/api/memos`，标签 `#tag` 语法解析在 `lib/memos/tags.ts`，API 与 mock shim 共用；mock 下经 api-shim 路由）。「经验」并入待办工作台 tab（`/tasks/lessons`，旧 `/lessons` 重定向兼容深链）；「标签」收进稍后读分组的标签快捷列表（点标签带 `?tags=` 进稍后读，列表内筛选与 URL 双向同步），`/tags` 管理页从分组内「管理标签」或命令面板（G T）进入。Chrome 式笔记标签页条（`components/notes/note-tabs-bar.tsx`）仅在 `/notes` 与 `/notes/[id]` 渲染。手动打标签入口在四处齐全：笔记编辑器正文属性行、文章详情页 `library/[id]`、任务对话框、经验详情页，统一走 `components/tags/use-tags.ts`。
 
 ### 插件系统
 - 插件用 `definePlugin()` 声明，提供扩展点：`toolbar-action` / `sidebar-panel` / `content-processor`（抓取后处理）/ `ai-action`

@@ -478,6 +478,28 @@ const noteCommentSeeds = [
   },
 ];
 
+// ---- 速记种子（055；由 mock API shim 消费）----
+const memos = [
+  {
+    id: "mock-memo-1",
+    user_id: MOCK_USER.id,
+    content: "读长文前先看目录挑两节精读，别从头到尾硬啃 #阅读方法",
+    tags: ["阅读方法"],
+    deleted_at: null,
+    created_at: iso(2),
+    updated_at: iso(2),
+  },
+  {
+    id: "mock-memo-2",
+    user_id: MOCK_USER.id,
+    content: "速记的入口要离手最近，否则坚持不了一周 #产品 #灵感",
+    tags: ["产品", "灵感"],
+    deleted_at: null,
+    created_at: iso(0.5),
+    updated_at: iso(0.5),
+  },
+];
+
 // 内存表：用可变数组，让增删改在会话内「像真的」
 export const mockDb: Record<string, any[]> = {
   tags,
@@ -491,6 +513,7 @@ export const mockDb: Record<string, any[]> = {
   task_checklists: taskChecklists,
   lessons,
   lesson_tags: lessonTags,
+  memos,
   plugins: [],
   shares: [],
   note_versions: noteVersions,

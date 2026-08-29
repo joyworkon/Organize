@@ -498,3 +498,14 @@ export interface DatabaseRow {
   created_at: string;
   updated_at: string;
 }
+
+// ---- 速记（flomo 式碎片捕捉，055 迁移）----
+export interface Memo {
+  id: string;
+  user_id: string;
+  content: string;
+  tags: string[];
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
