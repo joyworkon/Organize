@@ -1,5 +1,59 @@
 # PROGRESS
 
+## P1-03 任务离线冲突与失败可见（2026-08-29）
+
+- 分支 `feat/p1-03-task-offline-conflict`（master = 7d63eea，P1-02 合并后）
+
+### 盘点出的四个缺口
+
+1. 队列 storage key 全局（organize:offline:task-ops:v1 无 user 段）——退出后另一
+   账号登录会读到/回放别人的操作
+2. 持久化失败被 `catch {}` 静默吞掉（存储满/被禁用时假装入队成功）
+3. 回放被拒操作只计数即丢弃——双设备冲突/任务被删等非网络失败用户不可见
+4. 在线更新直写 `tasks.update`，与离线回放不同协议；tasks.sync_version（030）只有
+   笔记 RPC 在加，形同虚设；回放无跨标签页互斥（两标签页并发回放同一队列）
+
+### 实现
+
+- **迁移 059**：`update_task_atomic(p_task_id, p_patch, p_expected_sync_version,
+  p_mutation_id)`——校验+应用合并为单条 UPDATE（行锁内原子），22 列白名单（显式
+  null 覆盖），applied/conflict/not_found/already_applied 四态；`task_mutations`
+  幂等日志表（PK(user_id,mutation_id)，复合外键同租户+级联，RLS select/insert，
+  GRANT authenticated/service_role，EXECUTE revoke public+anon）；migration 内
+  revoke/grant 遵循 P0-02 分层约定
+- **队列 v2**：key 带 userId（`organize:offline:task-ops:v2:<uid>`；v1 无法安全
+  判定归属，弃用不清除，历史离线操作一次性失效）；update op 携带
+  expected_sync_version（op_id 即 mutation id）；write 失败上报 persisted=false
+- **回放**：writer.updateTask 走原子协议（meta 透传 op 的版本+op_id），conflict→
+  TASK_SYNC_CONFLICT、not_found→TASK_NOT_FOUND 结构化错误；replayTaskOps 返回
+  rejectedOps 数组（不再只计数丢弃）
+- **dead-letter（per-user）**：`lib/offline/task-dead-letter.ts`——拒绝入账（同
+  op_id 去重）、人工重试（expected 置 null 后重入队回放，op_id 保持幂等链）、丢弃
+- **跨标签页单实例**：`lib/offline/single-instance.ts` Web Locks 封装，回放在
+  `organize:task-replay:v1` 互斥区先重读队列；API 不可用退化为直接执行（已知限制）
+- **共用协议接入点**：repository（updateTaskStatus/togglePin/updateTask）、任务
+  工作台页（updateTask/sort 拖拽/batchComplete）、今日视图 toggle、子任务层级、
+  任务详情页日期/note_id 关联——在线更新全部携带本地已知 sync_version + UUID
+  mutation id；冲突→dead-letter+刷新+toast（绝不静默覆盖），网络失败→入队
+- **dead-letter UI**：任务工作台头部计数（role=alert）+ 面板逐条展示失败原因，
+  重试/丢弃/全部丢弃
+- mock：update_task_atomic shim（同白名单/幂等/版本语义）+ task_mutations 空表
+- 测试适配：task-queue.test.ts 重写（隔离/persisted/rejectedOps/meta 透传）
+
+### 测试（+3 文件 / +18 用例，全量 118 文件 / 861 用例）
+
+- task-queue.test.ts 重写：user 隔离、persisted 上报、meta 透传、conflict 进
+  rejectedOps 继续后续、网络中止滞留（原语义保留）
+- task-dead-letter.test.ts：入账/去重/隔离/移除/重试重置/写盘失败上报
+- single-instance.test.ts：串行、释放、异常后可继续、无锁退化
+- atomic-update.test.ts：四态解析 + 异常形状归一 error
+- pgTAP 059（14 断言，CI 实跑）：属主 applied+版本递增、同 mutation 重放
+  already_applied 不递增、过期版本 conflict 带当前版本、显式 null 清空、他人任务
+  not_found、日志 RLS 双用户隔离、日志不可 update（42501）、EXECUTE 分层 ×3
+- 门禁：tsc exit 0、vitest 118/861 全过 skip=0、next build exit 0
+
+# PROGRESS
+
 ## P1-02 修正工作台与经验复习（2026-08-29）
 
 - 分支 `fix/p1-02-workbench-review`（master = 5da01dd，P1-01 合并后）

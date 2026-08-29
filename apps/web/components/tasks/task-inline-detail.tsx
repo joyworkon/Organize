@@ -137,7 +137,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
     const nextCompleted = !item.is_completed;
     setChecklists((current) => current.map((row) => row.id === item.id ? { ...row, is_completed: nextCompleted } : row));
     const offlineUpdate = () => {
-      enqueueTaskOp(localStorage, makeChecklistUpdateOp(item.id, { is_completed: nextCompleted }));
+      enqueueTaskOp(localStorage, task.user_id, makeChecklistUpdateOp(item.id, { is_completed: nextCompleted }));
       toast({ title: "已离线保存，联网后自动同步" });
     };
     if (!isOnline()) {

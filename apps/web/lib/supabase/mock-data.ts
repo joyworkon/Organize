@@ -524,6 +524,8 @@ export const mockDb: Record<string, any[]> = {
   note_suggestions: [],
   highlights: [],
   favorites: [],
+  // 059 任务原子变更协议的幂等日志（同步管道内部数据，不入备份）
+  task_mutations: [],
   // 033 任务工作台新表
   task_lists: [
     { id: "mock-list-work", user_id: MOCK_USER.id, name: "工作", icon: "💼", color: "#3b82f6", sort_order: 0, is_default: true, deleted_at: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z" },

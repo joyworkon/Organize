@@ -92,7 +92,10 @@ enabled = true
 # max_header_length = 4096
 
 [studio]
-enabled = true
+# 本机 Docker Desktop 未完成首启引导（Documents 文件夹授权弹窗无人确认），
+# studio 容器的 snippets bind mount 会导致 supabase start 永久挂起，先禁用。
+# 处理完授权弹窗后可改回 true。应用本身不依赖 studio（仅 :54323 管理 UI）。
+enabled = false
 # Port to use for Supabase Studio.
 port = 54323
 # External URL of the API server that frontend connects to.

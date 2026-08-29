@@ -206,6 +206,8 @@ export interface Task {
   is_pinned: boolean;
   sort_order: number;
   completed_at: string | null;
+  /** 030 乐观并发版本：update_task_atomic 原子协议使用（P1-03） */
+  sync_version?: number;
   deleted_at?: string | null;
   created_at: string;
   updated_at: string;
