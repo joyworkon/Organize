@@ -193,7 +193,7 @@ export function useTaskRepository() {
       setTasks(prev);
       toast({ title: "操作失败，已回滚", variant: "destructive" });
     }
-  }, [supabase, applyAtomicUpdate]);
+  }, [applyAtomicUpdate]);
 
   /** 软删除任务（进回收站） */
   const softDeleteTask = useCallback(async (taskId: string) => {

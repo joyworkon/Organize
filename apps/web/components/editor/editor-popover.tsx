@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EditorMenuPoint } from "./types";
 
@@ -22,10 +22,13 @@ export function EditorPopover({
   const [position, setPosition] = useState(point);
   const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
 
-  const isIgnoredTarget = (target: EventTarget | null) => {
-    if (!ignoreOutsideSelector || !(target instanceof Element)) return false;
-    return target.closest(ignoreOutsideSelector) !== null;
-  };
+  const isIgnoredTarget = useCallback(
+    (target: EventTarget | null) => {
+      if (!ignoreOutsideSelector || !(target instanceof Element)) return false;
+      return target.closest(ignoreOutsideSelector) !== null;
+    },
+    [ignoreOutsideSelector]
+  );
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -44,7 +47,7 @@ export function EditorPopover({
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose, ignoreOutsideSelector]);
+  }, [onClose, isIgnoredTarget]);
 
   useLayoutEffect(() => {
     const popover = ref.current;
@@ -94,7 +97,7 @@ export function EditorPopover({
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [point, onClose, ignoreOutsideSelector]);
+  }, [point, onClose, isIgnoredTarget]);
 
   return createPortal(
     <div

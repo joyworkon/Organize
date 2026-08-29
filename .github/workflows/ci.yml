@@ -29,6 +29,11 @@ jobs:
       - name: Audit production dependencies (Critical/High)
         run: corepack pnpm audit --prod --audit-level high
 
+      # P2-01 零警告门禁：任何新 lint 警告直接红灯
+      - name: Lint (apps/web, zero warnings)
+        working-directory: apps/web
+        run: npx next lint --dir lib --dir components --dir app --max-warnings 0
+
       - name: Typecheck (apps/web)
         working-directory: apps/web
         run: npx tsc --noEmit
@@ -45,6 +50,51 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
         run: npx next build
+
+  # P2-01 核心链路 smoke：mock 后端 + Chromium
+  # 覆盖：登录、稍后读保存、笔记保存后刷新、任务完成、备份恢复（导出→空账户恢复）
+  e2e-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build (mock backend)
+        working-directory: apps/web
+        env:
+          # NEXT_PUBLIC_* 在构建期内联进客户端 bundle，mock 开关必须在 build 时存在
+          NEXT_PUBLIC_MOCK_BACKEND: 'true'
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+        run: npx next build
+
+      - name: Run Playwright smoke
+        working-directory: apps/web
+        env:
+          CI: "true"
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
 
   db-test:
     runs-on: ubuntu-latest

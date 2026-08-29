@@ -324,6 +324,37 @@ const deleteMemo: MockHandler = ({ params }) => {
   return { body: { success: true } };
 };
 
+// ---- 备份恢复（P2-01 smoke 需要；与真实 /api/backup/restore 同形状）----
+// 真实语义：仅允许恢复到空账户（非空 409）；整体替换写入。
+// mock 下按 payload 逐表替换 MOCK_USER 的行（smoke 级往返，不做服务端深校验——
+// 预检 validateManifest 已在客户端完成）。
+const restoreBackup: MockHandler = ({ body }) => {
+  const data = body?.data as Record<string, any[]> | undefined;
+  if (!data || typeof data !== "object") {
+    return { status: 400, body: { error: "备份缺少 data", code: "INVALID_BACKUP" } };
+  }
+  const CORE_TABLES = ["reading_items", "notes", "tasks", "tags", "memos"];
+  const nonEmpty = CORE_TABLES.some(
+    (table) => (mockDb[table] || []).some((row) => row.user_id === MOCK_USER.id)
+  );
+  if (nonEmpty) {
+    return {
+      status: 409,
+      body: { error: "只允许恢复到空账户", code: "ACCOUNT_NOT_EMPTY" },
+    };
+  }
+  const counts: Record<string, number> = {};
+  for (const [table, rows] of Object.entries(data)) {
+    if (!Array.isArray(rows)) continue;
+    if (!(table in mockDb)) mockDb[table] = [];
+    // 整体替换当前用户的行（备份行统一归属 MOCK_USER）
+    const others = (mockDb[table] || []).filter((row) => row.user_id !== MOCK_USER.id);
+    mockDb[table] = others.concat(rows.map((row) => ({ ...row, user_id: MOCK_USER.id })));
+    counts[table] = rows.length;
+  }
+  return { body: { success: true, counts } };
+};
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -341,6 +372,7 @@ const ROUTES: MockRoute[] = [
   { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
   { method: "PATCH", pattern: /^\/api\/memos\/([^/]+)$/, handler: patchMemo },
   { method: "DELETE", pattern: /^\/api\/memos\/([^/]+)$/, handler: deleteMemo },
+  { method: "POST", pattern: /^\/api\/backup\/restore$/, handler: restoreBackup },
 ];
 
 const jsonResponse = (body: unknown, status: number) =>

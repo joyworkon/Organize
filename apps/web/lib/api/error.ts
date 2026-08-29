@@ -10,6 +10,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { logApiError, type ApiErrorContext } from "./logger";
 
 interface SupabaseLikeError {
   code?: string;
@@ -21,9 +22,13 @@ interface SupabaseLikeError {
  * - 已知的客户端错误（约束冲突、外键、RLS）→ 4xx + 结构化 code
  * - 其它 → 500 + 通用文案（不泄露细节）
  */
-export function serverError(err: SupabaseLikeError | unknown, fallbackStatus = 500) {
-  // 服务端日志（不会返回给客户端）
-  console.error("[API error]", err);
+export function serverError(
+  err: SupabaseLikeError | unknown,
+  fallbackStatus = 500,
+  ctx: ApiErrorContext = {}
+) {
+  // 服务端结构化日志（不会返回给客户端）；route 有 request 对象时传 requestId/path
+  logApiError(err, ctx);
 
   if (err && typeof err === "object" && "code" in err) {
     const code = (err as SupabaseLikeError).code;

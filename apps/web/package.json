@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "start": "next start",
     "lint": "next lint",
+    "e2e": "playwright test",
     "clean": "rm -rf .next node_modules"
   },
   "dependencies": {
@@ -71,6 +72,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/typography": "^0.5.20",
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.5.0",

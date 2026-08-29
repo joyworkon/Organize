@@ -1,5 +1,61 @@
 # PROGRESS
 
+## P2-01 严格 CI 与核心 E2E（2026-08-29）
+
+- 分支 `chore/p2-01-strict-ci-e2e`（master = 6d05162，P1-04 合并后；含 P1 门禁核对记录）
+
+### 实现
+
+1. **lint 零警告门禁**：修复全部 6 个存量警告（repository togglePin 多余依赖、
+   editor-popover isIgnoredTarget ×2（useCallback 化）、task-attachment-list img
+   （豁免+理由：Storage 签名 URL 不走 next/image）、task-month-view useMemo 补
+   cursor、tasks 页 batchDelete 补 userId）；CI 加 `next lint --max-warnings 0`
+2. **版本钉死**：CI supabase/setup-cli latest → v2.116.0（当前最新，防漂移）；
+   Node 22 已在 P0-01 钉死（.nvmrc/engines/CI 三处）
+3. **Playwright Chromium smoke**（`apps/web/e2e/smoke.spec.ts` + playwright.config，
+   mock 后端 + `next start :3100`，CI 新增 e2e-test job，失败传 report artifact）：
+   - 登录 → 稍后读保存（mock 抓取标题断言）→ 笔记保存后导航往返（内容持久化）
+     → 任务完成（勾选后标记未完成态）→ 备份恢复（v4 合同 fixture：客户端预检
+     通过 + 服务端 409 非空拒绝语义）
+   - 过程中修 mock 保真缺口：api-shim 补 POST /api/backup/restore（空账户校验
+     +逐表替换+counts 报告，与真实路由同形状）；vitest exclude e2e/**
+4. **App Router 错误边界**：app/error.tsx（段级+重试）、global-error.tsx（根级，
+   自带 html/body）、not-found.tsx（404）
+5. **请求 ID + 结构化错误日志**：middleware 每请求生成/透传 x-request-id 响应头；
+   lib/api/logger.ts（单行 JSON：level/ts/requestId/path/code/message）+ getRequestId；
+   serverError 接入（ctx 可选参数，向后兼容）
+6. **健康检查**：GET /api/health（无鉴权，{status,ts,mock}），兼作 Playwright
+   webServer 就绪探测
+7. **Cron 告警**：/api/cron/task-reminders 响应加 lastSentAt 心跳（最近一次成功
+   投递 sent_at）；workflow 移除静默跳过——缺配置 exit 1（::error 指引）、接口
+   非 200 exit 1、lastSentAt 超 48h exit 1（长期不运行必告警）
+
+### 门禁（本地）
+
+- tsc exit 0；vitest 118 文件 / 862 用例全绿 skip=0；lint --max-warnings 0 通过；
+  next build exit 0；Playwright 5/5 通过（本地 chromium）
+
+# PROGRESS
+
+## P1 门禁核对（2026-08-29，P1-04 合并后）
+
+门禁要求：核心收集、任务、工作台、速记在刷新、离线和换设备后不产生假成功或静默丢失；
+相关真实/mock 测试齐全。逐项核对（证据见各卡 PROGRESS 段落）：
+
+- **收集（P1-01）**：统一服务 collectReadingItem——失败 fail-closed 不假成功（单测），
+  真实+mock 双分支测试（collect.test.ts / collect.mock.test.ts）
+- **任务（P1-03）**：原子协议 expected sync_version+mutation id（pgTAP 059 + 单测），
+  非网络失败进 dead-letter UI 可见不静默，队列按用户隔离（测试）
+- **工作台（P1-02）**：完成率/连续天数纯函数基于持久化数据，固定时钟「同输入重复
+  计算一致=刷新/换设备等价」测试
+- **速记（P1-04）**：垃圾箱软删/恢复/永久删双用户隔离 pgTAP 060；命令面板搜索
+  真实+mock 双分支
+- 测试基线：118 文件 / 862 用例全绿 skip=0；pgTAP 13 文件 163 断言（CI 实跑）
+
+**结论：P1 门禁通过，P2-01 开工。**
+
+# PROGRESS
+
 ## P1-04 速记生命周期补齐（2026-08-29）
 
 - 分支 `feat/p1-04-memo-lifecycle`（master = 9e8cfa2，P1-03 合并后）

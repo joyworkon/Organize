@@ -182,6 +182,8 @@ export function TaskAttachmentList({
 function AttachmentPreview({ attachment, url }: { attachment: TaskAttachment; url: string }) {
   const kind = getAttachmentPreviewKind(attachment.mime_type, attachment.name);
   if (kind === "image") {
+    // Storage 签名 URL（含过期查询参数）不适合 next/image 优化管线，直接用原生 img
+    // eslint-disable-next-line @next/next/no-img-element
     return <img src={url} alt={attachment.name} className="mx-auto max-h-[65dvh] max-w-full rounded-md object-contain" />;
   }
   if (kind === "audio") return <audio controls src={url} className="w-full" />;
