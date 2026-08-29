@@ -1,6 +1,6 @@
 -- 059 测试：任务原子变更协议——applied/conflict/not_found/幂等重放/未授权/RLS
 begin;
-select plan(17);
+select plan(18);
 
 -- 准备两个用户
 do $$
@@ -120,11 +120,19 @@ select is(
   '自己的日志可见（2 次成功应用；conflict 与 already_applied 均不写日志）'
 );
 
--- 7. task_mutations 不可 update/delete（策略仅 select/insert）
--- 只授 select/insert：UPDATE 在表权限层即被拒（42501 permission denied）
-select throws_ok(
-  'update public.task_mutations set created_at = now()',
-  '42501'
+-- 7. task_mutations 不可被客户端修改：RLS 无 update 策略，UPDATE 0 行生效、内容不变
+update public.task_mutations set created_at = '1970-01-01'::timestamptz
+where user_id = '11111111-1111-1111-1111-111111111111';
+select is(
+  (select count(*)::text from public.task_mutations
+   where user_id = '11111111-1111-1111-1111-111111111111' and created_at = '1970-01-01'::timestamptz),
+  '0',
+  '日志行不可被客户端修改（RLS 无 update 策略，UPDATE 0 行生效）'
+);
+select is(
+  (select count(*)::text from public.task_mutations where user_id = '11111111-1111-1111-1111-111111111111'),
+  '2',
+  '尝试篡改后日志行数与内容不变'
 );
 
 -- 8. B 视角：自己的任务可应用；A 的任务 not_found
