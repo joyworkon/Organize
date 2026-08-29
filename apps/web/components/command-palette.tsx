@@ -33,6 +33,7 @@ import {
   BookOpenCheck,
   CheckSquare,
   StickyNote,
+  MessageSquareText,
   Sparkles,
   Search as SearchIcon,
   Clock,
@@ -42,13 +43,13 @@ import {
   Network,
 } from "lucide-react";
 import { resetOnboarding } from "@/components/onboarding";
-import type { Task, ReadingItem, Note, Lesson, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
+import type { Task, ReadingItem, Note, Lesson, Memo, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 type SearchResult = {
-  type: "reading" | "note" | "task" | "lesson" | "tag";
-  item: ReadingItem | Note | Task | Lesson | TagType;
+  type: "reading" | "note" | "task" | "lesson" | "tag" | "memo";
+  item: ReadingItem | Note | Task | Lesson | Memo | TagType;
 };
 
 type SearchCounts = {
@@ -57,6 +58,7 @@ type SearchCounts = {
   task: number;
   lesson: number;
   tag: number;
+  memo: number;
 };
 
 const RECENT_SEARCHES_KEY = "organize:recent-searches";
@@ -101,6 +103,8 @@ function getTypeIcon(type: SearchResult["type"]) {
       return Sparkles;
     case "tag":
       return Tag;
+    case "memo":
+      return MessageSquareText;
   }
 }
 
@@ -116,6 +120,8 @@ function getTypeLabel(type: SearchResult["type"]) {
       return "经验";
     case "tag":
       return "标签";
+    case "memo":
+      return "速记";
   }
 }
 
@@ -131,6 +137,8 @@ function getItemPath(type: SearchResult["type"], id: string) {
       return `/lessons/${id}`;
     case "tag":
       return `/tags`;
+    case "memo":
+      return `/memos`;
   }
 }
 
@@ -257,6 +265,7 @@ export function CommandPalette() {
     task: 0,
     lesson: 0,
     tag: 0,
+    memo: 0,
   });
   const [loading, setLoading] = useState(false);
   const [linkInputOpen, setLinkInputOpen] = useState(false);
@@ -344,7 +353,7 @@ export function CommandPalette() {
       setResults([]);
       setLinkInputOpen(false);
       setLinkUrl("");
-      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0 });
+      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 });
       setRecentSearches(getRecentSearches());
       searchExecutedRef.current = false;
     }
@@ -370,7 +379,7 @@ export function CommandPalette() {
   const performSearch = useCallback(async (query: string) => {
     if (query.length < 2) {
       setResults([]);
-      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0 });
+      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 });
       searchExecutedRef.current = false;
       return;
     }
@@ -426,6 +435,8 @@ export function CommandPalette() {
           });
 
         const tagAll: TagType[] = [];
+        const memoAll = (mockDb.memos as Memo[])
+          .filter((memo) => memo.user_id === user.id && !memo.deleted_at && memo.content.toLowerCase().includes(q));
 
         setCounts({
           reading: readingAll.length,
@@ -433,6 +444,7 @@ export function CommandPalette() {
           task: taskAll.length,
           lesson: lessonAll.length,
           tag: tagAll.length,
+          memo: memoAll.length,
         });
 
         const readingMatches = readingAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "reading" as const, item }));
@@ -441,9 +453,10 @@ export function CommandPalette() {
         const lessonMatches = lessonAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "lesson" as const, item }));
         const tagMatches = tagAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "tag" as const, item }));
 
-        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches]);
+        const memoMatches = memoAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "memo" as const, item }));
+        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches]);
       } else {
-        const [readingRes, notesRes, tasksRes, lessonsRes, tagsRes] = await Promise.all([
+        const [readingRes, notesRes, tasksRes, lessonsRes, tagsRes, memosRes] = await Promise.all([
           supabase
             .from("reading_items")
             .select("id, url, title, excerpt", { count: "exact" })
@@ -475,6 +488,14 @@ export function CommandPalette() {
             .eq("user_id", user.id)
             .ilike("name", searchTerm)
             .limit(SEARCH_LIMIT),
+          // 速记是纯文本，content 直接 ilike（软删行不过滤，列表入口只显示活跃）
+          supabase
+            .from("memos")
+            .select("id, content, created_at", { count: "exact" })
+            .eq("user_id", user.id)
+            .is("deleted_at", null)
+            .ilike("content", searchTerm)
+            .limit(SEARCH_LIMIT),
         ]);
 
         setCounts({
@@ -483,6 +504,7 @@ export function CommandPalette() {
           task: tasksRes.count || 0,
           lesson: lessonsRes.count || 0,
           tag: tagsRes.count || 0,
+          memo: memosRes.count || 0,
         });
 
         const readingMatches: SearchResult[] = (readingRes.data || []).map((item) => ({
@@ -510,7 +532,12 @@ export function CommandPalette() {
           item: item as TagType,
         }));
 
-        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches]);
+        const memoMatches: SearchResult[] = (memosRes.data || []).map((item) => ({
+          type: "memo",
+          item: item as Memo,
+        }));
+
+        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches]);
       }
 
       saveRecentSearch(query);
@@ -619,6 +646,11 @@ export function CommandPalette() {
       title = item.name;
       subtitle = "标签";
       isTag = true;
+    } else if (result.type === "memo") {
+      const item = result.item as Memo;
+      const firstLine = item.content.split("\n")[0];
+      title = firstLine || "无标题速记";
+      subtitle = truncate(item.content, 80);
     }
 
     const onSelect = isTag
@@ -670,6 +702,7 @@ export function CommandPalette() {
     task: results.filter((r) => r.type === "task"),
     lesson: results.filter((r) => r.type === "lesson"),
     tag: results.filter((r) => r.type === "tag"),
+    memo: results.filter((r) => r.type === "memo"),
   };
 
   const hasResults = results.length > 0;
@@ -788,6 +821,12 @@ export function CommandPalette() {
                     </CommandGroup>
                   )}
                   {renderMoreIndicator("lesson", counts.lesson)}
+                  {groupedResults.memo.length > 0 && (
+                    <CommandGroup heading="速记">
+                      {groupedResults.memo.map((r) => renderSearchResultItem(r, searchQuery))}
+                    </CommandGroup>
+                  )}
+                  {renderMoreIndicator("memo", counts.memo)}
                 </>
               )}
 

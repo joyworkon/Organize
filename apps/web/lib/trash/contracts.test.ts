@@ -18,6 +18,20 @@ describe("parseTrashMutation", () => {
     });
   });
 
+  it("accepts memo as a trash resource type（P1-04 速记接入垃圾箱）", () => {
+    expect(
+      parseTrashMutation({
+        action: "restore",
+        resource_type: "memo",
+        ids: [id],
+      })
+    ).toEqual({
+      action: "restore",
+      resourceType: "memo",
+      ids: [id],
+    });
+  });
+
   it.each([
     null,
     {},
