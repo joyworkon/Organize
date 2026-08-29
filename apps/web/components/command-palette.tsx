@@ -67,7 +67,7 @@ const NAV_ITEMS = [
   { label: "稍后读", path: "/library", icon: BookOpen, shortcut: "G L" },
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
-  { label: "经验", path: "/lessons", icon: Lightbulb, shortcut: "G E" },
+  { label: "经验", path: "/tasks/lessons", icon: Lightbulb, shortcut: "G E" },
   { label: "图谱", path: "/graph", icon: Network, shortcut: "G G" },
   { label: "标签", path: "/tags", icon: Tag, shortcut: "G T" },
   { label: "回顾", path: "/?view=review", icon: CalendarDays, shortcut: "G R" },

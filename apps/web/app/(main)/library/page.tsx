@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
 import { ReadingCard } from "@/components/reading/reading-card";
@@ -117,6 +118,15 @@ function sortItems(items: ReadingItem[], sortOption: SmartSortOption): ReadingIt
 }
 
 export default function LibraryPage() {
+  // useSearchParams 需要 Suspense 边界（与 tasks 页同一模式）
+  return (
+    <Suspense fallback={<div className="grid h-screen place-items-center text-muted-foreground">加载中…</div>}>
+      <LibraryPageInner />
+    </Suspense>
+  );
+}
+
+function LibraryPageInner() {
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<ReadingItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -130,6 +140,13 @@ export default function LibraryPage() {
   const [smartSort, setSmartSort] = useState<SmartSortOption>("smart");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
+
+  // 侧边栏「标签快捷列表」等入口经 ?tags=id[,id2] 带筛选进入；URL 是入口，之后以本地状态为准
+  const searchParams = useSearchParams();
+  const urlTagIds = searchParams.get("tags");
+  useEffect(() => {
+    setSelectedTagIds(urlTagIds ? urlTagIds.split(",").filter(Boolean) : []);
+  }, [urlTagIds]);
 
   useEffect(() => {
     try {

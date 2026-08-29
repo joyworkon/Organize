@@ -20,12 +20,14 @@ const NOTE_ID_RE = /^\/notes\/([^/]+)/;
 
 /**
  * 桌面端顶部笔记标签页条（Chrome 式）：
+ * - 仅在 /notes 与 /notes/[id] 显示，其他功能区不渲染（标签数据仍持久化，回到笔记区即恢复）
  * - 访问 /notes/[id] 自动开标签，标题/图标由笔记页经 organize:note-tab 事件回填
  * - 点标签切换、X 或中键关闭，关闭当前标签后聚焦左侧邻位（无则右侧/回列表）
  * - 右侧「+」新建笔记；标签持久化，刷新后恢复
  */
 export function NoteTabsBar() {
   const pathname = usePathname();
+  const isNotesRoute = pathname === "/notes" || pathname.startsWith("/notes/");
   const router = useRouter();
   const supabase = createClient();
   const tabs = useOpenTabsStore((state) => state.tabs);
@@ -96,6 +98,9 @@ export function NoteTabsBar() {
       setCreating(false);
     }
   };
+
+  // 非笔记路由不渲染（hooks 已全部声明完毕，事件监听保持挂载以便回填 store）
+  if (!isNotesRoute) return null;
 
   return (
     <div className="note-tabs-bar sticky top-0 z-50 hidden h-10 items-end gap-1 border-b bg-background px-2 md:flex">

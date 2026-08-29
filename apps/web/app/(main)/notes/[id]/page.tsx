@@ -12,7 +12,7 @@ import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
 import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
 import { enqueueNoteDelete } from "@/lib/offline/note-delete-queue";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
-import type { NoteFont } from "@organize/shared";
+import type { NoteFont, Tag } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
 import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
@@ -23,10 +23,13 @@ import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff, History } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff, History, Tag as TagIcon } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
+import { TagSelector } from "@/components/tags/tag-selector";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
@@ -90,6 +93,19 @@ export default function NoteEditorPage() {
   const router = useRouter();
   const noteId = params.id as string;
   const supabase = useMemo(() => createClient(), []);
+
+  // 页面属性：标签（note_tags，经 /api/notes/[id]/tags 增删，hook 内乐观更新）
+  const { tags: allTagOptions, refresh: refreshAllTags } = useAllTags();
+  const { tags: noteTags, addTag: addNoteTag, removeTag: removeNoteTag } = useResourceTags("note", noteId);
+  // 展示用补全颜色：GET /api/notes/[id]/tags 只回 id/name，颜色从全量标签对齐
+  const displayNoteTags = useMemo(
+    () =>
+      noteTags.map((t) => ({
+        ...t,
+        color: t.color ?? allTagOptions.find((o) => o.id === t.id)?.color,
+      })),
+    [noteTags, allTagOptions]
+  );
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState<Record<string, unknown> | null>(null);
@@ -1300,6 +1316,39 @@ export default function NoteEditorPage() {
     );
   }
 
+  // 标签增删：TagSelector 回传全量列表，与当前 diff 出新增/移除；新建标签走 name 创建
+  const handleNoteTagsChange = async (next: Pick<Tag, "id" | "name" | "color">[]) => {
+    const currentIds = new Set(noteTags.map((t) => t.id));
+    const nextIds = new Set(next.map((t) => t.id));
+    let changed = false;
+    for (const t of next) {
+      if (currentIds.has(t.id)) continue;
+      changed = true;
+      if (t.id.startsWith("new:")) {
+        const createdId = await addNoteTag({ name: t.name });
+        if (createdId) void refreshAllTags();
+      } else {
+        await addNoteTag({ id: t.id, name: t.name });
+      }
+    }
+    for (const t of noteTags) {
+      if (nextIds.has(t.id)) continue;
+      changed = true;
+      await removeNoteTag(t.id);
+    }
+    if (changed) {
+      // 标签变化影响列表页徽标筛选（notes-changed）与侧边栏标签快捷列表（tags-changed）
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+    }
+  };
+
+  const handleRemoveNoteTag = async (tagId: string) => {
+    await removeNoteTag(tagId);
+    window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+    window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+  };
+
   const contentClassName = fullWidth
     ? "mx-auto w-full max-w-none px-4 md:px-10"
     : "mx-auto w-full max-w-3xl px-4 md:px-6";
@@ -1453,6 +1502,26 @@ export default function NoteEditorPage() {
             创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
           </div>
         )}
+
+        {/* 标签：Notion 式页面属性行，徽标可点 X 移除，「标签」打开选择器（支持输入新名直接创建） */}
+        <div className="note-meta-row flex flex-wrap items-center gap-1.5">
+          {displayNoteTags.map((t) => (
+            <TagBadge key={t.id} tag={t} size="sm" onRemove={() => void handleRemoveNoteTag(t.id)} />
+          ))}
+          <TagSelector
+            selected={noteTags}
+            options={allTagOptions}
+            onChange={(next) => void handleNoteTagsChange(next)}
+          >
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <TagIcon className="h-3 w-3" />
+              标签
+            </button>
+          </TagSelector>
+        </div>
 
         {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
         <LinkedTaskBanner noteId={noteId} />
