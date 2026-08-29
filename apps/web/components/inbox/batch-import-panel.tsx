@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { parseBatchUrls, createConcurrencyGate, type BatchItem } from "@/lib/inbox/batch-import";
+import { scrapeUrl } from "@/lib/scraper/client";
+import type { ScrapeResult } from "@organize/shared";
 import {
   Link2,
   Loader2,
@@ -38,16 +40,9 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
     async (item: BatchItem) => {
       updateItem(item.id, { status: "scraping", error: undefined });
       // 抓取
-      let scrapeData: any = null;
+      let scrapeData: ScrapeResult;
       try {
-        const res = await fetch("/api/scrape", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: item.url }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || "抓取失败");
-        scrapeData = data;
+        scrapeData = await scrapeUrl(item.url);
       } catch (err) {
         updateItem(item.id, {
           status: "failed",

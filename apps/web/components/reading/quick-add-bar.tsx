@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { extractFirstUrl } from "@/lib/inbox/batch-import";
+import { scrapeUrl } from "@/lib/scraper/client";
+import type { ScrapeResult } from "@organize/shared";
 import { appEvents } from "@/lib/plugin/events";
 import { toast } from "@/hooks/use-toast";
 import { ClipboardPaste, Layers, Link2, Loader2 } from "lucide-react";
@@ -41,22 +43,9 @@ export function QuickAddBar({ onAdded }: QuickAddBarProps) {
     }
     setAdding(true);
     let scrapeFailed = false;
-    let scraped: {
-      url: string;
-      title: string;
-      content?: string;
-      excerpt?: string;
-      cover_image?: string;
-    } | null = null;
+    let scraped: ScrapeResult | null = null;
     try {
-      const res = await fetch("/api/scrape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: normalizedUrl }),
-      });
-      const data = await res.json();
-      if (!res.ok) scrapeFailed = true;
-      else scraped = data;
+      scraped = await scrapeUrl(normalizedUrl);
     } catch {
       scrapeFailed = true;
     }

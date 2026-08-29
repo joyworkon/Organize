@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
 import { ReadingCard } from "@/components/reading/reading-card";
@@ -141,12 +141,28 @@ function LibraryPageInner() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
 
-  // 侧边栏「标签快捷列表」等入口经 ?tags=id[,id2] 带筛选进入；URL 是入口，之后以本地状态为准
+  // 标签筛选与 ?tags= 双向同步：URL 是入口（侧边栏标签快捷列表带参进入），
+  // 手动改筛选 chip 时也回写 URL（router.replace 不产生历史记录），
+  // 保证侧边栏高亮与地址栏分享出去的筛选状态始终一致
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const urlTagIds = searchParams.get("tags");
   useEffect(() => {
     setSelectedTagIds(urlTagIds ? urlTagIds.split(",").filter(Boolean) : []);
   }, [urlTagIds]);
+
+  const changeTagFilter = useCallback(
+    (ids: string[]) => {
+      setSelectedTagIds(ids);
+      const params = new URLSearchParams(searchParams.toString());
+      if (ids.length > 0) params.set("tags", ids.join(","));
+      else params.delete("tags");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   useEffect(() => {
     try {
@@ -575,7 +591,7 @@ function LibraryPageInner() {
         <TagFilter
           options={allTags}
           selectedIds={selectedTagIds}
-          onChange={setSelectedTagIds}
+          onChange={changeTagFilter}
         />
       )}
 
