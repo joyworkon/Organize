@@ -1,5 +1,39 @@
 # PROGRESS
 
+## P1-04 速记生命周期补齐（2026-08-29）
+
+- 分支 `feat/p1-04-memo-lifecycle`（master = 9e8cfa2，P1-03 合并后）
+
+### 现状核对与补齐
+
+- **备份合同**：P0-04 已收录 memos（BACKUP_TABLES + restore RPC + pgTAP），本卡核对无缺口
+- **垃圾箱**：055 迁移预留 deleted_at 但注释明示「垃圾箱体系暂不接入」——本卡补齐
+- **全局搜索**：命令面板搜索五类资源无速记——本卡补齐
+- 全局弹窗/移动分享/每日回顾：卡面「再决定」= 产品决策，不在本卡实现
+
+### 实现
+
+- **迁移 060**：mutate_trash / list_trash 替换版——资源白名单加 'memo'，
+  三动作分支（软删/恢复/永久删，均按属主过滤），list_trash 追加 memo 分组
+  （标题取 content 前 50 字符）；EXECUTE 分层维持 050 口径
+- **contracts**：TRASH_RESOURCE_TYPES 加 "memo"；垃圾箱页 resourceConfig 加速记
+  （MessageSquareText 图标）——恢复/永久删除入口自动可用
+- **命令面板**：SearchResult/SearchCounts 加 "memo" 类型；真实分支 memos content
+  ilike（is deleted_at null）+ count；mock 分支 mockDb.memos 过滤；分组「速记」
+  渲染（标题=首行，副标题=内容预览），点击跳 /memos
+- memos 页删除按钮原已走 DELETE /api/memos/[id]（软删除，mock shim 同语义）——
+  与垃圾箱 RPC 语义一致，未改
+
+### 测试（+1 pgTAP 文件 / +1 用例文件改动，全量 118 文件 / 862 用例）
+
+- pgTAP 060（11 断言，CI 实跑）：属主软删 affected=1、list_trash memo 分组可见、
+  标题取内容前缀、恢复出桶、再软删+永久删物理消失、B 软删自己的成功、A 动 B 的
+  速记 affected=0 且行保持活跃
+- contracts.test.ts：memo 类型被 parseTrashMutation 接受
+- 门禁：tsc exit 0、vitest 118/862 全过 skip=0、next build exit 0
+
+# PROGRESS
+
 ## P1-03 任务离线冲突与失败可见（2026-08-29）
 
 - 分支 `feat/p1-03-task-offline-conflict`（master = 7d63eea，P1-02 合并后）

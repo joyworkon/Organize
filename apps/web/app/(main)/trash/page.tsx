@@ -8,6 +8,7 @@ import {
   Lightbulb,
   ListChecks,
   Loader2,
+  MessageSquareText,
   RefreshCw,
   RotateCcw,
   Timer,
@@ -34,6 +35,7 @@ const resourceConfig = {
   lesson: { label: "经验", icon: Lightbulb },
   database: { label: "数据库", icon: DatabaseIcon },
   countdown: { label: "倒数日", icon: Timer },
+  memo: { label: "速记", icon: MessageSquareText },
 } satisfies Record<
   TrashResourceType,
   { label: string; icon: typeof FileText }
