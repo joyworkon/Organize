@@ -117,9 +117,9 @@ Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登�
 ### mock 后端模式（无 Docker 的开发机）
 `.env.local` 设 `NEXT_PUBLIC_MOCK_BACKEND=true` 时，`lib/supabase/client.ts` 返回内存 mock 客户端（`lib/supabase/client.ts` → `mock-client.ts` + `mock-data.ts` 的 `mockDb`），middleware 跳过鉴权。分层覆盖情况：
 - **supabase-js 层（mock-client）**：核心表 CRUD + 若干 RPC，UI 直连 client 的功能（列表、任务、标签管理页等）可用
-- **`/api/*` 层（`lib/mock/api-shim.ts` fetch 拦截）**：笔记历史版本、块评论、块建议三类路由路由到 mockDb，响应形状与真实路由逐字段对齐；未覆盖的接口返回 501 明确报错
+- **`/api/*` 层（`lib/mock/api-shim.ts` fetch 拦截）**：笔记历史版本、块评论、块建议、跨笔记移动块四类路由路由到 mockDb，响应形状与真实路由逐字段对齐；未覆盖的接口返回 501 明确报错
 - **抓取（`lib/scraper/client.ts`）**：mock 下本地生成样例文章（标题取 URL slug），保存链路完整可用
-- **不可用**：AI（`/api/ai/*`）、上传（`/api/upload`）、数据库块（`/api/databases*`）、move-block——依赖外部服务或未实现，由调用方按失败降级
+- **不可用**：AI（`/api/ai/*`）、上传（`/api/upload`）、数据库块（`/api/databases*`）——依赖外部服务或未实现，由调用方按失败降级
 - 注意：`/api/*` 服务端代码不走 mock（mockDb 在浏览器内存里）；给 UI 新增 fetch 类功能时要同步考虑是否补 shim handler
 
 ### 离线
