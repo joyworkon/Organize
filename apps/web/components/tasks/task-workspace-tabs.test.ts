@@ -7,6 +7,7 @@ describe("task workspace tabs", () => {
     expect(taskWorkspaceTabKey("/tasks/123")).toBe("tasks");
     expect(taskWorkspaceTabKey("/tasks/calendar")).toBe("calendar");
     expect(taskWorkspaceTabKey("/tasks/countdown")).toBe("countdown");
+    expect(taskWorkspaceTabKey("/tasks/lessons")).toBe("lessons");
     expect(taskWorkspaceTabKey("/tasks/search")).toBe("search");
   });
 });

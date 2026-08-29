@@ -17,7 +17,6 @@ import {
   Search,
   X,
   ListChecks,
-  Lightbulb,
   Star,
   Settings,
   Trash2,
@@ -39,19 +38,26 @@ import type { TaskList } from "@organize/shared";
 import type { TaskScope } from "@/lib/tasks/repository";
 import { useTaskRepository } from "@/lib/tasks/repository";
 import { showPrompt } from "@/components/ui/prompt-dialog";
+import { useAllTags } from "@/components/tags/use-tags";
+import { TagBadge } from "@/components/tags/tag-badge";
 
+// 侧边栏可见的一级导航。「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
   { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tasks", label: "待办", icon: ListChecks },
-  { href: "/lessons", label: "经验", icon: Lightbulb },
   { href: "/graph", label: "图谱", icon: Network },
-  { href: "/tags", label: "标签", icon: TagIcon },
   { href: "/favorites", label: "收藏夹", icon: Star },
   { href: "/plugins", label: "插件", icon: Puzzle },
   { href: "/trash", label: "垃圾箱", icon: Trash2 },
   { href: "/settings", label: "设置", icon: Settings },
+];
+
+// 移动端顶栏位置名仍需识别已降级的一级页面（列表里没有，单独补齐）
+const MOBILE_LABEL_EXTRA_ITEMS = [
+  { href: "/lessons", label: "经验" },
+  { href: "/tags", label: "标签" },
 ];
 
 const TASK_NAV_EXPANDED_KEY = "organize-sidebar-task-nav-expanded";
@@ -61,17 +67,24 @@ export function Sidebar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isTaskWorkspace = pathname === "/tasks" || pathname.startsWith("/tasks/");
-  const isGlobalTaskTool = pathname === "/tasks/countdown" || pathname === "/tasks/search";
+  // 待办工作台内的全局工具页：不归属任何清单，侧边栏清单不高亮选中态
+  const isGlobalTaskTool =
+    pathname === "/tasks/countdown" ||
+    pathname === "/tasks/search" ||
+    pathname === "/tasks/lessons";
   const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
+  const [libraryExpanded, setLibraryExpanded] = useState(false);
   // 「最近」分组折叠态：折叠时显示 6 条，展开显示全部（12 条）；记忆到 localStorage
   const [recentsExpanded, setRecentsExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
+  // 稍后读分组下的标签快捷列表：展开时拉取，标签增删经 organize:tags-changed 事件刷新
+  const { tags: sidebarTags, refresh: refreshSidebarTags } = useAllTags();
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
@@ -85,6 +98,10 @@ export function Sidebar() {
     setNotesExpanded(storedNotesExpanded || pathname.startsWith("/notes/"));
     const storedTasksExpanded = localStorage.getItem(TASK_NAV_EXPANDED_KEY) === "1";
     setTasksExpanded(storedTasksExpanded || isTaskWorkspace);
+    setLibraryExpanded(
+      localStorage.getItem("organize-sidebar-library-expanded") === "true" ||
+        pathname.startsWith("/library")
+    );
     setRecentsExpanded(localStorage.getItem("organize-sidebar-recents-expanded") === "true");
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
@@ -152,6 +169,34 @@ export function Sidebar() {
     localStorage.setItem("organize-sidebar-notes-expanded", String(next));
   };
 
+  const toggleLibraryExpanded = () => {
+    const next = !libraryExpanded;
+    setLibraryExpanded(next);
+    localStorage.setItem("organize-sidebar-library-expanded", String(next));
+  };
+
+  // 展开稍后读分组时拉标签；其他处增删标签后经事件同步
+  useEffect(() => {
+    if (libraryExpanded) void refreshSidebarTags();
+  }, [libraryExpanded, refreshSidebarTags]);
+
+  useEffect(() => {
+    const reloadTags = () => {
+      if (libraryExpanded) void refreshSidebarTags();
+    };
+    window.addEventListener("organize:tags-changed", reloadTags);
+    return () => window.removeEventListener("organize:tags-changed", reloadTags);
+  }, [libraryExpanded, refreshSidebarTags]);
+
+  // 快捷列表按总使用量排序，最多展示 20 个，其余走「管理标签」
+  const visibleSidebarTags = useMemo(() => {
+    const usage = (t: (typeof sidebarTags)[number]) =>
+      (t.reading_item_count || 0) + (t.note_count || 0) + (t.task_count || 0) + (t.lesson_count || 0);
+    return [...sidebarTags]
+      .sort((a, b) => usage(b) - usage(a) || a.name.localeCompare(b.name))
+      .slice(0, 20);
+  }, [sidebarTags]);
+
   const toggleTasksExpanded = () => {
     const next = !tasksExpanded;
     setTasksExpanded(next);
@@ -168,7 +213,7 @@ export function Sidebar() {
 
   // 移动端顶栏展示当前所在分区（Notion 移动端模式：汉堡 + 位置名），根路径回退到产品名
   const mobileSectionLabel = useMemo(() => {
-    const match = [...navItems]
+    const match = [...navItems, ...MOBILE_LABEL_EXTRA_ITEMS]
       .sort((a, b) => b.href.length - a.href.length)
       .find((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)));
     return match?.label ?? "Organize";
@@ -356,6 +401,84 @@ export function Sidebar() {
           const isActive = item.href === "/"
             ? pathname === "/"
             : pathname.startsWith(item.href);
+          if (item.href === "/library" && !compact) {
+            // 稍后读分组：主体入口 + 可展开的标签快捷列表（点标签 = 带筛选进稍后读）
+            const activeTagId = searchParams.get("tags");
+            return (
+              <div key={item.href}>
+                <div
+                  className={cn(
+                    "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <Link
+                    href="/library"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
+                  >
+                    <Library className="h-4 w-4 shrink-0" />
+                    <span className="truncate">稍后读</span>
+                  </Link>
+                  <button
+                    type="button"
+                    className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                    title={libraryExpanded ? "收起标签列表" : "展开标签列表"}
+                    aria-label={libraryExpanded ? "收起标签列表" : "展开标签列表"}
+                    aria-expanded={libraryExpanded}
+                    onClick={toggleLibraryExpanded}
+                  >
+                    {libraryExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                {libraryExpanded && (
+                  <div className="mt-1 px-2">
+                    {visibleSidebarTags.length === 0 ? (
+                      <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有标签</p>
+                    ) : (
+                      visibleSidebarTags.map((tag) => {
+                        const tagActive = pathname.startsWith("/library") && activeTagId === tag.id;
+                        return (
+                          <Link
+                            key={tag.id}
+                            href={`/library?tags=${tag.id}`}
+                            onClick={() => setMobileOpen(false)}
+                            className={cn(
+                              "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                              tagActive
+                                ? "bg-primary/10 font-medium text-primary"
+                                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                            )}
+                            title={`${tag.name}（文章 ${tag.reading_item_count || 0} · 笔记 ${tag.note_count || 0}）`}
+                          >
+                            <TagBadge tag={tag} size="sm" />
+                            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/70">
+                              {tag.reading_item_count || 0}
+                            </span>
+                          </Link>
+                        );
+                      })
+                    )}
+                    <Link
+                      href="/tags"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      title="管理全部标签（含笔记 / 任务标签）"
+                    >
+                      <TagIcon className="h-3 w-3 shrink-0" />
+                      <span className="truncate">管理标签</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            );
+          }
           if (item.href === "/tasks" && !compact) {
             return (
               <div key={item.href}>

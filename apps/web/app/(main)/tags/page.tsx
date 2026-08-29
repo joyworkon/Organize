@@ -216,6 +216,7 @@ export default function TagsPage() {
       setNewName("");
       setCreateOpen(false);
       await fetchTags();
+      window.dispatchEvent(new CustomEvent("organize:tags-changed"));
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "创建失败");
     } finally {
@@ -243,6 +244,7 @@ export default function TagsPage() {
           setSelectedTag(null);
         }
         await fetchTags();
+        window.dispatchEvent(new CustomEvent("organize:tags-changed"));
       }
     } finally {
       setEditing(false);
@@ -260,6 +262,7 @@ export default function TagsPage() {
           setSelectedTag(null);
         }
         await fetchTags();
+        window.dispatchEvent(new CustomEvent("organize:tags-changed"));
       }
     } finally {
       setDeleting(false);

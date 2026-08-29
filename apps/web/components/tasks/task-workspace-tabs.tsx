@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CalendarDays, ListChecks, Search, Timer } from "lucide-react";
+import { CalendarDays, Lightbulb, ListChecks, Search, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { key: "tasks", label: "任务", icon: ListChecks },
   { key: "calendar", label: "日历", icon: CalendarDays },
   { key: "countdown", label: "倒数日", icon: Timer },
+  { key: "lessons", label: "经验", icon: Lightbulb },
   { key: "search", label: "搜索", icon: Search },
 ] as const;
 
@@ -28,6 +29,7 @@ function queryFor(pathname: string, params: URLSearchParams, key: (typeof tabs)[
 export function taskWorkspaceTabKey(pathname: string): (typeof tabs)[number]["key"] {
   if (pathname === "/tasks/calendar") return "calendar";
   if (pathname === "/tasks/countdown") return "countdown";
+  if (pathname === "/tasks/lessons") return "lessons";
   if (pathname === "/tasks/search") return "search";
   return "tasks";
 }
