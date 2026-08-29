@@ -7,7 +7,8 @@ SELECT plan(10);
 DO $$ BEGIN
   INSERT INTO auth.users (id, email) VALUES
     ('48300001-0000-0000-0000-000000000001', 'p04_a@test'),
-    ('48300002-0000-0000-0000-000000000002', 'p04_b@test')
+    ('48300002-0000-0000-0000-000000000002', 'p04_b@test'),
+    ('48300003-0000-0000-0000-000000000003', 'p04_c@test')
   ON CONFLICT (id) DO NOTHING;
 END $$;
 
@@ -137,14 +138,7 @@ SELECT is(
   '被拒绝的恢复没有留下任何写入'
 );
 
--- ========== 3. v3 老 payload（缺 memos/task_item_refs 键）仍可恢复 ==========
-set request.jwt.claim.sub to '48300001-0000-0000-0000-000000000001';
--- A 账户已有任务/笔记（上面预置），非空——清掉再造空场景：直接用 B 之外第三个用户
-DO $$ BEGIN
-  INSERT INTO auth.users (id, email) VALUES
-    ('48300003-0000-0000-0000-000000000003', 'p04_c@test')
-  ON CONFLICT (id) DO NOTHING;
-END $$;
+-- ========== 3. v3 老 payload（缺 memos/task_item_refs 键）仍可完成 ==========
 set request.jwt.claim.sub to '48300003-0000-0000-0000-000000000003';
 
 SELECT is(
