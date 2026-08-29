@@ -17,12 +17,17 @@ jobs:
           version: 9.10.0
 
       - uses: actions/setup-node@v4
+        # 与 .nvmrc / engines 对齐：Node 22 LTS
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # P0-01 安全门禁：生产依赖出现 Critical/High 漏洞时直接失败
+      - name: Audit production dependencies (Critical/High)
+        run: corepack pnpm audit --prod --audit-level high
 
       - name: Typecheck (apps/web)
         working-directory: apps/web

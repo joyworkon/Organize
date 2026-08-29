@@ -6,8 +6,8 @@ This file provides guidance to Lingma (lingma.aliyun.com) when working with code
 
 Organize 是一个跨平台的"稍后读 + 笔记"工具（Notion + Cubox 混合形态）：用户保存网页链接，系统抓取正文进入阅读库（未读 / 在读 / 已读三态），并可在 Notion 风格的富文本编辑器中做笔记。
 
-- 技术底座：pnpm@9.10.0 + Turborepo 的 monorepo，Node >= 18.17.0
-- 主产品是 `apps/web`（Next.js 14 App Router + React 18 + TypeScript）
+- 技术底座：pnpm@9.10.0 + Turborepo 的 monorepo，Node 22 LTS（engines >= 22.12.0）
+- 主产品是 `apps/web`（Next.js 15 App Router + React 18 + TypeScript）
 - 后端为 Supabase（Postgres + Auth + Storage），本地通过 Docker 运行；无 Docker 的开发机可开 mock 模式（见下文「mock 后端模式」）
 
 ## 常用命令
@@ -79,7 +79,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 ## 架构
 
 ### Monorepo 布局
-- `apps/web` — Next.js 14 主应用（目前唯一已实现的 app）
+- `apps/web` — Next.js 15 主应用（目前唯一已实现的 app）
 - `packages/shared` — 跨包共享的 TS 类型（ReadingItem / Note / Tag / ScrapeResult / ReadingStatus 等）
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）

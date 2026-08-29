@@ -13,7 +13,7 @@
 
 ## 技术栈
 
-pnpm@9.10.0 + Turborepo monorepo；`apps/web` 为 Next.js 14（App Router）+ React 18 + TypeScript + TipTap；后端 Supabase（Postgres + Auth + Storage，全表 RLS）。
+pnpm@9.10.0 + Turborepo monorepo；`apps/web` 为 Next.js 15（App Router）+ React 18 + TypeScript + TipTap；后端 Supabase（Postgres + Auth + Storage，全表 RLS）。
 
 ```
 apps/web            # 主应用（当前唯一已实现的 app）
@@ -27,7 +27,7 @@ supabase/           # 迁移（001–054）与本地配置
 
 ## 快速开始
 
-要求 Node >= 18.17.0，包管理统一用 pnpm（勿用 npm / yarn）。
+要求 Node 22 LTS（engines >= 22.12.0，见 .nvmrc），包管理统一用 pnpm 9.10.0（勿用 npm / yarn）。
 
 ```bash
 pnpm install

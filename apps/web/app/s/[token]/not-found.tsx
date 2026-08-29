@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function NotFound() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -12,9 +14,9 @@ export default function NotFound() {
           <p className="text-muted-foreground">
             链接可能已失效，或分享者已撤销
           </p>
-          <a href="/" className="inline-block mt-4 text-sm text-primary hover:underline">
+          <Link href="/" className="inline-block mt-4 text-sm text-primary hover:underline">
             了解 Organize →
-          </a>
+          </Link>
         </div>
       </main>
     </div>

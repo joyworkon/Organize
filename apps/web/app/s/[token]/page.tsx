@@ -2,6 +2,7 @@ import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
 import { getPublicShare } from "@/lib/share/public-share";
 import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
 
@@ -95,9 +96,9 @@ function Shell({ children }: { children: React.ReactNode }) {
       <header className="border-b">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <span className="font-semibold">Organize</span>
-          <a href="/" className="text-sm text-muted-foreground hover:underline">
+          <Link href="/" className="text-sm text-muted-foreground hover:underline">
             了解 Organize →
-          </a>
+          </Link>
         </div>
       </header>
       <main className="py-10 px-4">{children}</main>
