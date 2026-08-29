@@ -514,6 +514,8 @@ export const mockDb: Record<string, any[]> = {
   lessons,
   lesson_tags: lessonTags,
   memos,
+  // P0-03：AI 配置经 /api/ai/settings 受控读写（密钥只回掩码），mock 下空表起步
+  user_ai_settings: [],
   plugins: [],
   shares: [],
   note_versions: noteVersions,
