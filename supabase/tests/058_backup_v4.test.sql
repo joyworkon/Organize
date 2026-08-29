@@ -42,7 +42,7 @@ select restore_backup_v2_full(jsonb_build_object(
         'id', '48310000-0000-0000-0000-000000000002',
         'title', '恢复的任务',
         'status', 'todo', 'priority', 'medium', 'category', 'work',
-        'is_pinned', false,
+        'is_pinned', false, 'sort_order', 0,
         'created_at', now(), 'updated_at', now()
       )),
       'task_dependencies', '[]'::jsonb,
