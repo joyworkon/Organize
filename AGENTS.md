@@ -28,7 +28,7 @@ pnpm --filter @organize/web build
 # 类型检查（改动后用这个验证）
 cd apps/web && npx tsc --noEmit
 
-# 单元测试（Vitest；现有用例在 apps/web/components/editor/）
+# 单元测试（Vitest；用例分布在 apps/web 的 lib/ 与 components/ 各目录）
 cd apps/web && pnpm test          # 等价: npx vitest run
 ```
 

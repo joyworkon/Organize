@@ -8,7 +8,9 @@ const MOCK_BACKEND = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
 function prettyTitleFromUrl(url: string): string {
   try {
     const { pathname, hostname } = new URL(url);
-    const segment = pathname.split("/").filter(Boolean).pop() ?? hostname;
+    const segment = pathname.split("/").filter(Boolean).pop();
+    // 空路径（裸域名）直接用主机名；扩展名剥离只作用于 slug
+    if (!segment) return hostname;
     const text = decodeURIComponent(segment)
       .replace(/\.\w{1,5}$/, "")
       .replace(/[-_+]+/g, " ")
