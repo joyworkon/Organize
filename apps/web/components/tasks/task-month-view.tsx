@@ -824,7 +824,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
     const first = cells[0]?.date ?? cursor;
     const last = cells[cells.length - 1]?.date ?? cursor;
     return countdownsInRange(countdowns, first, last);
-  }, [cells, countdowns]);
+  }, [cells, countdowns, cursor]);
   const yearCountdowns = useMemo(
     () => countdownsInRange(countdowns, new Date(cursor.getFullYear(), 0, 1), new Date(cursor.getFullYear(), 11, 31)),
     [countdowns, cursor]

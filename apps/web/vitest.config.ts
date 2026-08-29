@@ -11,5 +11,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Playwright smoke 在 e2e/ 下（.spec.ts 会被 vitest 默认 include 误捡）
+    exclude: ["e2e/**", "node_modules/**", ".next/**"],
   },
 });

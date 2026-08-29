@@ -44,6 +44,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "提醒领取失败" }, { status: 500 });
   }
 
+  // 心跳（P2-01）：最近一次成功投递时间随响应返回，调度侧据此做「长期不运行」告警
+  const { data: lastSentRow } = await admin
+    .from("task_reminder_deliveries")
+    .select("sent_at")
+    .not("sent_at", "is", null)
+    .order("sent_at", { ascending: false })
+    .limit(1);
+  const lastSentAt = (lastSentRow?.[0] as { sent_at?: string } | undefined)?.sent_at ?? null;
+
   let sent = 0;
   let failed = 0;
   await Promise.all(
@@ -104,5 +113,5 @@ export async function POST(request: NextRequest) {
     })
   );
 
-  return NextResponse.json({ claimed: data?.length || 0, sent, failed });
+  return NextResponse.json({ claimed: data?.length || 0, sent, failed, lastSentAt });
 }

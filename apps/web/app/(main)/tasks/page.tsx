@@ -727,7 +727,7 @@ function TasksPageInner() {
     updateUrl({ task: null });
     exitSelection();
     toast({ title: `${ids.length} 个任务已移入垃圾箱` });
-  }, [exitSelection, selectedIds, supabase, tasks, updateUrl]);
+  }, [exitSelection, selectedIds, supabase, tasks, updateUrl, userId]);
 
   // 页面快捷键：n 聚焦快速添加、v 日期分组、m 多选、Esc 关闭详情/退出多选（弹层打开时让位）
   useHotkey([
