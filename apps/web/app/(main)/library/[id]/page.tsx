@@ -18,8 +18,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import type { ReadingItem, ReadingStatus, Highlight, HighlightColor } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal } from "lucide-react";
+import type { ReadingItem, ReadingStatus, Highlight, HighlightColor, Tag } from "@organize/shared";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal, Tag as TagIcon } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,9 @@ import { htmlToTextParagraphs } from "@/lib/tiptap-utils";
 import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
 import { FavoriteButton } from "@/components/favorite-button";
+import { TagSelector } from "@/components/tags/tag-selector";
+import { TagBadge } from "@/components/tags/tag-badge";
+import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
@@ -88,6 +91,19 @@ export default function ReadingDetailPage() {
   const router = useRouter();
   const itemId = params.id as string;
   const supabase = useMemo(() => createClient(), []);
+
+  // 页面属性：标签（item_tags，经 /api/reading-items/[id]/tags 增删，hook 内乐观更新）
+  const { tags: allTagOptions, refresh: refreshAllTags } = useAllTags();
+  const { tags: itemTags, addTag: addItemTag, removeTag: removeItemTag } = useResourceTags("reading_item", itemId);
+  // 展示用补全颜色：GET /api/reading-items/[id]/tags 只回 id/name，颜色从全量标签对齐
+  const displayItemTags = useMemo(
+    () =>
+      itemTags.map((t) => ({
+        ...t,
+        color: t.color ?? allTagOptions.find((o) => o.id === t.id)?.color,
+      })),
+    [itemTags, allTagOptions]
+  );
   const contentRef = useRef<HTMLDivElement>(null);
   const focusContentRef = useRef<HTMLDivElement>(null);
   const focusScrollContainerRef = useRef<HTMLDivElement>(null);
@@ -761,6 +777,34 @@ export default function ReadingDetailPage() {
     );
   }
 
+  // 标签增删：TagSelector 回传全量列表，与当前 diff 出新增/移除；新建标签走 name 创建
+  const handleItemTagsChange = async (next: Pick<Tag, "id" | "name" | "color">[]) => {
+    const currentIds = new Set(itemTags.map((t) => t.id));
+    const nextIds = new Set(next.map((t) => t.id));
+    let changed = false;
+    for (const t of next) {
+      if (currentIds.has(t.id)) continue;
+      changed = true;
+      if (t.id.startsWith("new:")) {
+        const createdId = await addItemTag({ name: t.name });
+        if (createdId) void refreshAllTags();
+      } else {
+        await addItemTag({ id: t.id, name: t.name });
+      }
+    }
+    for (const t of itemTags) {
+      if (nextIds.has(t.id)) continue;
+      changed = true;
+      await removeItemTag(t.id);
+    }
+    if (changed) window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+  };
+
+  const handleRemoveItemTag = async (tagId: string) => {
+    await removeItemTag(tagId);
+    window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+  };
+
   return (
     <div
       className={cn(
@@ -941,6 +985,26 @@ export default function ReadingDetailPage() {
                 </span>
               </>
             )}
+          </div>
+
+          {/* 标签：与笔记页同一套交互，徽标可点 X 移除，「标签」打开选择器（支持输入新名直接创建） */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            {displayItemTags.map((t) => (
+              <TagBadge key={t.id} tag={t} size="sm" onRemove={() => void handleRemoveItemTag(t.id)} />
+            ))}
+            <TagSelector
+              selected={itemTags}
+              options={allTagOptions}
+              onChange={(next) => void handleItemTagsChange(next)}
+            >
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <TagIcon className="h-3 w-3" />
+                标签
+              </button>
+            </TagSelector>
           </div>
         </header>
 
