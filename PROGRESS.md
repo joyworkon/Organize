@@ -1,5 +1,39 @@
 # PROGRESS
 
+## P1-02 修正工作台与经验复习（2026-08-29）
+
+- 分支 `fix/p1-02-workbench-review`（master = 5da01dd，P1-01 合并后）
+
+### 修掉的三个问题（均在 components/dashboard/today-view.tsx）
+
+1. **完成率恒为 0**：分母（overdue+today）先过滤掉 done 任务，再从分母里数 done
+   → completedToday 恒 0。重写为同窗口口径（新纯函数 `computeTodayCompletion`）：
+   窗口=今天日历日；计划 = 未取消且（今日到期 ∪ 逾期未完成）∪ 今日完成（不论
+   到期日，历史完成不进今天）；完成 = 窗口内 done；rate = completed/planned。
+   验收用例 4 计划 2 完成 = 50% 固定时钟固化
+2. **连续天数假数据**：原实现只 `localStorage.getItem("organize-streak")`（全库无
+   写入点，永远 undefined→0，且换设备即失真）。改为 `computeTaskStreak`：基于持久化
+   tasks.completed_at，按本地日历日从今天（今天无完成则从昨天）回数连续活动日
+3. **经验复习假降级**：lessons 无 next_review_at 列（012 schema 确认）——真实后端
+   查询报错 → fallback 把最近 5 条经验伪装成「待复习」；「记住了」按钮把复习计划
+   写到不存在的列（假成功）。整块移除（含 state/查询分支/handler/JSX）；是否引入
+   复习算法留待产品决策（P1-02 卡面明示）
+
+### 实现
+
+- 新 `lib/dashboard/workbench-stats.ts`：computeTodayCompletion / computeTaskStreak
+  纯函数，时钟注入；today-view 挂载 allTasks state 后即时计算，不碰 localStorage
+- review-view（每日回顾）/stats-view 盘点确认已基于持久化数据，未改
+
+### 测试（+1 文件 / +10 用例，全量 115 文件 / 843 用例）
+
+- `lib/dashboard/workbench-stats.test.ts`：固定时钟 2026-08-29——4 计划 2 完成=50%
+  （验收原案）、逾期与昨日完成窗口归属、提前完成未来任务、cancelled 排除、空窗口
+  0%、同输入重复计算一致（刷新/换设备等价）、streak 连续/今天未断签/断档截断/空
+- 本地门禁：tsc exit 0、vitest 115/843 全过 skip=0、next build exit 0
+
+# PROGRESS
+
 ## P1-01 统一稍后读收集链路（2026-08-29）
 
 - 分支 `feat/p1-01-unify-collection`（master = 222fe4b，P0-04 合并后）

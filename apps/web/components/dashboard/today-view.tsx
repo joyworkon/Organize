@@ -12,8 +12,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
-import type { Task, TaskWithTags, ReadingItem, NoteWithTags, LessonWithTags, Tag } from "@organize/shared";
+import type { Task, TaskWithTags, ReadingItem, NoteWithTags, Tag } from "@organize/shared";
 import { TASK_CATEGORY_CONFIG } from "@organize/shared";
+import { computeTaskStreak, computeTodayCompletion } from "@/lib/dashboard/workbench-stats";
 import {
   FileText,
   Link as LinkIcon,
@@ -22,12 +23,10 @@ import {
   PlayCircle,
   BookOpen,
   FileText as NoteIcon,
-  Lightbulb,
   Flame,
   CheckCircle2,
   Clock,
   RefreshCw,
-  ThumbsUp,
   Loader2,
   ListChecks,
   ChevronDown,
@@ -120,18 +119,13 @@ export default function TodayView() {
   const [inProgressTasks, setInProgressTasks] = useState<TaskWithTags[]>([]);
   const [unreadArticles, setUnreadArticles] = useState<ReadingItem[]>([]);
   const [recentNotes, setRecentNotes] = useState<NoteWithTags[]>([]);
-  const [reviewLessons, setReviewLessons] = useState<LessonWithTags[]>([]);
-  const [hasNextReviewField, setHasNextReviewField] = useState(false);
-
-  const [streak, setStreak] = useState(0);
+  // 全量任务驻留内存：完成率与连续天数都由它即时计算（纯函数，见 lib/dashboard/workbench-stats）
+  const [allTasks, setAllTasks] = useState<TaskWithTags[]>([]);
 
   const today = new Date();
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const now = new Date();
-    const todayEnd = new Date(now);
-    todayEnd.setHours(23, 59, 59, 999);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -153,28 +147,6 @@ export default function TodayView() {
           .eq("user_id", user.id)
           .order("updated_at", { ascending: false })
           .limit(5),
-        (async () => {
-          try {
-            const { data, error } = await supabase.from("lessons")
-              .select("*")
-              .eq("user_id", user.id)
-              .lte("next_review_at", todayEnd.toISOString())
-              .limit(5);
-            if (!error && data && data.length > 0) {
-              setHasNextReviewField(true);
-              return data;
-            }
-          } catch {
-            // field doesn't exist
-          }
-          setHasNextReviewField(false);
-          const { data } = await supabase.from("lessons")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false })
-            .limit(5);
-          return data || [];
-        })(),
       ]);
 
       if (results[0].status === "fulfilled") {
@@ -198,6 +170,7 @@ export default function TodayView() {
           ...t,
           tags: linksByTask.get(t.id) || [],
         }));
+        setAllTasks(tasksWithTags);
 
         const overdue = tasksWithTags.filter((t) => isOverdue(t.due_date, t.status));
         const dueToday = tasksWithTags.filter(
@@ -224,10 +197,6 @@ export default function TodayView() {
       if (results[2].status === "fulfilled") {
         setRecentNotes((results[2].value.data || []) as NoteWithTags[]);
       }
-
-      if (results[3].status === "fulfilled") {
-        setReviewLessons((results[3].value || []) as LessonWithTags[]);
-      }
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
     } finally {
@@ -237,10 +206,6 @@ export default function TodayView() {
 
   useEffect(() => {
     loadData();
-    const storedStreak = localStorage.getItem("organize-streak");
-    if (storedStreak) {
-      setStreak(parseInt(storedStreak, 10) || 0);
-    }
   }, [loadData]);
 
   const handleToggleTaskStatus = async (taskId: string, status: Task["status"]) => {
@@ -309,39 +274,9 @@ export default function TodayView() {
     router.push(`/library/${article.id}`);
   };
 
-  const handleReviewAction = async (lessonId: string, remembered: boolean) => {
-    try {
-      if (hasNextReviewField) {
-        const nextDate = new Date();
-        if (remembered) {
-          nextDate.setDate(nextDate.getDate() + 3);
-        } else {
-          nextDate.setDate(nextDate.getDate() + 1);
-        }
-        await supabase.from("lessons")
-          .update({ next_review_at: nextDate.toISOString() })
-          .eq("id", lessonId);
-      }
-      setReviewLessons((prev) => prev.filter((l) => l.id !== lessonId));
-      toast({
-        title: remembered ? "已标记为记住了" : "已安排复习",
-        duration: 2000,
-      });
-    } catch {
-      toast({
-        title: "操作失败",
-        variant: "destructive",
-        duration: 2000,
-      });
-    }
-  };
-
-  const allTasksForToday = [...overdueTasks, ...todayTasks];
-  const totalRelevantTasks = overdueTasks.length + todayTasks.length + inProgressTasks.filter(
-    (t) => !isToday(t.due_date) && !isOverdue(t.due_date, t.status)
-  ).length;
-  const completedToday = allTasksForToday.filter((t) => t.status === "done").length;
-  const completionRate = totalRelevantTasks === 0 ? 0 : Math.round((completedToday / totalRelevantTasks) * 100);
+  // 完成率/连续天数：纯函数基于全量任务即时计算（分母含已完成项，同窗口口径）
+  const todayCompletion = computeTodayCompletion(allTasks, today);
+  const taskStreak = computeTaskStreak(allTasks.map((t) => t.completed_at), today);
 
   const attentionCount = overdueTasks.length + todayTasks.length;
 
@@ -401,7 +336,7 @@ export default function TodayView() {
                 <CheckCircle2 className="h-4 w-4 text-primary" />
                 今日概览
               </h3>
-              <Badge variant="secondary">{completionRate}%</Badge>
+              <Badge variant="secondary">{todayCompletion.rate}%</Badge>
             </div>
             <div className="flex items-center gap-4">
               <div className="relative h-16 w-16 flex items-center justify-center">
@@ -422,26 +357,26 @@ export default function TodayView() {
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="4"
-                    strokeDasharray={`${(completionRate / 100) * 175.9} 175.9`}
+                    strokeDasharray={`${(todayCompletion.rate / 100) * 175.9} 175.9`}
                     className="text-primary transition-all duration-500"
                     strokeLinecap="round"
                   />
                 </svg>
-                <span className="absolute text-sm font-bold">{completedToday}</span>
+                <span className="absolute text-sm font-bold">{todayCompletion.completed}</span>
               </div>
               <div className="space-y-1 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">完成</span>
-                  <span className="font-medium">{completedToday} 项</span>
+                  <span className="font-medium">{todayCompletion.completed} 项</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">待办</span>
-                  <span className="font-medium">{totalRelevantTasks - completedToday} 项</span>
+                  <span className="font-medium">{todayCompletion.planned - todayCompletion.completed} 项</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Flame className="h-3.5 w-3.5 text-orange-500" />
                   <span className="text-muted-foreground">连续</span>
-                  <span className="font-medium">{streak} 天</span>
+                  <span className="font-medium">{taskStreak} 天</span>
                 </div>
               </div>
             </div>
@@ -728,55 +663,6 @@ export default function TodayView() {
             </div>
           )}
         </div>
-
-        {reviewLessons.length > 0 && (
-          <>
-            <div className="p-5 border-b">
-              <h3 className="font-semibold flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-amber-500" />
-                待复习经验
-                <Badge variant="secondary" className="ml-auto">{reviewLessons.length}</Badge>
-              </h3>
-            </div>
-            <div className="p-5">
-              <div className="space-y-2">
-                {reviewLessons.slice(0, 3).map((lesson) => (
-                  <div
-                    key={lesson.id}
-                    className="p-3 rounded-md bg-amber-500/5"
-                  >
-                    <Link
-                      href={`/lessons/${lesson.id}`}
-                      className="block hover:opacity-80"
-                    >
-                      <p className="text-sm font-medium line-clamp-1">{lesson.title || "无标题经验"}</p>
-                    </Link>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-green-600 hover:text-green-700 hover:bg-green-500/10"
-                        onClick={() => handleReviewAction(lesson.id, true)}
-                      >
-                        <ThumbsUp className="h-3 w-3 mr-1" />
-                        记住了
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => handleReviewAction(lesson.id, false)}
-                      >
-                        <RefreshCw className="h-3 w-3 mr-1" />
-                        再看看
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
