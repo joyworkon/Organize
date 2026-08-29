@@ -147,13 +147,14 @@ function parseHtml(html: string, url: URL): ScrapeResult {
         $("meta[name='twitter:image']").attr("content"),
       url
     ) || (article.content ? extractFirstImage(article.content, url) : null);
+  // readability 0.6 起 title/content/excerpt 类型为可空，按既有 excerpt 兜底风格收窄
   const content = isXHostname(url.hostname)
-    ? addXMediaToContent(article.content, coverImage, article.title)
-    : article.content;
+    ? addXMediaToContent(article.content ?? "", coverImage, article.title || "")
+    : article.content ?? "";
 
   return {
     url: url.toString(),
-    title: article.title,
+    title: article.title || "",
     content,
     excerpt: article.excerpt || "",
     cover_image: coverImage,

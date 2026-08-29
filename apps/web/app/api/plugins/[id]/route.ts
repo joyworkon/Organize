@@ -4,8 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 // PATCH /api/plugins/[id] - 更新插件配置/状态
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -25,7 +26,7 @@ export async function PATCH(
   const { data, error } = await supabase
     .from("plugins")
     .update(updateData)
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", user.id)
     .select()
     .single();
@@ -40,8 +41,9 @@ export async function PATCH(
 // DELETE /api/plugins/[id] - 卸载插件
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -54,7 +56,7 @@ export async function DELETE(
   const { error } = await supabase
     .from("plugins")
     .delete()
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", user.id);
 
   if (error) {

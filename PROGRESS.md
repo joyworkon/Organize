@@ -1,4 +1,42 @@
-# PROGRESS — 任务工作台与月历
+# PROGRESS
+
+## P0-01 生产依赖安全升级（进行中，2026-08-29 开工）
+
+- master = `66283ea`（PR #175 已合并，与任务书基线一致），分支 `chore/security-dependencies`
+- `corepack pnpm --version` → `9.10.0` ✓；`pnpm install --frozen-lockfile` exit 0（363ms，锁文件有效）
+- 审计红证据：`corepack pnpm audit --prod --audit-level high` → **exit 1**，`50 vulnerabilities found — 6 low | 28 moderate | 15 high | 1 critical`（完整输出存 `/tmp/audit-before.txt`，与任务书 50=1C+15H+28M+6L 一致）
+- Critical = `next@14.2.11`（Middleware 授权绕过，修复 ≥14.2.25/15.5.21）；High 还有 nanoid<3.3.18、postcss≤8.5.17（next 内置）、undici 7.28.0（cheerio 传入）
+- 基线门禁：tsc exit 0；vitest **111 文件 / 803 用例** 全过；`next build` exit 0（next@14.2.11）
+- 计划：next+eslint-config-next → 15.5.21（peerDeps 接受 react ^18.2.0，React 18.3.1 不动）；readability → 0.6.0；mermaid → 11.17.2；nanoid/postcss/undici 随锁文件更新，必要时 pnpm.overrides
+- 关键决策：next 大版本 14→15 会触发 App Router 路由参数异步化的类型检查；仅改 build 错误点名文件并逐个附原始报错
+
+### 升级后状态（2026-08-29）
+
+- `corepack pnpm audit --prod --audit-level high` → **exit 0**；全量 `--prod` 审计仅剩 **1 moderate**：`uuid <11.1.1`（路径 `@tiptap/extension-unique-id@2.27.2`，TipTap 被 P0-01 禁令锚定在 2.27.2 不可升级）。**可达性评估：不可达**——已核实其 dist 仅 `import { v4 } from 'uuid'`（3 处），公告 GHSA-w5hq-g745-h8pq 只影响 v3/v5/v6 携带 buf 参数的用法；后续随 P2-01（TipTap 升级决策）一并处理
+- 基线的 6 个 low 已随 postcss/nanoid/next 升级自然清零，无遗留
+- 手段：直接依赖 next/eslint-config-next → 15.5.21、readability → 0.6.0、mermaid → 11.17.2、@types/node → ^22；根 `pnpm.overrides` 收敛传递依赖（postcss ≥8.5.23、nanoid ^3.3.18、sharp ≥0.35.0、undici ^7.29.0、dompurify ≥3.4.13）——override 全部按「补丁下限」收敛，避免跨大版本（曾出现 nanoid 6/undici 8 解析，已收紧）
+- 兼容改动共 8 个文件、全部由错误点名（见上节）；React 18.3.1 / TipTap 2.27.2 未动
+- Node：engines `>=22.12.0`、`.nvmrc`=22.12.0、CI node-version 22、README/AGENTS 同步；本机 Node v22.22.2 满足
+- 待办：push 后 CI 绿 → 故意回归 next@14.2.11 造红 → 还原造绿 → squash 合并
+
+### 升级触发的兼容错误（原始报错 + 修复）
+
+1. **readability 0.5→0.6 类型收紧**（`npx tsc --noEmit` 点名，共 3 条）：
+   - `lib/scraper/index.ts(151,26): TS2345: Argument of type 'string | null | undefined' is not assignable to parameter of type 'string'`（article.title → addXMediaToContent 第三参）
+   - `lib/scraper/index.ts(156,5): TS2322: Type 'string | null | undefined' is not assignable to type 'string'`（title: article.title）
+   - `lib/scraper/index.ts(157,5): TS2322: 同上`（content 透传分支）
+   - 修复：与既有 `excerpt: article.excerpt || ""` 同风格补空值兜底（`?? ""` / `|| ""`），不改运行时路径
+2. **next 14→15 build lint 升级**（`npx next build` 点名，2 条，`@next/next/no-html-link-for-pages` 由警告升为 Error）：
+   - `./app/s/[token]/not-found.tsx — 15:11 Error: Do not use an `<a>` element to navigate to `/`. Use `<Link />` from `next/link` instead`
+   - `./app/s/[token]/page.tsx — 98:11 Error: 同上`
+   - 修复：两处 `<a href="/">` → `<Link href="/">`（含 import），仅此两行
+3. **Next 15 路由 params 异步化**（`next build` 首报 `app/api/notes/[id]/comments/route.ts — Type error: Route ... has an invalid "GET" export: Type "{ params: { id: string; }; }" is not a valid type for the function's second argument`；随后 `.next/types` 生成后 tsc 一次点名全部 5 个文件）：
+   - `app/api/notes/[id]/comments/route.ts`（GET/POST/PATCH/DELETE）
+   - `app/api/notes/[id]/move-block/route.ts`（POST）
+   - `app/api/notes/[id]/route.ts`（GET/PATCH/DELETE）
+   - `app/api/notes/[id]/suggestions/route.ts`（GET/POST/PATCH）
+   - `app/api/plugins/[id]/route.ts`（PATCH/DELETE）
+   - 修复：handler 第二参 `{ params: { id: string } }` → `{ params: Promise<{ id: string }> }` + `await params`（Next 15 官方要求的异步动态段），不改任何业务逻辑；新近路由（memos/versions/tags 等）已是异步写法，无需动
 
 ## 2026-08-19 笔记+待办集中修复（PR #77–#97，共 21 个 PR 合入 master）
 
@@ -53,3 +91,19 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 - 本地两名临时用户验越权 → DB 层 RLS 已验证（红→绿），但未做完整双账号端到端
 
 - mock 新表 seed → 后续
+
+### 其他升级自带变更
+- `apps/web/tsconfig.json`：`npx next build`（Next 15）自动追加 `"target": "ES2017"` 并重排版（build 日志原文：`- target was set to ES2017 (For top-level `await`. Note: Next.js only polyfills for the esmodules target.)`），未手工改动语义
+
+### CI 红→绿回归证据（PR #176 实跑）
+
+1. 🟢 升级后（d70a65a，run 33258965163）：verify ✅，审计步骤输出 `1 vulnerabilities found — Severity: 1 moderate`
+2. 🔴 故意恢复 next@14.2.11（e00ec95，run 33259210650）：verify ❌，审计步骤输出 `32 vulnerabilities found — 4 low | 16 moderate | 11 high | 1 critical`（Paths: apps/web > next@14.2.11）+ `##[error]Process completed with exit code 1`
+3. 🟢 还原后（268b89e revert，run 33259493272）：verify ✅ + db-test ✅
+- db-test（pgTAP）：`Files=10, Tests=96` → `Result: PASS`（与基线 10 文件/96 断言一致，无回归）
+- 门禁最终态：CI verify job 在 install 后即跑 `corepack pnpm audit --prod --audit-level high`，此后任何 PR 引入 Critical/High 直接红灯
+
+### P0-01 交付态
+- audit（--audit-level high）exit 0；全量剩 1 moderate（uuid，不可达，随 P2-01 处理）
+- React 18.3.1 / TipTap 2.27.2 未动；测试 111 文件 / 803 用例（≥基线）；skip=0
+- ROADMAP：P0-01 ✅、P0-02 标记为下一项

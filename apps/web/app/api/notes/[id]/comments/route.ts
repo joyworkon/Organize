@@ -10,14 +10,15 @@ async function getContext(noteId: string) {
   return { supabase, user };
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
-  const ctx = await getContext(params.id);
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const ctx = await getContext(id);
   if (ctx.error) return ctx.error;
   const blockId = new URL(request.url).searchParams.get("blockId");
   let query = ctx.supabase!
     .from("note_comment_threads")
     .select("*, comments:note_comments(*)")
-    .eq("note_id", params.id)
+    .eq("note_id", id)
     .order("created_at", { ascending: true })
     .order("created_at", { referencedTable: "note_comments", ascending: true });
   if (blockId) query = query.eq("block_id", blockId);
@@ -26,8 +27,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json(data || []);
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
-  const ctx = await getContext(params.id);
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const ctx = await getContext(id);
   if (ctx.error) return ctx.error;
   const body = await request.json();
   const blockId = String(body.blockId || "").trim();
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (!blockId || !text || text.length > 5000) return NextResponse.json({ error: "评论内容无效" }, { status: 400 });
 
   if (body.threadId) {
-    const { data: thread } = await ctx.supabase!.from("note_comment_threads").select("id").eq("id", body.threadId).eq("note_id", params.id).single();
+    const { data: thread } = await ctx.supabase!.from("note_comment_threads").select("id").eq("id", body.threadId).eq("note_id", id).single();
     if (!thread) return NextResponse.json({ error: "评论线程不存在" }, { status: 404 });
     const { data, error } = await ctx.supabase!.from("note_comments").insert({ thread_id: thread.id, user_id: ctx.user!.id, body: text }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
   const { data: thread, error: threadError } = await ctx.supabase!
     .from("note_comment_threads")
-    .insert({ note_id: params.id, block_id: blockId, user_id: ctx.user!.id })
+    .insert({ note_id: id, block_id: blockId, user_id: ctx.user!.id })
     .select()
     .single();
   if (threadError) return NextResponse.json({ error: threadError.message }, { status: 500 });
@@ -56,8 +58,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   return NextResponse.json(thread, { status: 201 });
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const ctx = await getContext(params.id);
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const ctx = await getContext(id);
   if (ctx.error) return ctx.error;
   const body = await request.json();
   if (body.commentId && typeof body.body === "string") {
@@ -68,22 +71,23 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json(data);
   }
   if (body.threadId && typeof body.resolved === "boolean") {
-    const { data, error } = await ctx.supabase!.from("note_comment_threads").update({ resolved_at: body.resolved ? new Date().toISOString() : null }).eq("id", body.threadId).eq("note_id", params.id).select().single();
+    const { data, error } = await ctx.supabase!.from("note_comment_threads").update({ resolved_at: body.resolved ? new Date().toISOString() : null }).eq("id", body.threadId).eq("note_id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);
   }
   return NextResponse.json({ error: "无效操作" }, { status: 400 });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  const ctx = await getContext(params.id);
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const ctx = await getContext(id);
   if (ctx.error) return ctx.error;
   const body = await request.json();
   if (body.commentId) {
     const { error } = await ctx.supabase!.from("note_comments").delete().eq("id", body.commentId).eq("user_id", ctx.user!.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } else if (body.threadId) {
-    const { error } = await ctx.supabase!.from("note_comment_threads").delete().eq("id", body.threadId).eq("note_id", params.id);
+    const { error } = await ctx.supabase!.from("note_comment_threads").delete().eq("id", body.threadId).eq("note_id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } else return NextResponse.json({ error: "无效操作" }, { status: 400 });
   return NextResponse.json({ success: true });

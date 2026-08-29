@@ -4,8 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 // GET /api/notes/[id] - 获取单个笔记
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -18,7 +19,7 @@ export async function GET(
   const { data, error } = await supabase
     .from("notes")
     .select("*, reading_item:reading_items(id, title, url, cover_image)")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", user.id)
     .single();
 
@@ -32,8 +33,9 @@ export async function GET(
 // PATCH /api/notes/[id] - 更新笔记
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -74,7 +76,7 @@ export async function PATCH(
   if (parent_note_id === null || typeof parent_note_id === "string") {
     // 循环防护：不能把自己设为自己的父页面，也不能移动到自己的后代下
     if (typeof parent_note_id === "string") {
-      if (parent_note_id === params.id) {
+      if (parent_note_id === id) {
         return NextResponse.json(
           { error: "不能将笔记移动到自身下面" },
           { status: 400 }
@@ -105,7 +107,7 @@ export async function PATCH(
       const seen = new Set<string>();
       let cursor: string | null = parent_note_id;
       while (cursor) {
-        if (cursor === params.id) {
+        if (cursor === id) {
           return NextResponse.json(
             { error: "不能将笔记移动到它自己的子孙页面下" },
             { status: 400 }
@@ -132,7 +134,7 @@ export async function PATCH(
     const { data: current } = await supabase
       .from("notes")
       .select("content_revision")
-      .eq("id", params.id)
+      .eq("id", id)
       .eq("user_id", user.id)
       .single();
     updateData.content_revision = Number(current?.content_revision ?? 0) + 1;
@@ -141,7 +143,7 @@ export async function PATCH(
   const { data, error } = await supabase
     .from("notes")
     .update(updateData)
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", user.id)
     .select()
     .single();
@@ -156,8 +158,9 @@ export async function PATCH(
 // DELETE /api/notes/[id] - 将笔记移入垃圾箱
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -170,7 +173,7 @@ export async function DELETE(
   const { data, error } = await supabase.rpc("mutate_trash", {
     p_action: "soft_delete",
     p_resource_type: "note",
-    p_ids: [params.id],
+    p_ids: [id],
   });
 
   if (error) {
