@@ -1,14 +1,24 @@
 # BLOCKED
 
-## P0-04（进行中→待合并）
-无阻塞。遗留声明（按 P0-04 要求明示）：
-1. **附件/图片文件本体不在备份内**（仅元数据）——UI 清单已明示，文件级打包属
-   后续增强（需要 Storage 导出通道，独立任务）
-2. mock 后端：restore-section 的恢复走 /api/backup/restore（服务端路由，mock 下
-   不可用）；预检（inspect）为纯客户端逻辑两种模式均可用
-3. 继承：1 个 moderate（uuid，TipTap 锚定不可达，随 P2-01）
+## P1-01（待合并）
+无阻塞。两点声明（非阻塞，冻结语义的一部分）：
+1. **去重非原子**：`collectReadingItem` 的去重是「查询 → 插入」两步，极端并发
+   （多标签页同时提交同一 URL 的百毫秒窗口）可能产生两行。未加 `(user_id, url)
+   WHERE deleted_at IS NULL` 部分唯一索引的原因：restore RPC 对 reading_items 是
+   明文 `insert … select`（020，无去重），且历史数据（旧命令面板/批量导入不去重）
+   可能已有同 URL 活跃重复行——直接上索引会破坏 P0-04 刚冻结的 v4 备份往返。
+   后续如需 DB 收口，须同步给恢复 RPC 加 payload 去重并更新 pgTAP，独立任务处理。
+2. **mock 分支的 trash 不真实**：mock 客户端 delete 是硬删，「软删除再保存=新条目」
+   的语义在 mock 下由真实分支的 RLS 行为推导，stub 单测覆盖（软删除行排除用例）。
 
 # BLOCKED — 任务工作台与月历（历史）
+
+## P0-04（已完成，2026-08-29，PR #179）
+无阻塞。遗留声明归档：
+1. 附件/图片文件本体不在备份内（仅元数据）——UI 清单已明示，文件级打包属后续增强
+2. mock 后端：restore-section 的恢复走 /api/backup/restore（服务端路由，mock 下不可用）；
+   预检（inspect）为纯客户端逻辑两种模式均可用
+3. 继承：1 个 moderate（uuid，TipTap 锚定不可达，随 P2-01）
 # BLOCKED
 
 ## P0-03（已完成，见 PROGRESS）

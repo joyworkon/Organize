@@ -14,8 +14,7 @@ import {
 } from "@/components/ui/command";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { commandRegistry, type CommandDefinition } from "@/lib/commands/registry";
-import { scrapeUrl } from "@/lib/scraper/client";
-import { appEvents } from "@/lib/plugin/events";
+import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -354,52 +353,18 @@ export function CommandPalette() {
   const handlePasteLink = async () => {
     if (!linkUrl.trim()) return;
     setSubmittingLink(true);
-    let scrapeFailed = false;
     try {
-      await scrapeUrl(linkUrl.trim());
-    } catch {
-      scrapeFailed = true;
-    }
-
-    // 无论抓取成功与否，都尝试入库（抓取失败时用 URL 当标题）
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: "请先登录", variant: "destructive" });
-        return;
-      }
-      const { data: inserted, error } = await supabase
-        .from("reading_items")
-        .insert({
-          user_id: user.id,
-          url: linkUrl.trim(),
-          title: linkUrl.trim(),
-          reading_status: "unread",
-          reading_progress: 0,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      if (inserted) {
-        appEvents.emit("reading:item-created", {
-          itemId: inserted.id,
-          url: linkUrl.trim(),
-          title: linkUrl.trim(),
-        });
-      }
-    } catch {
-      toast({ title: "添加失败，请重试", variant: "destructive" });
-      return;
+      // 收集语义统一走 collectReadingItem：抓取、仅存链接降级、去重、事件都在服务内
+      const result = await collectReadingItem(linkUrl);
+      toast(collectResultToast(result));
+      if (result.status === "error") return;
+      setLinkInputOpen(false);
+      setLinkUrl("");
+      setOpen(false);
+      router.push("/library");
     } finally {
       setSubmittingLink(false);
     }
-
-    // 仅在入库成功后提示成功
-    toast({ title: scrapeFailed ? "已添加到稍后读（正文抓取失败）" : "已添加到稍后读" });
-    setLinkInputOpen(false);
-    setLinkUrl("");
-    setOpen(false);
-    router.push("/library");
   };
 
   const performSearch = useCallback(async (query: string) => {
