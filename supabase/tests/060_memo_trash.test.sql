@@ -1,6 +1,6 @@
 -- 060 测试：速记接入垃圾箱——软删进桶、可恢复、可永久删除、双用户隔离
 begin;
-select plan(11);
+select plan(12);
 
 do $$
 begin
@@ -89,6 +89,8 @@ select is(
   0,
   'A 无法软删 B 的速记（属主过滤 affected=0）'
 );
+reset role;
+-- 计数断言以 postgres 视角核对（A 的 RLS 看不见 B 的行，属预期）
 select is(
   (select count(*)::text from public.memos where id = 'aaaaaaa2-0000-0000-0000-000000000000' and deleted_at is null),
   '1',
