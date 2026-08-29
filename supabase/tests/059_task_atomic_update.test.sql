@@ -153,14 +153,17 @@ select is(
 reset role;
 
 -- 9. EXECUTE 分层：anon 不可调用，authenticated/service_role 可调用
-select has_function_privilege(
-  'anon', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE', false, 'anon 无 EXECUTE'
+select is(
+  has_function_privilege('anon', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE'),
+  false, 'anon 无 EXECUTE'
 );
-select has_function_privilege(
-  'authenticated', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE', true, 'authenticated 有 EXECUTE'
+select is(
+  has_function_privilege('authenticated', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE'),
+  true, 'authenticated 有 EXECUTE'
 );
-select has_function_privilege(
-  'service_role', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE', true, 'service_role 有 EXECUTE'
+select is(
+  has_function_privilege('service_role', 'update_task_atomic(uuid, jsonb, integer, uuid)', 'EXECUTE'),
+  true, 'service_role 有 EXECUTE'
 );
 
 select finish();
