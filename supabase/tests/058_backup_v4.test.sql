@@ -32,6 +32,8 @@ select restore_backup_v2_full(jsonb_build_object(
         'id', '48320000-0000-0000-0000-000000000002',
         'title', '恢复的笔记',
         'content', '{"type":"doc","content":[{"type":"taskItem","attrs":{"taskId":"48310000-0000-0000-0000-000000000002"}}]}'::jsonb,
+        'is_pinned', false, 'full_width', false,
+        'font_family', 'default', 'small_font', false,
         'created_at', now(), 'updated_at', now()
       )),
       'tags', '[]'::jsonb,
