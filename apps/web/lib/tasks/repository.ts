@@ -10,6 +10,15 @@ import { toast } from "@/hooks/use-toast";
 import type { Task, TaskWithTags, TaskList, Tag } from "@organize/shared";
 import { mutateTrash } from "@/lib/trash/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { enqueueTaskOp, makeTaskUpdateOp, type PendingTaskOp } from "@/lib/offline/task-queue";
+import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
+
+/** 把被拒更改写入 per-user dead-letter（UI 在任务工作台呈现） */
+function stashRejectedChange(userId: string, op: PendingTaskOp, error: unknown): void {
+  addTaskDeadLetterEntry(localStorage, userId, { op, error });
+}
 
 export type TaskScope =
   | "all"
@@ -85,6 +94,60 @@ export function useTaskRepository() {
 
   useEffect(() => { void fetchAll(); }, [fetchAll]);
 
+  /** 共用原子协议的字段更新；冲突/网络失败均有可见处理，返回是否真实落库（false = 乐观态已回滚） */
+  const applyAtomicUpdate = useCallback(
+    async (taskId: string, patch: Record<string, unknown>): Promise<boolean> => {
+      const prev = snapshotRef.current;
+      const currentTask = prev.find((t) => t.id === taskId);
+      const expectedVersion = currentTask?.sync_version ?? null;
+      const result = await applyTaskUpdate(supabase, taskId, patch, expectedVersion, crypto.randomUUID());
+      if (result.status === "applied") {
+        snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, ...patch, sync_version: result.syncVersion } as TaskWithTags : t);
+        setTasks(snapshotRef.current);
+        return true;
+      }
+      if (result.status === "already_applied") return true;
+      if (result.status === "conflict" || result.status === "not_found") {
+        if (result.status === "conflict") {
+          // 双设备冲突：绝不静默覆盖。更改存入 per-user dead-letter（任务工作台有重试/丢弃入口）
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            stashRejectedChange(
+              session.user.id,
+              makeTaskUpdateOp(taskId, patch, expectedVersion),
+              { code: "TASK_SYNC_CONFLICT", message: `任务已在其他设备被修改（当前版本 ${result.currentSyncVersion ?? "未知"}）` }
+            );
+            toast({ title: "任务已在其他设备被修改，本次更改已存入待处理列表", variant: "destructive" });
+          } else {
+            toast({ title: "任务已在其他设备被修改，请刷新后重试", variant: "destructive" });
+          }
+        } else {
+          toast({ title: "任务不存在或已被删除", variant: "destructive" });
+        }
+        setTasks(prev);
+        await fetchAll();
+        return false;
+      }
+      // 网络错误：入队待回放（离线保存），乐观状态保留
+      if (isNetworkSaveError(result.error)) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { persisted } = enqueueTaskOp(localStorage, session.user.id, makeTaskUpdateOp(taskId, patch, expectedVersion));
+          if (!persisted) toast({ title: "本地存储不可用，离线更改可能丢失", variant: "destructive" });
+          else toast({ title: "网络异常，已离线保存，联网后自动同步" });
+          return true;
+        }
+        toast({ title: "网络异常，请稍后重试", variant: "destructive" });
+        setTasks(prev);
+        return false;
+      }
+      setTasks(prev);
+      toast({ title: "更新失败，已回滚", variant: "destructive" });
+      return false;
+    },
+    [supabase, fetchAll]
+  );
+
   /** 乐观更新任务状态，失败回滚 */
   const updateTaskStatus = useCallback(async (taskId: string, status: Task["status"]) => {
     const prev = snapshotRef.current;
@@ -96,8 +159,9 @@ export function useTaskRepository() {
         status,
         completed_at: status === "done" ? new Date().toISOString() : null,
       };
-      const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
-      if (error) throw error;
+      // 在线与离线共用原子协议（P1-03）；离线（含网络异常）入队由 applyAtomicUpdate 处理
+      const applied = await applyAtomicUpdate(taskId, updates);
+      if (!applied) return;
       // 重复任务：done 时触发幂等生成（RPC 内部自检，非重复任务返回 null）
       if (status === "done") {
         const newId = await generateNextRecurringTask(supabase, taskId);
@@ -112,7 +176,7 @@ export function useTaskRepository() {
       rollback();
       toast({ title: "更新失败，已回滚", variant: "destructive" });
     }
-  }, [supabase, fetchAll]);
+  }, [supabase, fetchAll, applyAtomicUpdate]);
 
   /** 乐观切换置顶，失败回滚 */
   const togglePin = useCallback(async (taskId: string) => {
@@ -122,14 +186,14 @@ export function useTaskRepository() {
     const newPinned = !task.is_pinned;
     setTasks((cur) => cur.map((t) => t.id === taskId ? { ...t, is_pinned: newPinned } : t));
     try {
-      const { error } = await supabase.from("tasks").update({ is_pinned: newPinned }).eq("id", taskId);
-      if (error) throw error;
+      const applied = await applyAtomicUpdate(taskId, { is_pinned: newPinned });
+      if (!applied) return;
       snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, is_pinned: newPinned } : t);
     } catch {
       setTasks(prev);
       toast({ title: "操作失败，已回滚", variant: "destructive" });
     }
-  }, [supabase]);
+  }, [supabase, applyAtomicUpdate]);
 
   /** 软删除任务（进回收站） */
   const softDeleteTask = useCallback(async (taskId: string) => {
@@ -145,19 +209,14 @@ export function useTaskRepository() {
     }
   }, [fetchAll]);
 
-  /** 更新任务字段（通用，乐观） */
+  /** 更新任务字段（通用，乐观；在线与离线共用原子协议） */
   const updateTask = useCallback(async (taskId: string, patch: Partial<Task>) => {
     const prev = snapshotRef.current;
     setTasks((cur) => cur.map((t) => t.id === taskId ? { ...t, ...patch } : t));
-    try {
-      const { error } = await supabase.from("tasks").update(patch).eq("id", taskId);
-      if (error) throw error;
-      snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, ...patch } : t);
-    } catch {
-      setTasks(prev);
-      toast({ title: "更新失败，已回滚", variant: "destructive" });
-    }
-  }, [supabase]);
+    const applied = await applyAtomicUpdate(taskId, patch as Record<string, unknown>);
+    if (!applied) return;
+    snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, ...patch } : t);
+  }, [applyAtomicUpdate]);
 
   /** 新建清单 */
   const createList = useCallback(async (name: string, icon?: string, color?: string) => {

@@ -19,6 +19,8 @@ import {
   writeTaskOps,
 } from "@/lib/offline/task-queue";
 import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
+import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
+import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -132,10 +134,20 @@ export default function TaskDetailPage() {
   const online = useOnlineStatus();
   const replayRef = useRef<() => Promise<void>>(async () => {});
   replayRef.current = async () => {
-    const ops = readTaskOps(localStorage);
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (!uid) return;
+    const ops = readTaskOps(localStorage, uid);
     if (ops.length === 0) return;
     const result = await replayTaskOps(createTaskQueueWriter(supabase), ops);
-    writeTaskOps(localStorage, result.remaining);
+    writeTaskOps(localStorage, uid, result.remaining);
+    // 非网络失败进 dead-letter（P1-03）：不静默丢弃
+    for (const rejected of result.rejectedOps) {
+      addTaskDeadLetterEntry(localStorage, uid, rejected);
+    }
+    if (result.rejectedOps.length > 0) {
+      toast({ title: `${result.rejectedOps.length} 项离线更改同步失败，已存入待处理列表（任务工作台可处理）`, variant: "destructive" });
+    }
     if (result.applied > 0) {
       toast({ title: `已同步 ${result.applied} 项离线更改` });
     }
@@ -226,7 +238,7 @@ export default function TaskDetailPage() {
     // X1：先乐观更新；离线（或网络异常）直接入队，联网后回放
     setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, is_completed: isCompleted } : c));
     const offlineUpdate = () => {
-      enqueueTaskOp(localStorage, makeChecklistUpdateOp(checklistId, { is_completed: isCompleted }));
+      enqueueTaskOp(localStorage, task?.user_id ?? "", makeChecklistUpdateOp(checklistId, { is_completed: isCompleted }));
       toast({ title: "已离线保存，联网后自动同步" });
     };
     if (!isOnline()) {
@@ -253,7 +265,7 @@ export default function TaskDetailPage() {
     const previous = checklists;
     setChecklists(prev => prev.filter(c => c.id !== checklistId));
     const offlineDelete = () => {
-      enqueueTaskOp(localStorage, makeChecklistDeleteOp(checklistId));
+      enqueueTaskOp(localStorage, task?.user_id ?? "", makeChecklistDeleteOp(checklistId));
       toast({ title: "已离线删除，联网后自动同步" });
     };
     if (!isOnline()) {
@@ -331,7 +343,9 @@ export default function TaskDetailPage() {
       }).select("id").single();
       if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
       // 关联写失败时不导航：note_id 没落库就跳走，下次点击会再建一条孤儿便签
-      const { error: linkErr } = await supabase.from("tasks").update({ note_id: note.id }).eq("id", task.id);
+      // note_id 关联走原子协议（P1-03）；白名单含 note_id
+      const linkResult = await applyTaskUpdate(supabase, task.id, { note_id: note.id }, task.sync_version ?? null, crypto.randomUUID());
+      const linkErr = linkResult.status === "error" || linkResult.status === "conflict" || linkResult.status === "not_found" ? linkResult : null;
       if (linkErr) {
         toast({ title: "便签已创建但关联失败，请在笔记列表中查看", variant: "destructive" });
         return;
@@ -397,7 +411,7 @@ export default function TaskDetailPage() {
     if (!task) return;
     // X1：离线软删除走队列（回放经 mutate_trash RPC，直写 deleted_at 被 RLS 拒绝）
     const offlineDelete = () => {
-      enqueueTaskOp(localStorage, makeTaskUpdateOp(task.id, { deleted_at: new Date().toISOString() }));
+      enqueueTaskOp(localStorage, task.user_id, makeTaskUpdateOp(task.id, { deleted_at: new Date().toISOString() }, task.sync_version ?? null));
       toast({ title: "已离线删除，联网后自动同步" });
       router.push("/tasks");
     };
@@ -715,14 +729,19 @@ export default function TaskDetailPage() {
                   recurrence_rule: task.recurrence_rule ?? null,
                 }}
                 onChange={async (v) => {
-                  const { error } = await supabase.from("tasks").update({
+                  // 日期更新走原子协议（P1-03）；冲突/失败 toast 可见后刷新
+                  const result = await applyTaskUpdate(supabase, task.id, {
                     schedule_start_at: v.schedule_start_at,
                     schedule_end_at: v.schedule_end_at,
                     all_day: v.all_day,
                     timezone: v.timezone,
                     recurrence_rule: v.recurrence_rule as any,
-                  }).eq("id", task.id);
-                  if (error) { toast({ title: "保存日期失败", variant: "destructive" }); return; }
+                  }, task.sync_version ?? null, crypto.randomUUID());
+                  if (result.status !== "applied" && result.status !== "already_applied") {
+                    toast({ title: result.status === "conflict" ? "任务已在其他设备被修改，请刷新后重试" : "保存日期失败", variant: "destructive" });
+                    if (result.status !== "error" || !isNetworkSaveError(result.error)) { loadTask(); }
+                    return;
+                  }
                   loadTask(); // 刷新
                 }}
               />

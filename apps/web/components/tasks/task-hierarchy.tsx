@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { enqueueTaskOp, makeTaskCreateOp, makeTaskUpdateOp } from "@/lib/offline/task-queue";
+import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 
 interface TaskHierarchyProps {
@@ -97,7 +98,7 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       setTitle(nextTitle);
     };
     const offlineCreate = () => {
-      enqueueTaskOp(localStorage, makeTaskCreateOp(insertPayload));
+      enqueueTaskOp(localStorage, task.user_id, makeTaskCreateOp(insertPayload));
       setSaving(false);
       toast({ title: "已离线创建，联网后自动同步" });
     };
@@ -139,27 +140,28 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       current.map((item) => item.id === child.id ? { ...item, ...patch } : item)
     );
     const offlineUpdate = () => {
-      enqueueTaskOp(localStorage, makeTaskUpdateOp(child.id, patch as Record<string, unknown>));
+      enqueueTaskOp(localStorage, task.user_id, makeTaskUpdateOp(child.id, patch as Record<string, unknown>, child.sync_version ?? null));
       toast({ title: "已离线保存，联网后自动同步" });
     };
     if (!isOnline()) {
       offlineUpdate();
       return;
     }
-    const { error } = await supabase
-      .from("tasks")
-      .update(patch)
-      .eq("id", child.id);
-    if (error) {
+    // 在线与离线更新共用原子协议（P1-03）
+    const result = await applyTaskUpdate(supabase, child.id, patch as Record<string, unknown>, child.sync_version ?? null, crypto.randomUUID());
+    if (result.status === "error" || result.status === "conflict" || result.status === "not_found") {
       // X1：网络错误按离线处理——入队待回放，不回滚乐观状态
-      if (isNetworkSaveError(error)) {
+      if (result.status === "error" && isNetworkSaveError(result.error)) {
         offlineUpdate();
         return;
       }
       setChildren((current) =>
         current.map((item) => item.id === child.id ? { ...item, status: child.status, completed_at: child.completed_at } : item)
       );
-      toast({ title: "更新子任务失败", variant: "destructive" });
+      toast({
+        title: result.status === "conflict" ? "子任务已在其他设备被修改，已还原" : "更新子任务失败",
+        variant: "destructive",
+      });
       return;
     }
     if (patch.status === "done") {

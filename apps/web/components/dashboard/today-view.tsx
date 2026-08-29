@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import type { Task, TaskWithTags, ReadingItem, NoteWithTags, Tag } from "@organize/shared";
 import { TASK_CATEGORY_CONFIG } from "@organize/shared";
 import { computeTaskStreak, computeTodayCompletion } from "@/lib/dashboard/workbench-stats";
+import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import {
   FileText,
   Link as LinkIcon,
@@ -215,8 +217,17 @@ export default function TodayView() {
     } else {
       updates.completed_at = null;
     }
-    const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
-    if (!error && status === "done") {
+    // 在线与离线更新共用原子协议（P1-03）；冲突/失败 toast 可见，刷新取回服务端状态
+    const expectedVersion = allTasks.find((task) => task.id === taskId)?.sync_version ?? null;
+    const result = await applyTaskUpdate(supabase, taskId, updates as Record<string, unknown>, expectedVersion, crypto.randomUUID());
+    if (result.status === "conflict" || result.status === "not_found") {
+      toast({ title: result.status === "conflict" ? "任务已在其他设备被修改，已刷新" : "任务不存在或已被删除", variant: "destructive" });
+    } else if (result.status === "error" && isNetworkSaveError(result.error)) {
+      toast({ title: "网络异常，请稍后重试", variant: "destructive" });
+    } else if (result.status === "error") {
+      toast({ title: "更新失败，请重试", variant: "destructive" });
+    }
+    if (result.status === "applied" && status === "done") {
       // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
       const newId = await generateNextRecurringTask(supabase, taskId);
       if (newId) window.dispatchEvent(new CustomEvent("organize:tasks-changed"));

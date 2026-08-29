@@ -303,6 +303,43 @@ function extractTaskRefs(content: unknown): Array<{ blockId: string; taskId: str
   return refs;
 }
 
+// 059 任务原子变更协议的 mock 实现：与真实 RPC 同语义（幂等/版本校验/白名单字段）
+function updateTaskAtomic(args: Record<string, any>) {
+  const taskId = args.p_task_id as string;
+  const patch = (args.p_patch ?? {}) as Record<string, unknown>;
+  const expected = args.p_expected_sync_version ?? null;
+  const mutationId = args.p_mutation_id ?? null;
+  const mutations = (mockDb.task_mutations ??= []);
+  if (mutationId && mutations.some((row) => row.user_id === MOCK_USER.id && row.mutation_id === mutationId)) {
+    return { data: { status: "already_applied" }, error: null };
+  }
+  const task = (mockDb.tasks || []).find(
+    (row) => row.id === taskId && row.user_id === MOCK_USER.id && row.deleted_at == null
+  );
+  if (!task) return { data: { status: "not_found" }, error: null };
+  const currentVersion = Number(task.sync_version ?? 0);
+  if (expected !== null && currentVersion !== Number(expected)) {
+    return { data: { status: "conflict", current_sync_version: currentVersion }, error: null };
+  }
+  // 与迁移 059 相同的白名单字段（null 覆盖语义一致）
+  const WHITELIST = [
+    "title", "description", "status", "priority", "category", "due_date",
+    "estimated_minutes", "actual_minutes", "reading_item_id", "note_id",
+    "is_pinned", "completed_at", "sort_order", "list_id",
+    "schedule_start_at", "schedule_end_at", "all_day", "timezone",
+    "recurrence_rule", "series_id", "source_id", "reference_managed",
+  ];
+  for (const key of WHITELIST) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) task[key] = patch[key];
+  }
+  task.sync_version = currentVersion + 1;
+  task.updated_at = new Date().toISOString();
+  if (mutationId) {
+    mutations.push({ user_id: MOCK_USER.id, mutation_id: mutationId, task_id: taskId, created_at: new Date().toISOString() });
+  }
+  return { data: { status: "applied", sync_version: task.sync_version }, error: null };
+}
+
 function saveNoteWithTasks(args: Record<string, any>) {
   const note = (mockDb.notes || []).find(
     (row) => row.id === args.p_note_id && row.user_id === MOCK_USER.id
@@ -673,6 +710,7 @@ export function createMockClient(): any {
     },
     rpc: async (name: string, args: Record<string, any> = {}) => {
       if (name === "save_note_with_tasks") return saveNoteWithTasks(args);
+      if (name === "update_task_atomic") return updateTaskAtomic(args);
       if (name === "add_task_dependency") return addTaskDependency(args);
       if (name === "remove_task_dependency") return removeTaskDependency(args);
       if (name === "convert_highlight_reference") return convertHighlightReference(args);
