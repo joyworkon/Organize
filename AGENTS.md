@@ -8,7 +8,7 @@ Organize 是一个跨平台的"稍后读 + 笔记"工具（Notion + Cubox 混合
 
 - 技术底座：pnpm@9.10.0 + Turborepo 的 monorepo，Node >= 18.17.0
 - 主产品是 `apps/web`（Next.js 14 App Router + React 18 + TypeScript）
-- 后端为 Supabase（Postgres + Auth + Storage），本地通过 Docker 运行
+- 后端为 Supabase（Postgres + Auth + Storage），本地通过 Docker 运行；无 Docker 的开发机可开 mock 模式（见下文「mock 后端模式」）
 
 ## 常用命令
 
@@ -84,7 +84,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–044；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态和阅读全宽偏好）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–054；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态和阅读全宽偏好）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
@@ -97,11 +97,14 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 
 ### 阅读链路
 收集箱（`app/(main)/inbox`）粘贴 URL → `POST /api/scrape` 抓取正文（`lib/scraper/index.ts`，用 @mozilla/readability + cheerio + jsdom）→ 写入 `reading_items` → 阅读库（`app/(main)/library`）展示与状态流转 → 详情页 `library/[id]` 按滚动进度更新 reading_progress / status。
-`/api/scrape` 带内存缓存（ISR 风格，支持 `force` 参数强制刷新）。
+客户端统一走 `lib/scraper/client.ts` 的 `scrapeUrl()`（quick-add-bar / 命令面板 / 批量导入三个入口）；`/api/scrape` 带内存缓存（ISR 风格，支持 `force` 参数强制刷新）。
 
 ### 笔记编辑器
 `components/editor/tiptap-editor.tsx` 是 Notion 风格编辑器：无边框、无顶部工具栏，选中文字弹出 BubbleMenu（文本格式 + 块类型二级菜单 + 插入菜单 + 表情选择器 + 更多菜单）。
 自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色/单元格背景持久化，含 `OrganizeTableCell` / `OrganizeTableHeader`）、`resizable-image.tsx`（图片宽度拖拽手柄）、`file-attachment.tsx`（附件块：视频/音频内联播放、其余文件卡片）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。外部文件可通过拖入 / 粘贴 / 插入菜单「上传附件」进入笔记（`/api/upload` 上传，图片失败回退 base64）。
+
+### 导航结构
+侧边栏一级导航：工作台 / 稍后读 / 笔记 / 待办 / 图谱 / 收藏夹 / 插件 / 垃圾箱 / 设置。「经验」并入待办工作台 tab（`/tasks/lessons`，旧 `/lessons` 重定向兼容深链）；「标签」收进稍后读分组的标签快捷列表（点标签带 `?tags=` 进稍后读，列表内筛选与 URL 双向同步），`/tags` 管理页从分组内「管理标签」或命令面板（G T）进入。Chrome 式笔记标签页条（`components/notes/note-tabs-bar.tsx`）仅在 `/notes` 与 `/notes/[id]` 渲染。手动打标签入口在四处齐全：笔记编辑器正文属性行、文章详情页 `library/[id]`、任务对话框、经验详情页，统一走 `components/tags/use-tags.ts`。
 
 ### 插件系统
 - 插件用 `definePlugin()` 声明，提供扩展点：`toolbar-action` / `sidebar-panel` / `content-processor`（抓取后处理）/ `ai-action`
@@ -110,6 +113,14 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 
 ### 认证与路由
 Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登录重定向到 `(auth)/login`；`app/auth/callback` 处理回调。Supabase 客户端封装在 `lib/supabase/client.ts`（浏览器）与 `lib/supabase/server.ts`（服务端，@supabase/ssr）。
+
+### mock 后端模式（无 Docker 的开发机）
+`.env.local` 设 `NEXT_PUBLIC_MOCK_BACKEND=true` 时，`lib/supabase/client.ts` 返回内存 mock 客户端（`lib/supabase/client.ts` → `mock-client.ts` + `mock-data.ts` 的 `mockDb`），middleware 跳过鉴权。分层覆盖情况：
+- **supabase-js 层（mock-client）**：核心表 CRUD + 若干 RPC，UI 直连 client 的功能（列表、任务、标签管理页等）可用
+- **`/api/*` 层（`lib/mock/api-shim.ts` fetch 拦截）**：笔记历史版本、块评论、块建议三类路由路由到 mockDb，响应形状与真实路由逐字段对齐；未覆盖的接口返回 501 明确报错
+- **抓取（`lib/scraper/client.ts`）**：mock 下本地生成样例文章（标题取 URL slug），保存链路完整可用
+- **不可用**：AI（`/api/ai/*`）、上传（`/api/upload`）、数据库块（`/api/databases*`）、move-block——依赖外部服务或未实现，由调用方按失败降级
+- 注意：`/api/*` 服务端代码不走 mock（mockDb 在浏览器内存里）；给 UI 新增 fetch 类功能时要同步考虑是否补 shim handler
 
 ### 离线
 `public/sw.js` Service Worker（页面缓存 + 离线回退 + Web Push 展示）；`lib/offline/` 下按域拆分的离线队列：`note-queue.ts`（笔记创建队列，主键幂等）/ `task-queue.ts` / `note-sync.ts`（保存失败分类与退避计划）/ `network.ts`（在线状态）。服务端 Web Push 提醒由 `.github/workflows/task-reminder-cron.yml` 每 15 分钟调用 `/api/cron/task-reminders` 触发（需配置 repo variable `TASK_REMINDER_BASE_URL` 与 secret `CRON_SECRET`，未配置时该工作流自动跳过）。

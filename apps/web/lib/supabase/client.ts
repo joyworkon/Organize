@@ -1,7 +1,13 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { createMockClient } from "./mock-client";
+import { installMockApiShim } from "@/lib/mock/api-shim";
 
 let browserClient: ReturnType<typeof createBrowserClient> | null = null;
+
+// mock 模式下同步安装 /api/* 拦截层（模块加载期，先于任何组件 effect 发起的 fetch）
+if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
+  installMockApiShim();
+}
 
 export function createClient(): ReturnType<typeof createBrowserClient> {
   if (browserClient) return browserClient;
