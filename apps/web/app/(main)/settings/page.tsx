@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { AISettingsSection } from "@/components/settings/ai-settings";
+import { RestoreSection } from "@/components/settings/restore-section";
 import { PageHeader } from "@/components/layout/page-header";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
 
@@ -219,6 +220,18 @@ export default function SettingsPage() {
           userOwned: true,
           order: ["id"],
         },
+        {
+          table: "memos",
+          columns: "id, content, tags, deleted_at, created_at, updated_at",
+          userOwned: true,
+          order: ["id"],
+        },
+        {
+          table: "task_item_refs",
+          columns: "id, task_id, note_id, block_id, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
       ] as const;
 
       const pageSize = 500;
@@ -368,9 +381,32 @@ export default function SettingsPage() {
             <Download className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">数据管理</h2>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="text-sm text-muted-foreground mb-3">
             导出你的所有数据，用于备份或迁移。
           </p>
+          {/* P0-04：包含/排除清单——不打包的东西必须明说，禁止「成功但丢数据」 */}
+          <details className="mb-4 rounded-md border bg-muted/30 text-sm">
+            <summary className="cursor-pointer select-none px-3 py-2 text-muted-foreground">
+              备份包含什么？（v4 格式清单）
+            </summary>
+            <div className="px-3 pb-3 space-y-2 text-xs leading-relaxed">
+              <div>
+                <span className="font-medium text-foreground">包含（28 张表）：</span>
+                <span className="text-muted-foreground">
+                  阅读条目、笔记（含层级/页面设置/版本历史/评论/建议）、任务（清单/依赖/提醒/附件元数据/动态/模板）、速记、任务↔笔记双链、标签、高亮、收藏、同步块、数据库块、倒数日、经验
+                </span>
+              </div>
+              <div>
+                <span className="font-medium text-destructive">不包含：</span>
+                <span className="text-muted-foreground">
+                  附件与图片的<strong>文件本体</strong>（仅恢复元数据，文件需另行保管）、登录凭据（auth）、插件配置、公开分享链接、AI 服务配置（含密钥，永不导出）
+                </span>
+              </div>
+              <div className="text-muted-foreground">
+                恢复为「整体替换」语义：只允许恢复到空账户，ID 全部重新生成并重建内部链接与任务绑定。
+              </div>
+            </div>
+          </details>
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={exportData}
@@ -398,6 +434,7 @@ export default function SettingsPage() {
              导出 Markdown
             </Button>
           </div>
+          <RestoreSection />
         </div>
 
         <div className="p-5 border-b">

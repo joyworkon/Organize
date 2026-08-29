@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 3;
-/** 备份版本兼容范围：v3 是当前格式，v2（033 前）仍可导入 */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3] as const;
+export const BACKUP_VERSION = 4;
+/** 备份版本兼容范围：v4 是当前格式（058 起收录 memos 与 task_item_refs），v2/v3 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -34,6 +34,9 @@ export const BACKUP_TABLES = [
   "task_activities",
   "task_templates",
   "countdown_days",
+  // 058（P0-04）收录：速记与任务↔笔记双链
+  "memos",
+  "task_item_refs",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -411,6 +414,28 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  memos: {
+    fields: {
+      id: isUuid,
+      content: isString,
+      tags: (value) =>
+        Array.isArray(value) && value.every((entry) => typeof entry === "string"),
+      deleted_at: isNullableTimestamp,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  task_item_refs: {
+    fields: {
+      id: isUuid,
+      task_id: isUuid,
+      note_id: isUuid,
+      block_id: isString,
+      created_at: isTimestamp,
+    },
+    keyFields: ["id", "note_id", "block_id"],
+  },
 };
 
 const REQUIRED_EXCLUSIONS = [
@@ -449,15 +474,15 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   if (value.format !== BACKUP_FORMAT) {
     issues.push(issue("INVALID_FORMAT", "$.format", "备份格式标识不匹配"));
   }
-  if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3)) {
+  if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3/v4")
     );
   }
-  // 旧 v2 备份没有 033 新表；早期 v3 备份也可能没有倒数日，统一补空数组。
+  // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs），统一补空数组。
   if ((value.version === 2 || value.version === 3) && value.data && typeof value.data === "object") {
     const data = value.data as Record<string, unknown>;
-    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies"];
+    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs"];
     for (const t of v3NewTables) {
       if (data[t] === undefined) {
         data[t] = [];
@@ -512,7 +537,7 @@ export function inspectBackupV2(input: unknown): BackupInspection {
     );
   }
 
-  validateManifest(value.manifest, normalizedData, issues);
+  validateManifest(value.manifest, normalizedData, issues, value.version as number | undefined);
   validateRelationships(normalizedData, issues);
 
   if (issues.length > 0) return { ok: false, issues };
@@ -602,7 +627,8 @@ function validateRows(
 function validateManifest(
   value: unknown,
   data: BackupData,
-  issues: BackupIssue[]
+  issues: BackupIssue[],
+  version?: number
 ) {
   if (!isRecord(value) || !isRecord(value.counts) || !Array.isArray(value.excluded)) {
     issues.push(issue("INVALID_MANIFEST", "$.manifest", "manifest 结构无效"));
@@ -611,8 +637,14 @@ function validateManifest(
   rejectUnknownKeys(value, ["counts", "excluded"], "$.manifest", issues);
   rejectUnknownKeys(value.counts, [...BACKUP_TABLES], "$.manifest.counts", issues);
 
+  // P0-04：v2/v3 老备份的 manifest 没有新表键（当时尚不存在），缺键按 0 记；
+  // v4 起严格要求数据与 counts 都齐全
+  const v3CompatTables = new Set(["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs"]);
   for (const table of BACKUP_TABLES) {
-    if (value.counts[table] !== data[table].length) {
+    const declared = value.counts[table];
+    const isLegacyMissing =
+      (version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined;
+    if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(
           "INVALID_MANIFEST",
@@ -673,6 +705,8 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   checkRefs(data.task_checklists, "task_id", ids.tasks, "task_checklists", issues);
   checkRefs(data.task_tags, "task_id", ids.tasks, "task_tags", issues);
   checkRefs(data.task_tags, "tag_id", ids.tags, "task_tags", issues);
+  checkRefs(data.task_item_refs, "task_id", ids.tasks, "task_item_refs", issues);
+  checkRefs(data.task_item_refs, "note_id", ids.notes, "task_item_refs", issues);
   checkOptionalRefs(data.lessons, "task_id", ids.tasks, "lessons", issues);
   checkOptionalRefs(data.lessons, "reading_item_id", ids.reading, "lessons", issues);
   checkOptionalRefs(data.lessons, "note_id", ids.notes, "lessons", issues);

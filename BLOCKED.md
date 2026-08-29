@@ -1,6 +1,17 @@
 # BLOCKED
 
-## P0-03（进行中→待合并）
+## P0-04（进行中→待合并）
+无阻塞。遗留声明（按 P0-04 要求明示）：
+1. **附件/图片文件本体不在备份内**（仅元数据）——UI 清单已明示，文件级打包属
+   后续增强（需要 Storage 导出通道，独立任务）
+2. mock 后端：restore-section 的恢复走 /api/backup/restore（服务端路由，mock 下
+   不可用）；预检（inspect）为纯客户端逻辑两种模式均可用
+3. 继承：1 个 moderate（uuid，TipTap 锚定不可达，随 P2-01）
+
+# BLOCKED — 任务工作台与月历（历史）
+# BLOCKED
+
+## P0-03（已完成，见 PROGRESS）
 无阻塞。两点设计记录（非阻塞）：
 1. mock 后端模式下 user_ai_settings 走浏览器内存 client（RLS/表权限收回只在真实
    后端有意义），SSRF 校验在应用层对两种模式一致生效

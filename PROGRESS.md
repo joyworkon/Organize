@@ -1,5 +1,48 @@
 # PROGRESS
 
+## P0-04 备份恢复合同重建（2026-08-29）
+
+- 分支 `chore/p0-04-backup-contract`（基于 P0-03 合并后的 master = d3ae007，串行第二 PR）
+
+### 盘点出的三个数据丢失洞
+
+1. `memos`（055）不在 BACKUP_TABLES —— 导出即丢全部速记
+2. `task_item_refs`（030 任务↔笔记双链）不在备份清单 —— 导出即丢双链关系
+3. `rewriteInternalLinks` 不处理 `taskItem.attrs.taskId` —— 即使导出了笔记，
+   恢复后任务绑定块指向旧 ID，双链断链
+
+### 实现（v4 合同）
+
+- **schema.ts**：BACKUP_VERSION 3→4；BACKUP_TABLES 收录 memos/task_item_refs
+  （28 张表）；两张表的字段 validator（memos.tags 字符串数组、task_item_refs
+  唯一键 note_id+block_id）；关系校验（task_id/note_id 引用）；
+  v2/v3 老文件兼容——缺新表键补空数组，validateManifest 对 v2/v3 豁免新表
+  counts 键缺失（按 0 记），v4 起严格（缺表即 INVALID_TABLE）
+- **restore.ts**：ID_TABLES 与映射收录两表；**rewriteInternalLinks 新增
+  taskId 键重映射**（空/未绑定原样保留），全部 8 个调用点传入 tasks 映射
+- **迁移 058**：restore_backup_v2_full 包装 with_highlight_references 链尾，
+  落库 memos（tags 数组原样）与 task_item_refs（on conflict 跳过），
+  counts 报告增补两表；coalesce 兜底老 payload
+- **API**：/api/backup/restore 改调 restore_backup_v2_full
+- **设置页**：导出区「备份包含什么？」折叠清单（28 表 + 不包含项明示：
+  附件/图片文件本体、auth、插件配置、分享链接、AI 密钥）；**新增「从备份恢复」
+  入口**（restore-section.tsx：文件选择 → inspect 预检 → 问题清单 → 确认
+  （明示整体替换语义）→ POST → 逐表结果报告）
+- 非空账户：沿用既有 not_empty → 409 整体拒绝（UI 有明确文案）
+
+### 测试
+
+- schema.test.ts：fixture 扩展（memos/task_item_refs/taskItem 节点）；remaps
+  用例新增 6 组断言（taskId 重映射/未绑定保留/两表引用重映射/旧 ID 全清除）；
+  新用例「v3 老备份兼容」（真实形状：counts 也不含新键；v4 缺表必须报错）
+- pgTAP 058_backup_v4.test.sql：10 断言——双账号恢复（B 空账户 restored；
+  memos 按属主+内容落库；task_item_refs 按引用落库；不挂他人任务；
+  counts 报告一致）；非空账户 not_empty 且零写入；v3 老形状 payload 恢复成功
+- 本地门禁：tsc exit 0、vitest **112 文件 / 819 用例**、next build exit 0；
+  pgTAP 由 CI db-test 实跑（116 存量 + 10 新增）
+
+# PROGRESS
+
 ## P0-03 AI 地址与密钥安全（2026-08-29）
 
 - 分支 `chore/p0-03-ai-url-key-security`（基于 P0-02 合并后的 master = e42a58d）
@@ -202,3 +245,15 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 - 第 2 轮 db-test：**Files=11, Tests=116（存量 96 + 新增 20）→ Result: PASS**；
   verify（tsc + vitest 111/803 + next build + 审计门禁）全过
 - 合并：PR #177 squash → master
+
+### P0-04 CI 验证（4 轮）
+- 第 1 轮：exit 3（SQL 前置错误）——用户 C 的 auth.users 预置 DO 块写在 set role
+  authenticated 之后（无权限）；挪到开头 postgres DO 块
+- 第 2 轮：notes.is_pinned NOT NULL——测试 payload 手写行缺列（真实 v4 导出经
+  schema 合同字段齐全）；补 is_pinned/full_width/font_family/small_font
+- 第 3 轮：tasks.sort_order NOT NULL——停止逐列猜，读 044 基础 RPC 的
+  jsonb_to_recordset 全列清单核对，四张非空表必填列一次补齐
+- 第 4 轮：**db-test Files=12, Tests=126（116 存量 + 10 新增）→ Result: PASS**；
+  verify（tsc + vitest 112/819 + build + 审计门禁）全过
+- 说明：三轮失败均为测试载荷形状问题，产品代码（迁移/RPC/合同/重映射）零缺陷
+  返工；合并 PR #179

@@ -36,6 +36,9 @@ const ID_TABLES = [
   "task_activities",
   "task_templates",
   "countdown_days",
+  // 058（P0-04）收录
+  "memos",
+  "task_item_refs",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -91,7 +94,7 @@ export function prepareRestorePayload(
         ? (row.font_family as "default" | "serif" | "mono")
         : "default",
     small_font: row.small_font === true,
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases, maps.tasks),
   }));
   data.tags = backup.data.tags.map((row) => withId(row, maps.tags));
   data.item_tags = backup.data.item_tags.map((row) => ({
@@ -126,7 +129,7 @@ export function prepareRestorePayload(
     task_id: remapOptional(row.task_id, maps.tasks),
     reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
     note_id: remapOptional(row.note_id, maps.notes),
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases, maps.tasks),
   }));
   data.lesson_tags = backup.data.lesson_tags.map((row) => ({
     lesson_id: remap(row.lesson_id, maps.lessons),
@@ -150,7 +153,7 @@ export function prepareRestorePayload(
   data.note_versions = backup.data.note_versions.map((row) => ({
     ...withId(row, maps.note_versions),
     note_id: remap(row.note_id, maps.notes),
-    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases),
+    content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases, maps.tasks),
   }));
   data.note_comment_threads = backup.data.note_comment_threads.map((row) => ({
     ...withId(row, maps.note_comment_threads),
@@ -168,14 +171,16 @@ export function prepareRestorePayload(
       maps.notes,
       maps.reading_items,
       maps.synced_blocks,
-      maps.db_databases
+      maps.db_databases,
+      maps.tasks
     ),
     proposed_block: rewriteInternalLinks(
       row.proposed_block,
       maps.notes,
       maps.reading_items,
       maps.synced_blocks,
-      maps.db_databases
+      maps.db_databases,
+      maps.tasks
     ),
   }));
   data.synced_blocks = backup.data.synced_blocks.map((row) => ({
@@ -185,7 +190,8 @@ export function prepareRestorePayload(
       maps.notes,
       maps.reading_items,
       maps.synced_blocks,
-      maps.db_databases
+      maps.db_databases,
+      maps.tasks
     ),
   }));
   data.db_databases = backup.data.db_databases.map((row) => ({
@@ -205,7 +211,8 @@ export function prepareRestorePayload(
       maps.notes,
       maps.reading_items,
       maps.synced_blocks,
-      maps.db_databases
+      maps.db_databases,
+      maps.tasks
     ),
   }));
 
@@ -227,6 +234,13 @@ export function prepareRestorePayload(
   data.countdown_days = (backup.data.countdown_days || []).map((row) =>
     withId(row, maps.countdown_days)
   );
+  // 058（P0-04）：速记与任务↔笔记双链（老备份缺表按空处理）
+  data.memos = (backup.data.memos || []).map((row) => withId(row, maps.memos));
+  data.task_item_refs = (backup.data.task_item_refs || []).map((row) => ({
+    ...withId(row, maps.task_item_refs),
+    task_id: remap(row.task_id, maps.tasks),
+    note_id: remap(row.note_id, maps.notes),
+  }));
 
   // tasks 新列的外键重映射（list_id → task_lists）
   data.tasks = data.tasks.map((row) => ({
@@ -259,10 +273,11 @@ function rewriteInternalLinks(
   noteIds: Map<string, string>,
   readingIds: Map<string, string>,
   syncedBlockIds?: Map<string, string>,
-  databaseIds?: Map<string, string>
+  databaseIds?: Map<string, string>,
+  taskIds?: Map<string, string>
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) => rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds));
+    return value.map((entry) => rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, taskIds));
   }
   if (!isRecord(value)) return value;
 
@@ -290,8 +305,20 @@ function rewriteInternalLinks(
       const mapped = databaseIds.get(entry);
       if (!mapped) throw new Error(`Unknown database reference ${entry}`);
       rewritten[key] = mapped;
+    } else if (key === "taskId" && taskIds) {
+      // 任务绑定块（P0-04）：taskItem.attrs.taskId 指向 tasks.id，需要重映射；
+      // null/空字符串（未绑定的清单项）原样保留
+      if (entry == null || entry === "") {
+        rewritten[key] = entry;
+      } else if (typeof entry === "string") {
+        const mapped = taskIds.get(entry);
+        if (!mapped) throw new Error(`Unknown task binding reference ${entry}`);
+        rewritten[key] = mapped;
+      } else {
+        rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, taskIds);
+      }
     } else {
-      rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds);
+      rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, taskIds);
     }
   }
   return rewritten;
