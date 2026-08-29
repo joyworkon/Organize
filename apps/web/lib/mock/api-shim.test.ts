@@ -160,6 +160,55 @@ describe("mock api shim", () => {
     expect(conflict.status).toBe(409);
   });
 
+  it("移动块：块跨笔记迁移，源笔记搬空补空段落，评论线程跟随", async () => {
+    const { mockDb } = await import("@/lib/supabase/mock-data");
+    // 准备：源笔记一个带 attrs.id 的块，目标笔记已有内容；线程锚在该块上
+    const block = { type: "paragraph", attrs: { id: "blk-1" }, content: [{ type: "text", text: "要搬的块" }] };
+    const source = mockDb.notes.find((n: any) => n.id === "note-1");
+    const target = mockDb.notes.find((n: any) => n.id === "note-2");
+    source.content = { type: "doc", content: [block] };
+    target.content = { type: "doc", content: [{ type: "paragraph", attrs: { id: "blk-0" } }] };
+    const thread = mockDb.note_comment_threads.find((t: any) => t.id === "mock-thread-1");
+    thread.block_id = "blk-1";
+    thread.note_id = "note-1";
+
+    const { status, body } = await call("/api/notes/note-1/move-block", {
+      method: "POST",
+      body: JSON.stringify({ targetNoteId: "note-2", blockId: "blk-1" }),
+    });
+    expect(status).toBe(200);
+    expect(body).toEqual({ success: true });
+
+    // 源笔记搬空 → 空段落占位；块追加到目标末尾
+    expect(source.content.content).toEqual([{ type: "paragraph" }]);
+    expect(target.content.content).toHaveLength(2);
+    expect(target.content.content[1].attrs.id).toBe("blk-1");
+    // 评论线程跟随到目标笔记
+    expect(thread.note_id).toBe("note-2");
+  });
+
+  it("移动块：同笔记 400、块不存在 409、目标不存在 409", async () => {
+    const same = await call("/api/notes/note-1/move-block", {
+      method: "POST",
+      body: JSON.stringify({ targetNoteId: "note-1", blockId: "blk-1" }),
+    });
+    expect(same.status).toBe(400);
+    expect(same.body).toEqual({ error: "移动目标无效" });
+
+    const missingBlock = await call("/api/notes/note-1/move-block", {
+      method: "POST",
+      body: JSON.stringify({ targetNoteId: "note-2", blockId: "blk-404" }),
+    });
+    expect(missingBlock.status).toBe(409);
+    expect(missingBlock.body).toEqual({ error: "Block not found" });
+
+    const missingNote = await call("/api/notes/note-1/move-block", {
+      method: "POST",
+      body: JSON.stringify({ targetNoteId: "note-404", blockId: "blk-1" }),
+    });
+    expect(missingNote.status).toBe(409);
+  });
+
   it("未覆盖的 /api 接口返回 501，非 API 请求透传原始 fetch", async () => {
     const unmatched = await call("/api/ai/ask", { method: "POST", body: JSON.stringify({}) });
     expect(unmatched.status).toBe(501);

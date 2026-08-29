@@ -1,9 +1,9 @@
-// mock 后端的浏览器端 fetch 拦截层：把笔记历史版本、编辑器评论/建议等
-// /api/* 调用路由到内存 mockDb 实现，让这些功能在无 Docker/Supabase 的
+// mock 后端的浏览器端 fetch 拦截层：把笔记历史版本、块评论、块建议、跨笔记移动块
+// 等 /api/* 调用路由到内存 mockDb 实现，让这些功能在无 Docker/Supabase 的
 // 开发机（NEXT_PUBLIC_MOCK_BACKEND=true）上可用。
 // 由 lib/supabase/client.ts 在 mock 模式下模块加载时同步安装（先于任何组件 effect）。
 // 不在覆盖范围（保持直连、由调用方按失败降级）：AI（/api/ai/*）、上传（/api/upload）、
-// 数据库块（/api/databases*）、move-block、未登录 cron 类接口。
+// 数据库块（/api/databases*）、未登录 cron 类接口。
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 
 type MockHandlerResult = { status?: number; body: unknown };
@@ -226,6 +226,54 @@ const patchSuggestion: MockHandler = ({ body, params }) => {
   return { body: row };
 };
 
+// ---- 跨笔记移动块（对齐 move_note_block RPC）----
+
+const moveBlock: MockHandler = ({ body, params }) => {
+  const targetNoteId = String(body?.targetNoteId || "");
+  const blockId = String(body?.blockId || "");
+  if (!targetNoteId || !blockId || targetNoteId === params.id) {
+    return { status: 400, body: { error: "移动目标无效" } };
+  }
+  const source = findNote(params.id);
+  const target = findNote(targetNoteId);
+  if (!source || !target) {
+    return { status: 409, body: { error: "Note not found or access denied" } };
+  }
+
+  const sourceBlocks: any[] = source.content?.content ?? [];
+  const index = sourceBlocks.findIndex(
+    (block) => block?.attrs?.id === blockId
+  );
+  if (index === -1) return { status: 409, body: { error: "Block not found" } };
+
+  const movingBlock = sourceBlocks[index];
+  const remaining = sourceBlocks.filter((_, i) => i !== index);
+  // 源笔记搬空后补一个空段落占位（与 RPC 一致）
+  source.content = {
+    ...source.content,
+    content: remaining.length > 0 ? remaining : [{ type: "paragraph" }],
+  };
+  target.content = {
+    ...target.content,
+    content: [...(target.content?.content ?? []), movingBlock],
+  };
+  source.updated_at = nowIso();
+  target.updated_at = nowIso();
+
+  // 批注与建议跟随区块迁移，避免在源笔记留下不可见的孤儿锚点
+  for (const thread of mockDb.note_comment_threads) {
+    if (thread.note_id === params.id && thread.block_id === blockId) {
+      thread.note_id = targetNoteId;
+    }
+  }
+  for (const suggestion of mockDb.note_suggestions) {
+    if (suggestion.note_id === params.id && suggestion.block_id === blockId) {
+      suggestion.note_id = targetNoteId;
+    }
+  }
+  return { body: { success: true } };
+};
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -238,6 +286,7 @@ const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: listSuggestions },
   { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: createSuggestion },
   { method: "PATCH", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: patchSuggestion },
+  { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/move-block$/, handler: moveBlock },
 ];
 
 const jsonResponse = (body: unknown, status: number) =>
