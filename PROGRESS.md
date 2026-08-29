@@ -94,3 +94,16 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 
 ### 其他升级自带变更
 - `apps/web/tsconfig.json`：`npx next build`（Next 15）自动追加 `"target": "ES2017"` 并重排版（build 日志原文：`- target was set to ES2017 (For top-level `await`. Note: Next.js only polyfills for the esmodules target.)`），未手工改动语义
+
+### CI 红→绿回归证据（PR #176 实跑）
+
+1. 🟢 升级后（d70a65a，run 33258965163）：verify ✅，审计步骤输出 `1 vulnerabilities found — Severity: 1 moderate`
+2. 🔴 故意恢复 next@14.2.11（e00ec95，run 33259210650）：verify ❌，审计步骤输出 `32 vulnerabilities found — 4 low | 16 moderate | 11 high | 1 critical`（Paths: apps/web > next@14.2.11）+ `##[error]Process completed with exit code 1`
+3. 🟢 还原后（268b89e revert，run 33259493272）：verify ✅ + db-test ✅
+- db-test（pgTAP）：`Files=10, Tests=96` → `Result: PASS`（与基线 10 文件/96 断言一致，无回归）
+- 门禁最终态：CI verify job 在 install 后即跑 `corepack pnpm audit --prod --audit-level high`，此后任何 PR 引入 Critical/High 直接红灯
+
+### P0-01 交付态
+- audit（--audit-level high）exit 0；全量剩 1 moderate（uuid，不可达，随 P2-01 处理）
+- React 18.3.1 / TipTap 2.27.2 未动；测试 111 文件 / 803 用例（≥基线）；skip=0
+- ROADMAP：P0-01 ✅、P0-02 标记为下一项
