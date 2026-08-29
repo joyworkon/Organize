@@ -92,9 +92,9 @@ select is(
 reset role;
 -- 计数断言以 postgres 视角核对（A 的 RLS 看不见 B 的行，属预期）
 select is(
-  (select count(*)::text from public.memos where id = 'aaaaaaa2-0000-0000-0000-000000000000' and deleted_at is null),
+  (select count(*)::text from public.memos where id = 'aaaaaaa2-0000-0000-0000-000000000000' and deleted_at is not null),
   '1',
-  'B 的速记未被 A 动过（仍然活跃）'
+  'B 的速记仍存在且保持 B 自己软删后的状态（未被 A 恢复或永久删除）'
 );
 
 select finish();
