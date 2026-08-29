@@ -245,3 +245,15 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 - 第 2 轮 db-test：**Files=11, Tests=116（存量 96 + 新增 20）→ Result: PASS**；
   verify（tsc + vitest 111/803 + next build + 审计门禁）全过
 - 合并：PR #177 squash → master
+
+### P0-04 CI 验证（4 轮）
+- 第 1 轮：exit 3（SQL 前置错误）——用户 C 的 auth.users 预置 DO 块写在 set role
+  authenticated 之后（无权限）；挪到开头 postgres DO 块
+- 第 2 轮：notes.is_pinned NOT NULL——测试 payload 手写行缺列（真实 v4 导出经
+  schema 合同字段齐全）；补 is_pinned/full_width/font_family/small_font
+- 第 3 轮：tasks.sort_order NOT NULL——停止逐列猜，读 044 基础 RPC 的
+  jsonb_to_recordset 全列清单核对，四张非空表必填列一次补齐
+- 第 4 轮：**db-test Files=12, Tests=126（116 存量 + 10 新增）→ Result: PASS**；
+  verify（tsc + vitest 112/819 + build + 审计门禁）全过
+- 说明：三轮失败均为测试载荷形状问题，产品代码（迁移/RPC/合同/重映射）零缺陷
+  返工；合并 PR #179
