@@ -155,3 +155,12 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
 - audit（--audit-level high）exit 0；全量剩 1 moderate（uuid，不可达，随 P2-01 处理）
 - React 18.3.1 / TipTap 2.27.2 未动；测试 111 文件 / 803 用例（≥基线）；skip=0
 - ROADMAP：P0-01 ✅、P0-02 标记为下一项
+
+### P0-02 CI 验证（2 轮）
+- 第 1 轮 db-test：迁移应用成功、存量 10 文件全过、安全控制全部真实生效
+  （复合外键 23503 / RLS 42501 / 表权限 42501 均真实拒绝）——失败 9 处全是
+  测试断言写法：throws_ok 第 3 参是「期望错误消息」；越权后计数需绕 RLS；
+  11/12/13 实际拒绝发生在表权限/RLS 层（42501）而非外键层；plan 数错
+- 第 2 轮 db-test：**Files=11, Tests=116（存量 96 + 新增 20）→ Result: PASS**；
+  verify（tsc + vitest 111/803 + next build + 审计门禁）全过
+- 合并：PR #177 squash → master
