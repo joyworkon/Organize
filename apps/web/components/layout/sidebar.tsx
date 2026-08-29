@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Loader2,
   Network,
+  Feather,
 } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ const navItems = [
   { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tasks", label: "待办", icon: ListChecks },
+  { href: "/memos", label: "速记", icon: Feather },
   { href: "/graph", label: "图谱", icon: Network },
   { href: "/favorites", label: "收藏夹", icon: Star },
   { href: "/plugins", label: "插件", icon: Puzzle },

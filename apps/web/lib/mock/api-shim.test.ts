@@ -209,6 +209,49 @@ describe("mock api shim", () => {
     expect(missingNote.status).toBe(409);
   });
 
+  it("速记：创建解析标签、列表倒序、tag 筛选、编辑重解析、软删后不可见", async () => {
+    const created = await call("/api/memos", {
+      method: "POST",
+      body: JSON.stringify({ content: "测试一条 #测试 #速记。" }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.tags).toEqual(["测试", "速记"]);
+
+    const list = await call("/api/memos");
+    expect(list.status).toBe(200);
+    expect(list.body[0].content).toBe("测试一条 #测试 #速记。");
+    // 种子速记在列表里（倒序：新建的在前）
+    expect(list.body.some((m: any) => m.id === "mock-memo-1")).toBe(true);
+
+    const filtered = await call("/api/memos?tag=阅读方法");
+    expect(filtered.body.every((m: any) => m.tags.includes("阅读方法"))).toBe(true);
+
+    const patched = await call(`/api/memos/${created.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: "改过的内容 #新标签" }),
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.tags).toEqual(["新标签"]);
+
+    const removed = await call(`/api/memos/${created.body.id}`, { method: "DELETE" });
+    expect(removed.body).toEqual({ success: true });
+    const afterDelete = await call("/api/memos");
+    expect(afterDelete.body.some((m: any) => m.id === created.body.id)).toBe(false);
+
+    // 与真实 DELETE 一致：再删一次也返回 success
+    const removedAgain = await call(`/api/memos/${created.body.id}`, { method: "DELETE" });
+    expect(removedAgain.body).toEqual({ success: true });
+  });
+
+  it("速记：空内容返回 400", async () => {
+    const { status, body } = await call("/api/memos", {
+      method: "POST",
+      body: JSON.stringify({ content: "   " }),
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("内容无效");
+  });
+
   it("未覆盖的 /api 接口返回 501，非 API 请求透传原始 fetch", async () => {
     const unmatched = await call("/api/ai/ask", { method: "POST", body: JSON.stringify({}) });
     expect(unmatched.status).toBe(501);

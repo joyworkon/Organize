@@ -92,6 +92,7 @@ export function GlobalHotkeys() {
       { sequence: ["g", "n"], handler: () => go("/notes") },
       { sequence: ["g", "d"], handler: () => go("/tasks") },
       { sequence: ["g", "e"], handler: () => go("/tasks/lessons") },
+      { sequence: ["g", "m"], handler: () => go("/memos") },
       { sequence: ["g", "g"], handler: () => go("/graph") },
       { sequence: ["g", "f"], handler: () => go("/favorites") },
       { sequence: ["g", "t"], handler: () => go("/tags") },

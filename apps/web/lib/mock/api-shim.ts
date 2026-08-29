@@ -5,6 +5,7 @@
 // 不在覆盖范围（保持直连、由调用方按失败降级）：AI（/api/ai/*）、上传（/api/upload）、
 // 数据库块（/api/databases*）、未登录 cron 类接口。
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
+import { parseMemoTags } from "@/lib/memos/tags";
 
 type MockHandlerResult = { status?: number; body: unknown };
 type MockHandler = (ctx: {
@@ -274,6 +275,55 @@ const moveBlock: MockHandler = ({ body, params }) => {
   return { body: { success: true } };
 };
 
+// ---- 速记 memos ----
+
+const listMemos: MockHandler = ({ url }) => {
+  const tag = url.searchParams.get("tag");
+  const rows = mockDb.memos
+    .filter((m) => !m.deleted_at && (!tag || (m.tags as string[]).includes(tag)))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  return { body: rows };
+};
+
+const createMemo: MockHandler = ({ body }) => {
+  const content = String(body?.content || "").trim();
+  if (!content || content.length > 5000) {
+    return { status: 400, body: { error: "内容无效（1-5000 字）" } };
+  }
+  const now = nowIso();
+  const row = {
+    id: genId("memos"),
+    user_id: MOCK_USER.id,
+    content,
+    tags: parseMemoTags(content),
+    deleted_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+  mockDb.memos.push(row);
+  return { status: 201, body: row };
+};
+
+const patchMemo: MockHandler = ({ body, params }) => {
+  const content = String(body?.content || "").trim();
+  if (!content || content.length > 5000) {
+    return { status: 400, body: { error: "内容无效（1-5000 字）" } };
+  }
+  const row = mockDb.memos.find((m) => m.id === params.id && !m.deleted_at);
+  if (!row) return { status: 500, body: { error: "速记不存在" } };
+  row.content = content;
+  row.tags = parseMemoTags(content);
+  row.updated_at = nowIso();
+  return { body: row };
+};
+
+// 与真实 DELETE 一致：未命中（已删/不存在）也返回 success
+const deleteMemo: MockHandler = ({ params }) => {
+  const row = mockDb.memos.find((m) => m.id === params.id && !m.deleted_at);
+  if (row) row.deleted_at = nowIso();
+  return { body: { success: true } };
+};
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -287,6 +337,10 @@ const ROUTES: MockRoute[] = [
   { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: createSuggestion },
   { method: "PATCH", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: patchSuggestion },
   { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/move-block$/, handler: moveBlock },
+  { method: "GET", pattern: /^\/api\/memos$/, handler: listMemos },
+  { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
+  { method: "PATCH", pattern: /^\/api\/memos\/([^/]+)$/, handler: patchMemo },
+  { method: "DELETE", pattern: /^\/api\/memos\/([^/]+)$/, handler: deleteMemo },
 ];
 
 const jsonResponse = (body: unknown, status: number) =>
