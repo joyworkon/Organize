@@ -156,10 +156,10 @@ begin
   loop
     execute format('revoke execute on function public.%I(%s) from public', r.proname, r.args);
     execute format('revoke execute on function public.%I(%s) from anon', r.proname, r.args);
-    if r.proname = any (server_only) then
+    if r.proname::text = any (server_only) then
       execute format('revoke execute on function public.%I(%s) from authenticated', r.proname, r.args);
       execute format('grant execute on function public.%I(%s) to service_role', r.proname, r.args);
-    elsif r.proname = any (anon_ok) then
+    elsif r.proname::text = any (anon_ok) then
       execute format('grant execute on function public.%I(%s) to anon, authenticated, service_role', r.proname, r.args);
     else
       execute format('grant execute on function public.%I(%s) to authenticated, service_role', r.proname, r.args);
