@@ -1,6 +1,6 @@
 -- 059 测试：任务原子变更协议——applied/conflict/not_found/幂等重放/未授权/RLS
 begin;
-select plan(14);
+select plan(17);
 
 -- 准备两个用户
 do $$
@@ -121,10 +121,10 @@ select is(
 );
 
 -- 7. task_mutations 不可 update/delete（策略仅 select/insert）
+-- 只授 select/insert：UPDATE 在表权限层即被拒（42501 permission denied）
 select throws_ok(
   'update public.task_mutations set created_at = now()',
-  '42501',
-  '日志行不可被客户端修改'
+  '42501'
 );
 
 -- 8. B 视角：自己的任务可应用；A 的任务 not_found
