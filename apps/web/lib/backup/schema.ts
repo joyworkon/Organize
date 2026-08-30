@@ -128,6 +128,7 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       reading_status: oneOf("unread", "reading", "read"),
       reading_progress: isNumber,
       is_pinned: isBoolean,
+      full_width: optional(isBoolean),
       started_reading_at: isNullableTimestamp,
       completed_reading_at: isNullableTimestamp,
       created_at: isTimestamp,
