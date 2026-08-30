@@ -20,6 +20,16 @@ describe("validateEnv（P2-02 启动校验）", () => {
     expect(issues.find((i) => i.key === "NEXT_PUBLIC_MOCK_BACKEND")?.level).toBe("fatal");
   });
 
+  it("E2E harness（ORGANIZE_E2E=true）production+mock → 降级 warn 不拦启动", () => {
+    const issues = validateEnv({
+      ...BASE,
+      NEXT_PUBLIC_MOCK_BACKEND: "true",
+      ORGANIZE_E2E: "true",
+    });
+    expect(hasFatal(issues)).toBe(false);
+    expect(issues.find((i) => i.key === "NEXT_PUBLIC_MOCK_BACKEND")?.level).toBe("warn");
+  });
+
   it("开发 + mock=true → 仅 warn 不拦启动", () => {
     const issues = validateEnv({
       ...BASE,

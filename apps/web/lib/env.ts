@@ -30,9 +30,13 @@ export function validateEnv(env: {
   NEXT_PUBLIC_SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   CRON_SECRET?: string;
+  /** E2E harness 显式逃生舱：next start 固定 NODE_ENV=production，mock smoke 需降级 */
+  ORGANIZE_E2E?: string;
 }): EnvIssue[] {
   const issues: EnvIssue[] = [];
-  const isProd = env.NODE_ENV === "production";
+  // E2E（playwright webServer）显式自证身份：mock 从 fatal 降为 warn。
+  // 生产部署面板不会设置该变量，红线对真实部署不受影响。
+  const isProd = env.NODE_ENV === "production" && env.ORGANIZE_E2E !== "true";
 
   if (env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
     if (isProd) {
