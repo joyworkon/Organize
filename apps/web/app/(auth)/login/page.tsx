@@ -42,6 +42,26 @@ export default function LoginPage() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      setError("请先输入注册邮箱，再点击忘记密码");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/auth/reset`,
+      });
+      if (error) throw error;
+      setError("重置链接已发送到邮箱，请查收（可能在垃圾邮件里）");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "发送失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOAuthLogin = async (provider: "github" | "google") => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
@@ -88,6 +108,17 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "处理中..." : isSignUp ? "注册" : "登录"}
             </Button>
+
+            {!isSignUp && (
+              <button
+                type="button"
+                onClick={() => void handleResetPassword()}
+                disabled={loading}
+                className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                忘记密码？
+              </button>
+            )}
           </form>
 
           <div className="relative my-4">

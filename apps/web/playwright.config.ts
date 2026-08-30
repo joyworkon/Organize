@@ -30,6 +30,8 @@ export default defineConfig({
     timeout: 60_000,
     env: {
       NEXT_PUBLIC_MOCK_BACKEND: "true",
+      // env 校验逃生舱：next start 固定 production，E2E harness 显式自证身份
+      ORGANIZE_E2E: "true",
       // mock 模式不需要有效 Supabase，但 createBrowserClient 需要变量存在
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
       NEXT_PUBLIC_SUPABASE_ANON_KEY:
