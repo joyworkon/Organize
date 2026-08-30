@@ -46,6 +46,7 @@ function fixtureData(): BackupData {
         reading_status: "read",
         reading_progress: 1,
         is_pinned: false,
+        full_width: true,
         started_reading_at: timestamp,
         completed_reading_at: timestamp,
         created_at: timestamp,
@@ -538,6 +539,8 @@ describe("Backup V2", () => {
     delete data.notes[0].full_width;
     delete data.notes[0].font_family;
     delete data.notes[0].small_font;
+    // 044 之前的备份没有 reading_items.full_width
+    delete data.reading_items[0].full_width;
 
     const result = inspectBackupV2(backup);
     expect(result.ok).toBe(true);
@@ -546,6 +549,14 @@ describe("Backup V2", () => {
     expect(payload.data.notes[0].full_width).toBe(false);
     expect(payload.data.notes[0].font_family).toBe("default");
     expect(payload.data.notes[0].small_font).toBe(false);
+    expect(payload.data.reading_items[0].full_width).toBeUndefined();
+  });
+
+  it("accepts reading_items.full_width from current exports and preserves it on restore", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    expect(inspectBackupV2(backup).ok).toBe(true);
+    const payload = prepareRestorePayload(backup);
+    expect(payload.data.reading_items[0].full_width).toBe(true);
   });
 
   it("rejects invalid font_family values and preserves valid ones", () => {
