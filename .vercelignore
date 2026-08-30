@@ -1,0 +1,17 @@
+# 排除本地环境变量：.env.local 指向本地 Supabase 且含 MOCK 开关，
+# 若被上传会在构建期把错误的 NEXT_PUBLIC_* 烧进产物
+.env*
+*.env
+
+# Supabase 本地栈与链接凭据（含 .temp 内的 pooler 连接串）。
+# 必须用前导斜杠锚定根目录：裸写 `supabase` 会按 gitignore 语义
+# 匹配任意层级同名目录，曾误伤 apps/web/lib/supabase 导致构建找不到模块。
+/supabase
+
+# 版本控制与文档不参与构建（同样锚定根目录）
+/.git
+/.github
+/docs
+
+# 注意：desktop/ 与 mobile/ 在 pnpm-workspace.yaml 中声明，
+# 不能排除，否则 Vercel 上 pnpm install 会因缺少 workspace 成员而失败。

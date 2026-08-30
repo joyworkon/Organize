@@ -58,3 +58,5 @@ supabase/.temp
 # 根目录测试/调试临时截图
 /*-regression.png
 /*-screenshot.png
+.vercel
+.env*
