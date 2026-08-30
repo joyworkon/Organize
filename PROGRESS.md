@@ -1,5 +1,36 @@
 # PROGRESS
 
+## P2-02 Web 上线前能力（2026-08-30）
+
+- 分支 `feat/p2-02-prelaunch`（master = 687efc6，P2-01 合并后）
+
+### 实现
+
+1. **环境变量启动校验**：lib/env.ts validateEnv（fatal/warn 分级）+ instrumentation.ts
+   register——生产 fatal 直接拒绝启动（红线：生产禁 NEXT_PUBLIC_MOCK_BACKEND=true）；
+   开发仅提示。/api/health 附 envWarnings。7 条单测（lib/env.test.ts）
+2. **忘记密码**：登录页「忘记密码？」（需先填邮箱）→ resetPasswordForEmail →
+   新 /auth/reset 页（updateUser 换密码；缺 code 显示链接失效态）。middleware
+   /auth 前缀已放行无需改
+3. **账号删除**：DELETE /api/account——会话校验后 service role 按会话用户 id
+   admin.deleteUser（schema 全部 auth.users 外键均为 on delete cascade，数据随
+   账号物理删除；请求体不参与定位，无法越权）；设置页新增「账号与数据」危险区
+   （隐私说明 + 删除入口，showConfirm 二次确认后登出跳登录）
+4. **showConfirm**：prompt-dialog 扩展 Promise 风格确认对话框（destructive 红色
+   确认钮），与 showPrompt 共用 PromptHost
+5. **部署物料**：.env.production.example（含红线注释）；docs/deploy-runbook.md
+   （staging 先行步骤/迁移回滚原则/备份与恢复演练 runbook/演练日志表）
+
+### 门禁（本地）
+
+- tsc exit 0；vitest 119 文件 / 869 用例全绿 skip=0（+1 文件 +7 用例）；
+  lint --max-warnings 0 通过
+- next build：本机今天起卡死在「Creating an optimized production build」（连
+  master 基线、清 .next、关遥测均复现，与代码无关的环境问题，见 BLOCKED.md）；
+  构建门禁由 PR CI verify job 实跑裁决
+
+# PROGRESS
+
 ## P2-01 严格 CI 与核心 E2E（2026-08-29）
 
 - 分支 `chore/p2-01-strict-ci-e2e`（master = 6d05162，P1-04 合并后；含 P1 门禁核对记录）

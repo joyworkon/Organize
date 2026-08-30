@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 import { resetOnboarding } from "@/components/onboarding";
 import { tiptapJsonToMarkdown } from "@/lib/export/tiptap-to-md";
 import {
@@ -22,6 +24,7 @@ import {
   HelpCircle,
   RotateCcw,
   Loader2,
+  ShieldAlert,
 } from "lucide-react";
 import { AISettingsSection } from "@/components/settings/ai-settings";
 import { RestoreSection } from "@/components/settings/restore-section";
@@ -52,6 +55,8 @@ function downloadFile(filename: string, content: string, mimeType: string) {
 export default function SettingsPage() {
   const supabase = useMemo(() => createClient(), []);
   const [exportingData, setExportingData] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const router = useRouter();
   const [exportingMarkdown, setExportingMarkdown] = useState(false);
 
   const exportData = async () => {
@@ -358,6 +363,35 @@ export default function SettingsPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    const confirmed = await showConfirm({
+      title: "永久删除账号？",
+      description:
+        "你的全部数据（稍后读、笔记、任务、速记、高亮、清单等）将随账号立即物理删除，不可恢复。此操作无法撤销。",
+      confirmText: "永久删除我的账号",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast({
+          title: body?.error || "账号删除失败，请稍后重试",
+          variant: "destructive",
+        });
+        return;
+      }
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch {
+      toast({ title: "账号删除请求失败，请稍后重试", variant: "destructive" });
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   return (
     <div className="w-full space-y-6">
       <PageHeader icon={SettingsIcon} title="设置" />
@@ -435,6 +469,38 @@ export default function SettingsPage() {
             </Button>
           </div>
           <RestoreSection />
+        </div>
+
+        <div className="p-5 border-b border-destructive/30">
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldAlert className="h-5 w-5 text-destructive" />
+            <h2 className="text-lg font-semibold">账号与数据</h2>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium">隐私说明</h3>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                你的数据仅存于你自己的账户空间（行级隔离），不会与其他用户共享。
+                「导出数据」可随时带走全部数据的 JSON 副本；附件与图片文件本体不在备份内。
+              </p>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-destructive">删除账号</h3>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                永久删除账号及全部数据，立即生效且不可恢复。建议先「导出数据」留底。
+              </p>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="mt-2 flex items-center gap-2"
+                onClick={() => void handleDeleteAccount()}
+                disabled={deletingAccount}
+              >
+                {deletingAccount ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
+                永久删除我的账号
+              </Button>
+            </div>
+          </div>
         </div>
 
         <div className="p-5 border-b">
