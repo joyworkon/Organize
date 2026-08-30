@@ -4,7 +4,7 @@
 
 ## 1. 首次部署（staging 先行）
 
-1. **Supabase 云项目**：创建项目 → `supabase link` → `supabase db push` 应用全部迁移（001–061）→ `supabase test db` 在云库跑一遍 pgTAP（应 15 文件 / 162 断言全过）。注意云端池（6543，transaction 模式）会让 `set role` 类测试报 "No plan found"，必须用 5432 直连（`--db-url postgresql://postgres:<db密码>@db.<ref>.supabase.co:5432/postgres`）。
+1. **Supabase 云项目**：创建项目 → `supabase link` → `supabase db push` 应用全部迁移（001–062）→ `supabase test db` 在云库跑一遍 pgTAP（应 16 文件 / 177 断言全过）。注意云端池（6543，transaction 模式）会让 `set role` 类测试报 "No plan found"，必须用 5432 直连（`--db-url postgresql://postgres:<db密码>@db.<ref>.supabase.co:5432/postgres`）。
 2. **Vercel**：导入仓库，Framework=Next.js，Node 22；按 `.env.production.example` 配置环境变量（`NEXT_PUBLIC_MOCK_BACKEND` 严禁设置）。
    - 注意：`NEXT_PUBLIC_*` 在 edge middleware 里是**构建期内联**的，运行时改环境变量不会翻转已构建产物——必须先在平台配好 env 再触发构建。
    - Monorepo：项目设置 Root Directory=`apps/web`，Install=`pnpm install`，Build=`pnpm --filter @organize/web build`，Output=`.next`；根目录不要放 `vercel.json`（配置已烧进项目设置，两处并存会互相打架）。
@@ -37,7 +37,7 @@
   2. 导出 JSON；
   3. 新建第二个空测试账号；
   4. 「设置 → 从备份恢复」选文件 → 预检 → 确认；
-  5. 逐表核对数量与层级/链接完整性（恢复 RPC 已内置 ID 重映射与链接重建，pgTAP 058 覆盖）；
+  5. 逐表核对数量与层级/链接完整性（恢复 RPC 已内置 ID 重映射与链接重建，pgTAP 058/062 覆盖；062 专门覆盖笔记层级/图标/封面、同步区块与数据库块——这些在纯数量核对中不可见）；
   6. 记录演练日期与结果到本文件末尾的演练日志。
 
 ## 4. 已知边界
@@ -50,7 +50,7 @@
 
 | 日期 | 环境 | 范围 | 结果 | 执行人 |
 |---|---|---|---|---|
-| （待 P2-03 执行） | staging | 全量恢复往返 | — | — |
+| 2026-08-30 | staging | 全量恢复往返（两轮、13 类数据、含层级/图标/同步区块/数据库块） | 通过（过程中发现并修复 2 处数据缺陷：PR #188、#189） | agent |
 
 ### 上云前预检（零云依赖，2026-08-30）
 
@@ -69,4 +69,17 @@ Supabase Cloud（ref `sgkviverpercklxsjbcv`）001–061 迁移全部应用，543
 - 团队版默认开 Vercel Authentication，所有请求 302 → `vercel.com/sso-api` → API 置 `ssoProtection` 为 null。
 - `claim_due_task_reminder_deliveries` 的 RETURNS TABLE OUT 参数与函数体 ON CONFLICT 列名歧义（42702），云库运行即 500 → 迁移 061 加 `#variable_conflict use_column`，并补带数据的执行型 pgTAP（tests/061）。
 
-仍待办：GitHub Actions 的 `TASK_REMINDER_BASE_URL` / `CRON_SECRET` 配置与手动触发验证、Auth 回调与邮件、恢复演练（第 3 节）、第 6 步人工验收清单。
+仍待办：~~GitHub Actions 的 `TASK_REMINDER_BASE_URL` / `CRON_SECRET` 配置与手动触发验证~~（已配平、手动触发 200）、Auth 回调与邮件、~~恢复演练（第 3 节）~~（已完成，见下）、第 6 步人工验收清单。
+
+### 恢复演练（2026-08-30，staging）
+
+按第 3 节流程执行：账号 A 造种子（阅读条目×2、笔记×3 含父子层级与图标、标签×2、任务×2 含子任务与笔记链接、速记×2、清单×2、note_tags/task_tags 各 1），导出 v4 JSON → 空账号 B「从备份恢复」→ 云库 5432 直连逐表核对。共两轮。
+
+**第一轮发现两处真实数据缺陷（均已修复）：**
+
+1. **导出被自校验拦截**（PR #188）：迁移 044 给 `reading_items` 加 `full_width` 后，`lib/backup/schema.ts` 白名单未同步，任何含阅读条目的导出都报「包含未授权字段」。补 `full_width: optional(isBoolean)`（保持旧备份可导入）。
+2. **恢复静默丢数据**（PR #189）：逐表核对发现笔记父子层级断裂、图标丢失；代码审查进一步确认 `synced_blocks`、`db_databases`/`db_rows` 也被丢弃。根因：033 重写 `restore_backup_v2_with_pages` 时丢掉了 024–027 一直携带的笔记页面字段回填与 `synced_blocks` 插入；db 两表自 028 建表后从未接入恢复链。迁移 062 重定义该函数补回三处（+ counts 报告），新增 pgTAP 062（15 断言）。
+
+**第二轮（修复后）全部通过：** A 补种子（同步区块×1、数据库块×1 挂父页、数据行×2、父页正文含两处块引用、note_versions×1），导出 13 类数据，预检与恢复成功；数据库级核对确认——各表数量齐全、子页→父页层级与图标（🗂/📊）保留、`synced_blocks`/`db_databases`/`db_rows` 以全新 ID 落库、正文内 `syncedId`/`databaseId` 已重映射且可解析、清单状态与标签关联一致、账号 A 数据不受影响。云库 pgTAP 16 文件 / 177 断言全绿。
+
+经验：演练种子必须覆盖**自引用层级、页面元数据、正文内块引用**，否则这类丢失在数量核对中不可见；恢复链每新增一层包装函数，回归测试要断言「旧层负责写入的表仍然落库」。
