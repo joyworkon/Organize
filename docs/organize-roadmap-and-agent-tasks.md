@@ -24,56 +24,78 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 ## 2. 当前能力盘点
 
-| 领域 | 当前状态 | 说明 |
-| --- | --- | --- |
-| 工作台 | 已完成 | “今天 / 回顾 / 统计”已在 PR #18 合并到一个工作台，以页内标签切换；旧 `/review`、`/stats` 仅保留兼容入口。 |
-| 待办任务 | 已升级为三栏工作台 | PR #65–#73：migration 033 + 三栏布局（侧栏/列表/看板/月历）+ 12项菜单全无占位 + 日期组件 + 拖拽改期 + URL路由 + 响应式手机布局。PR #99/#101/#103 追加：依赖关系（041）、层级子任务（040）、循环检测、模板/附件、日期分组、批量操作、逾期提醒与侧栏红点。 |
-| 阅读 | 已完成基础闭环 | 收集、抓取、三态阅读进度、高亮、标签、批量操作和生命周期管理已存在；PR #100 阅读器排版重构 + 每篇全宽偏好（044）。 |
-| 笔记页面 | 已完成核心能力 | 标题拆分、长标题、图标、封面、评论、分享、收藏、子页面与侧栏树已实现；PR #99 补反链（backlinks）、失效链接状态（043）、移动到（#26）、冲突 UI 与冲突副本。 |
-| 块编辑器 | 持续打磨 | 已有列表样式、折叠、任务、引用、代码、公式、标注、列布局、块选择/拖动、表格选择器和表格工具栏；回归测试覆盖各扩展单测（87 个测试文件）。 |
-| 数据安全 | 已完成第一阶段 | 公开分享加固、备份恢复、软删除与垃圾箱已落到迁移 018–024；PR #99/#104 补齐乐观锁冲突 UI 与插件错误反馈。 |
-| 插件 | 可用且有回归 | 内置插件可注册/启用，配置通过 API 持久化；PR #104 补齐启动编排纯函数化与 15 个回归测试，失败路径全部用户可见（toast，不透出原始 DB 错误）。 |
-| 离线 | 仅有骨架 | Service Worker 有页面缓存，IndexedDB 有队列原语，但没有真正的同步执行、重试和冲突处理。UI 未夸大离线能力（R3 已验证）。协议设计见 C1。 |
-| 桌面/移动 | 骨架 + 已评估 | Tauri 与 Capacitor 均未形成可发布产品；本轮已完成可行性评估与解锁条件（见 X2/X3），本机无 Rust/原生工具链，暂无法本地验证构建。 |
+| 领域    | 当前状态      | 说明                                                                                                                                                               |
+| ----- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 工作台   | 已完成       | “今天 / 回顾 / 统计”已在 PR #18 合并到一个工作台，以页内标签切换；旧 `/review`、`/stats` 仅保留兼容入口。                                                                                           |
+| 待办任务  | 已升级为三栏工作台 | PR #65–#73：migration 033 + 三栏布局（侧栏/列表/看板/月历）+ 12项菜单全无占位 + 日期组件 + 拖拽改期 + URL路由 + 响应式手机布局。PR #99/#101/#103 追加：依赖关系（041）、层级子任务（040）、循环检测、模板/附件、日期分组、批量操作、逾期提醒与侧栏红点。 |
+| 阅读    | 已完成基础闭环   | 收集、抓取、三态阅读进度、高亮、标签、批量操作和生命周期管理已存在；PR #100 阅读器排版重构 + 每篇全宽偏好（044）。                                                                                                 |
+| 笔记页面  | 已完成核心能力   | 标题拆分、长标题、图标、封面、评论、分享、收藏、子页面与侧栏树已实现；PR #99 补反链（backlinks）、失效链接状态（043）、移动到（#26）、冲突 UI 与冲突副本。                                                                       |
+| 块编辑器  | 持续打磨      | 已有列表样式、折叠、任务、引用、代码、公式、标注、列布局、块选择/拖动、表格选择器和表格工具栏；回归测试覆盖各扩展单测（87 个测试文件）。                                                                                           |
+| 数据安全  | 已完成第一阶段   | 公开分享加固、备份恢复、软删除与垃圾箱已落到迁移 018–024；PR #99/#104 补齐乐观锁冲突 UI 与插件错误反馈。                                                                                                 |
+| 插件    | 可用且有回归    | 内置插件可注册/启用，配置通过 API 持久化；PR #104 补齐启动编排纯函数化与 15 个回归测试，失败路径全部用户可见（toast，不透出原始 DB 错误）。                                                                              |
+| 离线    | 仅有骨架      | Service Worker 有页面缓存，IndexedDB 有队列原语，但没有真正的同步执行、重试和冲突处理。UI 未夸大离线能力（R3 已验证）。协议设计见 C1。                                                                             |
+| 桌面/移动 | 骨架 + 已评估  | Tauri 与 Capacitor 均未形成可发布产品；本轮已完成可行性评估与解锁条件（见 X2/X3），本机无 Rust/原生工具链，暂无法本地验证构建。                                                                                   |
 
 ## 3. 路线图
 
 ### P0：可靠性与数据一致性
 
-- [x] **R1 页面展示偏好入库**（PR #99，migrations 025/038/044）：full_width / font_family / small_font 已按用户隔离入库并纳入备份恢复；reading_items.full_width 同步落地（044）。
-- [x] **R2 插件配置回归与错误反馈**（PR #104）：启动编排抽为 `lib/plugin/bootstrap.ts` 纯函数；GET/POST/PATCH 失败均 toast 提示且不透出原始 DB 错误；15 个回归测试覆盖已有记录/首次创建/disabled/各失败路径/store 去重。
-- [x] **R3 离线能力重新定界**（2026-08-25 验证）：全库检索确认 UI 无“支持离线编辑”类表述；SW 仅为页面缓存。剩余动作并入 X1。
-- [x] **R4 关键写入可观察性**（PR #93/#99/#104 分批落地）：自动保存失败有 saveError 横幅 + 冲突对话框；导出/备份/批量操作失败均有 toast；插件失败见 R2。“重试入口”仅在冲突场景有（冲突副本/覆盖/保留远端），普通保存失败依赖下次自动保存重试，可接受。
+* [x] **R1 页面展示偏好入库**（PR #99，migrations 025/038/044）：full\_width / font\_family / small\_font 已按用户隔离入库并纳入备份恢复；reading\_items.full\_width 同步落地（044）。
+
+* [x] **R2 插件配置回归与错误反馈**（PR #104）：启动编排抽为 `lib/plugin/bootstrap.ts` 纯函数；GET/POST/PATCH 失败均 toast 提示且不透出原始 DB 错误；15 个回归测试覆盖已有记录/首次创建/disabled/各失败路径/store 去重。
+
+* [x] **R3 离线能力重新定界**（2026-08-25 验证）：全库检索确认 UI 无“支持离线编辑”类表述；SW 仅为页面缓存。剩余动作并入 X1。
+
+* [x] **R4 关键写入可观察性**（PR #93/#99/#104 分批落地）：自动保存失败有 saveError 横幅 + 冲突对话框；导出/备份/批量操作失败均有 toast；插件失败见 R2。“重试入口”仅在冲突场景有（冲突副本/覆盖/保留远端），普通保存失败依赖下次自动保存重试，可接受。
 
 ### P1：高频效率
 
-- [x] **E1 页面更多菜单搜索**（PR #22，#93 打磨）：过滤、上下键、Enter、Escape 齐全，`note-page-menu.test.tsx` 覆盖。
-- [x] **E2 富文本复制**（PR #22）：`clipboard.ts` 同时写入 text/html 与 text/plain，ClipboardItem 不可用或权限拒绝降级纯文本，测试覆盖空正文/降级路径。
-- [x] **E3 页面移动体验**（PR #26）：更多菜单与列表均有“移动到”，复用 `parent_note_id` 与防循环逻辑，树单测覆盖。
-- [x] **E4 笔记链接体验**（PR #99）：反链面板（backlinks.tsx）、失效链接状态（migration 043 + internal-link-state）、子页面路径导航。
-- [x] **E5 编辑器回归矩阵**（PR #108）：`combination-regression.test.ts` 10 例覆盖“列表×列×表格×拖动×多选”组合场景；拖动走 `moveBlockTransaction` 同一引擎、多选删除走 Backspace 快捷键同一路径；断言持久化 JSON + 重新解析往返。行为记录：Details 的 open 状态不持久化（上游默认 `persist:false`）。
-- [x] **E6 笔记冲突与本地草稿**（PR #99）：content_revision 乐观锁 + 前端冲突对话框（覆盖/保留远端/另存冲突副本），mock 测试覆盖过期 revision 场景。
-- [x] **E7 块搜索**（PR #106）：编辑器内 ⌘F 打开页内块搜索（note-search-dialog），按 textblock 粒度命中、列表项/单元格归属父块；↑↓/Enter 导航，跳转滚动居中并高亮 2.4s；10 个测试。
-- [x] **E8 恢复 UI 与附件**（PR #76 + #107）：垃圾箱恢复/永久删除/类型筛选（#76）；任务附件面板（task-attachments-dialog）；笔记附件管理面板（#107：顶栏回形针入口带角标，集中列出/定位/单删附件块，⌘Z 可撤销，不碰 storage bucket）。
-- [x] **E9 循环 / 子任务 / 依赖**（PR #99）：子任务层级（040，含跨用户/自引用/间接循环约束触发器）、任务依赖（041，RPC 拒绝任意深度循环，恢复时二次校验），迁移测试齐全。
-- [x] **E10 阅读 → 笔记 → 任务链路**（PR #99）：高亮划词菜单“转为笔记/转为任务”，高亮面板展示引用状态（active/deleted/missing），migration 042 建立引用模型。
+* [x] **E1 页面更多菜单搜索**（PR #22，#93 打磨）：过滤、上下键、Enter、Escape 齐全，`note-page-menu.test.tsx` 覆盖。
+
+* [x] **E2 富文本复制**（PR #22）：`clipboard.ts` 同时写入 text/html 与 text/plain，ClipboardItem 不可用或权限拒绝降级纯文本，测试覆盖空正文/降级路径。
+
+* [x] **E3 页面移动体验**（PR #26）：更多菜单与列表均有“移动到”，复用 `parent_note_id` 与防循环逻辑，树单测覆盖。
+
+* [x] **E4 笔记链接体验**（PR #99）：反链面板（backlinks.tsx）、失效链接状态（migration 043 + internal-link-state）、子页面路径导航。
+
+* [x] **E5 编辑器回归矩阵**（PR #108）：`combination-regression.test.ts` 10 例覆盖“列表×列×表格×拖动×多选”组合场景；拖动走 `moveBlockTransaction` 同一引擎、多选删除走 Backspace 快捷键同一路径；断言持久化 JSON + 重新解析往返。行为记录：Details 的 open 状态不持久化（上游默认 `persist:false`）。
+
+* [x] **E6 笔记冲突与本地草稿**（PR #99）：content\_revision 乐观锁 + 前端冲突对话框（覆盖/保留远端/另存冲突副本），mock 测试覆盖过期 revision 场景。
+
+* [x] **E7 块搜索**（PR #106）：编辑器内 ⌘F 打开页内块搜索（note-search-dialog），按 textblock 粒度命中、列表项/单元格归属父块；↑↓/Enter 导航，跳转滚动居中并高亮 2.4s；10 个测试。
+
+* [x] **E8 恢复 UI 与附件**（PR #76 + #107）：垃圾箱恢复/永久删除/类型筛选（#76）；任务附件面板（task-attachments-dialog）；笔记附件管理面板（#107：顶栏回形针入口带角标，集中列出/定位/单删附件块，⌘Z 可撤销，不碰 storage bucket）。
+
+* [x] **E9 循环 / 子任务 / 依赖**（PR #99）：子任务层级（040，含跨用户/自引用/间接循环约束触发器）、任务依赖（041，RPC 拒绝任意深度循环，恢复时二次校验），迁移测试齐全。
+
+* [x] **E10 阅读 → 笔记 → 任务链路**（PR #99）：高亮划词菜单“转为笔记/转为任务”，高亮面板展示引用状态（active/deleted/missing），migration 042 建立引用模型。
 
 ### P2：平台能力
 
-- [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138；笔记删除离线化 #146；子任务/清单操作离线化 #147）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。#146 补笔记删除：同一模式（列表页单删/批量删与详情页删除离线乐观移除，联网回放走 mutate_trash 既有 note 分支，无需新迁移）；离线「建后删」直接丢弃创建队列草稿、不入删除队列。#147 补子任务增删改与清单操作：子任务即带 parent_task_id 的任务行，走同一套 create/update 队列（子任务创建改客户端生成 id）；清单勾选/删除为新增 checklist_update/checklist_delete 操作类型，回放直写 task_checklists；任务详情页删除同步离线化（回放 writer 抽为共享工厂）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序、标签等实体）按需启动。
-  - **#138 顺带发现的遗留 bug（#140 已修复）**：数据库行删除路由改走 mutate_trash 新增的 database_row 分支（migration 050，此前编辑器删除行一直 500）；任务页 `?scope=trash` 经 list_trashed_tasks RPC 显示已删任务 + 侧栏计数（此前永远空/0）。倒数日删除经核实非 mock 路径本就走 RPC，无需修复。
-- [ ] **X2 桌面端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §3。**M1 本机验证大部分完成（2026-08-28）：Rust 1.98 已装、`cargo check` 通过、全局快捷键补注册（此前只挂 handler 未注册，事件永不触发）、前端 quick-save 桥接组件落地（`components/desktop/quick-save.tsx` → 复用 QuickAdd 弹层）。剩余：Windows 机器上 `tauri build` 出 NSIS 包 + 壳内 GUI 冒烟。**
-  - 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
-  - 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
-  - 解锁条件：安装 Rust 工具链 → 修 tauri.conf.json（devUrl + frontendDist 占位）→ `cargo check` 通过 → quick-save 全局快捷键事件链路验证。
-- [ ] **X3 移动端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §4/§5。**M1 大部分完成（2026-08-28）：android/ 与 ios/ 原生工程已生成入库；本机装齐 JDK17+Android SDK(API 35)+CocoaPods；Android 模拟器实机验证通过——登录闭环 ✓、冷启动 cookie 持久化 ✓（§4.1 最大风险解除，结论复用 iOS）、笔记创建/编辑/自动保存 ✓；iOS 模拟器构建运行 ✓、登录页渲染 ✓。剩余：iOS 登录闭环自动化验证（需给 ZCode 授屏幕录制权限）、编辑器触屏深度走查（BubbleMenu/拖拽手柄）、公网部署。**
-  - 同样的静态导出约束：Capacitor webDir 指向 `apps/web/out` 不可行；最快路径是 `server.url` 指向部署的 Web URL。
-  - 分享接收（系统分享菜单“保存到 Organize”）需要原生 Share Extension（iOS）/ Intent Filter（Android），属于原生开发，依赖 Xcode/Android Studio 工具链。
-  - 解锁条件：Web 公网部署 → Xcode + CocoaPods / Android Studio 就绪 → `npx cap add ios/android` 初始化工程 → 壳层加载远程 URL 验证登录闭环。
-- [x] **X4 AI 边界（边界部分，PR #136 + #137，2026-08-27）**：限流——`lib/ai/rate-limit.ts` 按「用户+功能」固定窗口内存限流，问 AI / 标签推荐 20 次/分、AI 速记 5 次/分，429 + Retry-After，6 测试。数据发送披露——设置页「数据发送说明」区块 + 问 AI / AI 速记 / 标签推荐入口发送提示，修正过时的环境变量引导。失败回滚核查通过（问 AI 失败不插入 / 速记失败保留录音 / 标签推荐静默降级关键词）。剩余「增加更多 AI 动作」按需启动。
-- [x] **X5 知识图谱**（PR #117，2026-08-26）：`/graph` 页面双视图——笔记图谱（内部链接边复用 `extractLinksFromContent`，与反链同判定；父子层级虚线边）+ 任务依赖图（前置→被阻塞箭头，已完成置灰）。`lib/graph/build-graph.ts`（9 测试）+ `force-layout.ts`（5 测试，零依赖确定性力导向：id 哈希扰动初始环形 + 固定迭代）。交互：滚轮缩放/拖拽平移/点击跳转/悬停高亮相邻/隐藏孤立节点（默认开）；侧栏 + 命令面板 + G G 快捷键入口。
-- [ ] **X6 多人协作**：实时协作编辑（依赖 G3 Realtime 基础设施 + 权限模型）。
-- [ ] **X7 语义 AI**：语义搜索 / 自动关联（依赖 X4 AI 边界）。
+* [x] **X1 离线同步**（PR #110–#113，2026-08-26 收官；任务删除离线化 #138；笔记删除离线化 #146；子任务/清单操作离线化 #147）：第一、二阶段已落地——笔记编辑离线自动保存/重试/冲突、任务创建与更新离线队列、笔记离线创建与列表合并（详见 C1）。#138 补任务删除：离线乐观移除 + 联网回放（`deleted_at` 补丁经 mutate\_trash RPC——直写会被 RLS 拒绝，见 #138 调查记录）；离线「建后删」合入 create 载荷，回放为插入即软删（migration 049 放宽 INSERT 策略）。#146 补笔记删除：同一模式（列表页单删/批量删与详情页删除离线乐观移除，联网回放走 mutate\_trash 既有 note 分支，无需新迁移）；离线「建后删」直接丢弃创建队列草稿、不入删除队列。#147 补子任务增删改与清单操作：子任务即带 parent\_task\_id 的任务行，走同一套 create/update 队列（子任务创建改客户端生成 id）；清单勾选/删除为新增 checklist\_update/checklist\_delete 操作类型，回放直写 task\_checklists；任务详情页删除同步离线化（回放 writer 抽为共享工厂）。Background Sync 明确不接线：SW 无法访问 localStorage 队列（需 IndexedDB 镜像），且 Chromium-only，页面内 online 回放已覆盖主流场景。剩余扩展项（拖拽排序、标签等实体）按需启动。
+  * **#138 顺带发现的遗留 bug（#140 已修复）**：数据库行删除路由改走 mutate\_trash 新增的 database\_row 分支（migration 050，此前编辑器删除行一直 500）；任务页 `?scope=trash` 经 list\_trashed\_tasks RPC 显示已删任务 + 侧栏计数（此前永远空/0）。倒数日删除经核实非 mock 路径本就走 RPC，无需修复。
+
+* [ ] **X2 桌面端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §3。**M1 本机验证大部分完成（2026-08-28）：Rust 1.98 已装、`cargo check`** **通过、全局快捷键补注册（此前只挂 handler 未注册，事件永不触发）、前端 quick-save 桥接组件落地（`components/desktop/quick-save.tsx`** **→ 复用 QuickAdd 弹层）。剩余：Windows 机器上** **`tauri build`** **出 NSIS 包 + 壳内 GUI 冒烟。**
+  * 根本约束：`apps/web` 依赖 20+ 个 API 路由（scrape/ai/plugins/upload…）与 SSR middleware，`output: 'export'` 静态导出**不可行**；tauri.conf.json 的 frontendDist 指向不存在的 `apps/web/out`。
+
+  * 可行路径：① 开发期 Tauri `devUrl` 指向 `http://localhost:3000`（Next dev server）；② 发布期 Tauri 壳加载部署的 Web URL（需公网部署 + 认证方案）；③ 离线发布需 Node sidecar 本地跑 Next server（打包复杂，等 X1 落地后评估）。
+
+  * 解锁条件：安装 Rust 工具链 → 修 tauri.conf.json（devUrl + frontendDist 占位）→ `cargo check` 通过 → quick-save 全局快捷键事件链路验证。
+
+* [ ] **X3 移动端最小发布版**：详细执行计划见 `docs/multi-platform-plan.md` §4/§5。**M1 大部分完成（2026-08-28）：android/ 与 ios/ 原生工程已生成入库；本机装齐 JDK17+Android SDK(API 35)+CocoaPods；Android 模拟器实机验证通过——登录闭环 ✓、冷启动 cookie 持久化 ✓（§4.1 最大风险解除，结论复用 iOS）、笔记创建/编辑/自动保存 ✓；iOS 模拟器构建运行 ✓、登录页渲染 ✓。剩余：iOS 登录闭环自动化验证（需给 ZCode 授屏幕录制权限）、编辑器触屏深度走查（BubbleMenu/拖拽手柄）、公网部署。**
+  * 同样的静态导出约束：Capacitor webDir 指向 `apps/web/out` 不可行；最快路径是 `server.url` 指向部署的 Web URL。
+
+  * 分享接收（系统分享菜单“保存到 Organize”）需要原生 Share Extension（iOS）/ Intent Filter（Android），属于原生开发，依赖 Xcode/Android Studio 工具链。
+
+  * 解锁条件：Web 公网部署 → Xcode + CocoaPods / Android Studio 就绪 → `npx cap add ios/android` 初始化工程 → 壳层加载远程 URL 验证登录闭环。
+
+* [x] **X4 AI 边界（边界部分，PR #136 + #137，2026-08-27）**：限流——`lib/ai/rate-limit.ts` 按「用户+功能」固定窗口内存限流，问 AI / 标签推荐 20 次/分、AI 速记 5 次/分，429 + Retry-After，6 测试。数据发送披露——设置页「数据发送说明」区块 + 问 AI / AI 速记 / 标签推荐入口发送提示，修正过时的环境变量引导。失败回滚核查通过（问 AI 失败不插入 / 速记失败保留录音 / 标签推荐静默降级关键词）。剩余「增加更多 AI 动作」按需启动。
+
+* [x] **X5 知识图谱**（PR #117，2026-08-26）：`/graph` 页面双视图——笔记图谱（内部链接边复用 `extractLinksFromContent`，与反链同判定；父子层级虚线边）+ 任务依赖图（前置→被阻塞箭头，已完成置灰）。`lib/graph/build-graph.ts`（9 测试）+ `force-layout.ts`（5 测试，零依赖确定性力导向：id 哈希扰动初始环形 + 固定迭代）。交互：滚轮缩放/拖拽平移/点击跳转/悬停高亮相邻/隐藏孤立节点（默认开）；侧栏 + 命令面板 + G G 快捷键入口。
+
+* [ ] **X6 多人协作**：实时协作编辑（依赖 G3 Realtime 基础设施 + 权限模型）。
+
+* [ ] **X7 语义 AI**：语义搜索 / 自动关联（依赖 X4 AI 边界）。
 
 ## 4. 对抗式分工结论
 
@@ -151,7 +173,7 @@ Organize 的核心不是堆出另一个全能知识库，而是打通一条稳�
 
 **等级：必须由强 Agent 实现并重点审查**
 
-第一阶段（笔记单实体）已于 2026-08-26 落地。实现时对原协议设计做了裁剪——审计发现协议服务端已就绪（031/038 的 `save_note_with_tasks` 自带 content_revision 乐观锁 + save_mutation_log 幂等日志 + 冲突状态返回），localStorage 草稿已是本地镜像，冲突三选项对话框已存在，因此只补「网络感知 + 自动重试 + 幂等键接入」：
+第一阶段（笔记单实体）已于 2026-08-26 落地。实现时对原协议设计做了裁剪——审计发现协议服务端已就绪（031/038 的 `save_note_with_tasks` 自带 content\_revision 乐观锁 + save\_mutation\_log 幂等日志 + 冲突状态返回），localStorage 草稿已是本地镜像，冲突三选项对话框已存在，因此只补「网络感知 + 自动重试 + 幂等键接入」：
 
 ```text
 已实现（PR #110）：
@@ -200,18 +222,28 @@ localStorage 队列 + online 回放」模式，无需临时 ID 映射（id 即�
 
 ## 6. 并行与审查规则
 
-- 一次只允许一个 Agent 修改编辑器核心、笔记详情页或数据库迁移。
-- 每个 Agent 使用独立 worktree 和 `codex/`、`feat/`、`fix/` 等特性分支。
-- 接任务时复制完整任务包，不要只发一句“继续完善”。
-- 审查必须同时读取任务包和 diff；只看 diff 会漏掉未实现的需求。
-- 普通 Agent 的 PR 不自动合并。先过 CI，再由主 Agent 按验收项复测。
-- 表格/列表/拖动等编辑器改动必须验证旧 TipTap JSON，可见 DOM 正常不等于持久化正确。
-- CI 已知偶发问题：`supabase/setup-cli@v1` 下载失败会让 db-test 挂掉（verify 不受影响），
+* 一次只允许一个 Agent 修改编辑器核心、笔记详情页或数据库迁移。
+
+* 每个 Agent 使用独立 worktree 和 `codex/`、`feat/`、`fix/` 等特性分支。
+
+* 接任务时复制完整任务包，不要只发一句“继续完善”。
+
+* 审查必须同时读取任务包和 diff；只看 diff 会漏掉未实现的需求。
+
+* 普通 Agent 的 PR 不自动合并。先过 CI，再由主 Agent 按验收项复测。
+
+* 表格/列表/拖动等编辑器改动必须验证旧 TipTap JSON，可见 DOM 正常不等于持久化正确。
+
+* CI 已知偶发问题：`supabase/setup-cli@v1` 下载失败会让 db-test 挂掉（verify 不受影响），
   重跑 failed job 即可，非代码问题。
 
 ## 7. 文档治理
 
-- 本文是路线图与分工的唯一事实来源。
-- `docs/note-page-next-agent-plan.md` 是历史设计资料。
-- `.zcode/plans/` 目录已不存在，相关引用已清理（2026-08-25）。
-- 每次路线图更新都要以代码、迁移、测试和真实页面为证据，不能只改勾选框。
+* 本文是路线图与分工的唯一事实来源。
+
+* `docs/note-page-next-agent-plan.md` 是历史设计资料。
+
+* `.zcode/plans/` 目录已不存在，相关引用已清理（2026-08-25）。
+
+* 每次路线图更新都要以代码、迁移、测试和真实页面为证据，不能只改勾选框。
+
