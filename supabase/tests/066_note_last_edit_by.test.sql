@@ -12,8 +12,9 @@
 --
 -- 约定同 063/064/065：断言不依赖表级 GRANT 错误文案；ACL 以 postgres 直插
 --（本文件不测 grant_resource，063 已覆盖）；「先读后调」不放进同一个表达式。
--- 另：v1 调用一律显式带 `p_note_snapshot := null` —— 031 的 7 参老重载从未被 drop，
--- 与 8 参现役版本共享其余参数名，少于 8 个命名参数会因重载歧义解析失败（CI 实测）。
+-- 语法提醒（CI 实测踩坑）：`is((RPC(...))->>'…', '期望值', '描述')` 里 RPC 的右括号
+-- 必须连写两个 `))` —— 一个关函数调用、一个关 is( 之后的分组括号；少写一个会让
+-- 分组括号吞掉后续参数变成 row 构造器，报 `function is(record) does not exist`。
 BEGIN;
 SELECT plan(19);
 
@@ -70,8 +71,8 @@ SELECT is((public.save_note_with_tasks(
     p_note_id := '66020000-0000-0000-0000-000000000001',
     p_content := '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
     p_expected_note_revision := 0,
-    p_note_snapshot := null)->>'status',
-  'ok', '属主 v1 保存成功'));
+    p_note_snapshot := null))->>'status',
+  'ok', '属主 v1 保存成功');
 RESET ROLE;
 SELECT is((SELECT last_edit_by FROM public.notes
     WHERE id = '66020000-0000-0000-0000-000000000001')::text,
@@ -83,8 +84,8 @@ SET request.jwt.claim.sub TO '66000002-0000-0000-0000-000000000002';  -- B
 SELECT is((public.save_note_with_tasks_v2(
     p_note_id := '66020000-0000-0000-0000-000000000001',
     p_content := '{"type":"doc","content":[{"type":"heading","attrs":{"level":2}}]}'::jsonb,
-    p_expected_note_revision := 1)->>'status',
-  'ok', 'editor B 的 v2 保存成功'));
+    p_expected_note_revision := 1))->>'status',
+  'ok', 'editor B 的 v2 保存成功');
 RESET ROLE;
 SELECT is((SELECT last_edit_by FROM public.notes
     WHERE id = '66020000-0000-0000-0000-000000000001')::text,
@@ -102,8 +103,8 @@ SET request.jwt.claim.sub TO '66000003-0000-0000-0000-000000000003';  -- C（W2 
 SELECT is((public.save_note_with_tasks_v2(
     p_note_id := '66020000-0000-0000-0000-000000000001',
     p_content := '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
-    p_expected_note_revision := 2)->>'status',
-  'forbidden', 'viewer C 存不进'));
+    p_expected_note_revision := 2))->>'status',
+  'forbidden', 'viewer C 存不进');
 RESET ROLE;
 
 SET ROLE authenticated;
@@ -112,8 +113,8 @@ SELECT is((public.save_note_with_tasks(
     p_note_id := '66020000-0000-0000-0000-000000000001',
     p_content := '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
     p_expected_note_revision := 0,
-    p_note_snapshot := null)->>'status',
-  'conflict_note', '属主旧 revision 撞乐观锁'));
+    p_note_snapshot := null))->>'status',
+  'conflict_note', '属主旧 revision 撞乐观锁');
 RESET ROLE;
 SELECT is((SELECT last_edit_by FROM public.notes
     WHERE id = '66020000-0000-0000-0000-000000000001')::text,
@@ -127,8 +128,8 @@ SELECT is((public.save_note_with_tasks(
     p_content := '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
     p_expected_note_revision := 2,
     p_mutation_id := '66080000-0000-0000-0000-000000000001',
-    p_note_snapshot := null)->>'status',
-  'ok', 'A 带幂等键的真实保存成功'));
+    p_note_snapshot := null))->>'status',
+  'ok', 'A 带幂等键的真实保存成功');
 RESET ROLE;
 
 SET ROLE authenticated;
@@ -138,8 +139,8 @@ SELECT is((public.save_note_with_tasks(
     p_content := '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb,
     p_expected_note_revision := 2,
     p_mutation_id := '66080000-0000-0000-0000-000000000001',
-    p_note_snapshot := null)->>'status',
-  'ok', '同幂等键重放命中缓存'));
+    p_note_snapshot := null))->>'status',
+  'ok', '同幂等键重放命中缓存');
 RESET ROLE;
 SELECT is((SELECT content_revision FROM public.notes
     WHERE id = '66020000-0000-0000-0000-000000000001')::text, '3',
@@ -154,8 +155,8 @@ SET request.jwt.claim.sub TO '';
 SELECT is((public.save_note_with_tasks_v2(
     p_note_id := '66020000-0000-0000-0000-000000000001',
     p_content := '{"type":"doc","content":[]}'::jsonb,
-    p_expected_note_revision := 3)->>'status',
-  'forbidden', '匿名（auth.uid() 为空）直接 forbidden'));
+    p_expected_note_revision := 3))->>'status',
+  'forbidden', '匿名（auth.uid() 为空）直接 forbidden');
 RESET ROLE;
 
 SELECT * FROM finish();

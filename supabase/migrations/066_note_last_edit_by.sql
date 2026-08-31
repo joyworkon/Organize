@@ -32,6 +32,14 @@ drop function if exists public.save_note_with_tasks(
   uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
 );
 
+-- 顺手清掉 031 的 7 参初版重载：它从未被任何后续迁移 drop，与 8 参现役版本并存。
+-- 现役唯一调用方（apps/web 全量 8 参、g1/051 测试 7~8 个位置参数）在单候选下经
+-- 默认参数解析到 8 参版本，清掉无行为影响；留着只会让「部分命名参数」的调用多一个
+-- 本不该存在的歧义候选面。
+drop function if exists public.save_note_with_tasks(
+  uuid, jsonb, integer, text, jsonb, jsonb, uuid
+);
+
 create function public.save_note_with_tasks(
   p_note_id uuid,
   p_content jsonb,
