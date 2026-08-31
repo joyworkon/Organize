@@ -198,7 +198,7 @@ P5 后续待办（开工前先读 ADR 0002）：
 
 - 业务表 RLS 接入协作（064）与保存 RPC 按角色分权（065）**必须复用 `public.resource_role()`**，不得重写等价判定 SQL。均已落地（064 的三条 SELECT 策略、065 的权限闸、卡 4 前端的角色查询都只消费这个函数，pgTAP 结构断言钉住）。
 - **协作者归属列已补齐（066，2026-08-31）**：`docs/collaboration-plan.md` 曾声称「038 预留了 `notes.last_edit_by` 列位」，实测为假——065 按 ADR 0002 刻意未加（`hasnt_column` 钉住）。066 作为登记过的独立卡落地：加列（uuid、无外键、不回填）+ v1/v2 保存 RPC 写调用者归属 + 备份合同 v4（导出携带、校验 optional 兼容旧备份、restore/prepareRestorePayload 刻意置空不搬运）+ mock seed/save 对齐 + 065 钉子翻转为 has_column + 冲突对话框按归因显示「协作者名字 / 你的其他设备」。
-- 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单），并在 manifest 的排除清单显式声明。
+- 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单）。**排除清单已在导出 manifest 显式声明（`collaboration_acl` + `user_profiles`，2026-08-31）**：校验侧底线保持旧五类不变以兼容既有备份，导出侧输出完整清单。
 - 逐域迁移业务行属主（含 056 复合外键与 `task_item_refs` 的同步改法），一次一个资源域。
 
 ### P5-03 实时协同技术验证

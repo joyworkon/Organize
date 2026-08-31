@@ -442,12 +442,26 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
   },
 };
 
+// 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
+// 只加不减——新增排除类别不能进这个数组，否则旧备份会突然校验失败。
 const REQUIRED_EXCLUSIONS = [
   "auth",
   "plugins",
   "shares",
   "soft_deleted",
   "storage",
+];
+
+// 导出侧的完整清单 = 底线 + P5 协作表（ADR 0002「不在本原型范围内」第 2 条）：
+//   collaboration_acl = workspaces / workspace_members / resource_acl——授权目标是空间，
+//     而空间本身不在白名单，remap 语义未定义前不收录；恢复后授权丢失是已知且刻意。
+//   user_profiles = 可再生镜像（auth.users 触发器 + backfill 自动重建），且跨账号恢复
+//     等于把别人的昵称/头像塞进新账号。
+// 旧备份（只声明五类）继续通过校验：validateManifest 对多余字符串项不敏感。
+const EXPORT_EXCLUSIONS = [
+  ...REQUIRED_EXCLUSIONS,
+  "collaboration_acl",
+  "user_profiles",
 ];
 
 export function inspectBackupV2(input: unknown): BackupInspection {
@@ -561,7 +575,7 @@ export function createBackupV2(
     exportedAt,
     manifest: {
       counts,
-      excluded: [...REQUIRED_EXCLUSIONS],
+      excluded: [...EXPORT_EXCLUSIONS],
     },
     data,
   };
