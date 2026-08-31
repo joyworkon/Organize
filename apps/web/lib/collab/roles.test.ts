@@ -3,7 +3,9 @@ import {
   canEditRole,
   collabRoleLabel,
   isCollabRole,
+  isWorkspaceMemberRole,
   saveRpcNameForRole,
+  workspaceMemberRoleLabel,
 } from "./roles";
 
 describe("collab roles", () => {
@@ -33,5 +35,20 @@ describe("collab roles", () => {
   it("saveRpcNameForRole：属主走 v1 主链，editor 走 065 的 v2", () => {
     expect(saveRpcNameForRole("owner")).toBe("save_note_with_tasks");
     expect(saveRpcNameForRole("editor")).toBe("save_note_with_tasks_v2");
+  });
+
+  it("isWorkspaceMemberRole 只认成员管理面三角色（与资源 access_role 是两套）", () => {
+    expect(isWorkspaceMemberRole("owner")).toBe(true);
+    expect(isWorkspaceMemberRole("member")).toBe(true);
+    expect(isWorkspaceMemberRole("guest")).toBe(true);
+    expect(isWorkspaceMemberRole("editor")).toBe(false);
+    expect(isWorkspaceMemberRole(null)).toBe(false);
+    expect(isWorkspaceMemberRole("")).toBe(false);
+  });
+
+  it("workspaceMemberRoleLabel 输出成员管理面展示名", () => {
+    expect(workspaceMemberRoleLabel("owner")).toBe("所有者");
+    expect(workspaceMemberRoleLabel("member")).toBe("成员");
+    expect(workspaceMemberRoleLabel("guest")).toBe("访客");
   });
 });

@@ -1,5 +1,35 @@
 # PROGRESS
 
+## P5 后续产品卡：协作空间管理 UI（2026-08-31）
+
+- 分支 `feat/workspace-management-ui`（master = 470b6dc，无迁移）
+- 卡源：P5-02 卡 4 遗留 #3——063 的空间管理 RPC（改角色/移除/移交/建空间）已有但无界面
+
+### 实现
+
+1. **`/spaces`「协作空间」页**：我参与的 team 空间列表（063 RLS 直读
+   workspaces/workspace_members + 064 user_profiles 拿姓名头像，无新 RPC）；
+   视图装配与错误文案抽成纯函数 `lib/collab/workspace.ts`（8 用例）
+2. **属主操作**：重命名（RLS UPDATE 只放行 owner）、成员角色 member/guest
+   （update_workspace_member_role）、移出成员、移交所有权（transfer 前二次确认）、
+   解散空间（RLS DELETE，级联撤销全部授权，文案明示）
+3. **成员操作**：退出空间（remove_workspace_member 自助入口）；「所有者需先移交才能
+   退出」由服务端拒绝 + 页面文案如实呈现
+4. **入口**：侧边栏「协作空间」条件入口（useHasTeamWorkspaces limit 1，紧跟
+   「与我共享」成组；mock 恒隐藏）；笔记分享面板协作空间段加「管理成员」链接
+5. **roles.ts 增成员管理面三角色**（owner/member/guest，与资源 access_role 正交）：
+   isWorkspaceMemberRole + workspaceMemberRoleLabel
+6. **邀请不进本页**：邀请与授权是同一动作（ADR 0002），仍走笔记分享面板
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 123 文件 / 896 用例全绿（+1 文件 +10 用例）；
+  next lint（CI 同款）0 警告；`next build` exit 0（/spaces 路由产出）
+- 无迁移，pgTAP 不适用；mock 行为：空间查询为空集（单用户世界）+ 管理 RPC 显式
+  P5-02-MOCK 报错（既有合同），页面如实展示
+
+# PROGRESS
+
 ## P5-03 生产化卡：collab ydoc blob 持久化 + 播种租约（2026-08-31）
 
 - 分支 `feat/collab-ydoc-persistence`（master = 3224fd3，迁移到 067）
