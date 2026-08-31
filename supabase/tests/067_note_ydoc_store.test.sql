@@ -86,8 +86,8 @@ RESET ROLE;
 SET ROLE authenticated;
 SET request.jwt.claim.sub TO '67000001-0000-0000-0000-000000000001';  -- A
 SELECT lives_ok(
-  public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
-    encode('ydoc-blob-v1'::bytea, 'base64')),
+  $$ SELECT public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
+       encode('ydoc-blob-v1'::bytea, 'base64')) $$,
   'owner 保存 blob 成功');
 RESET ROLE;
 SELECT is((SELECT convert_from(ydoc, 'utf8') FROM public.note_ydocs
@@ -108,8 +108,8 @@ SET request.jwt.claim.sub TO '67000001-0000-0000-0000-000000000001';  -- A
 SELECT is(public.get_note_ydoc('67020000-0000-0000-0000-000000000001'), NULL,
   'notes 更新后旧 blob 视为过期（get 返回 null，不遮蔽非协作写入）');
 SELECT lives_ok(
-  public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
-    encode('ydoc-blob-v3'::bytea, 'base64')),
+  $$ SELECT public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
+       encode('ydoc-blob-v3'::bytea, 'base64')) $$,
   '过期后重新落库成功');
 SELECT is(public.get_note_ydoc('67020000-0000-0000-0000-000000000001'),
   encode('ydoc-blob-v3'::bytea, 'base64'), '重新落库后恢复可读（自愈）');
@@ -119,8 +119,8 @@ RESET ROLE;
 SET ROLE authenticated;
 SET request.jwt.claim.sub TO '67000002-0000-0000-0000-000000000002';  -- B
 SELECT lives_ok(
-  public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
-    encode('ydoc-blob-v2'::bytea, 'base64')),
+  $$ SELECT public.save_note_ydoc('67020000-0000-0000-0000-000000000001',
+       encode('ydoc-blob-v2'::bytea, 'base64')) $$,
   'editor 保存 blob 成功');
 SELECT is(public.get_note_ydoc('67020000-0000-0000-0000-000000000001'),
   encode('ydoc-blob-v2'::bytea, 'base64'), 'editor 读到最新 blob');
