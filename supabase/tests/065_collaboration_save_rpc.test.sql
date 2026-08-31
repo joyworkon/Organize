@@ -545,8 +545,8 @@ SELECT ok(POSITION('workspace_members' IN
   'v2 里没有自己 join workspace_members（同上）');
 SELECT has_function('public', 'save_note_with_tasks',
   'v1 保留：前端接入是下一张卡，并存期间 v1 仍只放行属主');
-SELECT hasnt_column('public', 'notes', 'last_edit_by',
-  '本卡不加归属列：按 ADR 0002 它是独立一张卡（要同时动备份合同与 mock seed）');
+SELECT has_column('public', 'notes', 'last_edit_by',
+  '归属列已由 066 补齐（本卡的 hasnt_column 钉子按计划翻转：加列须连带备份合同与 mock seed）');
 SET ROLE authenticated;
 SET request.jwt.claim.sub TO '';  -- auth.uid() 为空
 SELECT is((public.save_note_with_tasks_v2(

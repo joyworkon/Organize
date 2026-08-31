@@ -1,5 +1,42 @@
 # PROGRESS
 
+## P5 后续：协作者归属列 notes.last_edit_by（2026-08-31，066）
+
+- 分支 `feat/p5-note-last-edit-by`（master = da9cd31，迁移到 066）
+- 卡源：ROADMAP P5-02 卡 3 登记的独立待办（ADR 0002「加列须连带备份合同 v4 + mock seed +
+  既有测试」），也是卡 4 冲突对话框名字的前置
+
+### 实现
+
+1. **迁移 066**：notes 加 `last_edit_by uuid`；v1（051 定义原样重述）与 v2（065 定义原样
+   重述）的 notes UPDATE 各加 `last_edit_by = 调用者`。三条刻意边界（迁移头注释 + ADR 追记）：
+   **无外键**（悬空 uuid 由消费方回退，不让跨账号恢复/注销炸链）、**不回填**（列引入前的
+   编辑者不可知，NULL 是诚实值）、**restore 不搬运**（归属是活协作上下文，恢复后重置）
+2. **权限与归属正交**：`resource_role()` 回答「能做什么」，`last_edit_by` 回答「谁编辑的」；
+   v2 里业务行写入 scope 仍是属主，唯归属列记调用者——两个维度刻意分开
+3. **备份合同 v4 同步**：导出列携带（settings 页 select + schema 校验 `optional`，旧备份
+   兼容）；`prepareRestorePayload` 对 notes 显式置空 `last_edit_by`（不透传悬空 uuid 进恢复
+   载荷）；restore RPC 链不消费（jsonb_to_recordset 列清单不变，天然忽略）
+4. **mock 对齐**：seed 三条笔记 + `saveNoteWithTasks` 落 `last_edit_by = MOCK_USER.id`
+   （对齐真实 v1 语义）；`mock-note-save.test.ts` 增断言
+5. **冲突对话框归因（卡 4 遗留项闭环）**：冲突时读远端行 `last_edit_by`——自己其他设备 →
+   「你的另一页面或设备」；协作者且 `user_profiles` 可见（共享空间 ⇒ 可见）→ 显示名字；
+   悬空/不可见 → 通用文案。归因存进 `SaveConflict.actor`，随冲突状态一并清理
+6. **065 钉子按计划翻转**：`hasnt_column` → `has_column`（066 测试重申加列承诺）
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 122 文件 / 883 用例全绿（+1 备份兼容用例）；
+  `next lint`（CI 同款）0 警告
+- pgTAP `066_note_last_edit_by.test.sql` 19 断言（结构 4 + 行为 14 + 匿名 1），
+  CI db-test 全新库实跑为准
+
+### 遗留
+
+1. restore RPC 不消费该列是**合同**（迁移头注释 + ADR 0002 第 4 条 + 备份测试钉住），
+   不要当缺失去补
+2. 冲突归因只到「人名」粒度：具体改了哪个块、哪台设备不在本卡范围
+
 ## P5-02 卡 4/4：协作前端接入（2026-08-31）
 
 - 分支 `feat/p5-02-collab-frontend`（master = c8216c6，迁移到 065；本卡无新迁移）

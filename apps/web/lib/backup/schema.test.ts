@@ -552,6 +552,30 @@ describe("Backup V2", () => {
     expect(payload.data.reading_items[0].full_width).toBeUndefined();
   });
 
+  it("066 归属列：新备份可携带 last_edit_by，旧备份缺省仍通过（restore 不搬运）", () => {
+    const withAttribution = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    (withAttribution.data as Record<string, Array<Record<string, unknown>>>).notes[0][
+      "last_edit_by"
+    ] = "20000000-0000-4000-8000-000000000099";
+    expect(inspectBackupV2(withAttribution).ok).toBe(true);
+
+    // 旧备份（066 之前导出）没有该字段：optional 保证兼容
+    const legacy = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    const legacyData = legacy.data as Record<string, Array<Record<string, unknown>>>;
+    delete legacyData.notes[0].last_edit_by;
+    expect(inspectBackupV2(legacy).ok).toBe(true);
+
+    // restore 链刻意不消费 last_edit_by（见 066 迁移头注释）：prepareRestorePayload 置空
+    const payload = prepareRestorePayload(withAttribution as any);
+    expect(payload.data.notes[0].last_edit_by).toBeNull();
+  });
+
   it("accepts reading_items.full_width from current exports and preserves it on restore", () => {
     const backup = createBackupV2(fixtureData(), timestamp);
     expect(inspectBackupV2(backup).ok).toBe(true);

@@ -132,5 +132,8 @@
    全文未出现过这个名字。因此 065 不能「保存时顺便写一下谁改的」——加列要同时动迁移、
    备份合同 v4 字段清单、mock seed 与既有原子保存测试，是一张独立的卡。**065 已按此执行：
    未加列，并用 `hasnt_column('public','notes','last_edit_by')` 断言钉住，防后续误加。**
+   **066 已按此登记补齐（2026-08-31）**：列落地（uuid、无外键、不回填、只由保存 RPC 写），
+   v1/v2 写调用者归属，备份导出携带而 restore 刻意置空，065 的钉子翻转为 `has_column`。
+   归属与权限正交：它回答「谁编辑的」，`resource_role()` 回答「能做什么」，互不参与对方判定。
 5. **实时协同（presence / CRDT）不依赖本 ADR 的写权限模型**：`resource_role()` 只回答「能不能写」，不回答「谁在写」。Stage 1/2 复用同一判定，不引入第二套权限事实源。
 6. **账号删除级联**：`workspaces.owner_id`、`workspace_members.user_id`、`resource_acl.created_by` 均 `references auth.users on delete cascade`，P2-02 的账号删除 API 无需改动即覆盖这三张表 —— 该结论来自读迁移定义，未额外写测试。
