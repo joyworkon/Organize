@@ -1,9 +1,9 @@
 # ADR 0002: 协作权限模型 = workspace + membership + resource ACL
 
-- 状态: 已接受（P5-01 最小原型 + 064 只读接入均已落地并验证；写权与生产化留给 065 / P5-02）
+- 状态: 已接受（P5-01 原型 + 064 只读接入 + 065 保存 RPC 分权均已落地并验证；前端接入与生产化留给 P5-02 卡 4）
 - 日期: 2026-08-31
-- 阶段: P5-01 原型（063，不改业务表 RLS）→ Stage 0 第二张卡（064，只加协作者 SELECT）
-- 相关: `supabase/migrations/063_collaboration_acl_prototype.sql`、`supabase/tests/063_collaboration_acl.test.sql`、`supabase/migrations/064_collaboration_read_rls.sql`、`supabase/tests/064_collaboration_read_rls.test.sql`、`docs/ROADMAP.md` P5-01/P5-02、`docs/collaboration-plan.md` 分叉 1
+- 阶段: P5-01 原型（063，不改业务表 RLS）→ Stage 0 卡 2（064，只加协作者 SELECT）→ Stage 0 卡 3（065，保存 RPC 按角色分权）
+- 相关: `supabase/migrations/063_collaboration_acl_prototype.sql`、`supabase/tests/063_collaboration_acl.test.sql`、`supabase/migrations/064_collaboration_read_rls.sql`、`supabase/tests/064_collaboration_read_rls.test.sql`、`supabase/migrations/065_collaboration_save_rpc_v2.sql`、`supabase/tests/065_collaboration_save_rpc.test.sql`、`docs/ROADMAP.md` P5-01/P5-02、`docs/collaboration-plan.md` 分叉 1
 
 ## 背景
 
@@ -76,8 +76,37 @@
    平台默认权限漂移）。
 3. **子资源不随共享外溢**。`note_versions` / `task_item_refs` / `note_tags` / `highlights` /
    评论仍按各自 owner-only 策略求值，协作者读到 0 行 —— 共享笔记能正常打开，但历史版本与
-   反链为空。这是 Stage 0 已知且刻意的中间态；版本列表与评论留给 065 的 RPC 按角色收口，
-   不在这里复制第二套判定。
+   反链为空。这是 Stage 0 已知且刻意的中间态。065 落地后协作者保存**会**经触发器写入
+   `note_versions`（属主可见、协作者仍不可见），但没有也不需要一个「按角色的版本列表
+   RPC」——列表给谁看由可见性决定，这里不复制第二套判定。
+
+## 065 落地时追加的边界
+
+065 把「能写」落到保存 RPC 上，同样有几条必须冻结的实现边界。
+
+1. **权限闸只调 `resource_role('note', id) in ('owner','editor')`**。v2 的函数体里不出现
+   `resource_acl` / `workspace_members` 的 join，pgTAP 用 `prosrc` 结构断言钉住（同 064 对
+   RLS 谓词的做法），防止将来有人另写一份判定。
+2. **业务行写入的 scope 是笔记属主，不是调用者**。任务锁/更新、`task_item_refs`、孤儿回收
+   一律按属主：056 的 `(note_id,user_id)` / `(task_id,user_id)` 复合外键要求 refs 的
+   `user_id` 同时等于笔记属主与任务属主，协作者保存时写 `auth.uid()` 会直接撞 23503。
+   `save_mutation_log` 例外地按**调用者**记账 —— 重试键是每个客户端会话自己的，A 的重放
+   不该吃掉 B 的日志。
+3. **修了 056 埋在版本触发器里的雷**。056 给 `prune_note_versions` 加了
+   `notes.user_id = auth.uid()` 校验，协作保存时调用者≠属主会 raise，协作者的第一次内容
+   变更保存必炸。065 拆出 `prune_note_versions_for(note_id, owner)`（internal-only，EXECUTE
+   不给客户端）让触发器按 `NEW.user_id` 裁剪；对外 `prune_note_versions(uuid)` 的签名与
+   属主校验不变，056 的越权负例仍然成立。
+4. **存在性不再当探针**。无权限调用者对「笔记不存在」与「未授权」一律拿到 `forbidden`
+   （v1 会分别返回 `not_found` / `forbidden`，等于一个 id 存在性 oracle）。`not_found` 只
+   留给确有权限而行已消失/进垃圾箱的调用者。
+5. **页面结构不放权，其余写路径失败闭合**。`parent_note_id` 的跨属主移动由既有
+   `validate_note_parent` 触发器（父子同属主 + 无环）拒绝，065 不额外开洞；`mutate_trash`、
+   `restore_note_version`、`move_note_block`、`convert_highlight_reference` 仍属主专属，协作
+   者调用会被各自的属主校验/RLS 挡住（失败闭合）。这些是 editor 的功能缺口，不是权限漏洞。
+6. **复选框语义沿用 051，不趁机收紧**：勾选=从非 done 真实完成（会把 in_progress /
+   cancelled 也完成），取消勾选=仅把已完成的回退。v2 的任务侧与 v1 逐字一致，避免「协作版
+   和单用户版行为分叉」。
 
 ## 已否决的替代方案
 
@@ -89,17 +118,19 @@
 
 1. **业务行属主转移（`notes.user_id` 改写）不做**。056 的 `(id, user_id)` 复合外键、`task_item_refs` 的同租户约束与备份合同 v4 都以 `user_id` 为键，改属主等于跨租户搬迁，必须逐资源域设计并配套测试。当前只支持**控制面转移**（`transfer_resource_acl`）。
 2. **三张协作表与 `user_profiles` 都不进备份合同 v4**。跨账号恢复属主行的 ACL 等于把 A 的共享关系塞给 B，得先定义 remap 语义（授权目标是空间，而空间不在备份白名单里）。恢复后授权丢失是**已知且刻意**的行为，必须在 manifest 的排除清单里写清。`user_profiles`（064）另有一层理由：它是**可再生的镜像** —— `auth.users` 触发器 + 幂等 backfill 会为每个账号重建，导出它只会带上展示字段，而跨账号恢复等于把别人的昵称/头像塞进新账号；并且它以 `id`（= user id）为键而非 `user_id` 列，与 v4 的「按 `user_id` 白名单收录」形状不符。账号删除时它通过 `references auth.users on delete cascade` 一并级联。
-3. **业务表 RLS 接入协作（064）已落地**：三张主表各一条协作者 `SELECT` 策略 + `user_profiles`
-   与 `find_user_by_email`（见上文「064 落地时追加的三条边界」）。063 单独合并时没有任何业务
-   数据对协作者可见；064 合并后，**被显式授权的那一条**才对空间成员可读，写权仍未放开。
-   **保存 RPC 按角色分权（065）、前端分享面板与「共享」页** 属 Stage 0 后续 PR。前端卡不带
-   `/api/*` 路由决定之前，mock 后端无需 `api-shim` 条目；「真实与 mock 对齐」的决定留到那张卡做。
+3. **业务表 RLS 接入协作（064）与保存 RPC 分权（065）均已落地**：064 给三张主表各一条协作者
+   `SELECT` 策略 + `user_profiles` 与 `find_user_by_email`；065 给 `save_note_with_tasks_v2`
+   （见上文「065 落地时追加的边界」）。被显式授权的那一条笔记对空间成员可读、editor 可经
+   v2 保存；属主专属的写路径仍闭合。**剩下的 Stage 0 工作是前端卡**：分享面板与「共享」页、
+   保存管线按角色切换。前端卡不带 `/api/*` 路由决定之前，mock 后端无需 `api-shim` 条目；
+   「真实与 mock 对齐」的决定留到那张卡做。
 4. **协作者归属列不存在，必须先建再写**。`docs/collaboration-plan.md` 的前提「038 预留了
    `notes.last_edit_by` 列位」经实测为假：本机 `notes` 有
    `id / user_id / title / content / reading_item_id / created_at / updated_at / is_pinned /
    deleted_at / icon / cover_url / cover_position / parent_note_id / full_width / font_family /
    small_font / content_revision / search_text`，没有 `last_edit_by`，且 `supabase/migrations/`
    全文未出现过这个名字。因此 065 不能「保存时顺便写一下谁改的」——加列要同时动迁移、
-   备份合同 v4 字段清单、mock seed 与既有原子保存测试，是一张独立的卡。
+   备份合同 v4 字段清单、mock seed 与既有原子保存测试，是一张独立的卡。**065 已按此执行：
+   未加列，并用 `hasnt_column('public','notes','last_edit_by')` 断言钉住，防后续误加。**
 5. **实时协同（presence / CRDT）不依赖本 ADR 的写权限模型**：`resource_role()` 只回答「能不能写」，不回答「谁在写」。Stage 1/2 复用同一判定，不引入第二套权限事实源。
 6. **账号删除级联**：`workspaces.owner_id`、`workspace_members.user_id`、`resource_acl.created_by` 均 `references auth.users on delete cascade`，P2-02 的账号删除 API 无需改动即覆盖这三张表 —— 该结论来自读迁移定义，未额外写测试。

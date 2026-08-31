@@ -1,5 +1,43 @@
 # PROGRESS
 
+## P5-02 卡 3/4：协作保存 RPC 分权（2026-08-31）
+
+- 分支 `feat/p5-02-collaboration-save-rpc`（master = fad9f3e，迁移到 064）
+
+### 实现
+
+1. **`save_note_with_tasks_v2`**：与 v1（051 定稿）同 8 参签名、同 jsonb 状态契约；权限闸
+   唯一调用 063 的 `resource_role('note', id) in ('owner','editor')`，不重写判定。v1 原样
+   保留（前端接入是下一张卡），并存期 v1 仍只放行属主
+2. **所有业务行写入 scope 从 `auth.uid()` 换成笔记属主**：任务锁/更新、`task_item_refs`
+   （056 复合外键要求 refs 的 user_id 同时等于笔记与任务属主）、孤儿回收都按属主；
+   `save_mutation_log` 仍按调用者记账（重试键属于各会话）
+3. **修 `save_note_version` 触发器**：056 给 `prune_note_versions` 加了
+   `notes.user_id = auth.uid()` 校验，协作保存时调用者≠属主会整体炸掉保存。拆出
+   `prune_note_versions_for(note_id, owner)` 内核（internal-only，不对客户端开放），触发器
+   改按 `NEW.user_id` 裁剪；对外 `prune_note_versions(uuid)` 签名与属主校验不变
+4. **两处刻意收紧**：无权限者对「不存在」与「无授权」一律 `forbidden`（v1 的 not_found 是
+   id 存在性探针）；页面结构（parent_note_id）不放权，靠既有 `validate_note_parent` 触发器
+   拒绝跨属主挂树。其余写路径（回收站/恢复/移动块/高亮转换）仍属主专属且失败闭合
+
+### 门禁（本地）
+
+- `supabase test db`：065 文件 **94/94 ok**；19 个文件合计 422 断言，唯一失败仍是 059 的
+  **既有本机漂移**（本机 postgres 非超管，CI 全新库为绿）。056/051/048/g1 等既有保存/版本
+  用例全绿（v2 未回归 v1 契约）
+- `npx tsc --noEmit` 0 错、`npx vitest run` 120 文件 / 875 用例（未动前端，数量不变）；
+  `next build` 本机挂起，以 CI 为准
+
+### 最大风险 / 遗留
+
+1. 协作者保存会写 `note_versions`（触发器），但协作者**看不到**历史（064 子资源仍属主专属）
+   —— 属主看得到全部；这是已知中间态
+2. editor 能改属主任务的 title/status（需已知 task uuid），这是「共享页任务块可编辑」的
+   自然延伸；要收紧到「仅限本篇引用的任务」需 refs 预登记，留待后续卡
+3. 归属列 `last_edit_by` 未加（要同时动备份合同 v4 + mock seed + 原子保存测试），按
+   ADR 0002 是独立一张卡
+4. 本机 056 分钟级抖动同前卡，见 BLOCKED.md
+
 ## P5-02 卡 2/4：协作可见性接入（2026-08-31）
 
 - 分支 `feat/p5-02-collaboration-read-rls`（master = 5b8b292，迁移到 063）
