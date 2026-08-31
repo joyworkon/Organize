@@ -53,7 +53,7 @@
 | P4 | P4-03 iOS 可分发版 | 阻塞：需开发者账号 | L | P4-02 |
 | P5 | P5-01 协作权限模型验证 | ✅ 完成（2026-08-31：ADR 0002 + 063 三表 workspace/membership/resource_acl + `resource_role()` 唯一判定链 + 三身份 85 断言 pgTAP，业务表 RLS 未动） | M | P2-03 |
 | P5 | P5-02 邀请共享与编辑 | ✅ 完成（2026-08-31：四卡全合——063 原型 + 064 只读可见性 + 065 保存 RPC 分权 + 前端接入（分享面板 / `/shared` 页 / 保存管线按角色切 v1/v2 / viewer 只读）；`last_edit_by` 归属列已由 066 补齐，逐域属主迁移留作后续） | L | P5-01 |
-| P5 | P5-03 实时协同技术验证 | 候选 | L | P5-02 |
+| P5 | P5-03 实时协同技术验证 | ✅ 完成（2026-08-31：ADR 0003 拍板 Yjs + Hocuspocus 自托管；`apps/collab-server` + 编辑器协作模式 + 双账号 e2e 全过；服务端 ydoc 持久化/播种为下一张卡） | L | P5-02 |
 
 ---
 
@@ -201,9 +201,9 @@ P5 后续待办（开工前先读 ADR 0002）：
 - 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单）。**排除清单已在导出 manifest 显式声明（`collaboration_acl` + `user_profiles`，2026-08-31）**：校验侧底线保持旧五类不变以兼容既有备份，导出侧输出完整清单。
 - 逐域迁移业务行属主（含 056 复合外键与 `task_item_refs` 的同步改法），一次一个资源域。
 
-### P5-03 实时协同技术验证
+### P5-03 实时协同技术验证 ✅（2026-08-31 完成：ADR 0003 拍板 Yjs + Hocuspocus 自托管，垂直切片 + 双账号 e2e 全过，详见 PROGRESS.md）
 
-以两浏览器断网重连、并发输入不丢字、版本历史可恢复为学习目标，对 Yjs + Supabase Realtime 与其他方案做限时验证；验证通过后才决定生产架构。任务协作继续使用乐观锁，不因笔记采用 CRDT 而强行统一。
+验证结论：**Yjs CRDT + 自托管 Hocuspocus（`apps/collab-server`）** 为生产架构。否决 Supabase Realtime Broadcast（本地 signature_error 已知问题 + 无生产级 y-transport 封装）与 y-webrtc（NAT 不可控）。已落地：笔记实时协同编辑（owner/editor 可写、viewer 实时只读连接）、远端光标 + 出席栏、客户端节流快照（复用 v2 RPC + 版本/任务链触发器）、ws 未配置/mock 时整体降级回 Stage 0 乐观锁主链。双账号 e2e 验证：并发输入不丢字、双向可见、断线重连合并、快照刷新恢复。
 
 ---
 

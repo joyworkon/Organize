@@ -1,5 +1,56 @@
 # PROGRESS
 
+## P5-03：实时协同技术验证——Yjs + Hocuspocus（2026-08-31）
+
+- 分支 `feat/p5-03-collab-realtime`（master = 40a394f，无 DB 迁移）
+- 决策：ADR 0003 拍板 **Yjs CRDT + 自托管 Hocuspocus**（`apps/collab-server`，新 workspace 包）。
+  否决 Supabase Realtime Broadcast（本地已知 signature_error + 无生产级 y-transport 封装）
+  与 y-webrtc（NAT 不可控）。用户已确认可自备常驻服务器（Mac mini / 租用）
+
+### 实现
+
+1. **collab 服务**：Hocuspocus 4.6，一房间一篇笔记（`note:<uuid>`）。onAuthenticate 用
+   Supabase `auth.getUser(token)` 验签 → 以**用户自己的 JWT** 调 `resource_role('note', id)`
+   判权（063 唯一判定链复用，服务端零自建权限）；viewer 连接 `connectionConfig.readOnly`
+   服务端丢弃其写入；无授权一律拒（不泄漏存在性）
+2. **编辑器协作模式**：`Collaboration` + `CollaborationCursor` 扩展按需注入（`collab` prop）；
+   协作时 StarterKit History 关闭（Undo 由 Yjs UndoManager 接管）；UniqueID 加
+   `filterTransaction` 只补本地事务 id；**y-sync 远端事务映射为 G3 预留的 `remote-sync`
+   来源**——不进 Undo、不生成 task mutation、不标脏不排队保存
+3. **页面接线**：`useNoteCollab` hook（provider 生命周期 + awareness 出席）；`NotePresenceBar`
+   头像栈（颜色按 uid 哈希，与远端光标同色源）；保存路径按会话状态切换——
+   **协作在线：v2 + `expected_revision=null`**（CRDT 合并使乐观锁无意义，快照节流落库，
+   版本/任务链/last_edit_by 全复用既有触发器）；**离线/mock：回退 Stage 0 乐观锁主链**
+4. **空房间播种**：首次同步后 Y.Doc 为空才用 DB 原始快照播种。踩坑记录：播种源不能用页面
+   content state（挂载期 UniqueID 回填会把内容覆盖成空文档 → 播种空文档 → 保存清库），
+   必须传 DB 加载时的原始快照（`seedContent`）；且回填 effect 加「同步后才跑」的门
+5. **开关与降级**：`NEXT_PUBLIC_COLLAB_WS_URL` 未配置 / mock 后端 → 整个协作层不启用，
+   行为与 Stage 0 完全一致；会话断开时保存自动回退乐观锁主链
+
+### 验证（P5-03 学习目标，双账号 e2e `e2e/collab.spec.ts`，COLLAB_E2E=1 本地实跑 13.4s 全过）
+
+- 双浏览器（A/B 两个账号两个 context）并发输入不丢字：不同段落并发 + 同段落追加，
+  CRDT 合并双向可见，无冲突弹窗
+- 出席栏互见（对方名字/颜色 chip）
+- 断线重连：B 关页 → A 继续输入 → B 重开，经服务端内存文档 + 快照双通道拿到全量内容
+- 快照落库：刷新后内容仍在（v2 RPC → note_versions / task_item_refs 触发器链原样复用）
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 122 文件 / 885 用例全绿；next lint（CI 同款）0 警告
+- smoke e2e 5/5（mock 生产构建）；collab e2e 1/1（真实后端双账号）
+- 种子脚本 `scripts/seed-collab-e2e.mjs`：admin API 建 A/B 账号 + PostgREST 直插笔记/空间/授权（幂等）
+
+### 已知边界 / 生产化待办（下一张卡）
+
+1. **服务端 ydoc 持久化缺失**：文档在内存，collab 进程重启丢房间状态；客户端快照兜底
+   （丢失窗口 ≈ 快照节流间隔）。生产化：`encodeStateAsUpdate` 落 `note_ydocs` blob 表 +
+   onLoadDocument 回放 + 服务端播种（消除空房间并发播种竞态）
+2. **冲突对话框在协作模式下不可达**（乐观锁被跳过），保留给降级路径
+3. 协作模式下 `parent_note_id` 等页面结构仍按属主收口（validate_note_parent 触发器），不变
+4. 部署：collab-server 与 Supabase 同机部署，`NEXT_PUBLIC_COLLAB_WS_URL` 指向
+   `ws://<host>:1420`（或反代 ws 升级到同域路径）
+
 ## P5 后续：备份 manifest 排除清单声明协作表（2026-08-31）
 
 - 分支 `feat/p5-backup-manifest-exclusions`（master = a2cfa6b，无迁移、无 schema 变更）

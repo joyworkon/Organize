@@ -4,8 +4,11 @@ import "katex/dist/katex.min.css";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import UniqueID from "@tiptap/extension-unique-id";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import type { HocuspocusProvider } from "@hocuspocus/provider";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { NodeSelection, TextSelection, type EditorState } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import type { EditorView } from "@tiptap/pm/view";
 import type { JSONContent } from "@tiptap/core";
@@ -162,6 +165,17 @@ interface EditorProps {
   internalLinkStates?: Record<string, InternalLinkStateRow>;
   /** 只读模式（协作 viewer）：编辑器不可输入，默认 true 不影响单用户链路 */
   editable?: boolean;
+  /**
+   * 实时协作会话（P5-03，ADR 0003）：传入即启用 Yjs 协作扩展。
+   * 此时 initial content 由 Y.Doc 接管（首次同步后若文档为空才用 seedContent 播种），
+   * History 扩展被 Collaboration 的 UndoManager 取代。
+   */
+  collab?: {
+    provider: HocuspocusProvider;
+    user: { name: string; color: string };
+    /** DB 加载时的原始内容快照：仅用于空房间播种，勿传可变 state */
+    seedContent: Record<string, unknown> | null;
+  } | null;
 }
 
 /* ----------------------------- 块类型配置 ----------------------------- */
@@ -1073,6 +1087,7 @@ export function TipTapEditor({
   noteTree,
   internalLinkStates = {},
   editable = true,
+  collab = null,
 }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -1115,7 +1130,11 @@ export function TipTapEditor({
 
   const extensions = useMemo(() => {
     return [
-      StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
+      // 协作模式下 History 由 Collaboration 的 Yjs UndoManager 接管（TipTap 合同）
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3, 4] },
+        ...(collab ? { history: false } : {}),
+      }),
       ListStyleExtension,
       TextStyle,
       Color,
@@ -1190,21 +1209,41 @@ export function TipTapEditor({
       BlockMultiSelect,
       BlockStyle,
       ListBackspaceFix,
-      UniqueID.configure({ types: BLOCK_ID_TYPES }),
+      UniqueID.configure({
+        types: BLOCK_ID_TYPES,
+        // 协作：只给本地事务补 id（远端节点自带 id，否则两端各自生成会冲突）
+        ...(collab
+          ? { filterTransaction: (transaction: Transaction) => !transaction.getMeta("y-sync$") }
+          : {}),
+      }),
+      ...(collab
+        ? [
+            Collaboration.configure({ document: collab.provider.document }),
+            CollaborationCursor.configure({
+              provider: collab.provider,
+              user: collab.user,
+            }),
+          ]
+        : []),
     ];
-  }, []);
+  }, [collab]);
 
   const editor = useEditor({
     extensions,
-    content,
+    // 协作模式：初始内容归 Y.Doc 管（首次同步后按需播种 DB 内容），不能注入初始 content
+    content: collab ? null : content,
     immediatelyRender: false,
     onUpdate: ({ editor, transaction }) => {
       // 仅用于强制 NodeView 刷新的无内容变化事务，不触发上层 onUpdate/自动保存
       if (transaction.getMeta("breadcrumb:storage-refresh")) return;
-      // 从 transaction meta 读来源；无 meta（用户键盘/鼠标操作）= "user"
-      const source = (transaction.getMeta("transactionSource") as TransactionSource) || "user";
+      // y-sync 协作事务（远端协作者的变更推入）= remote-sync：
+      // 不进 Undo、不生成 task mutation、不标脏（G3 预留枚举，ADR 0003）
+      const source: TransactionSource = transaction.getMeta("y-sync$")
+        ? "remote-sync"
+        : ((transaction.getMeta("transactionSource") as TransactionSource) || "user");
       onUpdateRef.current(editor.getJSON(), source);
     },
+    editable,
     editorProps: {
       attributes: {
         // 正文 16px（sm 以下 prose-sm）：与阅读页 17px/1.8 有意区分——编辑态需要操作密度
@@ -1297,7 +1336,8 @@ export function TipTapEditor({
         return true;
       },
     },
-  });
+    // 协作会话建立/销毁时重建编辑器（扩展集合随 provider 变化）
+  }, [collab?.provider, collab?.user]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1309,6 +1349,27 @@ export function TipTapEditor({
     if (!editor) return;
     if (editor.isEditable !== editable) editor.setEditable(editable);
   }, [editor, editable]);
+
+  // 协作模式：首次同步后若 Y.Doc 为空（新房间），用 DB 原始内容播种一次。
+  // setContent 第二参 false = 不产生 onUpdate（不标脏、不触发保存）。
+  // 注意播种源必须是 seedContent（DB 加载时的原始快照）：页面 content state 会被
+  // UniqueID 回填等编辑器事务覆盖，用它播种会把空文档写回房间。
+  // 已知边界：两个客户端同时首次进入空房间会各自播种（ADR 0003 已登记，属
+  // 「服务端持久化/播种」生产化卡的范围；日常先开后开不触发）。
+  useEffect(() => {
+    if (!collab || !editor) return;
+    const provider = collab.provider;
+    const seedOnce = () => {
+      if (!editor.isDestroyed && editor.isEmpty && collab.seedContent) {
+        editor.commands.setContent(collab.seedContent as never, false);
+      }
+    };
+    if (provider.isSynced) seedOnce();
+    provider.on("synced", seedOnce);
+    return () => {
+      provider.off("synced", seedOnce);
+    };
+  }, [collab, editor]);
 
   const closeMenus = useCallback(() => {
     setCommandMenu(null);
@@ -1338,30 +1399,47 @@ export function TipTapEditor({
   }, [editor, noteId, noteTitle, noteTree]);
 
   // UniqueID 负责后续事务；历史 JSON 初始化时不会产生事务，因此这里主动补齐并保存。
+  // 协作模式必须等首次同步后再补：同步前文档为空，此刻补齐会把空文档经
+  // onUpdate('hydrate') 上抛，随后的快照保存会把房间/DB 内容清掉。
   useEffect(() => {
     if (!editor) return;
-    let transaction = editor.state.tr;
-    editor.state.doc.descendants((node, pos) => {
-      if (BLOCK_ID_TYPES.includes(node.type.name) && !node.attrs.id) {
-        const id = typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        transaction = transaction.setNodeMarkup(pos, undefined, { ...node.attrs, id });
+    const runBackfill = () => {
+      let transaction = editor.state.tr;
+      editor.state.doc.descendants((node, pos) => {
+        if (BLOCK_ID_TYPES.includes(node.type.name) && !node.attrs.id) {
+          const id = typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          transaction = transaction.setNodeMarkup(pos, undefined, { ...node.attrs, id });
+        }
+      });
+      if (transaction.docChanged) {
+        // 系统操作（补 block id）：打 hydrate meta，使 onUpdate 读到非 user 来源，
+        // 不激活 legacy / 不进 Undo（见 docs/g0-protocol.md §4）
+        transaction = transaction.setMeta("transactionSource", "hydrate");
+        editor.view.dispatch(transaction);
+        onUpdateRef.current(editor.getJSON(), "hydrate");
+        return;
       }
-    });
-    if (transaction.docChanged) {
-      // 系统操作（补 block id）：打 hydrate meta，使 onUpdate 读到非 user 来源，
-      // 不激活 legacy / 不进 Undo（见 docs/g0-protocol.md §4）
-      transaction = transaction.setMeta("transactionSource", "hydrate");
-      editor.view.dispatch(transaction);
-      onUpdateRef.current(editor.getJSON(), "hydrate");
+      const upgraded = editor.getJSON();
+      if (!isSameNodeSnapshot(upgraded, initialContentRef.current)) {
+        onUpdateRef.current(upgraded, "hydrate");
+      }
+    };
+    if (!collab) {
+      runBackfill();
       return;
     }
-    const upgraded = editor.getJSON();
-    if (!isSameNodeSnapshot(upgraded, initialContentRef.current)) {
-      onUpdateRef.current(upgraded, "hydrate");
+    const provider = collab.provider;
+    if (provider.isSynced) {
+      runBackfill();
+      return;
     }
-  }, [editor]);
+    provider.on("synced", runBackfill);
+    return () => {
+      provider.off("synced", runBackfill);
+    };
+  }, [editor, collab]);
 
   const insertImage = useCallback((url: string, pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
     if (!editor) return;
