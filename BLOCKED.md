@@ -1,5 +1,22 @@
 # BLOCKED
 
+## P5-03 生产化卡（ydoc 持久化 + 播种租约，2026-08-31）
+无功能阻塞。三点声明归档：
+1. **pgTAP 本机未跑成，以 PR CI db-test 为准（环境故障，非本卡 SQL 问题）**：
+   证据链——`docker pull` 对任意镜像（含 alpine）hang 但 `docker ps/exec` 正常、
+   到 public.ecr.aws 的 HTTPS 连通正常（curl 0.6s 返回 401）→ Docker daemon 拉取
+   通道坏；supabase CLI 2.116.0 需要 postgres 镜像 17.6.1.166（本地只有 .165，
+   `db reset/start/test db` 全部在 pull 阶段静默挂起）；把本地 .165 retag 成 .166
+   后 db 容器可起，但 002 起的迁移依赖 `storage.buckets`，其 schema 由 storage-api
+   容器初始化，完整 start 又需要拉 analytics/pooler 等新服务镜像 → 死循环。
+   修复方向：重启 Docker Desktop / 手动 `docker pull` 恢复后跑 `supabase test db`。
+2. **blob 与快照的分工是合同**：notes.content 由客户端 v2 节流快照维护（事实源，
+   进备份/版本链）；note_ydocs 只由 collab-server 读写（回放缓存，不进备份）。
+   不要给 blob 开客户端直写路径，也不要把它加进 BACKUP_TABLES。
+3. **播种仲裁走无状态消息协议**（`seed-req/grant/wait/deny`，见 seed-lease.ts）：
+   协议变更必须同时改 collab-server 与 tiptap-editor 的 seed effect；客户端只有在
+   `seed-grant` 且 `editor.isEmpty` 且有 `seedContent` 时才播种。
+
 ## P5-03 实时协同（已完成，2026-08-31）
 无阻塞。四点声明归档：
 1. **服务端文档不持久化是本期刻意边界**：Y.Doc 在 collab 进程内存中，进程重启丢房间；

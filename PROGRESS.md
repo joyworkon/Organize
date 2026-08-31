@@ -1,5 +1,62 @@
 # PROGRESS
 
+## P5-03 生产化卡：collab ydoc blob 持久化 + 播种租约（2026-08-31）
+
+- 分支 `feat/collab-ydoc-persistence`（master = 3224fd3，迁移到 067）
+- 卡源：ADR 0003「持久化（生产化卡）」——P5-03 遗留两件事：collab 进程重启丢内存
+  文档；空房间并发播种竞态（两客户端各自播种出重复段落）
+
+### 实现
+
+1. **迁移 067 `note_ydocs`**（note_id PK/FK 级联、bytea、RLS）：blob 是派生缓存
+   （notes.content 才是事实源），刻意不进备份合同 v4（EXPORT_EXCLUSIONS 显式声明
+   `note_ydocs`）也不进 mock（协作层 mock 下整体不启用）。表对 anon/authenticated
+   无直接权限（仿 057），读写走两个 DEFINER RPC（复用 063 `resource_role`：读
+   owner/editor/viewer、写 owner/editor；base64 进出不依赖 PostgREST bytea 映射；
+   4MB 护栏）。**新鲜度规则是数据安全关键**：`get_note_ydoc` 仅在
+   `blob.updated_at >= notes.updated_at` 时返回——正文存在非协作写入路径（离线
+   v1/v2、move-block、恢复），若无条件回放，重启后旧 CRDT 会遮蔽新内容并被客户端
+   快照反向覆盖（丢数据）；过期 → null → 走播种路径，播种后自愈
+2. **collab-server**：`onLoadDocument` 回放 blob；`onStoreDocument`（内置防抖 2s）
+   以最后写者 JWT 落库 `encodeStateAsUpdate` 全量快照，失败只记日志不炸房间
+   （可读内容仍有客户端 v2 节流快照兜底）；token 来自连接 context，会话 JWT 过期后
+   落库失败 = 等下次会话重建（快照链不受影响）
+3. **播种租约（`src/seed-lease.ts` + 无状态消息协议）**：ADR 修订——不把编辑器
+   schema 搬上服务端（自定义扩展深度耦合 React/Next/数据库 UI，平行 schema 必然
+   漂移，且漂移后仍要回退客户端播种）。改为服务端仲裁的客户端播种：
+   `{"t":"seed-req"}` → `seed-grant/wait/deny`，服务端单线程判定天然原子，同一
+   房间只发一份 grant（8s 租约、3 次封顶）；客户端获准才 `setContent(seedContent)`
+   （DB 原始快照，mount 期 UniqueID 回填坑的注释保留），未获准方等 y-sync 推内容
+4. 协议消息量：仅空房间进入时的几次小 JSON，正常编辑零额外消息
+
+### 测试
+
+- pgTAP 067（30 断言）：结构/RLS/表权限回收、EXECUTE 分层、四角色读写矩阵、
+  upsert 覆盖、**新鲜度过期与自愈**、空/超 4MB 拒绝、软删读写全拒、硬删级联清行
+- collab-server 引入 vitest（与 web 同版本 4.1.10）：租约状态机 5 用例（grant/wait
+  互斥、到期惰性回收、封顶 deny、markSeeded 终结）
+- 备份 schema.test +1：新导出 manifest 声明 `note_ydocs` 排除且校验通过
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 122 文件 / 886 用例全绿（+1）；
+  next lint（CI 同款）0 警告；`next build` exit 0；collab-server `tsc` 0 错
+- **pgTAP 本机被环境卡死**（Docker daemon 拉镜像通道 hang、supabase CLI 需要新
+  postgres 镜像 17.6.1.166、完整栈还缺 analytics/pooler 新服务镜像；本地已缓存镜像
+  retag 后 db 可起但 storage schema 依赖全栈）：以 PR CI db-test（全新库实跑）为准，
+  详见 BLOCKED.md
+
+### 遗留 / 边界
+
+1. blob 不回放自愈的方式是「重新播种」：CRDT 历史（tombstone/ Undo 栈）不迁移，
+   播种后房间按新文档起步——content 本身无损，版本历史照常
+2. 会话 JWT 过期后 onStoreDocument 落库失败只记日志（客户端快照兜底）；生产化可加
+   token 同步（Hocuspocus onTokenSync）
+3. 协作模式下冲突对话框仍不可达（expected_revision=null，ADR 0003 既定），保留给
+   降级路径
+
+# PROGRESS
+
 ## P5-03：实时协同技术验证——Yjs + Hocuspocus（2026-08-31）
 
 - 分支 `feat/p5-03-collab-realtime`（master = 40a394f，无 DB 迁移）

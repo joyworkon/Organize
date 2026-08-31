@@ -79,12 +79,15 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 ## 架构
 
 ### Monorepo 布局
-- `apps/web` — Next.js 15 主应用（目前唯一已实现的 app）
+- `apps/web` — Next.js 15 主应用
+- `apps/collab-server` — 实时协作 WebSocket 服务（Hocuspocus，ADR 0003）：一笔一房间，
+  Supabase JWT 验签 + `resource_role()` 判权；ydoc blob 经 067 RPC 持久化，空房间播种
+  走租约仲裁协议（`seed-lease.ts`）；`NEXT_PUBLIC_COLLAB_WS_URL` 未配置 / mock 时 web 端整体降级回乐观锁主链
 - `packages/shared` — 跨包共享的 TS 类型（ReadingItem / Note / Tag / ScrapeResult / ReadingStatus 等）
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri 桌面端骨架；`mobile/` — Capacitor 移动端骨架（均未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–058；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好、速记 memos、数据库越权热修和 AI 密钥锁定）
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–067；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好、速记 memos、数据库越权热修、AI 密钥锁定；063–066 为协作权限模型/只读可见性/保存分权/归属列，067 为协作 CRDT blob 存储 `note_ydocs`——仅 collab-server 经 RPC 读写，不进备份不进 mock）
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
