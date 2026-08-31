@@ -1,5 +1,25 @@
 # BLOCKED
 
+## P5 后续产品卡：协作空间管理 UI（已完成，2026-08-31）
+无阻塞。四点合同声明归档：
+1. **邀请成员不在空间页**：邀请与授权是同一动作（ADR 0002），仍走笔记分享面板；
+   空间页只做存量成员管理（改角色/移除/移交/退出）+ 建空空间 + 重命名 + 解散。
+   空空间在分享面板的「加入 <空间名>」下拉里即可作为邀请目标。
+2. **解散空间是 RLS DELETE 直更**（063 "Owner can delete team workspace"），
+   级联撤掉 workspace_members 与 resource_acl——授权立即消失是语义而非 bug；
+   确认框文案已明示。属主重命名同理走直更（RLS UPDATE 只放行 owner）。
+3. **个人空间（kind=personal）不进管理页**：单成员、无可管理关系；063 RLS 的
+   「成员可见自己参与的空间」在页面上等价于 team 空间集合。
+4. mock 后端：空间表查询为空集 → 空态；新建/管理 RPC 显式 P5-02-MOCK 报错并
+   如实展示（P5-02 卡 4 既有合同），不假成功。侧边栏入口与「与我共享」同约定恒隐藏。
+
+## P2-03 收尾缺口（2026-08-31 复核）
+**staging 落后 master**：云库（ref sgkviverpercklxsjbcv）停在 062，master 已到 067
+（063–067 协作/协作 blob 迁移未上 staging）；collab-server 也尚未部署到常驻主机。
+本机当前无 Supabase access token / Vercel CLI 登录态，需用户重新提供云凭证后才能
+继续：`supabase link` → `db push` → 云库 pgTAP、Auth 回调与邮件验证、collab-server
+部署 + `NEXT_PUBLIC_COLLAB_WS_URL` 配置、第 6 步人工验收清单（见 deploy-runbook.md）。
+
 ## P5-03 生产化卡（ydoc 持久化 + 播种租约，2026-08-31）
 无功能阻塞。三点声明归档：
 1. **pgTAP 本机未跑成，以 PR CI db-test 为准（环境故障，非本卡 SQL 问题）**：

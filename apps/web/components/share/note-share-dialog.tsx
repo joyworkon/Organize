@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -159,9 +160,16 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
   return (
     <div className="space-y-5">
       <section className="space-y-2">
-        <h3 className="flex items-center gap-1.5 text-sm font-medium">
-          <Users className="h-4 w-4" />
-          协作空间
+        <h3 className="flex items-center justify-between text-sm font-medium">
+          <span className="flex items-center gap-1.5">
+            <Users className="h-4 w-4" />
+            协作空间
+          </span>
+          {workspaces.length > 0 && (
+            <Link href="/spaces" className="text-xs font-normal text-primary hover:underline">
+              管理成员
+            </Link>
+          )}
         </h3>
         {loading ? (
           <div className="flex items-center justify-center py-4">

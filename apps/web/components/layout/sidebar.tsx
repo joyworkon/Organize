@@ -27,6 +27,7 @@ import {
   Network,
   Feather,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ import { showPrompt } from "@/components/ui/prompt-dialog";
 import { useAllTags } from "@/components/tags/use-tags";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useHasSharedNotes } from "@/hooks/use-shared-notes";
+import { useHasTeamWorkspaces } from "@/hooks/use-workspaces";
 
 // 侧边栏可见的一级导航。「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
 const navItems = [
@@ -66,6 +68,10 @@ const MOBILE_LABEL_EXTRA_ITEMS = [
 
 // 「与我共享」条件入口：有共享笔记才出现在「笔记」之后（useHasSharedNotes，mock 恒隐藏）
 const sharedNavItem = { href: "/shared", label: "与我共享", icon: Users };
+
+// 「协作空间」条件入口：有 team 空间才出现（useHasTeamWorkspaces，mock 恒隐藏），
+// 紧跟「与我共享」之后——两个协作面一起成组
+const spacesNavItem = { href: "/spaces", label: "协作空间", icon: UsersRound };
 
 const TASK_NAV_EXPANDED_KEY = "organize-sidebar-task-nav-expanded";
 
@@ -97,14 +103,21 @@ export function Sidebar() {
   const recentNotes = useOpenTabsStore((state) => state.recents);
   useThemeColor();
   const hasSharedNotes = useHasSharedNotes();
-  // 一级导航 = 静态项 + 条件项（与我共享，仅在确有共享笔记时出现）
-  const visibleNavItems = useMemo(
-    () =>
-      hasSharedNotes
-        ? [...navItems.slice(0, 3), sharedNavItem, ...navItems.slice(3)]
-        : navItems,
-    [hasSharedNotes]
-  );
+  const hasTeamWorkspaces = useHasTeamWorkspaces();
+// 一级导航 = 静态项 + 条件项（与我共享 / 协作空间，插在「笔记」之后成组；
+// 两个条件入口各自探测，mock 后端恒隐藏）
+const visibleNavItems = useMemo(() => {
+  const items = [...navItems];
+  let insertAt = 3;
+  if (hasSharedNotes) {
+    items.splice(insertAt, 0, sharedNavItem);
+    insertAt += 1;
+  }
+  if (hasTeamWorkspaces) {
+    items.splice(insertAt, 0, spacesNavItem);
+  }
+  return items;
+}, [hasSharedNotes, hasTeamWorkspaces]);
 
   useEffect(() => {
     const stored = localStorage.getItem("organize-sidebar-collapsed") === "true";
@@ -229,7 +242,7 @@ export function Sidebar() {
 
   // 移动端顶栏展示当前所在分区（Notion 移动端模式：汉堡 + 位置名），根路径回退到产品名
   const mobileSectionLabel = useMemo(() => {
-    const match = [...navItems, sharedNavItem, ...MOBILE_LABEL_EXTRA_ITEMS]
+    const match = [...navItems, sharedNavItem, spacesNavItem, ...MOBILE_LABEL_EXTRA_ITEMS]
       .sort((a, b) => b.href.length - a.href.length)
       .find((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)));
     return match?.label ?? "Organize";
