@@ -1,5 +1,55 @@
 # PROGRESS
 
+## P5-02 卡 4/4：协作前端接入（2026-08-31）
+
+- 分支 `feat/p5-02-collab-frontend`（master = c8216c6，迁移到 065；本卡无新迁移）
+
+### 实现
+
+1. **角色消费唯一入口 `resource_role()`**：`lib/collab/roles.ts`（类型/展示名/`canEditRole`/
+   按角色选 RPC 的纯函数）+ 笔记页加载时判定（行 `user_id` 即属主事实，无需 RPC；协作者
+   才调 `resource_role`，拿不到有效结论按 viewer 防御）。前端不自建判定逻辑
+2. **分享面板 `NoteShareDialog`**（`components/share/note-share-dialog.tsx`，替换笔记页原
+   公开链接-only 的 ShareDialog；library/卡片等入口不受影响）：三段式——协作空间授权
+   （`grant_resource`/`revoke_resource`，只列 team 空间）、邀请协作者（`find_user_by_email`
+   精确换 user_id → 新建 `create_workspace(p_invitees)` 或 `add_workspace_member` → 授权）、
+   公开链接（沿用 `/api/share`，与协作 ACL 相互独立）。非属主看到只读授权列表
+3. **`/shared`「与我共享」列表页 + 侧边栏条件入口**：数据 = `notes.user_id <> 我` 一次直读
+   （064 RLS 保证可见即被授权），**未新造列表 RPC**（065 卡面留白由本卡决定）；角色逐条
+   `resource_role`，属主姓名/头像取 `user_profiles`（能读到笔记 ⇒ 共享空间 ⇒ 档案可见）。
+   侧边栏 `useHasSharedNotes`（limit 1）有共享才显示入口；移动端顶栏位置名同步
+4. **保存管线按角色切换**：owner→`save_note_with_tasks`（v1 主链不动），editor→
+   `save_note_with_tasks_v2`（同签名同状态契约，冲突/重试/幂等分支零改动复用），viewer→
+   不发起保存。协作者打开共享笔记靠 `loadNote` 去掉 `user_id` 过滤（RLS 放行读）
+5. **viewer 只读闭环**：TipTapEditor 新增 `editable` prop（`editor.setEditable` 同步）、标题
+   textarea 只读、「仅查看」角标、`flushSave` 顶部守卫、localStorage 排版迁移跳过（否则
+   永远「未保存」）。editor 的标签仍是各人一份（`/api/notes/[id]/tags` 按调用者记
+   user_id，合法保留）
+6. **mock 对齐（卡面要求的显式决策）**：mock 单用户世界里 `resource_role` 如实返回 owner
+   （保存永远走 v1，单用户行为不变）；协作管理 RPC（`find_user_by_email`/`grant_resource`/
+   `create_workspace` 等 + `save_note_with_tasks_v2`）一律显式报错 `P5-02-MOCK`，面板如实
+   展示——**不假成功**。`/shared` 与侧边栏入口在 mock 下自然为空/隐藏
+7. **冲突对话框文案**改为「另一页面、设备或协作者」：`last_edit_by` 列不存在（ADR 0002
+   刻意留作独立卡），**无法显示冲突对方名字**，按事实陈述而不是造一个名字出来
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 122 文件 / 882 用例全绿（新增
+  `lib/collab/roles.test.ts` 4 例 + `lib/supabase/mock-collab-rpc.test.ts` 3 例）
+- CI 同款 `next lint --dir lib --dir components --dir app --max-warnings 0` 0 警告
+- 本机无 Docker/Supabase CLI，pgTAP 不适用（本卡无迁移）；`next build` 本机挂起，以 CI 为准
+
+### 最大风险 / 遗留
+
+1. **冲突对方名字显示不出来**：依赖 `notes.last_edit_by` 加列卡（连带备份合同 v4 + mock
+   seed + 原子保存测试），登记在 ROADMAP P5 待办
+2. **子资源仍为空**：协作者打开共享笔记时历史版本/评论/反链面板为空（064 起的已知合同
+   中间态，非本卡引入）
+3. **空间管理 UI 未做**：踢人/改成员角色/移交空间属主等 RPC 已有但无界面；分享面板里
+   非空间 owner 邀请会被服务端拒绝并如实报错。属 P5 后续产品卡
+4. 根目录 `pnpm lint`（turbo）在 `@organize/plugin-sdk` 上**既有失败**（该包无 tsconfig，
+   `tsc --noEmit` 打印帮助即退出 1），与 CI 门禁（apps/web 的 next lint）无关，非本卡引入
+
 ## P5-02 卡 3/4：协作保存 RPC 分权（2026-08-31）
 
 - 分支 `feat/p5-02-collaboration-save-rpc`（master = fad9f3e，迁移到 064）

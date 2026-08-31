@@ -160,6 +160,8 @@ interface EditorProps {
   noteTree?: { id: string; title: string | null; icon: string | null; parent_note_id: string | null }[];
   /** 当前正文内站内链接的受控状态；删除/缺失目标不可继续导航。 */
   internalLinkStates?: Record<string, InternalLinkStateRow>;
+  /** 只读模式（协作 viewer）：编辑器不可输入，默认 true 不影响单用户链路 */
+  editable?: boolean;
 }
 
 /* ----------------------------- 块类型配置 ----------------------------- */
@@ -1070,6 +1072,7 @@ export function TipTapEditor({
   onEditorReady,
   noteTree,
   internalLinkStates = {},
+  editable = true,
 }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -1300,6 +1303,12 @@ export function TipTapEditor({
     if (!editor) return;
     editor.view.dispatch(editor.state.tr.setMeta(internalLinkStateKey, true));
   }, [editor, internalLinkStates]);
+
+  // 协作 viewer 只读：角色变化（含挂载时序）都同步到编辑器实例
+  useEffect(() => {
+    if (!editor) return;
+    if (editor.isEditable !== editable) editor.setEditable(editable);
+  }, [editor, editable]);
 
   const closeMenus = useCallback(() => {
     setCommandMenu(null);

@@ -30,7 +30,8 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
-import { ShareDialog } from "@/components/share/share-dialog";
+import { NoteShareDialog } from "@/components/share/note-share-dialog";
+import { saveRpcNameForRole, type CollabRole } from "@/lib/collab/roles";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
@@ -136,6 +137,10 @@ export default function NoteEditorPage() {
   const [tocOpen, setTocOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null);
+  // 协作角色（P5-02 卡 4）：null=未判定；viewer 只读，editor 走 v2 保存，owner 走 v1 主链。
+  // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
+  const [noteRole, setNoteRole] = useState<CollabRole | null>(null);
+  const noteRoleRef = useRef<CollabRole | null>(null);
   const [contentLinkStates, setContentLinkStates] = useState<Record<string, InternalLinkStateRow>>({});
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
@@ -197,6 +202,20 @@ export default function NoteEditorPage() {
     );
   }, [supabase]);
 
+  // 协作角色判定（P5-02 卡 4）：属主无需 RPC（行的 user_id 即事实）；
+  // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理
+  //（宁可只读也不误写）。前端不自行推导角色。
+  const resolveCollabRole = useCallback(
+    async (id: string): Promise<CollabRole> => {
+      const { data: role } = await supabase.rpc("resource_role", {
+        p_resource_type: "note",
+        p_resource_id: id,
+      });
+      return role === "owner" || role === "editor" || role === "viewer" ? role : "viewer";
+    },
+    [supabase]
+  );
+
   // 加载笔记
   useEffect(() => {
     let active = true;
@@ -215,6 +234,8 @@ export default function NoteEditorPage() {
       setLastSaved(null);
       setOfflinePending(false);
       setLoadFailure(null);
+      noteRoleRef.current = null;
+      setNoteRole(null);
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
       // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
@@ -226,15 +247,20 @@ export default function NoteEditorPage() {
         return;
       }
       userIdRef.current = user.id;
+      // 064 RLS：属主行与「被授权共享给我」的行都能按 id 读到；不再限定 user_id，
+      // 协作者打开共享笔记靠这里放行（写路径仍由保存 RPC 按角色收口）。
       const { data, error } = await supabase
         .from("notes")
         .select("*")
         .eq("id", noteId)
-        .eq("user_id", user.id)
         .single();
 
       if (!active) return;
       if (!error && data) {
+        const loadedRole: CollabRole =
+          data.user_id === user.id ? "owner" : await resolveCollabRole(noteId);
+        noteRoleRef.current = loadedRole;
+        setNoteRole(loadedRole);
         const loadedTitle = data.title || "";
         const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
         const dbFullWidth = data.full_width === true;
@@ -279,35 +305,38 @@ export default function NoteEditorPage() {
 
         // 一次性幂等迁移：DB 是默认值且 localStorage 有旧值时，搬入 DB。
         // 成功后 DB 非默认，下次加载条件自动不成立，不会重复迁移。
-        try {
-          const lw = localStorage.getItem(fullWidthKey(noteId));
-          const f = localStorage.getItem(fontKey(noteId));
-          const sf = localStorage.getItem(smallFontKey(noteId));
-          const hasLocal = lw !== null || f !== null || sf !== null;
-          const dbIsDefault = !dbFullWidth && dbFont === "default" && !dbSmallFont;
-          if (hasLocal && dbIsDefault) {
-            const patch: Partial<Pick<NoteDraft, "full_width" | "font_family" | "small_font">> = {};
-            if (lw !== null) {
-              const v = lw === "1";
-              patch.full_width = v;
-              setFullWidth(v);
+        // 协作 viewer 跳过：排版偏好写不进别人的笔记，标脏只会造成永远的「未保存」。
+        if (loadedRole !== "viewer") {
+          try {
+            const lw = localStorage.getItem(fullWidthKey(noteId));
+            const f = localStorage.getItem(fontKey(noteId));
+            const sf = localStorage.getItem(smallFontKey(noteId));
+            const hasLocal = lw !== null || f !== null || sf !== null;
+            const dbIsDefault = !dbFullWidth && dbFont === "default" && !dbSmallFont;
+            if (hasLocal && dbIsDefault) {
+              const patch: Partial<Pick<NoteDraft, "full_width" | "font_family" | "small_font">> = {};
+              if (lw !== null) {
+                const v = lw === "1";
+                patch.full_width = v;
+                setFullWidth(v);
+              }
+              if (f === "serif" || f === "mono" || f === "default") {
+                patch.font_family = f;
+                setFont(f);
+              }
+              if (sf !== null) {
+                const v = sf === "1";
+                patch.small_font = v;
+                setSmallFont(v);
+              }
+              Object.assign(draftRef.current, patch);
+              dirtyRef.current = true;
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              saveTimerRef.current = setTimeout(() => void flushSave(), 500);
             }
-            if (f === "serif" || f === "mono" || f === "default") {
-              patch.font_family = f;
-              setFont(f);
-            }
-            if (sf !== null) {
-              const v = sf === "1";
-              patch.small_font = v;
-              setSmallFont(v);
-            }
-            Object.assign(draftRef.current, patch);
-            dirtyRef.current = true;
-            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = setTimeout(() => void flushSave(), 500);
+          } catch {
+            /* localStorage 不可用时跳过迁移 */
           }
-        } catch {
-          /* localStorage 不可用时跳过迁移 */
         }
       } else {
         // X1-2B：服务端查不到（尚未回放的离线创建，或离线打开）→ 用队列载荷初始化编辑器；
@@ -479,6 +508,8 @@ export default function NoteEditorPage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    // 协作 viewer 只读：编辑器已禁输入，不存在可落库改动；直接按「无需保存」返回
+    if (noteRoleRef.current === "viewer") return true;
     // 刚执行过"恢复历史版本"：本地草稿已被服务端快照替代，跳过兜底保存，
     // 否则卸载时的 flushSave 会把旧草稿写回，盖掉刚恢复的内容。
     try {
@@ -543,7 +574,11 @@ export default function NoteEditorPage() {
             ? lastAttempt.mutationId
             : crypto.randomUUID();
         lastAttemptRef.current = { draft: snapshot, mutationId };
-        const { data: rpcResult, error: rpcErr } = await supabase.rpc("save_note_with_tasks", {
+        // 按协作角色选 RPC：属主走 v1 主链；editor 走 065 的 v2（同签名同状态契约，
+        // 服务端把写入 scope 换成笔记属主并经 resource_role 判权）。两者返回结构一致，
+        // 下方的冲突/失败/成功分支完全复用。
+        const rpcName = saveRpcNameForRole(noteRoleRef.current ?? "owner");
+        const { data: rpcResult, error: rpcErr } = await supabase.rpc(rpcName, {
           p_note_id: noteId,
           p_content: snapshot.content,
           p_expected_note_revision: contentRevisionRef.current,
@@ -1410,6 +1445,15 @@ export default function NoteEditorPage() {
                   ) : null}
                 </span>
               )}
+              {/* 协作 viewer：显式只读角标，解释为何没有保存状态 */}
+              {noteRole === "viewer" && (
+                <span
+                  className="hidden rounded border px-1.5 py-0.5 text-xs text-muted-foreground md:inline-block"
+                  title="这篇笔记以仅查看身份共享给你"
+                >
+                  仅查看
+                </span>
+              )}
             </div>
             <div className="hidden md:flex items-center">
               <FavoriteButton targetType="note" targetId={noteId} />
@@ -1484,6 +1528,7 @@ export default function NoteEditorPage() {
           <textarea
             ref={titleRef}
             value={title}
+            readOnly={noteRole === "viewer"}
             onChange={(e) => handleTitleChange(e.target.value)}
             onKeyDown={handleTitleKeyDown}
             onInput={autoGrowTitle}
@@ -1503,24 +1548,27 @@ export default function NoteEditorPage() {
           </div>
         )}
 
-        {/* 标签：Notion 式页面属性行，徽标可点 X 移除，「标签」打开选择器（支持输入新名直接创建） */}
+        {/* 标签：Notion 式页面属性行，徽标可点 X 移除，「标签」打开选择器（支持输入新名直接创建）。
+            note_tags 各人一份（按调用者记 user_id），editor 可以打自己的标签；viewer 只读 */}
         <div className="note-meta-row flex flex-wrap items-center gap-1.5">
           {displayNoteTags.map((t) => (
-            <TagBadge key={t.id} tag={t} size="sm" onRemove={() => void handleRemoveNoteTag(t.id)} />
+            <TagBadge key={t.id} tag={t} size="sm" onRemove={noteRole === "viewer" ? undefined : () => void handleRemoveNoteTag(t.id)} />
           ))}
-          <TagSelector
-            selected={noteTags}
-            options={allTagOptions}
-            onChange={(next) => void handleNoteTagsChange(next)}
-          >
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          {noteRole !== "viewer" && (
+            <TagSelector
+              selected={noteTags}
+              options={allTagOptions}
+              onChange={(next) => void handleNoteTagsChange(next)}
             >
-              <TagIcon className="h-3 w-3" />
-              标签
-            </button>
-          </TagSelector>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <TagIcon className="h-3 w-3" />
+                标签
+              </button>
+            </TagSelector>
+          )}
         </div>
 
         {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
@@ -1567,6 +1615,7 @@ export default function NoteEditorPage() {
             noteId={noteId}
             noteTitle={title}
             content={content}
+            editable={noteRole !== "viewer"}
             onUpdate={handleContentUpdate}
             noteTree={allNotes}
             internalLinkStates={contentLinkStates}
@@ -1626,7 +1675,7 @@ export default function NoteEditorPage() {
           <DialogHeader>
             <DialogTitle>笔记存在保存冲突</DialogTitle>
             <DialogDescription>
-              另一页面或设备已修改这篇笔记。当前内容没有丢失，并已保存在本地。
+              另一页面、设备或协作者已修改这篇笔记。当前内容没有丢失，并已保存在本地。
             </DialogDescription>
           </DialogHeader>
           {saveConflict && (
@@ -1675,9 +1724,9 @@ export default function NoteEditorPage() {
         </DialogContent>
       </Dialog>
 
-      <ShareDialog
-        resourceType="note"
-        resourceId={noteId}
+      <NoteShareDialog
+        noteId={noteId}
+        myRole={noteRole ?? "owner"}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
       />
