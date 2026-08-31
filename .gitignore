@@ -60,3 +60,5 @@ supabase/.temp
 /*-screenshot.png
 .vercel
 .env*
+# Playwright / E2E 临时诊断脚本与截图（每次跑 E2E 重新生成）
+.tmp-e2e/
