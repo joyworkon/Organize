@@ -62,3 +62,6 @@ supabase/.temp
 .env*
 # Playwright / E2E 临时诊断脚本与截图（每次跑 E2E 重新生成）
 .tmp-e2e/
+
+# 对话/设计用的截图素材（非代码资产）
+vibe_images/
