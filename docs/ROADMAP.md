@@ -1,6 +1,6 @@
 # Organize 可执行路线图
 
-> 基线：2026-08-31，`master` = `4d7d260`（PR #194），迁移到 `063`。
+> 基线：2026-08-31，`master` = `5b8b292`（PR #195），迁移到 `063`。
 > 这不是“一次性做完”的需求清单。执行 Agent 每次只领取一张任务卡，只开一个分支、一个 PR；前一张卡合并后，回到最新 `master` 重新核对基线，再领取下一张。
 
 ## 排序原则
@@ -26,7 +26,7 @@
 - UI 新增 `/api/*` fetch 能力时必须决定是否补 `lib/mock/api-shim.ts`；不支持时必须返回明确错误，不能假成功。
 - 禁止通过 `.skip`/`.todo`、删测试、放宽断言、mock 被测对象、`|| true` 或降低门槛制造绿灯。
 - 每个 PR 至少跑：`cd apps/web && npx tsc --noEmit && npx vitest run && npx next build`。涉及迁移时再跑 `supabase test db`；本机无 CLI 时以 PR CI 的 pgTAP 结果为准。
-- 当前基线是 120 个 Vitest 文件、875 条用例；pgTAP 为 16 个文件 / 177 条断言（master CI 实测）+ P5-01 新增 85 条 = 预期 17 个文件 / 262 条，以 PR CI 全新库运行为准。合并后数量不得无解释下降，跳过数必须为 0。
+- 当前基线是 120 个 Vitest 文件、875 条用例；pgTAP 为 17 个文件 / 262 条断言（PR #195 CI 实测）+ 本卡 064 新增 73 条 = 预期 18 个文件 / 335 条，以 PR CI 全新库运行为准。合并后数量不得无解释下降，跳过数必须为 0。
 - 同一验收连续失败 3 次就停止该方向，把证据写入 `BLOCKED.md`；结果比开工基线差则回滚该尝试并如实报告。
 
 ## 当前状态
@@ -52,7 +52,7 @@
 | P4 | P4-02 Android 可分发版 | 待办 | L | P4-01 |
 | P4 | P4-03 iOS 可分发版 | 阻塞：需开发者账号 | L | P4-02 |
 | P5 | P5-01 协作权限模型验证 | ✅ 完成（2026-08-31：ADR 0002 + 063 三表 workspace/membership/resource_acl + `resource_role()` 唯一判定链 + 三身份 85 断言 pgTAP，业务表 RLS 未动） | M | P2-03 |
-| P5 | P5-02 邀请共享与编辑 | 待办 | L | P5-01 |
+| P5 | P5-02 邀请共享与编辑 | 🟡 进行中（卡 1/2 已交付：063 原型 + 064 只读可见性接入；卡 3 保存 RPC 分权、卡 4 前端待做） | L | P5-01 |
 | P5 | P5-03 实时协同技术验证 | 候选 | L | P5-02 |
 
 ---
@@ -180,16 +180,23 @@
 
 两点必须留档的裁决：
 
-1. **与 `docs/collaboration-plan.md` 分叉 1-A 的冲突按本卡口径裁决**：`shares` 上的点对点 `share_members` 不作为权限事实源，公开链接只是表现层语法糖（064 收敛）。
+1. **与 `docs/collaboration-plan.md` 分叉 1-A 的冲突按本卡口径裁决**：`shares` 上的点对点 `share_members` 不作为权限事实源，公开链接只是表现层语法糖（064 刻意未动 `shares`，收敛时机见 ADR 0002「064 落地时追加的三条边界」）。
 2. **“资源转移”在本原型只实现控制面转移**（`transfer_resource_acl` / `reclaim_resource`）。改写业务行属主 `notes.user_id` 本身就是动业务表，且会连带 056 的 `(id, user_id)` 复合外键、`task_item_refs` 同租户约束与备份合同 v4，因此归入 P5-02 逐域迁移，不在本卡范围内。
 
-### P5-02 邀请共享与编辑
+### P5-02 邀请共享与编辑 🟡（进行中：卡 1 已合并 PR #195，卡 2 = 本 PR 064）
 
 权限原型通过后，再逐域迁移资源归属与 RLS；第一期只做单篇笔记邀请编辑和审计字段，不做实时光标。每次只迁移一个资源域并保持单用户行为不变，备份/恢复合同同步升级。
 
+拆成四张卡、每卡一个 PR（顺序即依赖）：
+
+1. **卡 1 = 063**（已合并 PR #195）：workspace + membership + resource ACL 原型与 `resource_role()` 唯一判定链。
+2. **卡 2 = 064**（本 PR）：三条协作者 `SELECT` 策略接入 `resource_role()`，加 `user_profiles`（只放姓名/头像）与 `find_user_by_email`。**写权一条策略都没放开**，协作者此刻只能读、且共享笔记的版本/标签/反链为空。
+3. **卡 3 = 065**：保存 RPC v2 按 `resource_role()` 分 owner/editor，任务侧走 refs 链路；先补「谁改了这篇笔记」的归属列（见下方待办第 2 条），再加按角色的版本列表 / 共享列表 RPC。
+4. **卡 4 = 前端**：分享面板（成员搜索 + 角色 + 公开链接）、`/shared` 列表页、保存管线按角色切换与冲突对话框里的协作者名字，并决定是否补 `lib/mock/api-shim.ts`（不支持必须返回明确错误，不能假成功）。
+
 P5-01 已登记的待办（开工前先读 ADR 0002）：
 
-- 业务表 RLS 接入协作（064）与保存 RPC 按角色分权（065）**必须复用 `public.resource_role()`**，不得重写等价判定 SQL。
+- 业务表 RLS 接入协作（064）与保存 RPC 按角色分权（065）**必须复用 `public.resource_role()`**，不得重写等价判定 SQL。064 已按此落地（三条协作者 `SELECT` 策略的谓词里就是这个函数，pgTAP 有结构断言防后来者另写一份）；065 沿用同一口径。
 - **协作者归属列需要新建**：`docs/collaboration-plan.md` 声称「038 预留了 `notes.last_edit_by` 列位」，实测为假 —— 本机 `notes` 列为 `id / user_id / title / content / reading_item_id / created_at / updated_at / is_pinned / deleted_at / icon / cover_url / cover_position / parent_note_id / full_width / font_family / small_font / content_revision / search_text`，无 `last_edit_by`，且全部迁移文本里没有这个名字。065 若要写「谁改了这篇笔记」，必须先加列并同步升级备份合同 v4、mock seed 与相关测试，不能按原计划「顺便写一下」。
 - 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单），并在 manifest 的排除清单显式声明。
 - 逐域迁移业务行属主（含 056 复合外键与 `task_item_refs` 的同步改法），一次一个资源域。

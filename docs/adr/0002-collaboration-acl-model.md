@@ -1,9 +1,9 @@
 # ADR 0002: 协作权限模型 = workspace + membership + resource ACL
 
-- 状态: 已接受（P5-01 最小原型已落地并验证；生产化留给 P5-02）
+- 状态: 已接受（P5-01 最小原型 + 064 只读接入均已落地并验证；写权与生产化留给 065 / P5-02）
 - 日期: 2026-08-31
-- 阶段: P5-01（原型 + pgTAP 验证，不改业务表 RLS）
-- 相关: `supabase/migrations/063_collaboration_acl_prototype.sql`、`supabase/tests/063_collaboration_acl.test.sql`、`docs/ROADMAP.md` P5-01/P5-02、`docs/collaboration-plan.md` 分叉 1
+- 阶段: P5-01 原型（063，不改业务表 RLS）→ Stage 0 第二张卡（064，只加协作者 SELECT）
+- 相关: `supabase/migrations/063_collaboration_acl_prototype.sql`、`supabase/tests/063_collaboration_acl.test.sql`、`supabase/migrations/064_collaboration_read_rls.sql`、`supabase/tests/064_collaboration_read_rls.test.sql`、`docs/ROADMAP.md` P5-01/P5-02、`docs/collaboration-plan.md` 分叉 1
 
 ## 背景
 
@@ -56,17 +56,44 @@
 - 软删除（`deleted_at`）不进 `resource_role()` 判定：垃圾箱可见性仍由各业务表自己的策略收口，避免在这里复制一份删除语义。
 - `guest` 与 `access_role` 正交：guest 继承所在空间的资源授权，不额外降权。空间内更细的 guest 限制属于产品决定，留待 P5-02。
 
+## 064 落地时追加的三条边界
+
+064 把「授权」变成「看得见」，落地时新增三条本 ADR 未写、但必须冻结的边界。
+
+1. **协作者的写不进 RLS**。三张主表只加协作者 `SELECT` 策略，一条 `UPDATE`/`DELETE` 都没加。
+   理由：表级 UPDATE 会绕过 `notes.content_revision` 乐观锁与 `save_mutation_log` 幂等
+   （031/059 的合同），等于给协作者开一条「无冲突检测裸写」的路。写权收口在 065 的
+   SECURITY DEFINER RPC 里，由它调用同一个 `resource_role()` 判 editor/owner。
+   pgTAP 用一条结构断言守这里：三张主表里**引用 `resource_role` 的 UPDATE 策略数为 0**。
+2. **`user_profiles` 不存 email**。该表允许本人 UPDATE 自己的行，RLS 不能按列收口，所以
+   缓存一份邮箱等于把「邀请落到谁的账上」交给被邀请人自填 —— 攻击者填成受害者地址即可
+   劫持邀请。`auth.users` 的邮箱唯一约束是大小写敏感且部分索引
+   （`UNIQUE(email) WHERE is_sso_user = false`），本表无法用唯一索引兜住歧义，所以结论是
+   邮箱只从 `auth.users` 读：`find_user_by_email` 是唯一查人入口，SECURITY DEFINER、
+   btrim+lower 后**精确等值**、不前缀、不通配、不列举、返回不超过一行、匿名直接拒。
+   档案可见集只有「自己 + 至少共享一个 workspace 的成员」，表级 `INSERT`/`DELETE` 与
+   anon 的 `SELECT` 一律显式收回（同 063 的教训：不靠「没建策略」，否则会随新实例的
+   平台默认权限漂移）。
+3. **子资源不随共享外溢**。`note_versions` / `task_item_refs` / `note_tags` / `highlights` /
+   评论仍按各自 owner-only 策略求值，协作者读到 0 行 —— 共享笔记能正常打开，但历史版本与
+   反链为空。这是 Stage 0 已知且刻意的中间态；版本列表与评论留给 065 的 RPC 按角色收口，
+   不在这里复制第二套判定。
+
 ## 已否决的替代方案
 
 - **`visible_user_ids`（整体可见）**：无法按资源表达差异，无法逐资源回收，一次写错就是全部资源泄漏。ROADMAP 直接禁止。
-- **`share_members` 挂在 `shares.token` 上（分叉 1-A）**：权限事实源变成「每条分享链接一份成员名单」，没有身份容器，成员关系随分享重复存 N 份，回收一条链接不能同时回收这个人看到的其他资源；后续 workspace 级语义（空间模板、统一目录、计费）无处安放。`shares` 保留为公开链接的载体，其 `access_mode` 在 064 收敛为「指向一个 workspace 授权」的表现层语法糖。
+- **`share_members` 挂在 `shares.token` 上（分叉 1-A）**：权限事实源变成「每条分享链接一份成员名单」，没有身份容器，成员关系随分享重复存 N 份，回收一条链接不能同时回收这个人看到的其他资源；后续 workspace 级语义（空间模板、统一目录、计费）无处安放。`shares` 保留为公开链接的载体；把它原本的 `access_mode` 收敛成「指向一条 workspace 授权」的表现层语法糖是后续工作，**064 刻意未动 `shares`**（`access_mode`/`can_comment` 在 Stage 0 没有消费者，`public_comment` 还需要先有匿名身份机制）。
 - **直接给业务表加 `workspace_id` 列**：一次性要改 notes/reading_items/tasks 及其全部子表 RLS、056 复合外键、备份合同 v4 与 `task_item_refs` 的字段清单，违反「一张卡只做一个 PR」且不可回滚。改为先用 ACL 附加关系，逐域迁移留给 P5-02。
 
 ## 不在本原型范围内（P5-02 待办）
 
 1. **业务行属主转移（`notes.user_id` 改写）不做**。056 的 `(id, user_id)` 复合外键、`task_item_refs` 的同租户约束与备份合同 v4 都以 `user_id` 为键，改属主等于跨租户搬迁，必须逐资源域设计并配套测试。当前只支持**控制面转移**（`transfer_resource_acl`）。
-2. **三张新表不进备份合同 v4**。跨账号恢复属主行的 ACL 等于把 A 的共享关系塞给 B，得先定义 remap 语义（授权目标是空间，而空间不在备份白名单里）。恢复后授权丢失是**已知且刻意**的行为，必须在 manifest 的排除清单里写清。
-3. **业务表 RLS 接入协作（064）、保存 RPC 按角色分权（065）、前端分享面板与「与我共享」页** 属 Stage 0 后续 PR。本 PR 不带 UI 与 `/api/*` 路由，因此 mock 后端无需 `api-shim` 条目、也无需 seed 这三张表；「真实与 mock 对齐」的决定留到前端卡做。RPC 虽对 `authenticated` 开放，但只能管理调用者自己的空间与授权行 —— 没有任何业务表策略引用这三张表，所以合并后没有一条业务数据会对协作者变得可见。
+2. **三张协作表与 `user_profiles` 都不进备份合同 v4**。跨账号恢复属主行的 ACL 等于把 A 的共享关系塞给 B，得先定义 remap 语义（授权目标是空间，而空间不在备份白名单里）。恢复后授权丢失是**已知且刻意**的行为，必须在 manifest 的排除清单里写清。`user_profiles`（064）另有一层理由：它是**可再生的镜像** —— `auth.users` 触发器 + 幂等 backfill 会为每个账号重建，导出它只会带上展示字段，而跨账号恢复等于把别人的昵称/头像塞进新账号；并且它以 `id`（= user id）为键而非 `user_id` 列，与 v4 的「按 `user_id` 白名单收录」形状不符。账号删除时它通过 `references auth.users on delete cascade` 一并级联。
+3. **业务表 RLS 接入协作（064）已落地**：三张主表各一条协作者 `SELECT` 策略 + `user_profiles`
+   与 `find_user_by_email`（见上文「064 落地时追加的三条边界」）。063 单独合并时没有任何业务
+   数据对协作者可见；064 合并后，**被显式授权的那一条**才对空间成员可读，写权仍未放开。
+   **保存 RPC 按角色分权（065）、前端分享面板与「共享」页** 属 Stage 0 后续 PR。前端卡不带
+   `/api/*` 路由决定之前，mock 后端无需 `api-shim` 条目；「真实与 mock 对齐」的决定留到那张卡做。
 4. **协作者归属列不存在，必须先建再写**。`docs/collaboration-plan.md` 的前提「038 预留了
    `notes.last_edit_by` 列位」经实测为假：本机 `notes` 有
    `id / user_id / title / content / reading_item_id / created_at / updated_at / is_pinned /

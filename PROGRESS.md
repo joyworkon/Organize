@@ -1,5 +1,39 @@
 # PROGRESS
 
+## P5-02 卡 2/4：协作可见性接入（2026-08-31）
+
+- 分支 `feat/p5-02-collaboration-read-rls`（master = 5b8b292，迁移到 063）
+
+### 实现
+
+1. **三条协作者 `SELECT` 策略**（notes / reading_items / tasks）：谓词只调用 063 的
+   `resource_role()`，不重写等价判定；带 `deleted_at is null`，垃圾箱语义不变
+2. **一条写策略都没加**：表级 UPDATE 会绕过 `content_revision` 乐观锁与 `save_mutation_log`
+   幂等，写权收口留给 065 的 RPC。pgTAP 用结构断言钉住「引用 resource_role 的 UPDATE 策略 = 0」
+3. **`user_profiles` 只放展示字段（姓名/头像）**：刻意**不存 email** —— 本表允许本人 UPDATE，
+   缓存邮箱等于让攻击者把邀请劫持到自己账上；`auth.users` 的邮箱唯一约束是大小写敏感且
+   部分索引，兜不住这个歧义。邮箱一律由 `find_user_by_email`（DEFINER、精确等值、不前缀/
+   通配/列举、匿名拒）从 `auth.users` 读
+4. **可见集与权限收口**：档案只有「自己 + 至少共享一个 workspace 的成员」可读；表级
+   INSERT/DELETE 与 anon 的 SELECT 显式收回（不靠「没建策略」）；`mirror_user_profile()`
+   触发器函数不对客户端开放；自设昵称不被 auth 更新冲掉（coalesce 方向 = 档案优先）
+
+### 门禁（本地）
+
+- `supabase test db`：064 文件 **73/73 ok**；18 个文件全跑合计 328 断言，唯一失败仍是 059 的
+  **既有本机漂移**（本机 postgres 非超管）。CI 全新库预期 Files=18 / Tests=335
+- `npx tsc --noEmit` 0 错、`npx vitest run` 120 文件 / 875 用例（未动前端，数量不变）、
+  `corepack pnpm lint` 0 问题；`next build` 本机挂起，以 CI 为准
+
+### 最大风险 / 遗留
+
+1. 共享笔记对协作者能打开，但**历史版本、标签、反链、评论都是空的**（子资源仍 owner-only）
+   —— 已知中间态，065 的 RPC 才补齐按角色的列表能力
+2. `user_profiles` 对 mock 后端还不存在，前端卡（PR4）必须决定 seed 或明确「不支持」，
+   不能假成功
+3. 本机 056 的「同一小时两条自动版本」用例有**分钟级抖动**（跨整点必红），非本卡引入，
+   见 BLOCKED.md
+
 ## P5-01 协作权限模型验证（2026-08-31）
 
 - 分支 `feat/p5-01-workspace-acl-prototype`（master = 4d7d260，迁移到 062）
