@@ -100,9 +100,12 @@ SELECT is(public.get_note_ydoc('67020000-0000-0000-0000-000000000001'),
 RESET ROLE;
 
 -- 新鲜度规则（067 头第 2 条）：非协作写入（只动 notes 行）让 blob 过期 → get 返回
--- null（走播种路径），防止旧 CRDT 状态遮蔽新内容；重新落库后自愈
-UPDATE public.notes SET content = content
- WHERE id = '67020000-0000-0000-0000-000000000001';  -- updated_at 被触发器推新
+-- null（走播种路径），防止旧 CRDT 状态遮蔽新内容；重新落库后自愈。
+-- 注意 pgTAP 整文件单事务，now() 冻结为事务开始时间（056 的「分钟级抖动」同源），
+-- 不能靠 UPDATE notes 触发器把 updated_at 推新——改为把 blob 的 updated_at 显式
+-- 回拨，模拟「blob 落后于 notes」的真实时序。
+UPDATE public.note_ydocs SET updated_at = now() - interval '1 hour'
+ WHERE note_id = '67020000-0000-0000-0000-000000000001';
 SET ROLE authenticated;
 SET request.jwt.claim.sub TO '67000001-0000-0000-0000-000000000001';  -- A
 SELECT is(public.get_note_ydoc('67020000-0000-0000-0000-000000000001'), NULL,

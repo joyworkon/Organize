@@ -44,7 +44,11 @@
 - **pgTAP 本机被环境卡死**（Docker daemon 拉镜像通道 hang、supabase CLI 需要新
   postgres 镜像 17.6.1.166、完整栈还缺 analytics/pooler 新服务镜像；本地已缓存镜像
   retag 后 db 可起但 storage schema 依赖全栈）：以 PR CI db-test（全新库实跑）为准，
-  详见 BLOCKED.md
+  详见 BLOCKED.md。CI db-test 三轮：第 1 轮 lives_ok 用法错（测试代码）；第 2 轮
+  **抓到真安全洞**——`v_role not in ('owner','editor')` 对陌生人（NULL）不触发，
+  写入穿透 DEFINER 的 INSERT，改 `is distinct from`（迁移头有注释）；同轮修
+  新鲜度断言的 pgTAP 单事务 now() 冻结问题（056「分钟级抖动」同源），改为显式回拨
+  blob 时间；第 3 轮见 PR
 
 ### 遗留 / 边界
 

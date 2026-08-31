@@ -99,7 +99,9 @@ begin
   end if;
 
   v_role := public.resource_role('note', p_note_id);
-  if v_role not in ('owner', 'editor') then
+  -- 不能写 `v_role not in (...)`：v_role 为 NULL（陌生人/匿名）时整个条件是 NULL，
+  -- IF 不触发，写入会穿透到 DEFINER 的 INSERT（CI db-test 实测抓到过这个洞）
+  if v_role is distinct from 'owner' and v_role is distinct from 'editor' then
     raise exception 'forbidden';
   end if;
 
