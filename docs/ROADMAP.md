@@ -26,7 +26,7 @@
 - UI 新增 `/api/*` fetch 能力时必须决定是否补 `lib/mock/api-shim.ts`；不支持时必须返回明确错误，不能假成功。
 - 禁止通过 `.skip`/`.todo`、删测试、放宽断言、mock 被测对象、`|| true` 或降低门槛制造绿灯。
 - 每个 PR 至少跑：`cd apps/web && npx tsc --noEmit && npx vitest run && npx next build`。涉及迁移时再跑 `supabase test db`；本机无 CLI 时以 PR CI 的 pgTAP 结果为准。
-- 当前基线是 120 个 Vitest 文件、875 条用例；pgTAP 为 18 个文件 / 335 条断言（PR #196 CI 实测）+ 本卡 065 新增 94 条 = 预期 19 个文件 / 429 条，以 PR CI 全新库运行为准。合并后数量不得无解释下降，跳过数必须为 0。
+- 当前基线是 122 个 Vitest 文件 / 886 条用例（apps/web）+ collab-server 租约单测 1 文件 / 5 用例；pgTAP 为 21 个文件 / 478 条断言（067 后预期，以 PR CI 全新库实跑为准）。合并后数量不得无解释下降，跳过数必须为 0。
 - 同一验收连续失败 3 次就停止该方向，把证据写入 `BLOCKED.md`；结果比开工基线差则回滚该尝试并如实报告。
 
 ## 当前状态
@@ -53,7 +53,7 @@
 | P4 | P4-03 iOS 可分发版 | 阻塞：需开发者账号 | L | P4-02 |
 | P5 | P5-01 协作权限模型验证 | ✅ 完成（2026-08-31：ADR 0002 + 063 三表 workspace/membership/resource_acl + `resource_role()` 唯一判定链 + 三身份 85 断言 pgTAP，业务表 RLS 未动） | M | P2-03 |
 | P5 | P5-02 邀请共享与编辑 | ✅ 完成（2026-08-31：四卡全合——063 原型 + 064 只读可见性 + 065 保存 RPC 分权 + 前端接入（分享面板 / `/shared` 页 / 保存管线按角色切 v1/v2 / viewer 只读）；`last_edit_by` 归属列已由 066 补齐，逐域属主迁移留作后续） | L | P5-01 |
-| P5 | P5-03 实时协同技术验证 | ✅ 完成（2026-08-31：ADR 0003 拍板 Yjs + Hocuspocus 自托管；`apps/collab-server` + 编辑器协作模式 + 双账号 e2e 全过；服务端 ydoc 持久化/播种为下一张卡） | L | P5-02 |
+| P5 | P5-03 实时协同技术验证 | ✅ 完成（2026-08-31：ADR 0003 拍板 Yjs + Hocuspocus 自托管；`apps/collab-server` + 编辑器协作模式 + 双账号 e2e 全过。生产化卡 067 已补齐：`note_ydocs` blob 回放/落库 + 新鲜度规则 + 播种租约协议，ADR 0003 修订段留档） | L | P5-02 |
 
 ---
 

@@ -560,6 +560,12 @@ describe("Backup V2", () => {
     expect(inspectBackupV2(backup).ok).toBe(true);
   });
 
+  it("067 协作 CRDT blob：note_ydocs 显式排除（派生缓存，事实源是 notes.content）", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    expect(backup.manifest.excluded).toContain("note_ydocs");
+    expect(inspectBackupV2(backup).ok).toBe(true);
+  });
+
   it("旧式 manifest（仅五类排除）继续通过校验（兼容既有备份）", () => {
     const backup = createBackupV2(fixtureData(), timestamp) as unknown as Record<
       string,

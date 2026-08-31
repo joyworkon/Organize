@@ -1350,24 +1350,56 @@ export function TipTapEditor({
     if (editor.isEditable !== editable) editor.setEditable(editable);
   }, [editor, editable]);
 
-  // 协作模式：首次同步后若 Y.Doc 为空（新房间），用 DB 原始内容播种一次。
+  // 协作模式：房间为空时向服务端申请播种租约，获准后才用 DB 原始内容播种一次。
   // setContent 第二参 false = 不产生 onUpdate（不标脏、不触发保存）。
-  // 注意播种源必须是 seedContent（DB 加载时的原始快照）：页面 content state 会被
+  // 播种源必须是 seedContent（DB 加载时的原始快照）：页面 content state 会被
   // UniqueID 回填等编辑器事务覆盖，用它播种会把空文档写回房间。
-  // 已知边界：两个客户端同时首次进入空房间会各自播种（ADR 0003 已登记，属
-  // 「服务端持久化/播种」生产化卡的范围；日常先开后开不触发）。
+  // 租约仲裁（067 生产化卡）：服务端对同一房间只发一份 grant，两个客户端同时
+  // 首次进入空房间不再各自播种出重复段落（ADR 0003 已知边界，本卡根除）。
+  // 未获准的一方收到 seed-wait 后兜底重问（覆盖对方播种失败/掉线），
+  // seed-deny / 无回复则不播种（房间内容就绪、空笔记或连续失败封顶）。
   useEffect(() => {
     if (!collab || !editor) return;
     const provider = collab.provider;
-    const seedOnce = () => {
-      if (!editor.isDestroyed && editor.isEmpty && collab.seedContent) {
-        editor.commands.setContent(collab.seedContent as never, false);
+    let waits = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const requestSeed = () => {
+      if (editor.isDestroyed || !editor.isEmpty || !collab.seedContent) return;
+      provider.sendStateless(JSON.stringify({ t: "seed-req" }));
+    };
+
+    const onSynced = () => {
+      if (editor.isEmpty) {
+        waits = 0;
+        requestSeed();
       }
     };
-    if (provider.isSynced) seedOnce();
-    provider.on("synced", seedOnce);
+
+    const onStateless = ({ payload }: { payload: string }) => {
+      let msg: { t?: string };
+      try {
+        msg = JSON.parse(payload);
+      } catch {
+        return;
+      }
+      if (msg.t === "seed-grant") {
+        if (!editor.isDestroyed && editor.isEmpty && collab.seedContent) {
+          editor.commands.setContent(collab.seedContent as never, false);
+        }
+      } else if (msg.t === "seed-wait" && waits < 3) {
+        waits += 1;
+        retryTimer = setTimeout(requestSeed, 2500);
+      }
+    };
+
+    if (provider.isSynced) onSynced();
+    provider.on("synced", onSynced);
+    provider.on("stateless", onStateless);
     return () => {
-      provider.off("synced", seedOnce);
+      provider.off("synced", onSynced);
+      provider.off("stateless", onStateless);
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [collab, editor]);
 

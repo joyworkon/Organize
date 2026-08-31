@@ -59,3 +59,30 @@ Stage 0（乐观锁 + 冲突对话框）交付的是「无实时推送的多人�
 
 - Mac mini / 租用服务器上跑 `apps/collab-server`（常驻进程，端口 1420 或反代 `/collab` ws 升级），
   Supabase 与 web 同机或同网；`NEXT_PUBLIC_COLLAB_WS_URL` 指向该地址。
+
+---
+
+## 修订（2026-08-31，067 生产化卡）：持久化落地 + 播种改为「服务端仲裁的客户端播种」
+
+原「生产化卡」两项已在 067 落地，其中第二项的实现与本 ADR 原文不同，修订留档：
+
+1. **blob 持久化（按原文落地）**：`note_ydocs`（迁移 067，bytea、notes 级联）+
+   `get_note_ydoc` / `save_note_ydoc` 两个 DEFINER RPC（权限经 `resource_role`：
+   读 owner/editor/viewer，写 owner/editor）；collab-server `onLoadDocument` 回放、
+   `onStoreDocument`（内置防抖）以最后写者 JWT 落库。
+   - **新鲜度规则（数据安全关键）**：正文存在非协作写入路径（离线 v1/v2、
+     move-block API、恢复），只动 notes 行。RPC 仅在 `blob.updated_at >=
+     notes.updated_at` 时返回 blob，否则返回 null 走播种路径——防止重启后旧 CRDT
+     状态遮蔽新内容并被客户端快照反向覆盖（丢数据）。
+2. **播种（修订：不把 schema 搬上服务端）**：原文设想服务端从 notes.content 生成
+   Y.Doc，这要求 collab-server 持有与编辑器完全一致的 ProseMirror schema。实测不可行
+   也不可取：自定义扩展深度耦合 React/Next/数据库 UI（`database-block.tsx` 引六个视图
+   组件等），平行维护第二份 schema 必然漂移，而 schema 漂移的播种失败仍要回退客户端
+   播种——等于两条路径都要维护。修订为**服务端仲裁的客户端播种**：编辑器空房间时经
+   无状态消息申请租约（`{"t":"seed-req"}` → `seed-grant/wait/deny`），服务端单线程
+   判定天然原子，同一房间只发一份 grant（`apps/collab-server/src/seed-lease.ts`）；
+   播种实现只有一条（客户端，持真实 schema），竞态同样根除。
+   - 否决备选：DB 租约（survive 重启的持久化对纯互斥无意义，blob 缺席已说明一切）
+     、客户端先到先得（无原子原语，Yjs 操作可加不可撤）。
+3. **blob 定位**：派生缓存，不进备份合同 v4（`EXPORT_EXCLUSIONS` 声明 `note_ydocs`），
+   不进 mock（协作层在 mock 下整体不启用）。blob 可随时从 content 重建。

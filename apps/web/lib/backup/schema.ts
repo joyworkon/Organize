@@ -452,16 +452,20 @@ const REQUIRED_EXCLUSIONS = [
   "storage",
 ];
 
-// 导出侧的完整清单 = 底线 + P5 协作表（ADR 0002「不在本原型范围内」第 2 条）：
+// 导出侧的完整清单 = 底线 + P5 协作表（ADR 0002「不在本原型范围内」第 2 条）
+//   + 协作 CRDT blob（ADR 0003 / 067）：
 //   collaboration_acl = workspaces / workspace_members / resource_acl——授权目标是空间，
 //     而空间本身不在白名单，remap 语义未定义前不收录；恢复后授权丢失是已知且刻意。
 //   user_profiles = 可再生镜像（auth.users 触发器 + backfill 自动重建），且跨账号恢复
 //     等于把别人的昵称/头像塞进新账号。
+//   note_ydocs = 协作 CRDT 状态的派生缓存（collab-server 回放用），notes.content 才是
+//     可读事实源；blob 不进备份，恢复出的笔记由协作会话从 content 重新播种。
 // 旧备份（只声明五类）继续通过校验：validateManifest 对多余字符串项不敏感。
 const EXPORT_EXCLUSIONS = [
   ...REQUIRED_EXCLUSIONS,
   "collaboration_acl",
   "user_profiles",
+  "note_ydocs",
 ];
 
 export function inspectBackupV2(input: unknown): BackupInspection {
