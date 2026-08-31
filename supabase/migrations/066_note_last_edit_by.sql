@@ -234,12 +234,7 @@ begin
 end;
 $$;
 
-revoke all on function public.save_note_with_tasks(
-  uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
-) from public;
-grant execute on function public.save_note_with_tasks(
-  uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
-) to authenticated;
+-- v1 的 EXECUTE 分层统一在本文件第 4 节（含 anon 收口），此处不再单独 grant
 
 -- ============================================================
 -- 3. v2 原样重述（源自 065，唯一差异：notes UPDATE 加 last_edit_by = 调用者。
@@ -465,9 +460,19 @@ $$;
 -- ============================================================
 -- 4. 函数 EXECUTE 分层与 065 一致（restate 后权限不变）
 -- ============================================================
+-- 关键：Supabase 的新函数默认权限会把 EXECUTE 直接发给 anon / authenticated，
+-- 只 revoke public 不够（065 的「anon 不可调 v2」断言在 CI 上红过一次的教训）。
+-- 这里 v1 / v2 都按 065 的口径：revoke public + anon，grant authenticated + service_role。
+revoke all on function public.save_note_with_tasks(
+  uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
+) from public, anon;
+grant execute on function public.save_note_with_tasks(
+  uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
+) to authenticated, service_role;
+
 revoke all on function public.save_note_with_tasks_v2(
   uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
-) from public;
+) from public, anon;
 grant execute on function public.save_note_with_tasks_v2(
   uuid, jsonb, integer, text, jsonb, jsonb, uuid, jsonb
-) to authenticated;
+) to authenticated, service_role;
