@@ -1,0 +1,22 @@
+{
+  "name": "@organize/collab-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "实时协作 WebSocket 服务（P5-03）：Yjs 文档中继 + Supabase 鉴权/授权",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "^4.6.0",
+    "@supabase/supabase-js": "^2.112.4",
+    "yjs": "^13.6.32"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}

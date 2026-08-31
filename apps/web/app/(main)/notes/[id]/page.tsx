@@ -32,6 +32,8 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { NoteShareDialog } from "@/components/share/note-share-dialog";
 import { saveRpcNameForRole, type CollabRole } from "@/lib/collab/roles";
+import { useNoteCollab, colorFromUserId } from "@/hooks/use-note-collab";
+import { NotePresenceBar } from "@/components/notes/note-presence-bar";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
@@ -148,6 +150,53 @@ export default function NoteEditorPage() {
   // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
   const [noteRole, setNoteRole] = useState<CollabRole | null>(null);
   const noteRoleRef = useRef<CollabRole | null>(null);
+  // 实时协作会话（P5-03，ADR 0003）：显式配置 NEXT_PUBLIC_COLLAB_WS_URL 且真实后端时启用
+  const collabConfigured =
+    Boolean(process.env.NEXT_PUBLIC_COLLAB_WS_URL)
+    && process.env.NEXT_PUBLIC_MOCK_BACKEND !== "true";
+  // 协作出席/光标的身份（档案名 + 按 uid 哈希取色）；解析完成才建立会话
+  const [collabUser, setCollabUser] = useState<{ name: string; color: string } | null>(null);
+  const collab = useNoteCollab({
+    noteId,
+    enabled: collabConfigured,
+    displayName: collabUser?.name ?? "",
+  });
+  // 传给编辑器的协作会话对象：记忆化，避免每次渲染重建导致编辑器反复重初始化
+  // seedContent = DB 加载时的原始内容（编辑器挂载期的 UniqueID 回填等会把
+  // content state 覆盖成空文档，不能用作空房间播种源）
+  const [seedContent, setSeedContent] = useState<Record<string, unknown> | null>(null);
+  const editorCollab = useMemo(
+    () =>
+      collab.provider && collabUser
+        ? { provider: collab.provider, user: collabUser, seedContent }
+        : null,
+    [collab.provider, collabUser, seedContent]
+  );
+  const collabConnectedRef = useRef(false);
+  useEffect(() => {
+    collabConnectedRef.current = collab.connected && collab.synced;
+  }, [collab.connected, collab.synced]);
+  // 会话建立条件：ws 地址已配置 + 自己的出席身份已解析（档案名查不到回退邮箱前缀）
+  useEffect(() => {
+    if (!collabConfigured || collabUser) return;
+    let active = true;
+    void (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (!user || !active) return;
+      let name = user.email?.split("@")[0] || "用户";
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profile?.display_name) name = profile.display_name;
+      if (active) setCollabUser({ name, color: colorFromUserId(user.id) });
+    })();
+    return () => {
+      active = false;
+    };
+  }, [collabConfigured, collabUser, supabase]);
   const [contentLinkStates, setContentLinkStates] = useState<Record<string, InternalLinkStateRow>>({});
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
@@ -243,6 +292,7 @@ export default function NoteEditorPage() {
       setLoadFailure(null);
       noteRoleRef.current = null;
       setNoteRole(null);
+      setSeedContent(null);
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
       // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
@@ -270,6 +320,7 @@ export default function NoteEditorPage() {
         setNoteRole(loadedRole);
         const loadedTitle = data.title || "";
         const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
+        setSeedContent(loadedContent);
         const dbFullWidth = data.full_width === true;
         const dbFont: NoteFont =
           data.font_family === "serif" || data.font_family === "mono" ? data.font_family : "default";
@@ -357,6 +408,7 @@ export default function NoteEditorPage() {
             { type: "doc", content: [{ type: "paragraph" }] };
           setTitle(initTitle);
           setContent(initContent);
+          setSeedContent(initContent);
           setCreatedAt(new Date(pending.created_at).toISOString());
           contentRevisionRef.current = 0;
           draftRef.current = {
@@ -581,14 +633,17 @@ export default function NoteEditorPage() {
             ? lastAttempt.mutationId
             : crypto.randomUUID();
         lastAttemptRef.current = { draft: snapshot, mutationId };
-        // 按协作角色选 RPC：属主走 v1 主链；editor 走 065 的 v2（同签名同状态契约，
-        // 服务端把写入 scope 换成笔记属主并经 resource_role 判权）。两者返回结构一致，
-        // 下方的冲突/失败/成功分支完全复用。
-        const rpcName = saveRpcNameForRole(noteRoleRef.current ?? "owner");
+        // 保存路径（ADR 0003）：协作会话在线时走 v2 + expected_revision=null ——
+        // CRDT 天然合并，乐观锁没有意义，快照节流落库（版本/任务链/归属全复用既有触发器）；
+        // 会话离线/未启用时按角色回退乐观锁主链（owner→v1，editor→v2 带锁）。
+        const collabActive = collabConnectedRef.current;
+        const rpcName = collabActive
+          ? "save_note_with_tasks_v2"
+          : saveRpcNameForRole(noteRoleRef.current ?? "owner");
         const { data: rpcResult, error: rpcErr } = await supabase.rpc(rpcName, {
           p_note_id: noteId,
           p_content: snapshot.content,
-          p_expected_note_revision: contentRevisionRef.current,
+          p_expected_note_revision: collabActive ? null : contentRevisionRef.current,
           p_title: snapshot.title,
           p_task_mutations: mutations.length > 0 ? mutations : null,
           // 前端尚未维护任务 sync_version 缓存，传 null 只对笔记执行乐观锁。
@@ -1242,7 +1297,11 @@ export default function NoteEditorPage() {
     // 记录本次变更来源，供 flushSave 在 G2 后续逻辑里区分：
     // user → 走原子 RPC(激活 legacy / 生成 task mutation)；系统事务 → 跳过任务激活。
     lastSourceRef.current = source;
-    queueSave();
+    // 协作远端事务（remote-sync）不标脏不排队保存：内容已由 CRDT 在房间内收敛，
+    // 可读快照由真正打字的客户端落库；单用户链路该来源不会出现
+    if (source !== "remote-sync") {
+      queueSave();
+    }
 
     // G2 legacy 激活：双链开 + user-edit 时，给无 taskId 的 taskItem 建任务回填 taskId。
     // 系统事务(hydrate/远端/版本/备份恢复)不激活——见 docs/g0-protocol.md §4。
@@ -1478,6 +1537,9 @@ export default function NoteEditorPage() {
               )}
             </div>
             <div className="hidden md:flex items-center">
+              <NotePresenceBar peers={collab.peers} />
+            </div>
+            <div className="hidden md:flex items-center">
               <FavoriteButton targetType="note" targetId={noteId} />
             </div>
             <Button
@@ -1638,6 +1700,7 @@ export default function NoteEditorPage() {
             noteTitle={title}
             content={content}
             editable={noteRole !== "viewer"}
+            collab={editorCollab}
             onUpdate={handleContentUpdate}
             noteTree={allNotes}
             internalLinkStates={contentLinkStates}
