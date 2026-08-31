@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createMockClient } from "./mock-client";
-import { mockDb } from "./mock-data";
+import { mockDb, MOCK_USER } from "./mock-data";
 
 describe("mock save_note_with_tasks", () => {
   let originalNote: Record<string, unknown>;
@@ -41,6 +41,8 @@ describe("mock save_note_with_tasks", () => {
     expect(mockDb.notes.find((note) => note.id === "note-1")).toMatchObject({
       ...snapshot,
       content_revision: 1,
+      // 066：保存 RPC 落归属，mock 对齐真实 v1 语义
+      last_edit_by: MOCK_USER.id,
     });
   });
 

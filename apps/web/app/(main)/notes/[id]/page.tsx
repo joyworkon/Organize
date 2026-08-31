@@ -81,12 +81,19 @@ function isTaskNoteLinkEnabled(): boolean {
  */
 type NoteDraft = NoteDraftSnapshot;
 
+/** 冲突对方的归因（066 last_edit_by）：self=自己其他设备；collaborator=查到名字的协作者 */
+interface ConflictActor {
+  kind: "self" | "collaborator" | "unknown";
+  name: string | null;
+}
+
 interface SaveConflict {
   kind: "note" | "task";
   currentRevision: number | null;
   taskId?: string;
   remoteDraft: NoteDraft | null;
   remoteUpdatedAt: string | null;
+  actor: ConflictActor;
 }
 
 export default function NoteEditorPage() {
@@ -625,6 +632,20 @@ export default function NoteEditorPage() {
                 small_font: remote.small_font === true,
               }
             : null;
+          // 归因冲突对方（066 last_edit_by）：自己其他设备 / 查得到名字的协作者 / 未知。
+          // 悬空 uuid 或档案不可见（RLS 可见集之外）都按 unknown 回退通用文案
+          const lastEditBy = (remote as { last_edit_by?: string | null } | null)?.last_edit_by ?? null;
+          let actor: ConflictActor = { kind: "unknown", name: null };
+          if (lastEditBy && lastEditBy === userIdRef.current) {
+            actor = { kind: "self", name: null };
+          } else if (lastEditBy) {
+            const { data: profile } = await supabase
+              .from("user_profiles")
+              .select("display_name")
+              .eq("id", lastEditBy)
+              .maybeSingle();
+            if (profile?.display_name) actor = { kind: "collaborator", name: profile.display_name };
+          }
           setSaveConflict({
             kind: status === "conflict_note" ? "note" : "task",
             currentRevision:
@@ -636,6 +657,7 @@ export default function NoteEditorPage() {
             taskId: result?.task_id,
             remoteDraft,
             remoteUpdatedAt: remote?.updated_at || null,
+            actor,
           });
           setSaveError("检测到其他位置的修改，请处理保存冲突");
           failed = true;
@@ -1675,7 +1697,12 @@ export default function NoteEditorPage() {
           <DialogHeader>
             <DialogTitle>笔记存在保存冲突</DialogTitle>
             <DialogDescription>
-              另一页面、设备或协作者已修改这篇笔记。当前内容没有丢失，并已保存在本地。
+              {saveConflict?.actor.kind === "self"
+                ? "你的另一页面或设备已修改这篇笔记。"
+                : saveConflict?.actor.kind === "collaborator" && saveConflict.actor.name
+                  ? `协作者「${saveConflict.actor.name}」已修改这篇笔记。`
+                  : "另一页面、设备或协作者已修改这篇笔记。"}
+              当前内容没有丢失，并已保存在本地。
             </DialogDescription>
           </DialogHeader>
           {saveConflict && (

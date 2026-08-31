@@ -150,6 +150,9 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       font_family: optional(oneOf("default", "serif", "mono")),
       small_font: optional(isBoolean),
       is_pinned: isBoolean,
+      // 066 归属列：只导出供检视，restore 刻意不搬运（协作上下文状态，跨账号无意义）；
+      // optional 保证旧备份（无此字段）继续通过校验
+      last_edit_by: optional(isNullableUuid),
       created_at: isTimestamp,
       updated_at: isTimestamp,
     },

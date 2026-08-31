@@ -394,6 +394,8 @@ function saveNoteWithTasks(args: Record<string, any>) {
     content: args.p_content,
     title: args.p_title ?? note.title,
     ...snapshot,
+    // 066 归属列：mock 单用户世界里调用者就是属主（对齐真实 v1 语义）
+    last_edit_by: MOCK_USER.id,
     content_revision: currentRevision + 1,
     updated_at: new Date().toISOString(),
   });

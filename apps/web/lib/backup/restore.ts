@@ -94,6 +94,9 @@ export function prepareRestorePayload(
         ? (row.font_family as "default" | "serif" | "mono")
         : "default",
     small_font: row.small_font === true,
+    // 066 归属列：restore 刻意不搬运（协作上下文状态，跨账号/跨时间恢复后无意义），
+    // 置空而不是透传，防止悬空 uuid 流进恢复载荷；下次保存由 RPC 重新落值
+    last_edit_by: null,
     content: rewriteInternalLinks(row.content, maps.notes, maps.reading_items, maps.synced_blocks, maps.db_databases, maps.tasks),
   }));
   data.tags = backup.data.tags.map((row) => withId(row, maps.tags));

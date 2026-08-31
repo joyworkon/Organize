@@ -52,7 +52,7 @@
 | P4 | P4-02 Android 可分发版 | 待办 | L | P4-01 |
 | P4 | P4-03 iOS 可分发版 | 阻塞：需开发者账号 | L | P4-02 |
 | P5 | P5-01 协作权限模型验证 | ✅ 完成（2026-08-31：ADR 0002 + 063 三表 workspace/membership/resource_acl + `resource_role()` 唯一判定链 + 三身份 85 断言 pgTAP，业务表 RLS 未动） | M | P2-03 |
-| P5 | P5-02 邀请共享与编辑 | ✅ 完成（2026-08-31：四卡全合——063 原型 + 064 只读可见性 + 065 保存 RPC 分权 + 前端接入（分享面板 / `/shared` 页 / 保存管线按角色切 v1/v2 / viewer 只读）；`last_edit_by` 归属列与逐域属主迁移留作后续） | L | P5-01 |
+| P5 | P5-02 邀请共享与编辑 | ✅ 完成（2026-08-31：四卡全合——063 原型 + 064 只读可见性 + 065 保存 RPC 分权 + 前端接入（分享面板 / `/shared` 页 / 保存管线按角色切 v1/v2 / viewer 只读）；`last_edit_by` 归属列已由 066 补齐，逐域属主迁移留作后续） | L | P5-01 |
 | P5 | P5-03 实时协同技术验证 | 候选 | L | P5-02 |
 
 ---
@@ -197,7 +197,7 @@
 P5 后续待办（开工前先读 ADR 0002）：
 
 - 业务表 RLS 接入协作（064）与保存 RPC 按角色分权（065）**必须复用 `public.resource_role()`**，不得重写等价判定 SQL。均已落地（064 的三条 SELECT 策略、065 的权限闸、卡 4 前端的角色查询都只消费这个函数，pgTAP 结构断言钉住）。
-- **协作者归属列需要新建**：`docs/collaboration-plan.md` 声称「038 预留了 `notes.last_edit_by` 列位」，实测为假 —— 本机 `notes` 列为 `id / user_id / title / content / reading_item_id / created_at / updated_at / is_pinned / deleted_at / icon / cover_url / cover_position / parent_note_id / full_width / font_family / small_font / content_revision / search_text`，无 `last_edit_by`，且全部迁移文本里没有这个名字。**065 按 ADR 0002 刻意未加此列**（`hasnt_column` 断言钉住）：要写「谁改了这篇笔记」必须先加列并同步升级备份合同 v4、mock seed 与相关测试，独立成卡，不能「顺便写一下」。
+- **协作者归属列已补齐（066，2026-08-31）**：`docs/collaboration-plan.md` 曾声称「038 预留了 `notes.last_edit_by` 列位」，实测为假——065 按 ADR 0002 刻意未加（`hasnt_column` 钉住）。066 作为登记过的独立卡落地：加列（uuid、无外键、不回填）+ v1/v2 保存 RPC 写调用者归属 + 备份合同 v4（导出携带、校验 optional 兼容旧备份、restore/prepareRestorePayload 刻意置空不搬运）+ mock seed/save 对齐 + 065 钉子翻转为 has_column + 冲突对话框按归因显示「协作者名字 / 你的其他设备」。
 - 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单），并在 manifest 的排除清单显式声明。
 - 逐域迁移业务行属主（含 056 复合外键与 `task_item_refs` 的同步改法），一次一个资源域。
 

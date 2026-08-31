@@ -80,7 +80,7 @@ export default function SettingsPage() {
         {
           table: "notes",
           columns:
-            "id, title, content, reading_item_id, icon, cover_url, cover_position, parent_note_id, full_width, font_family, small_font, is_pinned, created_at, updated_at",
+            "id, title, content, reading_item_id, icon, cover_url, cover_position, parent_note_id, full_width, font_family, small_font, is_pinned, last_edit_by, created_at, updated_at",
           userOwned: true,
           order: ["id"],
         },
