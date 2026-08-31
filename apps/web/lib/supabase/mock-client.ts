@@ -9,6 +9,24 @@ function genId(table: string) {
   return `${table}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// 063/064 暴露给客户端的协作管理 RPC：mock 一律显式报错（不支持必须明确，不能假成功）
+const COLLAB_MANAGEMENT_RPCS = new Set([
+  "find_user_by_email",
+  "ensure_personal_workspace",
+  "workspace_role",
+  "shares_workspace_with",
+  "create_workspace",
+  "add_workspace_member",
+  "update_workspace_member_role",
+  "transfer_workspace_ownership",
+  "remove_workspace_member",
+  "grant_resource",
+  "revoke_resource",
+  "transfer_resource_acl",
+  "reclaim_resource",
+  "save_note_with_tasks_v2",
+]);
+
 // 链式查询构造器：支持 select/insert/update/delete + 常见过滤器，且可 await
 class MockQuery implements PromiseLike<{ data: any; count: number | null; error: null }> {
   private table: string;
@@ -717,6 +735,19 @@ export function createMockClient(): any {
       if (name === "get_highlight_reference_states") return getHighlightReferenceStates(args);
       if (name === "get_linked_content_states") return getLinkedContentStates(args);
       if (name === "get_note_content_link_states") return getNoteContentLinkStates(args);
+      // P5-02 卡 4：mock 单用户世界里调用者确实拥有一切，resource_role 如实返回 owner，
+      // 保存管线因此永远走 v1 主链，单用户行为不变。
+      if (name === "resource_role") {
+        return { data: args?.p_resource_type === "note" ? "owner" : null, error: null };
+      }
+      // 协作管理面（空间 / 授权 / 查人）mock 一概不支持：显式报错而不是静默假成功，
+      // 分享面板负责把这个错误如实展示给用户。
+      if (COLLAB_MANAGEMENT_RPCS.has(name)) {
+        return {
+          data: null,
+          error: { message: "mock 后端不支持协作成员管理，请在连接真实后端后使用", code: "P5-02-MOCK" },
+        };
+      }
       return { data: null, error: null };
     },
   };

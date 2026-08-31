@@ -26,6 +26,7 @@ import {
   Loader2,
   Network,
   Feather,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import { useTaskRepository } from "@/lib/tasks/repository";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { useAllTags } from "@/components/tags/use-tags";
 import { TagBadge } from "@/components/tags/tag-badge";
+import { useHasSharedNotes } from "@/hooks/use-shared-notes";
 
 // 侧边栏可见的一级导航。「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
 const navItems = [
@@ -61,6 +63,9 @@ const MOBILE_LABEL_EXTRA_ITEMS = [
   { href: "/lessons", label: "经验" },
   { href: "/tags", label: "标签" },
 ];
+
+// 「与我共享」条件入口：有共享笔记才出现在「笔记」之后（useHasSharedNotes，mock 恒隐藏）
+const sharedNavItem = { href: "/shared", label: "与我共享", icon: Users };
 
 const TASK_NAV_EXPANDED_KEY = "organize-sidebar-task-nav-expanded";
 
@@ -91,6 +96,15 @@ export function Sidebar() {
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
   useThemeColor();
+  const hasSharedNotes = useHasSharedNotes();
+  // 一级导航 = 静态项 + 条件项（与我共享，仅在确有共享笔记时出现）
+  const visibleNavItems = useMemo(
+    () =>
+      hasSharedNotes
+        ? [...navItems.slice(0, 3), sharedNavItem, ...navItems.slice(3)]
+        : navItems,
+    [hasSharedNotes]
+  );
 
   useEffect(() => {
     const stored = localStorage.getItem("organize-sidebar-collapsed") === "true";
@@ -215,7 +229,7 @@ export function Sidebar() {
 
   // 移动端顶栏展示当前所在分区（Notion 移动端模式：汉堡 + 位置名），根路径回退到产品名
   const mobileSectionLabel = useMemo(() => {
-    const match = [...navItems, ...MOBILE_LABEL_EXTRA_ITEMS]
+    const match = [...navItems, sharedNavItem, ...MOBILE_LABEL_EXTRA_ITEMS]
       .sort((a, b) => b.href.length - a.href.length)
       .find((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)));
     return match?.label ?? "Organize";
@@ -399,7 +413,7 @@ export function Sidebar() {
             <div className="mt-2 border-t" />
           </div>
         )}
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
             : pathname.startsWith(item.href);
