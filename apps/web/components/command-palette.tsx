@@ -14,6 +14,14 @@ import {
 } from "@/components/ui/command";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { commandRegistry, type CommandDefinition } from "@/lib/commands/registry";
+
+// useSyncExternalStore 要求 subscribe / getSnapshot / getServerSnapshot 在两次渲染间保持引用稳定，
+// 否则 React 会报「The result of getServerSnapshot should be cached to avoid an infinite loop」。
+// 因此将三个回调提升为模块级常量；SSR 时命令注册表为空，返回同一 frozen 空数组即可。
+const EMPTY_SERVER_SNAPSHOT: readonly CommandDefinition[] = Object.freeze<CommandDefinition[]>([]);
+const subscribeCommands = (onStoreChange: () => void) => commandRegistry.subscribe(onStoreChange);
+const getCommandsSnapshot = () => commandRegistry.list();
+const getCommandsServerSnapshot = (): readonly CommandDefinition[] => EMPTY_SERVER_SNAPSHOT;
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -280,9 +288,9 @@ export function CommandPalette() {
   // 命令注册表（Obsidian 风格「一切皆命令」）：导航项注册为命令，
   // 插件通过 ctx.registerCommand 贡献的命令也出现在这里。
   const registryCommands = useSyncExternalStore(
-    (onStoreChange) => commandRegistry.subscribe(onStoreChange),
-    () => commandRegistry.list(),
-    () => [] as CommandDefinition[]
+    subscribeCommands,
+    getCommandsSnapshot,
+    getCommandsServerSnapshot
   );
 
   useEffect(() => {
