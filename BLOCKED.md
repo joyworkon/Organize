@@ -1,5 +1,20 @@
 # BLOCKED
 
+## P5-02 卡 3/4 协作保存 RPC 分权（已完成，2026-08-31）
+无阻塞。三点声明归档：
+1. **056 埋了一个会让协作保存整体失败的雷（本卡修掉）**：056 给 `prune_note_versions` 加了
+   `notes.user_id = auth.uid()` 校验，而 `save_note_version` 触发器在协作者保存时
+   `auth.uid()`=协作者、`NEW.user_id`=属主 → 校验不成立直接 raise，B 的第一次内容变更保存
+   必炸。065 拆出 `prune_note_versions_for(note_id, owner)`（internal-only）让触发器按
+   `NEW.user_id` 裁剪；对外 `prune_note_versions(uuid)` 签名与属主校验原样保留，056 的越权
+   负例仍红。单用户路径不受影响（属主保存时两者本就相等）。
+2. **051 复选框语义的精确口径（测试里钉住，防误读）**：勾选（done）= 从非 done 真实完成，
+   所以**勾选会把 in_progress / cancelled 也完成**；只有「取消勾选」受保护（不把
+   in_progress / cancelled 抹回 todo）。`docs` 里 051 头注释「cancelled 不受复选框影响」只对
+   取消勾选成立，065 的 pgTAP 按真实实现断言。
+3. 本机 059 / 056 的既有漂移同前卡（见下），非本卡引入；065 文件本机 94/94 绿，CI 全新库
+   预期 19 文件 / 429 断言。
+
 ## P5-02 卡 2/4 协作可见性接入（已完成，2026-08-31）
 无阻塞。两点声明归档：
 1. **既有门禁抖动（非本卡引入）**：`056_db_authorization` 第 4 条断言用 `now()` 与
