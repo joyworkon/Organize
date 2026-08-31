@@ -1,5 +1,27 @@
 # PROGRESS
 
+## P5 后续：备份 manifest 排除清单声明协作表（2026-08-31）
+
+- 分支 `feat/p5-backup-manifest-exclusions`（master = a2cfa6b，无迁移、无 schema 变更）
+- 卡源：ADR 0002「三张协作表不进备份合同 v4……必须在 manifest 的排除清单里写清」——
+  卡 1–4 与 066 都没落这条，本卡补齐
+
+### 实现
+
+1. **导出/校验两侧分离**：`EXPORT_EXCLUSIONS = REQUIRED_EXCLUSIONS + collaboration_acl +
+   user_profiles` 只用于 `createBackupV2` 的 manifest 输出；`REQUIRED_EXCLUSIONS`（旧五类）
+   仍是校验底线——**不收紧**，否则既有备份会突然校验失败
+2. **`collaboration_acl`** = workspaces / workspace_members / resource_acl（授权目标是空间、
+   空间不在白名单，remap 语义未定义前不收录，恢复后授权丢失是已知合同）；
+   **`user_profiles`** = 可再生镜像（auth.users 触发器 + backfill 自动重建），且跨账号恢复
+   等于把别人昵称/头像塞进新账号
+3. **测试 ×2**：新导出声明两个排除项且通过校验；仅五类的旧式 manifest 继续通过（兼容）
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 122 文件 / 885 用例全绿（+2）；next lint 0 警告
+- 无迁移，pgTAP 不适用；e2e smoke 的旧式 manifest 夹具即「旧备份兼容」的运行时探针，无需改动
+
 ## P5 后续：协作者归属列 notes.last_edit_by（2026-08-31，066）
 
 - 分支 `feat/p5-note-last-edit-by`（master = da9cd31，迁移到 066）

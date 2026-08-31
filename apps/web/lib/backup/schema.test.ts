@@ -552,6 +552,24 @@ describe("Backup V2", () => {
     expect(payload.data.reading_items[0].full_width).toBeUndefined();
   });
 
+  it("P5 协作表：新导出的 manifest 显式声明 collaboration_acl / user_profiles 排除", () => {
+    const backup = createBackupV2(fixtureData(), timestamp);
+    expect(backup.manifest.excluded).toEqual(
+      expect.arrayContaining(["collaboration_acl", "user_profiles"])
+    );
+    expect(inspectBackupV2(backup).ok).toBe(true);
+  });
+
+  it("旧式 manifest（仅五类排除）继续通过校验（兼容既有备份）", () => {
+    const backup = createBackupV2(fixtureData(), timestamp) as unknown as Record<
+      string,
+      unknown
+    >;
+    const manifest = backup.manifest as { excluded: string[] };
+    manifest.excluded = ["auth", "plugins", "shares", "storage", "soft_deleted"];
+    expect(inspectBackupV2(backup).ok).toBe(true);
+  });
+
   it("066 归属列：新备份可携带 last_edit_by，旧备份缺省仍通过（restore 不搬运）", () => {
     const withAttribution = createBackupV2(fixtureData(), timestamp) as unknown as Record<
       string,

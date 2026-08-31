@@ -118,6 +118,7 @@
 
 1. **业务行属主转移（`notes.user_id` 改写）不做**。056 的 `(id, user_id)` 复合外键、`task_item_refs` 的同租户约束与备份合同 v4 都以 `user_id` 为键，改属主等于跨租户搬迁，必须逐资源域设计并配套测试。当前只支持**控制面转移**（`transfer_resource_acl`）。
 2. **三张协作表与 `user_profiles` 都不进备份合同 v4**。跨账号恢复属主行的 ACL 等于把 A 的共享关系塞给 B，得先定义 remap 语义（授权目标是空间，而空间不在备份白名单里）。恢复后授权丢失是**已知且刻意**的行为，必须在 manifest 的排除清单里写清。`user_profiles`（064）另有一层理由：它是**可再生的镜像** —— `auth.users` 触发器 + 幂等 backfill 会为每个账号重建，导出它只会带上展示字段，而跨账号恢复等于把别人的昵称/头像塞进新账号；并且它以 `id`（= user id）为键而非 `user_id` 列，与 v4 的「按 `user_id` 白名单收录」形状不符。账号删除时它通过 `references auth.users on delete cascade` 一并级联。
+   **2026-08-31 追记**：上述排除已在导出 manifest 落地——`createBackupV2` 输出 `collaboration_acl` 与 `user_profiles` 两个排除项（`EXPORT_EXCLUSIONS`）；校验侧 `REQUIRED_EXCLUSIONS` 保持旧五类不动，既有备份不受影响。
 3. **业务表 RLS 接入协作（064）与保存 RPC 分权（065）均已落地**：064 给三张主表各一条协作者
    `SELECT` 策略 + `user_profiles` 与 `find_user_by_email`；065 给 `save_note_with_tasks_v2`
    （见上文「065 落地时追加的边界」）。被显式授权的那一条笔记对空间成员可读、editor 可经
