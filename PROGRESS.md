@@ -1,5 +1,58 @@
 # PROGRESS
 
+## P5-01 协作权限模型验证（2026-08-31）
+
+- 分支 `feat/p5-01-workspace-acl-prototype`（master = 4d7d260，迁移到 062）
+- 基线裁决：`docs/collaboration-plan.md` 分叉 1-A（`shares.share_members` 点对点）与本卡口径
+  冲突，按 ROADMAP P5-01 走 workspace 模型；结论与否决理由写入 `docs/adr/0002`
+
+### 实现
+
+1. **063 三张表**：`workspaces`（personal/team，`owner_id` 是唯一权威属主，partial unique
+   索引兜住「每账号恰好一个个人空间」）、`workspace_members`（owner/member/guest）、
+   `resource_acl`（资源→空间授权，access_role viewer/editor/owner，
+   unique(workspace_id, resource_type, resource_id)）
+2. **判定唯一事实源 `resource_role(type,id)`**（SECURITY DEFINER + 固定 search_path）：
+   属主 → owner；否则取「资源已授权的空间 ∩ 我是成员的空间」里最高 access_role；
+   其余 NULL（资源不存在/类型未知同样 NULL，不泄漏存在性）。064/065 必须复用
+3. **写只走 RPC**：空间侧 `create_workspace`/`add_workspace_member`/
+   `update_workspace_member_role`/`transfer_workspace_ownership`/`remove_workspace_member`
+   （踢人与自助退出同入口），资源侧 `grant_resource`/`revoke_resource`/
+   `transfer_resource_acl`/`reclaim_resource`。`resource_acl` 对客户端**显式 revoke 写权限**
+   （不靠「不建写策略」，否则结论随新实例平台默认权限漂移）。EXECUTE 分层里 `resource_owner`
+   与 `provision_personal_workspace`、`assert_resource_control` 一起收归 `service_role` 专用：
+   它返回任意资源的属主 uuid，客户端直调等于拿到「探测别人资源存在性与归属」的 oracle；
+   同文件内同为 DEFINER 的判定函数/触发器照旧可调（pgTAP 两侧都有断言）
+4. **完整性触发器**：polymorphic `resource_id` 无外键 → 写时 `enforce_resource_acl_target`
+   校验资源存在；notes/reading_items/tasks 硬删时 `strip_resource_acl` 级联清授权；
+   `auth.users` AFTER INSERT 补建个人空间 + 存量账号跑同一幂等实现
+5. **pgTAP 85 断言 / 11 节**：A、B、C 三身份 + 两个互不相关空间（A 的 W1/W2、C 的 W4）。
+   正向：角色矩阵、多空间取最高、成员管理、控制面转移与整体回收。反向（提权）：
+   成员身份不给读权、跨资源类型不外溢、editor 不能二次转授、空间 owner 不能自升别人
+   资源的 access_role、member 不能绕过 RPC 直写 owner 成员行、A 不能把 B 的资源授权进
+   自己的空间、不能把资源授权进自己不是成员的空间
+6. **ADR 0002**：三层模型 + 四条边界 + 三个否决方案 + 6 项「不在本原型范围内」
+
+### 门禁（本地）
+
+- `supabase test db`：063 文件 **85/85 ok**；17 个文件全跑，唯一失败是 059 的**既有本机漂移**
+  （`permission denied for table task_mutations`；本机 postgres 非超管，CI 全新库同文件绿），
+  与本卡无关
+- tsc exit 0；vitest 120 文件 / 875 用例全绿 skip=0；`next lint --max-warnings 0` 通过
+- `next build` 由 PR CI 裁决（本机 next build 卡死问题记录在下方 P2-02 条目；本卡零前端改动）
+
+### 最大风险/遗留
+
+1. **「资源转移」只做控制面**：改写业务行属主（`notes.user_id`）会撞 056 的
+   `(id,user_id)` 复合外键、`task_item_refs` 与备份合同 v4，归 P5-02 逐域迁移
+2. **三张新表刻意不进备份合同 v4**：跨账号恢复属主行 ACL 等于把 A 的共享关系塞给 B，
+   需先定义 remap 语义
+3. **发现上游文档的前提是假的**：`docs/collaboration-plan.md` 称「038 预留了
+   `notes.last_edit_by` 列位」，实测本机 `notes` 无该列、迁移全文也没出现过这个名字。
+   PR3（065）不能按计划原文「保存时顺便写 last_edit_by」，必须先加列并同步备份合同 +
+   mock + 测试。已写入 ADR 0002 与 ROADMAP P5-02
+4. 063 单独合并后**不会**让任何业务表对协作者可见（无 064 策略引用它）——最小原型的刻意边界
+
 ## P2-02 Web 上线前能力（2026-08-30）
 
 - 分支 `feat/p2-02-prelaunch`（master = 687efc6，P2-01 合并后）
