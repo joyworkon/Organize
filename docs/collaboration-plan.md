@@ -1,6 +1,6 @@
 # 笔记多人协同方案（Notion / 飞书文档风格）
 
-> 状态：Stage 0 实施中（分叉 1 已拍板，见 §0 与 `docs/adr/0002`）。  
+> 状态：Stage 0 实施中（分叉 1 已拍板 + 卡 2「064 只读可见性接入」已落地，见 §0 与 `docs/adr/0002`；§4.1.1 / §5.1 的用户目录与搜人设想已被 §0.4 改写）。  
 > 相关审计基础：`001_initial_schema.sql`（RLS owner-only）、`006_sharing.sql` + `018_secure_public_shares.sql`（公开只读 token）、`031_save_note_with_tasks_rpc.sql`（security definer 原子保存 + 乐观锁）、`032_realtime_tasks_publication.sql`（tasks/task_item_refs 已加 publication）、`038_note_atomic_save_metadata.sql`（~~`last_edit_by` 预留列位~~ 实测不存在，见 §0.3）、`tiptap-editor.tsx` 的 `TransactionSource = "remote-sync"` 预留枚举。
 
 ## 0. 实施勘误（2026-08-31，Stage 0 开工后追加）
@@ -17,6 +17,17 @@
    `notes.last_edit_by` 列位。实测本机 `notes` 无该列，且 `supabase/migrations/` 全文没有
    出现过这个名字。§4.3 的「保存时顺便写 last_edit_by」不成立 —— 要先加列迁移，并同步
    备份合同 v4 字段清单、mock seed 与既有原子保存测试。
+4. **064 已落地，且与 §4.1.1 / §5.1 有三处刻意的偏差**（前端卡按这三条实现，不要回到本文原稿）：
+   - `user_profiles` **没有 email 列**。本表允许本人 UPDATE，RLS 不能按列收口，缓存邮箱
+     等于让攻击者把 `email` 填成受害者地址、从而把邀请劫持到自己账上；而 `auth.users` 的
+     邮箱唯一约束是大小写敏感 + 部分索引（`WHERE is_sso_user = false`），本表兜不住。
+     邮箱一律从 `auth.users` 读。
+   - 档案可见集是「**自己 + 至少共享一个 workspace 的成员**」，不是 §4.1.1 的
+     `Authenticated can read any profile`（那等于把整本用户目录开给任意登录账号）。
+   - 查人走 `public.find_user_by_email(email)`：**精确等值**、不前缀 / 不通配 / 不列举、
+     匿名拒。§5.1 设想的 `GET /api/users/search?q=xxx`（≥2 字符 + limit 20 + 昵称模糊）
+     因此**不是已存在的能力**。前端卡要么把它重定义为「按准确邮箱查一个人」，要么显式
+     声明不支持目录搜索 —— 不能对着 mock 假装能搜。
 
 ## 1. 目标
 
