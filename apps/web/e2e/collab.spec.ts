@@ -1,6 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+// seed 文件由 scripts/seed-collab-e2e.mjs 生成，仅在本地真实后端验证时存在；
+// 懒加载：模块顶层不读文件，避免未启用协作验证的环境（如 CI）加载即炸
+let seed: {
+  noteId: string;
+  userA: { email: string; password: string };
+  userB: { email: string; password: string };
+};
+
 /**
  * P5-03 双账号协作端到端验证（本地真实后端专用，COLLAB_E2E=1 才运行）。
  *
@@ -27,8 +35,15 @@ test.use({
 test.describe("P5-03 双账号协作验证", () => {
   test.skip(process.env.COLLAB_E2E !== "1", "COLLAB_E2E=1 时才运行（需本地真实后端 + collab 服务）");
 
-const seed = JSON.parse(readFileSync(".tmp-e2e/collab-seed.json", "utf8"));
-const NOTE_URL = `/notes/${seed.noteId}`;
+  test.beforeAll(async () => {
+    loadSeed();
+  });
+
+const noteUrl = () => `/notes/${seed.noteId}`;
+
+async function loadSeed() {
+  seed = JSON.parse(readFileSync(".tmp-e2e/collab-seed.json", "utf8"));
+}
 
 async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
@@ -42,7 +57,7 @@ async function login(page: Page, email: string, password: string) {
 }
 
 async function openNote(page: Page) {
-  await page.goto(NOTE_URL);
+  await page.goto(noteUrl());
   await page.locator(".ProseMirror").waitFor();
 }
 
