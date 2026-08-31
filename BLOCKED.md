@@ -1,5 +1,18 @@
 # BLOCKED
 
+## P5-01（已完成，2026-08-31）
+无阻塞。三点声明归档：
+1. 本机 `supabase test db` 里 **059_task_atomic_update 恒定失败**
+   （`permission denied for table task_mutations`）是既有环境漂移：本机 `postgres` 角色非
+   超管，而 059 只 GRANT 了 `select, insert`。CI 全新库同文件绿，故 063 的断言刻意不依赖
+   表级 GRANT 的错误文案，改断「数据有没有变」。
+2. **上游文档前提为假**：`docs/collaboration-plan.md` 称「038 预留 `notes.last_edit_by`
+   列位」，实测 `notes` 无该列、迁移全文无此名。Stage 0 的 PR3（065 保存 RPC v2）因此
+   多出「加列 + 备份合同 v4 字段清单 + mock seed + 回归测试」一整块工作，不能按计划原文
+   「顺便写一下」。
+3. 三张新表不进备份合同 v4、业务行属主不转移（只做控制面转移），均为本原型刻意的最小
+   边界，已登记 P5-02。
+
 ## P1-01（已完成，2026-08-29，PR #180）
 无阻塞。已知限制归档：
 1. 去重两步（查询→插入）非原子，极端并发窗口可能重复；未加部分唯一索引的原因是

@@ -1,7 +1,22 @@
 # 笔记多人协同方案（Notion / 飞书文档风格）
 
-> 状态：草稿 / 待确认关键分叉点后进入实施。  
-> 相关审计基础：`001_initial_schema.sql`（RLS owner-only）、`006_sharing.sql` + `018_secure_public_shares.sql`（公开只读 token）、`031_save_note_with_tasks_rpc.sql`（security definer 原子保存 + 乐观锁）、`032_realtime_tasks_publication.sql`（tasks/task_item_refs 已加 publication）、`038_note_atomic_save_metadata.sql`（`last_edit_by` 预留列位）、`tiptap-editor.tsx` 的 `TransactionSource = "remote-sync"` 预留枚举。
+> 状态：Stage 0 实施中（分叉 1 已拍板，见 §0 与 `docs/adr/0002`）。  
+> 相关审计基础：`001_initial_schema.sql`（RLS owner-only）、`006_sharing.sql` + `018_secure_public_shares.sql`（公开只读 token）、`031_save_note_with_tasks_rpc.sql`（security definer 原子保存 + 乐观锁）、`032_realtime_tasks_publication.sql`（tasks/task_item_refs 已加 publication）、`038_note_atomic_save_metadata.sql`（~~`last_edit_by` 预留列位~~ 实测不存在，见 §0.3）、`tiptap-editor.tsx` 的 `TransactionSource = "remote-sync"` 预留枚举。
+
+## 0. 实施勘误（2026-08-31，Stage 0 开工后追加）
+
+1. **分叉 1 已拍板**：按 `docs/ROADMAP.md` P5-01 走 **workspace + membership + resource ACL**
+   模型，裁决理由与否决项见 `docs/adr/0002-collaboration-acl-model.md`。本文 §4.1 的
+   `user_profiles` + `share_members` 方案**作废**，权限事实源改为
+   `supabase/migrations/063_collaboration_acl_prototype.sql` 的三张表与
+   `public.resource_role(type, id)` 判定函数。公开链接（`shares`）降级为表现层语法糖。
+2. **本文的迁移号已被占用**：`063` 实际是协作 ACL 原型（非 `collaboration_share_members`）。
+   §4.2 / §4.3 / §5.1 的 064/065/066 号将按实际交付内容重排，**这些 SQL 片段只能当需求
+   清单读，不可照抄**，尤其不得在里面重写 `resource_role()` 的等价判定。
+3. **§2 与文件头的一条审计前提是假的**：`038_note_atomic_save_metadata.sql` 并未预留
+   `notes.last_edit_by` 列位。实测本机 `notes` 无该列，且 `supabase/migrations/` 全文没有
+   出现过这个名字。§4.3 的「保存时顺便写 last_edit_by」不成立 —— 要先加列迁移，并同步
+   备份合同 v4 字段清单、mock seed 与既有原子保存测试。
 
 ## 1. 目标
 
@@ -40,7 +55,12 @@
   - 优点：支持「整个工作区默认可见」「在 workspace 下搜索所有笔记」，和 Notion workspace 对齐。  
   - 缺点：工程量 ×2–3，迁移要把现存每一行的 user_id 挂到 workspace 并建立 owner 映射，pgTAP 覆盖量大。
 
-> 方案文档先按 A（点对点）展开；若选 B，本页 §4.1 DB 部分按 §7 扩展即可。
+> **2026-08-31 拍板（既不是纯 A，也不是本文的 B）**：取 B 的身份容器
+> （`workspaces` / `workspace_members`），但资源与空间之间用 `resource_acl` **附加关系**，
+> 不改写主表 `user_id`、不重构全部业务 RLS —— 这正是 ROADMAP P5-01 的口径，也避开了 B
+> 原方案的 ×2–3 工程量。§4.1 的 `user_profiles` + `share_members` 建表方案作废，判定入口
+> 是 `public.resource_role()`（见 `docs/adr/0002`）。逐域把业务行属主真正迁到 workspace
+> 仍是 P5-02 的独立工作。
 
 ### 分叉 2：公开链接是否允许「匿名可编辑」
 
