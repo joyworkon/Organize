@@ -25,6 +25,7 @@ const COLLAB_MANAGEMENT_RPCS = new Set([
   "transfer_resource_acl",
   "reclaim_resource",
   "transfer_note_ownership",
+  "transfer_reading_item_ownership",
   "save_note_with_tasks_v2",
 ]);
 

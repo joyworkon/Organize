@@ -114,7 +114,7 @@ export function buildWorkspaceRows(
 
 /**
  * 063 管理 RPC 的错误消息翻成可读中文；未识别的消息原样透出。
- * 与 note-share-dialog 的 rpcErrorMessage 同思路，但覆盖空间管理域的错误。
+ * 与 resource-share-dialog 的 rpcErrorMessage 同思路，但覆盖空间管理域的错误。
  */
 export function friendlyWorkspaceError(error: { message?: string } | null): string {
   const message = error?.message || "操作失败";

@@ -1,5 +1,47 @@
 # PROGRESS
 
+## P5 收尾：reading_items 域属主移交 transfer_reading_item_ownership（2026-09-01，069）
+
+- 分支 `feat/p5-transfer-reading-item-ownership`（master = b973fa9，迁移到 069）
+- 卡源：068 遗留 #1「reading_items / tasks 域的属主迁移是后续独立卡（逐域原则）」；
+  本卡只做 reading_items 域，tasks 域仍留待后续
+
+### 拍板的产品决策（沿 068 授权惯例代决）
+
+1. **高亮随迁是唯一无损语义**：highlights.reading_item_id 是 NOT NULL 外键（014），
+   高亮行要么随条目易主、要么删行——置空不存在，删行是丢数据。随迁行上指向
+   非接收人名下笔记/任务的 note_id/task_id（042 引用列）顺手置空
+2. **接收人必须先持有 editor 授权**（「先共享后移交」，与 068 同一判定链：
+   resource_role_for 已由 068 抽出，本卡零判定 SQL）
+3. **标签同名复制到接收人名下（已有同名则复用）**：item_tags 经 RLS 随条目走，
+   tag 指向旧属主的 tags 行，不复制则两侧备份引用校验都断；旧属主原始标签保留
+4. **反向引用清理（非接收人名下）**：notes/tasks/lessons 的 reading_item_id 置空
+   （接收人名下的同引用行刻意保留——转移后同租户合法）、favorites 删除、
+   shares（公开链接）删除；resource_acl 不动（旧属主通常仍以 editor 保留）
+
+### 实现
+
+1. **迁移 069**：`transfer_reading_item_ownership(item_id, new_owner) returns jsonb`
+   （highlights_transferred + tags_copied counts），行锁 + 6 类显式拒绝（匿名 / 非属主 /
+   自移自 / 接收人不存在或无 editor / 垃圾箱）；单条数据修改 CTE——reading_items 域
+   无 056 复合外键牵连、无 deferrable 触发器，无需推迟约束
+2. **备份合同 v4 无 schema 变化**（同 068 逻辑：转移 = 行易主，导出按 RLS 圈行
+   语义自洽）；pgTAP 断言转移后两侧可见集合无悬空引用
+3. **UI**：NoteShareDialog 泛化为 ResourceShareDialog（resourceType 参数化文案 +
+   grant/revoke/邀请/移交全段，公开链接段本就走 /api/share 的 resource_type）；
+   文章详情页 library/[id] 换用（替换公开链接-only 的旧 ShareDialog，卡片入口不动），
+   新增 reading_item 角色判定（属主看 user_id、协作者调 resource_role、失败按 viewer）
+   + 移交确认框如实交代连带语义；notes/[id] 同组件同文案，行为不变
+4. **mock**：transfer_reading_item_ownership 加入 COLLAB_MANAGEMENT_RPCS 显式报错
+   清单 + 测试；mock 下面板候选为空、RPC 报错如实展示
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 123 文件 / 896 用例全绿（数量与基线持平）；
+  next lint（CI 同款）0 警告；`next build` exit 0
+- **本地 Docker 拉取通道已恢复**（BLOCKED.md 记载的 hang 不再复现），`supabase test db`
+  本机全新库实跑：**23 文件 / 582 断言全绿**（069 新增 40 断言）
+
 ## P5 收尾：笔记属主移交 transfer_note_ownership（2026-08-31，068）
 
 - 分支 `feat/p5-transfer-note-ownership`（master = 9fccdde，迁移到 068）

@@ -30,7 +30,8 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
-import { ShareDialog } from "@/components/share/share-dialog";
+import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
+import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 
@@ -126,6 +127,9 @@ export default function ReadingDetailPage() {
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  // 协作角色（069 移交属主）：属主无需 RPC（行的 user_id 即事实）；
+  // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理
+  const [readingRole, setReadingRole] = useState<CollabRole | null>(null);
   const [fullWidth, setFullWidth] = useState(true);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
@@ -210,6 +214,30 @@ export default function ReadingDetailPage() {
     }
     loadItem();
   }, [itemId, supabase]);
+
+  // 角色判定在条目加载后进行（协作者经 064 RLS 也能读到行，属主判定看 user_id）
+  useEffect(() => {
+    if (!item) return;
+    let active = true;
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      if (item.user_id === user.id) {
+        if (active) setReadingRole("owner");
+        return;
+      }
+      const { data: role } = await supabase.rpc("resource_role", {
+        p_resource_type: "reading_item",
+        p_resource_id: itemId,
+      });
+      if (active) setReadingRole(isCollabRole(role) ? role : "viewer");
+    })();
+    return () => {
+      active = false;
+    };
+  }, [item, itemId, supabase]);
 
   useEffect(() => {
     async function loadHighlights() {
@@ -1159,9 +1187,10 @@ export default function ReadingDetailPage() {
         </div>
       )}
 
-      <ShareDialog
+      <ResourceShareDialog
         resourceType="reading_item"
         resourceId={itemId}
+        myRole={readingRole ?? "owner"}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
       />

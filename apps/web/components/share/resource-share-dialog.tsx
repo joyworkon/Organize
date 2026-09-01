@@ -32,10 +32,13 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { collabRoleLabel, type CollabRole } from "@/lib/collab/roles";
 import { showConfirm } from "@/components/ui/prompt-dialog";
+import type { ShareResourceType } from "@organize/shared";
 
-interface NoteShareDialogProps {
-  noteId: string;
-  /** 我对这篇笔记的角色；owner 才能改授权，其余只读浏览 */
+interface ResourceShareDialogProps {
+  /** 资源域：笔记页传 'note'，文章详情页传 'reading_item'（069） */
+  resourceType: ShareResourceType;
+  resourceId: string;
+  /** 我对这个资源的角色；owner 才能改授权，其余只读浏览 */
   myRole: CollabRole;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,17 +50,44 @@ interface WorkspaceRow {
   kind: string;
 }
 
-function rpcErrorMessage(error: { message?: string } | null): string {
+/** 按 resourceType 取文案（面板标题 / 描述 / 移交确认框） */
+const COPY: Record<
+  ShareResourceType,
+  { noun: string; title: string; ownerDesc: string; collaboratorDesc: string; transferConfirm: string }
+> = {
+  note: {
+    noun: "笔记",
+    title: "分享笔记",
+    ownerDesc: "把笔记授权给协作空间，空间成员即可按角色访问；也可创建公开链接。",
+    collaboratorDesc: "你是这篇笔记的协作者，只有所有者可以管理分享设置。",
+    transferConfirm:
+      "移交给 {name} 后：笔记引用的任务将连同子任务一并转移并脱离你原有的任务层级；标签会复制给对方；你的公开链接将被移除；你仍以协作者身份保留访问。",
+  },
+  reading_item: {
+    noun: "文章",
+    title: "分享文章",
+    ownerDesc: "把文章授权给协作空间，空间成员即可按角色访问；也可创建公开链接。",
+    collaboratorDesc: "你是这篇文章的协作者，只有所有者可以管理分享设置。",
+    transferConfirm:
+      "移交给 {name} 后：文章的划线高亮将随文章转移；标签会复制给对方；你笔记、任务、经验里指向这篇文章的关联会解除；你的公开链接将被移除；你仍以协作者身份保留访问。",
+  },
+};
+
+function rpcErrorMessage(error: { message?: string } | null, noun: string): string {
   const message = error?.message || "操作失败";
   if (message.includes("not workspace owner")) return "只有空间所有者能这样做";
-  if (message.includes("not resource controller")) return "只有笔记所有者能修改授权";
-  // 068 移交属主：服务端拒绝原因如实翻译（fail-closed 的每一种显式拒绝）
+  if (message.includes("not resource controller")) return `只有${noun}所有者能修改授权`;
+  // 068/069 移交属主：服务端拒绝原因如实翻译（fail-closed 的每一种显式拒绝）
   if (message.includes("recipient must have editor access"))
-    return "对方还没有这篇笔记的编辑权限，请先在上方授权为「可编辑」";
-  if (message.includes("only the note owner can transfer")) return "只有笔记所有者能移交";
+    return `对方还没有这篇${noun}的编辑权限，请先在上方授权为「可编辑」`;
+  if (
+    message.includes("only the note owner can transfer") ||
+    message.includes("only the article owner can transfer")
+  )
+    return `只有${noun}所有者能移交`;
   if (message.includes("has a parent page") || message.includes("has child pages"))
     return "只支持移交顶层且没有子页面的笔记，请先在页面树中调整";
-  if (message.includes("in trash")) return "垃圾箱里的笔记不能移交，请先恢复";
+  if (message.includes("in trash")) return `垃圾箱里的${noun}不能移交，请先恢复`;
   if (message.includes("also referenced by another note"))
     return "笔记里的某个任务还被你的其他笔记引用，请先在那篇笔记中解除该任务块";
   if (message.includes("crosses the transfer boundary"))
@@ -65,34 +95,47 @@ function rpcErrorMessage(error: { message?: string } | null): string {
   return message;
 }
 
+/** 资源域 → 移交 RPC 名（068 notes 域 / 069 reading_items 域；tasks 域为后续卡） */
+function transferRpcName(resourceType: ShareResourceType): string {
+  return resourceType === "note" ? "transfer_note_ownership" : "transfer_reading_item_ownership";
+}
+
 /**
- * 笔记协作分享面板（P5-02 卡 4）。
+ * 协作分享面板（P5-02 卡 4 引入，069 泛化到 reading_items 域）。
  *
  * 权限模型是「资源授权给空间」（ADR 0002）：没有点对点成员表，邀请一个人 =
- * 把他拉进某个协作空间（或新建空间），再把笔记 grant 给那个空间。三段式：
- *   ① 协作空间：我所在的空间 × 这篇笔记的当前授权（grant/revoke_resource）
+ * 把他拉进某个协作空间（或新建空间），再把资源 grant 给那个空间。三段式：
+ *   ① 协作空间：我所在的空间 × 这个资源的当前授权（grant/revoke_resource）
  *   ② 邀请协作者：邮箱 → find_user_by_email 精确换 user_id → 进空间 → 授权
  *   ③ 公开链接：沿用 /api/share（与协作 ACL 相互独立的表现层）
+ * 属主另有 ④ 移交属主（068 notes / 069 reading_items）。
  *
  * mock 后端：空间/授权查询为空集，管理 RPC 显式报错（mock-client 的
  * P5-02-MOCK），面板如实展示错误 —— 不假装分享成功。
  */
-export function NoteShareDialog({ noteId, myRole, open, onOpenChange }: NoteShareDialogProps) {
+export function ResourceShareDialog({
+  resourceType,
+  resourceId,
+  myRole,
+  open,
+  onOpenChange,
+}: ResourceShareDialogProps) {
   const isOwner = myRole === "owner";
+  const copy = COPY[resourceType];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent onClick={(e) => e.stopPropagation()} className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>分享笔记</DialogTitle>
-          <DialogDescription>
-            {isOwner
-              ? "把笔记授权给协作空间，空间成员即可按角色访问；也可创建公开链接。"
-              : "你是这篇笔记的协作者，只有所有者可以管理分享设置。"}
-          </DialogDescription>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{isOwner ? copy.ownerDesc : copy.collaboratorDesc}</DialogDescription>
         </DialogHeader>
 
-        {isOwner ? <OwnerShareSections noteId={noteId} /> : <CollaboratorGrants noteId={noteId} />}
+        {isOwner ? (
+          <OwnerShareSections resourceType={resourceType} resourceId={resourceId} />
+        ) : (
+          <CollaboratorGrants resourceType={resourceType} resourceId={resourceId} />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -100,8 +143,15 @@ export function NoteShareDialog({ noteId, myRole, open, onOpenChange }: NoteShar
 
 /* ----------------------------- 属主视图 ----------------------------- */
 
-function OwnerShareSections({ noteId }: { noteId: string }) {
+function OwnerShareSections({
+  resourceType,
+  resourceId,
+}: {
+  resourceType: ShareResourceType;
+  resourceId: string;
+}) {
   const supabase = useMemo(() => createClient(), []);
+  const copy = COPY[resourceType];
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
   const [grants, setGrants] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -121,12 +171,12 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
         .eq("kind", "team")
         .order("created_at", { ascending: true });
       if (wsErr) throw new Error(wsErr.message);
-      // 这篇笔记在「我能看到的空间」上的授权（resource_acl 客户端只读，写走 RPC）
+      // 这个资源在「我能看到的空间」上的授权（resource_acl 客户端只读，写走 RPC）
       const { data: grantRows, error: grantErr } = await supabase
         .from("resource_acl")
         .select("workspace_id, access_role")
-        .eq("resource_type", "note")
-        .eq("resource_id", noteId);
+        .eq("resource_type", resourceType)
+        .eq("resource_id", resourceId);
       if (grantErr) throw new Error(grantErr.message);
       setWorkspaces((wsRows || []) as WorkspaceRow[]);
       setGrants(new Map((grantRows || []).map((row) => [row.workspace_id, row.access_role])));
@@ -135,7 +185,7 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [noteId, supabase]);
+  }, [resourceType, resourceId, supabase]);
 
   useEffect(() => {
     // Dialog 打开时才挂载本组件，mount 即加载
@@ -148,19 +198,19 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
     try {
       if (role === null) {
         const { error } = await supabase.rpc("revoke_resource", {
-          p_resource_type: "note",
-          p_resource_id: noteId,
+          p_resource_type: resourceType,
+          p_resource_id: resourceId,
           p_workspace_id: workspaceId,
         });
-        if (error) throw new Error(rpcErrorMessage(error));
+        if (error) throw new Error(rpcErrorMessage(error, copy.noun));
       } else {
         const { error } = await supabase.rpc("grant_resource", {
-          p_resource_type: "note",
-          p_resource_id: noteId,
+          p_resource_type: resourceType,
+          p_resource_id: resourceId,
           p_workspace_id: workspaceId,
           p_access_role: role,
         });
-        if (error) throw new Error(rpcErrorMessage(error));
+        if (error) throw new Error(rpcErrorMessage(error, copy.noun));
       }
       await loadData();
     } catch (e) {
@@ -232,11 +282,11 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
         )}
       </section>
 
-      <InviteSection noteId={noteId} onDone={loadData} />
+      <InviteSection resourceType={resourceType} resourceId={resourceId} onDone={loadData} />
 
-      <PublicLinkSection noteId={noteId} />
+      <PublicLinkSection resourceType={resourceType} resourceId={resourceId} />
 
-      <TransferOwnershipSection noteId={noteId} />
+      <TransferOwnershipSection resourceType={resourceType} resourceId={resourceId} />
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
     </div>
@@ -245,7 +295,15 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
 
 /* ----------------------------- 邀请协作者 ----------------------------- */
 
-function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promise<void> }) {
+function InviteSection({
+  resourceType,
+  resourceId,
+  onDone,
+}: {
+  resourceType: ShareResourceType;
+  resourceId: string;
+  onDone: () => Promise<void>;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"viewer" | "editor">("editor");
@@ -283,7 +341,7 @@ function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promi
       const { data, error: rpcErr } = await supabase.rpc("find_user_by_email", {
         p_email: trimmed,
       });
-      if (rpcErr) throw new Error(rpcErrorMessage(rpcErr));
+      if (rpcErr) throw new Error(rpcErrorMessage(rpcErr, COPY[resourceType].noun));
       const rows = (Array.isArray(data) ? data : [data]).filter(Boolean) as Array<{
         user_id: string;
         display_name: string | null;
@@ -312,7 +370,7 @@ function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promi
           p_name: name,
           p_invitees: [matched.user_id],
         });
-        if (createErr) throw new Error(rpcErrorMessage(createErr));
+        if (createErr) throw new Error(rpcErrorMessage(createErr, COPY[resourceType].noun));
         targetWorkspaceId = wsId as string;
       } else {
         const { error: addErr } = await supabase.rpc("add_workspace_member", {
@@ -320,15 +378,15 @@ function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promi
           p_user_id: matched.user_id,
           p_role: "member",
         });
-        if (addErr) throw new Error(rpcErrorMessage(addErr));
+        if (addErr) throw new Error(rpcErrorMessage(addErr, COPY[resourceType].noun));
       }
       const { error: grantErr } = await supabase.rpc("grant_resource", {
-        p_resource_type: "note",
-        p_resource_id: noteId,
+        p_resource_type: resourceType,
+        p_resource_id: resourceId,
         p_workspace_id: targetWorkspaceId,
         p_access_role: role,
       });
-      if (grantErr) throw new Error(rpcErrorMessage(grantErr));
+      if (grantErr) throw new Error(rpcErrorMessage(grantErr, COPY[resourceType].noun));
       setDone(true);
       setEmail("");
       setMatched(null);
@@ -348,7 +406,7 @@ function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promi
         邀请协作者
       </h3>
       <p className="text-xs text-muted-foreground">
-        按注册邮箱精确查找（不支持模糊搜索）。对方会加入所选协作空间，并获得本篇笔记的访问权。
+        按注册邮箱精确查找（不支持模糊搜索）。对方会加入所选协作空间，并获得本篇内容的访问权。
       </p>
       <div className="flex gap-2">
         <Input
@@ -414,7 +472,13 @@ function InviteSection({ noteId, onDone }: { noteId: string; onDone: () => Promi
 
 /* ----------------------------- 协作者只读视图 ----------------------------- */
 
-function CollaboratorGrants({ noteId }: { noteId: string }) {
+function CollaboratorGrants({
+  resourceType,
+  resourceId,
+}: {
+  resourceType: ShareResourceType;
+  resourceId: string;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<Array<{ wsName: string; role: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -426,8 +490,8 @@ function CollaboratorGrants({ noteId }: { noteId: string }) {
         const { data: grantRows, error } = await supabase
           .from("resource_acl")
           .select("workspace_id, access_role")
-          .eq("resource_type", "note")
-          .eq("resource_id", noteId);
+          .eq("resource_type", resourceType)
+          .eq("resource_id", resourceId);
         if (error) throw new Error(error.message);
         const names = new Map<string, string>();
         const wsIds = (grantRows || []).map((row) => row.workspace_id);
@@ -451,7 +515,7 @@ function CollaboratorGrants({ noteId }: { noteId: string }) {
     return () => {
       active = false;
     };
-  }, [noteId, supabase]);
+  }, [resourceType, resourceId, supabase]);
 
   if (loading) {
     return (
@@ -461,7 +525,7 @@ function CollaboratorGrants({ noteId }: { noteId: string }) {
     );
   }
   if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">这篇笔记通过协作空间与你共享。</p>;
+    return <p className="text-sm text-muted-foreground">这篇内容通过协作空间与你共享。</p>;
   }
   return (
     <ul className="space-y-1.5">
@@ -475,7 +539,7 @@ function CollaboratorGrants({ noteId }: { noteId: string }) {
   );
 }
 
-/* ----------------------------- 移交属主（068） ----------------------------- */
+/* ----------------------------- 移交属主（068/069） ----------------------------- */
 
 interface CandidateUser {
   user_id: string;
@@ -483,17 +547,24 @@ interface CandidateUser {
 }
 
 /**
- * 移交笔记属主（transfer_note_ownership，068）。只列「当前已持有 editor 授权」的
- * 协作者——移交是交给既有协作者（先共享后移交），RPC 端会用同一判定链权威复核。
+ * 移交资源属主（transfer_note_ownership 068 / transfer_reading_item_ownership 069）。
+ * 只列「当前已持有 editor 授权」的协作者——移交是交给既有协作者（先共享后移交），
+ * RPC 端会用同一判定链权威复核。
  *
- * 连带语义（迁移头注释的拍板，确认框必须如实交代）：
- *   - 笔记引用的任务连同子任务一并转移，根任务脱离你原有的任务层级与清单；
- *   - 有任务被其他笔记引用 / 存在跨界依赖 / 有父子页面时服务端显式拒绝；
- *   - 标签按同名复制给对方，评论随笔记转移，你的公开链接被移除；
- *   - 移交后你仍以协作者身份保留访问（若空间授权还在）。
+ * 连带语义（两个迁移头注释的拍板，确认框必须如实交代）：
+ *   - note：引用任务连同子任务转移；有跨笔记引用 / 跨界依赖 / 父子页面时显式拒绝；
+ *   - reading_item：划线高亮随文章转移（NOT NULL 锚点，唯一无损选项），
+ *     旧属主笔记/任务/经验的关联解除；
+ *   - 共同：标签按同名复制、公开链接移除、移交后原属主仍以协作者保留访问。
  * mock 后端：候选为空（无协作空间），RPC 显式报错由面板如实展示。
  */
-function TransferOwnershipSection({ noteId }: { noteId: string }) {
+function TransferOwnershipSection({
+  resourceType,
+  resourceId,
+}: {
+  resourceType: ShareResourceType;
+  resourceId: string;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [candidates, setCandidates] = useState<CandidateUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -511,8 +582,8 @@ function TransferOwnershipSection({ noteId }: { noteId: string }) {
         const { data: grantRows, error: grantErr } = await supabase
           .from("resource_acl")
           .select("workspace_id, access_role")
-          .eq("resource_type", "note")
-          .eq("resource_id", noteId);
+          .eq("resource_type", resourceType)
+          .eq("resource_id", resourceId);
         if (grantErr) throw new Error(grantErr.message);
         // 有 editor 授权的空间，其成员即候选（成员资格 + 空间授权 = 可编辑）
         const editorWorkspaceIds = (grantRows || [])
@@ -556,16 +627,14 @@ function TransferOwnershipSection({ noteId }: { noteId: string }) {
     return () => {
       active = false;
     };
-  }, [noteId, supabase]);
+  }, [resourceType, resourceId, supabase]);
 
   const transfer = async () => {
     if (!selected) return;
     const target = candidates.find((c) => c.user_id === selected);
     const ok = await showConfirm({
-      title: "移交笔记属主？",
-      description: `移交给 ${
-        target?.name || "该协作者"
-      } 后：笔记引用的任务将连同子任务一并转移并脱离你原有的任务层级；标签会复制给对方；你的公开链接将被移除；你仍以协作者身份保留访问。`,
+      title: "移交属主？",
+      description: COPY[resourceType].transferConfirm.replace("{name}", target?.name || "该协作者"),
       confirmText: "移交",
       destructive: true,
     });
@@ -573,12 +642,12 @@ function TransferOwnershipSection({ noteId }: { noteId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const { error: rpcErr } = await supabase.rpc("transfer_note_ownership", {
-        p_note_id: noteId,
+      const { error: rpcErr } = await supabase.rpc(transferRpcName(resourceType), {
+        [resourceType === "note" ? "p_note_id" : "p_item_id"]: resourceId,
         p_new_owner: selected,
       });
-      if (rpcErr) throw new Error(rpcErrorMessage(rpcErr));
-      // 角色已变更：整页重载，让笔记页按新角色重建保存管线
+      if (rpcErr) throw new Error(rpcErrorMessage(rpcErr, COPY[resourceType].noun));
+      // 角色已变更：整页重载，让页面按新角色重建保存/写入管线
       window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "移交失败");
@@ -633,7 +702,13 @@ function TransferOwnershipSection({ noteId }: { noteId: string }) {
 
 /* ----------------------------- 公开链接 ----------------------------- */
 
-function PublicLinkSection({ noteId }: { noteId: string }) {
+function PublicLinkSection({
+  resourceType,
+  resourceId,
+}: {
+  resourceType: ShareResourceType;
+  resourceId: string;
+}) {
   const [share, setShare] = useState<{ token: string; url: string; is_public: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -644,7 +719,9 @@ function PublicLinkSection({ noteId }: { noteId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/share?resource_type=note&resource_id=${noteId}`, { cache: "no-store" });
+      const res = await fetch(`/api/share?resource_type=${resourceType}&resource_id=${resourceId}`, {
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error("加载失败");
       const data = await res.json();
       setShare(data ? { token: data.token, url: data.url, is_public: data.is_public } : null);
@@ -653,7 +730,7 @@ function PublicLinkSection({ noteId }: { noteId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [noteId]);
+  }, [resourceType, resourceId]);
 
   useEffect(() => {
     void loadShare();
@@ -666,7 +743,7 @@ function PublicLinkSection({ noteId }: { noteId: string }) {
       const res = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resource_type: "note", resource_id: noteId }),
+        body: JSON.stringify({ resource_type: resourceType, resource_id: resourceId }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -689,7 +766,7 @@ function PublicLinkSection({ noteId }: { noteId: string }) {
       const res = await fetch("/api/share", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resource_type: "note", resource_id: noteId }),
+        body: JSON.stringify({ resource_type: resourceType, resource_id: resourceId }),
       });
       if (!res.ok) throw new Error("撤销失败");
       setShare(null);
