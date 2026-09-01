@@ -30,7 +30,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
-import { NoteShareDialog } from "@/components/share/note-share-dialog";
+import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { saveRpcNameForRole, type CollabRole } from "@/lib/collab/roles";
 import { useNoteCollab, colorFromUserId } from "@/hooks/use-note-collab";
 import { NotePresenceBar } from "@/components/notes/note-presence-bar";
@@ -1814,8 +1814,9 @@ export default function NoteEditorPage() {
         </DialogContent>
       </Dialog>
 
-      <NoteShareDialog
-        noteId={noteId}
+      <ResourceShareDialog
+        resourceType="note"
+        resourceId={noteId}
         myRole={noteRole ?? "owner"}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}

@@ -23,6 +23,7 @@ describe("mock collab rpc", () => {
       "revoke_resource",
       "create_workspace",
       "transfer_note_ownership",
+      "transfer_reading_item_ownership",
       "save_note_with_tasks_v2",
     ];
     for (const name of names) {

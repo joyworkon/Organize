@@ -26,7 +26,7 @@
 - UI 新增 `/api/*` fetch 能力时必须决定是否补 `lib/mock/api-shim.ts`；不支持时必须返回明确错误，不能假成功。
 - 禁止通过 `.skip`/`.todo`、删测试、放宽断言、mock 被测对象、`|| true` 或降低门槛制造绿灯。
 - 每个 PR 至少跑：`cd apps/web && npx tsc --noEmit && npx vitest run && npx next build`。涉及迁移时再跑 `supabase test db`；本机无 CLI 时以 PR CI 的 pgTAP 结果为准。
-- 当前基线是 123 个 Vitest 文件 / 896 条用例（apps/web）+ collab-server 租约单测 1 文件 / 5 用例；pgTAP 为 22 个文件 / 542 条断言（068 后，本机全新库实跑通过，以 PR CI 复核为准）。合并后数量不得无解释下降，跳过数必须为 0。
+- 当前基线是 123 个 Vitest 文件 / 896 条用例（apps/web）+ collab-server 租约单测 1 文件 / 5 用例；pgTAP 为 23 个文件 / 582 条断言（069 后，本机全新库实跑通过，以 PR CI 复核为准）。合并后数量不得无解释下降，跳过数必须为 0。
 - 同一验收连续失败 3 次就停止该方向，把证据写入 `BLOCKED.md`；结果比开工基线差则回滚该尝试并如实报告。
 
 ## 当前状态
@@ -200,7 +200,7 @@ P5 后续待办（开工前先读 ADR 0002）：
 - **协作者归属列已补齐（066，2026-08-31）**：`docs/collaboration-plan.md` 曾声称「038 预留了 `notes.last_edit_by` 列位」，实测为假——065 按 ADR 0002 刻意未加（`hasnt_column` 钉住）。066 作为登记过的独立卡落地：加列（uuid、无外键、不回填）+ v1/v2 保存 RPC 写调用者归属 + 备份合同 v4（导出携带、校验 optional 兼容旧备份、restore/prepareRestorePayload 刻意置空不搬运）+ mock seed/save 对齐 + 065 钉子翻转为 has_column + 冲突对话框按归因显示「协作者名字 / 你的其他设备」。
 - 三张新表（`workspaces` / `workspace_members` / `resource_acl`）不在备份合同 v4 白名单内：恢复后授权会丢，需先定义 remap 语义（授权目标是空间，而空间本身也不在白名单）。**排除清单已在导出 manifest 显式声明（`collaboration_acl` + `user_profiles`，2026-08-31）**：校验侧底线保持旧五类不变以兼容既有备份，导出侧输出完整清单。
 - **空间管理 UI 已补齐（2026-08-31）**：`/spaces`「协作空间」页消费 063 管理面 RPC（改成员角色 / 移除 / 移交属主 / 建空间）+ 属主直更重命名 + 解散空间（RLS DELETE 级联撤销授权）；成员自助退出同入口。邀请仍走笔记分享面板（邀请与授权是同一动作）。
-- **逐域属主迁移已开始（068，2026-08-31）：notes 域属主移交已落地**——`transfer_note_ownership`（同转语义：引用任务+子任务随迁、根任务脱离原层级与清单、标签同名复制复用、评论/建议按 056 租户列随迁、反向引用对非接收人清空/删除、公开链接移除；接收人须先持 editor 授权；跨笔记引用任务/跨界依赖/有父子页面显式拒绝）。**reading_items / tasks 域是后续独立卡**，开工前先读 068 迁移头注释的拍板与 BLOCKED.md 声明。
+- **逐域属主迁移进行中（068 notes 域 + 069 reading_items 域已落地）**——notes 域 `transfer_note_ownership`（同转语义：引用任务+子任务随迁、标签同名复制复用、评论/建议按 056 租户列随迁、反向引用清空/删除、接收人须先持 editor 授权）与 reading_items 域 `transfer_reading_item_ownership`（高亮随迁是 NOT NULL 锚点下的唯一无损语义，标签同名复制，旧属主 notes/tasks/lessons 关联解除，接收人须先持 editor 授权；分享面板已泛化为 ResourceShareDialog，文章详情页有完整授权/邀请/移交入口）。**tasks 域是最后的独立卡**：task_item_refs 复合外键同时锚定 notes 与 tasks，任务转移必须连带决定引用它的笔记块去留，开工前先读 068/069 迁移头注释的拍板与 BLOCKED.md 声明。
 
 ### P5-03 实时协同技术验证 ✅（2026-08-31 完成：ADR 0003 拍板 Yjs + Hocuspocus 自托管，垂直切片 + 双账号 e2e 全过，详见 PROGRESS.md）
 
