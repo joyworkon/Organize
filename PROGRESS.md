@@ -1,5 +1,39 @@
 # PROGRESS
 
+## P4-01 macOS 桌面壳真机验证 + 托盘常驻（2026-09-01）
+
+- 分支 `feat/desktop-macos-shell`（master = 6d97e74，迁移仍为 070）
+- 卡源：用户决策「先做 Mac 版（开发版+托盘），刘海激发器先出规划」；ROADMAP P4-01
+
+### 交付
+- `desktop/src-tauri/src/main.rs`：托盘（显示主窗口 / 打开速记 / 退出 Organize，
+  `tray-icon` feature 原已开零 Cargo 改动）+ 关窗驻留（CloseRequested→隐藏）+
+  macOS Dock 重开（RunEvent::Reopen）+ ⌘⇧S 先唤回主窗口再发 quick-save
+- `tauri.conf.json`：`$schema` 改官方 `https://schema.tauri.app/config/2`（原为
+  第三方 fork URL）
+- web 侧：`components/desktop/navigate-bridge.tsx`（监听 Rust `navigate` 事件 →
+  主窗口路由跳转，复用 quick-save 桥的 tauri 平台判定模式）+
+  `lib/platform/navigate.ts` `sanitizeNavigatePath`（应用内相对路径白名单）+
+  挂 `(main)/layout.tsx`
+- 文档：ADR 0004（架构拍板 + 发布产物不得分发约束）、`docs/notch-trigger-plan.md`
+  （刘海激发器规划草案 v1，含待讨论清单 7 项）、ROADMAP P4-01 标完成、README
+  桌面端命令与状态更新
+- Rust 工具链经 rustup 装好（此前文档记载的阻塞项消除）
+
+### 真机验证态（自动化无辅助功能权限，交互项留人工）
+- ✅ 程序验证：cargo check 过（8min 冷编译）；tauri dev 真机跑通——窗口渲染、
+  壳内 middleware 重定向 /login、登录页可交互渲染、菜单栏托盘图标出现；
+  web 侧 tsc 0 错 + vitest 124 文件 / 900 用例全绿
+- ⏳ 留人工一分钟过：托盘三项菜单点击、关窗驻留、Dock 重开、⌘⇧S 唤回、
+  登录后「打开速记」跳 /memos（见 ADR 0004 验证记录）
+
+### 约束与遗留
+- ⚠️ `frontendDist` 指向的 organize-web.vercel.app 已被第三方占用：发布 .app /
+  NSIS 产物在换真实部署域名前**不得分发**（ADR 0004）；本次只交付开发版
+- 根 `pnpm dev` 会双启动（turbo 起 web dev + tauri dev 再拉第二个 web dev）：
+  桌面端一律 `pnpm --filter @organize/desktop dev`
+- 托盘图标暂用彩色 app 图标（非 template，不随深浅色菜单栏反色）——打磨项
+
 ## P5 收尾：tasks 域属主移交 transfer_task_ownership（2026-09-01，070）
 
 - 分支 `feat/p5-transfer-task-ownership`（master = a8c7873，迁移到 070）

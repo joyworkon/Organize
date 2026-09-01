@@ -8,7 +8,7 @@
 - **笔记**：Notion 风格编辑器——斜杠菜单、BubbleMenu、标注 / 公式 / 列布局 / 表格样式 / 可调图片 / 附件块；页面层级、图标封面、评论、建议、历史版本、块级跨笔记移动；Chrome 式标签页
 - **任务与复盘**：待办工作台（任务 / 日历 / 倒数日 / 经验）、清单与依赖、到期提醒（Web Push）、任务完成自动进入复盘
 - **知识组织**：标签（笔记 / 文章 / 任务 / 经验四处打通）、反向链接、图谱、收藏夹、全文搜索
-- **多端与生态**：移动端（Capacitor，系统分享直达保存）、桌面端（Tauri 骨架）、插件系统（AI 摘要 / 标签推荐）
+- **多端与生态**：移动端（Capacitor，系统分享直达保存）、桌面端（Tauri，macOS 开发版可用：托盘常驻 + 全局快捷键快速保存）、插件系统（AI 摘要 / 标签推荐）
 - **离线**：Service Worker 页面缓存 + 笔记 / 任务离线队列，联网自动回放
 
 ## 技术栈
@@ -20,7 +20,7 @@ apps/web            # 主应用（当前唯一已实现的 app）
 packages/shared     # 跨包共享 TS 类型
 packages/plugin-sdk # 插件 SDK（definePlugin / 扩展点）
 packages/plugins/*  # 内置插件（ai-summary、tag-suggest）
-desktop/            # Tauri 桌面端骨架
+desktop/            # Tauri 桌面端（macOS 开发版：远程壳加载 apps/web，托盘常驻）
 mobile/             # Capacitor 移动端
 supabase/           # 迁移（001–054）与本地配置
 ```
@@ -53,6 +53,7 @@ pnpm dev        # 根目录启动（经 turbo 编排）
 pnpm dev                          # 开发
 pnpm build                        # 构建
 pnpm --filter @organize/web dev   # 只启动 web 子包
+pnpm --filter @organize/desktop dev # 桌面端（Tauri）：自动拉起 web dev server（勿用根 pnpm dev，会双启动，见 ADR 0004）
 cd apps/web && npx tsc --noEmit   # 类型检查（改动后验证）
 cd apps/web && npx vitest run     # 单元测试
 ```
