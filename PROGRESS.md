@@ -1,5 +1,62 @@
 # PROGRESS
 
+## P5 收尾：笔记属主移交 transfer_note_ownership（2026-08-31，068）
+
+- 分支 `feat/p5-transfer-note-ownership`（master = 9fccdde，迁移到 068）
+- 卡源：ROADMAP P5-02 待办末条「逐域迁移业务行属主（一次一个资源域）」+ BLOCKED.md
+  勘察笔记；本卡只做 notes 域，reading_items / tasks 域归后续独立卡
+
+### 拍板的产品决策（用户授权代决）
+
+1. **任务同转是唯一语义，不提供断链**：前端每次保存都把 content 里带 taskId 的块
+   提取成 mutations，断链后新属主每次保存必撞 conflict_task（笔记存不了）；静默删块
+   是数据丢失。连带转移引用任务 + 全部子任务；跨笔记引用的任务 / 跨界依赖边 →
+   显式拒绝（fail-closed），根任务脱离原父任务与清单（不把移交放大成整棵树搬家）
+2. **接收人必须先持有 editor 授权**（「先共享后移交」，防误移交 + uuid 试探）；
+   判定复用 063 判定链——`resource_role` 抽成参数化内核 `resource_role_for`
+   （internal，service_role 专用），对外 `resource_role` 改薄委托，消费方（064 RLS /
+   065 权限闸）不变
+3. **标签同名复制到接收人名下（已有同名则复用）**：task_tags/note_tags 行随属主走
+   但 tag 指向旧属主的 tags 行，不复制则两侧备份引用校验都断；旧属主原始标签保留
+4. **评论线程 / 评论 / 建议随笔记转移**（056 复合外键把 user_id 钉成租户列，不搬则
+   FK 炸、搬则按租户解释作者列——既定合同的取舍，非本卡新引入）
+5. **反向引用清理**（非接收人名下）：lessons/highlights 的 task_id/note_id、
+   tasks.note_id、db_databases.parent_note_id 置空，favorites 删除，shares（公开
+   链接）删除——否则两侧备份导出 BROKEN_REFERENCE，且旧属主不应保留指向新属主
+   内容的公开口；notes.reading_item_id / 移动任务的 reading_item_id、list_id 置空
+
+### 实现
+
+1. **迁移 068**：`transfer_note_ownership(note_id, new_owner) returns jsonb`（counts），
+   行锁 + 8 类显式拒绝（匿名 / 非属主 / 自移自 / 接收人不存在或无 editor / 垃圾箱 /
+   有父页面 / 有子页面 / 跨笔记引用 / 依赖跨界）；大迁移用单条数据修改 CTE 搬齐全部
+   056 复合外键绑定的 user_id，040/041 的 deferrable constraint trigger 以
+   SET CONSTRAINTS DEFERRED→IMMEDIATE 包裹（同语句中间态不误炸，正常路径不变）
+2. **备份合同 v4 无 schema 变化**：转移 = 行易主，导出按 RLS 圈行语义自洽；pgTAP
+   逐表断言「转移后两侧各自可见集合内无悬空引用」代替合成往返用例
+3. **UI**：分享面板属主视图新增「移交属主」段——候选 = 持有 editor 授权空间的成员
+   （workspace_members + user_profiles 直读，RPC 端权威复核），showConfirm 危险确认
+   （连带语义逐条交代），成功后整页重载按新角色重建保存管线；服务端每类拒绝都有
+   如实中文文案；mock 下候选为空 + RPC 显式 P5-02-MOCK（面板如实展示，不假成功）
+4. **mock**：transfer_note_ownership 加入 COLLAB_MANAGEMENT_RPCS 显式报错清单 + 测试
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 123 文件 / 896 用例全绿（数量与基线持平）；
+  next lint（CI 同款）0 警告；`next build` exit 0
+- pgTAP 068（64 断言）：结构 / EXECUTE 分层 / 委托后判定链语义 / 8 类拒绝矩阵 /
+  同转逐表归属 / 转移后 B 保存 ok + A(editor) 保存 ok + C(viewer) 拒 / 反向移交
+  标签复用。**本机 Docker 拉取通道仍坏**（`docker pull alpine` hang，`supabase start`
+  含排除服务两轮均卡死，证据同 BLOCKED.md），以 PR CI db-test 全新库实跑为准
+
+### 遗留 / 边界
+
+1. reading_items / tasks 域的属主迁移是后续独立卡（逐域原则）
+2. 层级移交（整棵笔记子树）、依赖边自动解除、跨域（笔记↔阅读条目）整体移交均不在
+   本卡；拒绝报错已给出用户可执行的解法
+3. content 级跨笔记引用（内部链接、同步块、数据库块）随 043/既有失败降级优雅呈现，
+   不在 DB 层处理
+
 ## P5 后续产品卡：协作空间管理 UI（2026-08-31）
 
 - 分支 `feat/workspace-management-ui`（master = 470b6dc，无迁移）
