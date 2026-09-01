@@ -27,9 +27,11 @@ import {
   Trash2,
   ExternalLink,
   UserPlus,
+  ArrowLeftRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { collabRoleLabel, type CollabRole } from "@/lib/collab/roles";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 
 interface NoteShareDialogProps {
   noteId: string;
@@ -49,6 +51,17 @@ function rpcErrorMessage(error: { message?: string } | null): string {
   const message = error?.message || "操作失败";
   if (message.includes("not workspace owner")) return "只有空间所有者能这样做";
   if (message.includes("not resource controller")) return "只有笔记所有者能修改授权";
+  // 068 移交属主：服务端拒绝原因如实翻译（fail-closed 的每一种显式拒绝）
+  if (message.includes("recipient must have editor access"))
+    return "对方还没有这篇笔记的编辑权限，请先在上方授权为「可编辑」";
+  if (message.includes("only the note owner can transfer")) return "只有笔记所有者能移交";
+  if (message.includes("has a parent page") || message.includes("has child pages"))
+    return "只支持移交顶层且没有子页面的笔记，请先在页面树中调整";
+  if (message.includes("in trash")) return "垃圾箱里的笔记不能移交，请先恢复";
+  if (message.includes("also referenced by another note"))
+    return "笔记里的某个任务还被你的其他笔记引用，请先在那篇笔记中解除该任务块";
+  if (message.includes("crosses the transfer boundary"))
+    return "笔记里的任务存在跨任务依赖，请先解除依赖再移交";
   return message;
 }
 
@@ -222,6 +235,8 @@ function OwnerShareSections({ noteId }: { noteId: string }) {
       <InviteSection noteId={noteId} onDone={loadData} />
 
       <PublicLinkSection noteId={noteId} />
+
+      <TransferOwnershipSection noteId={noteId} />
 
       {actionError && <p className="text-sm text-destructive">{actionError}</p>}
     </div>
@@ -457,6 +472,162 @@ function CollaboratorGrants({ noteId }: { noteId: string }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/* ----------------------------- 移交属主（068） ----------------------------- */
+
+interface CandidateUser {
+  user_id: string;
+  name: string | null;
+}
+
+/**
+ * 移交笔记属主（transfer_note_ownership，068）。只列「当前已持有 editor 授权」的
+ * 协作者——移交是交给既有协作者（先共享后移交），RPC 端会用同一判定链权威复核。
+ *
+ * 连带语义（迁移头注释的拍板，确认框必须如实交代）：
+ *   - 笔记引用的任务连同子任务一并转移，根任务脱离你原有的任务层级与清单；
+ *   - 有任务被其他笔记引用 / 存在跨界依赖 / 有父子页面时服务端显式拒绝；
+ *   - 标签按同名复制给对方，评论随笔记转移，你的公开链接被移除；
+ *   - 移交后你仍以协作者身份保留访问（若空间授权还在）。
+ * mock 后端：候选为空（无协作空间），RPC 显式报错由面板如实展示。
+ */
+function TransferOwnershipSection({ noteId }: { noteId: string }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [candidates, setCandidates] = useState<CandidateUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const { data: grantRows, error: grantErr } = await supabase
+          .from("resource_acl")
+          .select("workspace_id, access_role")
+          .eq("resource_type", "note")
+          .eq("resource_id", noteId);
+        if (grantErr) throw new Error(grantErr.message);
+        // 有 editor 授权的空间，其成员即候选（成员资格 + 空间授权 = 可编辑）
+        const editorWorkspaceIds = (grantRows || [])
+          .filter((row) => row.access_role === "editor" || row.access_role === "owner")
+          .map((row) => row.workspace_id);
+        if (editorWorkspaceIds.length === 0) {
+          if (active) setCandidates([]);
+          return;
+        }
+        const { data: memberRows, error: memberErr } = await supabase
+          .from("workspace_members")
+          .select("user_id")
+          .in("workspace_id", editorWorkspaceIds);
+        if (memberErr) throw new Error(memberErr.message);
+        const userIds = [...new Set((memberRows || []).map((m) => m.user_id))].filter(
+          (uid) => uid && uid !== user?.id
+        );
+        if (userIds.length === 0) {
+          if (active) setCandidates([]);
+          return;
+        }
+        // 共享空间成员的档案可见（064）；查不到名字时回退「成员」
+        const { data: profileRows } = await supabase
+          .from("user_profiles")
+          .select("user_id, display_name")
+          .in("user_id", userIds);
+        const names = new Map(
+          (profileRows || []).map((p) => [p.user_id, p.display_name as string | null])
+        );
+        if (!active) return;
+        setCandidates(
+          userIds.map((uid) => ({ user_id: uid, name: names.get(uid) ?? null }))
+        );
+      } catch {
+        // 候选加载失败按空集处理（协作功能整体不可用时段典型如此），不阻塞其他段
+        if (active) setCandidates([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [noteId, supabase]);
+
+  const transfer = async () => {
+    if (!selected) return;
+    const target = candidates.find((c) => c.user_id === selected);
+    const ok = await showConfirm({
+      title: "移交笔记属主？",
+      description: `移交给 ${
+        target?.name || "该协作者"
+      } 后：笔记引用的任务将连同子任务一并转移并脱离你原有的任务层级；标签会复制给对方；你的公开链接将被移除；你仍以协作者身份保留访问。`,
+      confirmText: "移交",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { error: rpcErr } = await supabase.rpc("transfer_note_ownership", {
+        p_note_id: noteId,
+        p_new_owner: selected,
+      });
+      if (rpcErr) throw new Error(rpcErrorMessage(rpcErr));
+      // 角色已变更：整页重载，让笔记页按新角色重建保存管线
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "移交失败");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="flex items-center gap-1.5 text-sm font-medium">
+        <ArrowLeftRight className="h-4 w-4" />
+        移交属主
+      </h3>
+      {loading ? (
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : candidates.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          还没有可移交的协作者。先在上方邀请并把对方设为「可编辑」。
+        </p>
+      ) : (
+        <div className="flex gap-2">
+          <Select value={selected} onValueChange={setSelected}>
+            <SelectTrigger className="h-8 w-[180px]">
+              <SelectValue placeholder="选择协作者" />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.map((c) => (
+                <SelectItem key={c.user_id} value={c.user_id}>
+                  {c.name || "协作者"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void transfer()}
+            disabled={busy || !selected}
+            className="gap-1.5"
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            移交
+          </Button>
+        </div>
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </section>
   );
 }
 
