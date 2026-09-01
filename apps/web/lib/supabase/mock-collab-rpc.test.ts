@@ -24,6 +24,7 @@ describe("mock collab rpc", () => {
       "create_workspace",
       "transfer_note_ownership",
       "transfer_reading_item_ownership",
+      "transfer_task_ownership",
       "save_note_with_tasks_v2",
     ];
     for (const name of names) {

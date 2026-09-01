@@ -1,5 +1,68 @@
 # PROGRESS
 
+## P5 收尾：tasks 域属主移交 transfer_task_ownership（2026-09-01，070）
+
+- 分支 `feat/p5-transfer-task-ownership`（master = a8c7873，迁移到 070）
+- 卡源：ROADMAP P5-02 待办末条「tasks 域是最后的独立卡」+ BLOCKED.md 勘察笔记
+
+### 拍板的产品决策（沿 068/069 授权惯例代决）
+
+1. **「任务+笔记联转」是唯一语义**：task_item_refs 同时以 (task_id,user_id)→tasks
+   与 (note_id,user_id)→notes 复合 FK 双锚（056）。任务易主但引用它的笔记不易主
+   立即悬空 FK；引用行删除 = 笔记里 taskItem 块 id 悬空，新属主每次保存撞
+   conflict_task（同 068 论证）。移动集合 = 目标任务 + 全部后代（040 层级复合
+   FK 强制父子同租户）+ 引用集合内任务的全部笔记 + 这些笔记再引用的任务（递归
+   闭包，到不动点为止）
+2. **接收人须先持「目标任务 + 每一篇涉及笔记」的 editor 授权**——不允许「移交
+   过去但部分笔记对方打不开」。判定复用 068 抽出的 resource_role_for，本卡零
+   判定 SQL
+3. **PG 递归 CTE 不能双侧互相引用**：标准 SQL 不允许两个递归 CTE 互引、也不
+   允许同一递归 CTE 在递归 term 里多次自引用；任务↔笔记的递归闭包改为 plpgsql
+   循环 + 数组累计（每轮扩 1 任务→笔记、扩 2 笔记→任务、扩 3 任务后代；集合
+   单调递增必然收敛）
+4. **显式拒绝（fail-closed）**：匿名 / 非属主 / 自移自 / 接收人不存在 / 接收人
+   缺任一资源 editor / 任务或任一涉及笔记在垃圾箱 / 涉及笔记有父或子页面 /
+   涉及笔记被集合外任务反向引用 / 任务依赖边跨界
+5. **挂载点清理**：根任务脱离原父任务与清单（068 同款）；series_id / source_id
+   指向集合外任务的置空（重复任务链条不跨界——033 这两列无 FK 但语义自引用）；
+   reading_item_id 一律置空；note_id 指向集合内笔记的保留、集合外的置空
+6. **task_mutations 随转移删除**：旧属主在途的离线任务操作回放得到 not_found 进
+   dead-letter（068 同款取舍，可见可人工处理）
+
+### 实现
+
+1. **迁移 070**：`transfer_task_ownership(task_id, new_owner) returns jsonb`
+   （tasks_transferred + notes_transferred + tags_copied counts），行锁 + 9 类
+   显式拒绝；040/041 三个 deferrable constraint trigger 以 SET CONSTRAINTS
+   DEFERRED→IMMEDIATE 包裹（同 068）；单条数据修改 CTE 同时搬 tasks + notes +
+   reminders / attachments / activities / dependencies / task_item_refs / 评论
+   线程 / 评论 / 建议 + 清理 favorites / shares / highlights / lessons 反向引用
+2. **备份合同 v4 无 schema 变化**（同 068/069：转移 = 行易主，导出按 RLS 圈行
+   语义自洽）；pgTAP 逐表断言「转移后两侧各自可见集合内无悬空引用」
+3. **mock**：transfer_task_ownership 加入 COLLAB_MANAGEMENT_RPCS 显式报错清单
+   + 测试；mock 下任务分享入口不存在、RPC 报错如实展示
+4. **UI 不在本卡**：任务无详情页、无分享面板入口；给任务加分享/移交入口需先
+   扩 ShareResourceType（当前只有 note | reading_item）+ 新建任务维度的入口
+   组件——归后续产品卡（同 068 时 reading_items 域 UI 归后续卡处理）
+
+### 门禁（本地）
+
+- `npx tsc --noEmit` 0 错；`npx vitest run` 123 文件 / 896 用例——47 个失败为
+  master 基线既有（presentation-mode / table-direct-controls，已 stash 复测确认），
+  本卡未引入新增失败
+- `npx eslint`（改动的 2 个 mock 文件）0 警告；`next build` 本机挂起（BLOCKED.md
+  已载的环境问题，基线复现，以 CI 为准）
+- `supabase test db` 本机全新库实跑：23 文件 / 630 断言中 070 占 55 全绿；
+  059 的 7 个失败是 BLOCKED.md 已载的本机 postgres 角色权限漂移（CI 全新库绿），
+  非本卡引入
+
+### 遗留 / 边界
+
+1. 任务的分享面板入口（扩 ShareResourceType + 任务维度 UI）是下一张产品卡
+2. 层级移交（整棵任务子树整体打包随父笔记）已由 068 笔记移交卡覆盖；本卡的
+   「任务→笔记」联转是它的对称方向
+3. 跨域（任务↔阅读条目）整体移交不在本卡，拒绝报错已给出可执行的解法
+
 ## P5 收尾：reading_items 域属主移交 transfer_reading_item_ownership（2026-09-01，069）
 
 - 分支 `feat/p5-transfer-reading-item-ownership`（master = b973fa9，迁移到 069）
