@@ -33,6 +33,7 @@ import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
+import { MediaEmbeds } from "@/components/reading/media-embeds";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 
 interface RecommendedItem {
@@ -1044,6 +1045,9 @@ export default function ReadingDetailPage() {
             dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
           />
         </HighlightMenu>
+
+        {/* 本页媒体：正文与页面 URL 中的视频/音频链接升级为在线预览播放器 */}
+        <MediaEmbeds contentHtml={item.content || ""} pageUrl={item.url} />
 
         {/* 下一篇推荐 */}
         <div className="pb-24 mt-12">

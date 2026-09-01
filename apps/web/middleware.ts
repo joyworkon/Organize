@@ -2,10 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * 免登录跳转的路径（P2-03）：除登录/回调/公开分享页外，还包含两个
- * 「无 session 的服务端调用方」入口——部署平台与 E2E 探活的 /api/health、
- * 由 GitHub Actions 带 Bearer 触发的 /api/cron/*（该路由自行校验 CRON_SECRET）。
- * 少了它们，真实后端下这两类请求会在到达路由前被 307 重定向到 /login。
+ * 免登录跳转的路径（P2-03）：除登录/回调/公开分享页外，还包含两类
+ * 「无 cookie session 的服务端调用方」入口——部署平台与 E2E 探活的 /api/health、
+ * 由 GitHub Actions 带 Bearer 触发的 /api/cron/*（该路由自行校验 CRON_SECRET），
+ * 以及 Chrome 扩展带 Bearer JWT 调用的 /api/extension/*（路由内用 Supabase
+ * 验签并按用户 RLS 读写）。少了它们，真实后端下这些请求会在到达路由前被
+ * 307 重定向到 /login。
  */
 export function isAuthExemptPath(pathname: string): boolean {
   return (
@@ -13,7 +15,8 @@ export function isAuthExemptPath(pathname: string): boolean {
     pathname.startsWith("/auth") ||
     pathname.startsWith("/s/") || // 公开分享页：/s/[token]
     pathname === "/api/health" ||
-    pathname.startsWith("/api/cron/")
+    pathname.startsWith("/api/cron/") ||
+    pathname.startsWith("/api/extension/")
   );
 }
 
