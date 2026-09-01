@@ -11,6 +11,9 @@ describe("isAuthExemptPath", () => {
   it("放行无 session 的服务端调用方", () => {
     expect(isAuthExemptPath("/api/health")).toBe(true);
     expect(isAuthExemptPath("/api/cron/task-reminders")).toBe(true);
+    // Chrome 扩展带 Bearer JWT 调用（路由内自行验 token，同 cron 模式）
+    expect(isAuthExemptPath("/api/extension/auth")).toBe(true);
+    expect(isAuthExemptPath("/api/extension/collect")).toBe(true);
   });
 
   it("放行既有的公开入口", () => {
@@ -23,6 +26,7 @@ describe("isAuthExemptPath", () => {
     expect(isAuthExemptPath("/api/healthz")).toBe(false);
     expect(isAuthExemptPath("/api/health/detail")).toBe(false);
     expect(isAuthExemptPath("/api/cron")).toBe(false);
+    expect(isAuthExemptPath("/api/extension-x")).toBe(false);
   });
 
   it("受保护的数据接口与页面仍需登录", () => {
