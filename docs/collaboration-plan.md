@@ -83,6 +83,16 @@
   - 灵活但风险大：防刷、abuse、RLS 穿透三条都要写 pgTAP 负例。
 
 > 默认走 A。
+>
+> **2026-09-02 更新：B 已落地（迁移 071/072，PR #214–#216），实现与本节原设想不同**——
+> 未引入 `share_sessions` 表、匿名 cookie 会话与 `last_edit_by_session_id` 列；改为
+> `shares.access_mode` 三态（disabled/public_read/public_edit）+ token 版 DEFINER RPC
+> （`resolve_share_access` 实时判权、`save_public_note` 以属主 scope 写快照、
+> `get/save_note_ydoc_by_token` 沿 067 新鲜度规则），collab-server 以 `share:` 前缀令牌
+> 匿名进房（anon key 判权，无 service role）。匿名无归属（`last_edit_by=null`）、不可改
+> 任务勾选、public_comment 仍未做；防刷以进程内两级限流兜底。另 Track A（071）提供了
+> 邮箱邀请路径：未注册邮箱经魔法链接注册后由 `redeem_share_invite` 落地为标准
+> workspace/resource 授权。详见 `docs/anon-share-collab-plan.md`、ADR 0002/0003 修订段。
 
 ### 分叉 3：Stage 2 传输层选型
 

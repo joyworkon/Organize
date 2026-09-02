@@ -21,6 +21,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { TaskItemLinked } from "./extensions/task-item-linked";
+import { TaskItemToggleGuard } from "./extensions/task-item-toggle-guard";
 import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
@@ -91,6 +92,10 @@ import {
   type InternalLinkStateRow,
 } from "@/lib/note-links";
 import { createClient } from "@/lib/supabase/client";
+
+// internalLinkStates 的默认值必须模块级稳定：作为 effect 依赖，内联 {} 会让
+// 「dispatch 刷新 NodeView」effect 每渲染重跑（dispatch → onUpdate → 重渲染 死循环）
+const EMPTY_INTERNAL_LINK_STATES: Record<string, InternalLinkStateRow> = {};
 import { createNewNote } from "@/lib/notes/create-note";
 import {
   Bold,
@@ -161,10 +166,12 @@ interface EditorProps {
   onEditorReady?: (editor: Editor | null) => void;
   /** 笔记树（含 parent_note_id），供路径栏(Breadcrumb)块渲染父级链；不传则该块显示占位 */
   noteTree?: { id: string; title: string | null; icon: string | null; parent_note_id: string | null }[];
-  /** 当前正文内站内链接的受控状态；删除/缺失目标不可继续导航。 */
+/** 当前正文内站内链接的受控状态；删除/缺失目标不可继续导航。 */
   internalLinkStates?: Record<string, InternalLinkStateRow>;
   /** 只读模式（协作 viewer）：编辑器不可输入，默认 true 不影响单用户链路 */
   editable?: boolean;
+  /** 匿名可编辑公开链接（072）：禁用本端任务勾选，任务状态只跟随后端同步显示 */
+  disableTaskItemToggle?: boolean;
   /**
    * 实时协作会话（P5-03，ADR 0003）：传入即启用 Yjs 协作扩展。
    * 此时 initial content 由 Y.Doc 接管（首次同步后若文档为空才用 seedContent 播种），
@@ -1085,9 +1092,11 @@ export function TipTapEditor({
   onUpdate,
   onEditorReady,
   noteTree,
-  internalLinkStates = {},
+  internalLinkStates = EMPTY_INTERNAL_LINK_STATES,
   editable = true,
   collab = null,
+  /** 匿名可编辑公开链接（072）：true 时拦截本端 taskItem 勾选（远端同步不受影响） */
+  disableTaskItemToggle = false,
 }: EditorProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -1145,6 +1154,8 @@ export function TipTapEditor({
       Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
       TaskList,
       TaskItemLinked.configure({ nested: true }),
+      // 匿名可编辑公开链接（072）：拦截本端 taskItem 勾选（任务属主不可匿名变更）
+      ...(disableTaskItemToggle ? [TaskItemToggleGuard.configure({ enabled: true })] : []),
       OrganizeTable.configure({
         resizable: true,
         allowTableNodeSelection: true,
@@ -1226,7 +1237,7 @@ export function TipTapEditor({
           ]
         : []),
     ];
-  }, [collab]);
+  }, [collab, disableTaskItemToggle]);
 
   const editor = useEditor({
     extensions,
@@ -1336,8 +1347,8 @@ export function TipTapEditor({
         return true;
       },
     },
-    // 协作会话建立/销毁时重建编辑器（扩展集合随 provider 变化）
-  }, [collab?.provider, collab?.user]);
+    // 协作会话建立/销毁时重建编辑器（扩展集合随 provider 变化）；勾选守卫开关同理
+  }, [collab?.provider, collab?.user, disableTaskItemToggle]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1435,7 +1446,19 @@ export function TipTapEditor({
   // onUpdate('hydrate') 上抛，随后的快照保存会把房间/DB 内容清掉。
   useEffect(() => {
     if (!editor) return;
+    let seedWaitRetries = 0;
+    let seedWaitTimer: ReturnType<typeof setTimeout> | null = null;
     const runBackfill = () => {
+      if (editor.isDestroyed) return;
+      // 协作模式下文档为空但播种源非空：先等播种租约流程把 DB 内容写入房间
+      // （setContent 整体替换文档，先补 id 是给空文档发更新，白白广播空状态，
+      // 还会让服务端 onChange 把播种阶段标记结束 → 租约 deny → 永远无法播种）。
+      // 等待封顶后仍为空（真空笔记 / 播种失败），按空文档补 id，行为同旧版。
+      if (collab && editor.isEmpty && collab.seedContent && seedWaitRetries < 8) {
+        seedWaitRetries += 1;
+        seedWaitTimer = setTimeout(runBackfill, 1000);
+        return;
+      }
       let transaction = editor.state.tr;
       editor.state.doc.descendants((node, pos) => {
         if (BLOCK_ID_TYPES.includes(node.type.name) && !node.attrs.id) {
@@ -1465,11 +1488,12 @@ export function TipTapEditor({
     const provider = collab.provider;
     if (provider.isSynced) {
       runBackfill();
-      return;
+    } else {
+      provider.on("synced", runBackfill);
     }
-    provider.on("synced", runBackfill);
     return () => {
       provider.off("synced", runBackfill);
+      if (seedWaitTimer) clearTimeout(seedWaitTimer);
     };
   }, [editor, collab]);
 

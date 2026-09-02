@@ -1,5 +1,22 @@
 # BLOCKED
 
+## 匿名分享 Track A/B（071/072，已完成，2026-09-02）
+无阻塞。声明归档（违反会重新打开本卡的坑）：
+1. **匿名无归属是合同不是缺口**：`save_public_note` 以属主 scope 写、`last_edit_by=null`；
+   匿名出席名/色为临时随机值、不落 `user_profiles`。不要「顺手」给匿名编归属。
+2. **匿名不可改任务勾选**：`TaskItemToggleGuard` 只拦截本端 taskItem 勾选事务（远端
+   同步照常到达）。放开需独立产品卡 + 子资源授权设计。
+3. **限流是单实例内存实现**：`/api/public-share/[token]/save` 与 collab 握手两级均为
+   进程内 token-bucket（token+IP、单 token）；多实例部署需换共享存储，否则限额按
+   实例数放大。
+4. **撤销/过期在下次连接生效**：resolve/save/ydoc RPC 每次实时读 shares 行，HTTP
+   快照保存即刻断；存量 WebSocket 不强制踢出（与登录侧「重连复核」口径一致）。
+5. **播种前空文档绝不落库**：PublicShareEditor 仅 user 来源标脏且保存前校验含种子
+   文本；协作模式空文档+待播种时块 id 回填等待播种完成——通用修复，防 UniqueID
+   回填的空文档更新让租约 markSeeded、非空种子永远无法播种。
+6. **SMTP 未配则 Track A 邀请发不出邮件**：`inviteUserByEmail` 失败 502 脱敏透传；
+   本地 `local_smtp`（:54324）只落箱不真发，生产需配 `[auth.email.smtp]`。
+
 ## P5 收尾：tasks 域属主移交 070（已完成，2026-09-01）
 无阻塞。声明归档（违反会重新打开本卡的坑）：
 1. **任务+笔记联转是结构强制的**：task_item_refs 同时以 (task_id,user_id)→tasks

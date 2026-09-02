@@ -1,5 +1,30 @@
 # PROGRESS
 
+## P5 匿名分享：邮箱邀请未注册用户 + 可编辑公开链接（2026-09-02，071/072）
+
+- 任务书：`docs/anon-share-collab-plan.md`（冷启动自包含，三卡三 PR：#214 Track A → #215 Track B 后端 → #216 Track B 前端 + 文档收尾）
+- 目标：给未注册用户两条「查看 + 编辑」路径——A 邮箱邀请魔法链接（低风险，复用既有协作 ACL）；B 免登录可编辑公开链接 + 匿名实时协同（`docs/collaboration-plan.md` 分叉 2-B）
+
+### Track A：邮箱邀请 + 魔法链接（071，PR #214）
+- `share_invites` 表（token 兑现、7 天过期、pending/accepted/revoked/expired 四态；RLS 仅属主管理，被邀请人不直读，兑现走 DEFINER RPC）
+- DEFINER `redeem_share_invite`：身份匹配（`auth.uid()=invited_user_id` 或邮箱小写相等）→ **直接 INSERT** `workspace_members`/`resource_acl`——刻意不调 `add_workspace_member`/`grant_resource`（两函数守卫要求调用者是控制者，而兑现者是被邀请人；invite 行即属主预授权，由 DEFINER 代为落地）
+- `POST /api/share/invite`（resource_role=owner 门 + admin `inviteUserByEmail` + 回填 `invited_user_id`；缺 service key 503、SMTP 失败 502 脱敏）
+- 分享面板 InviteSection 未注册邮箱分支 → 「发送邀请邮件」；`/invites/[token]` 兑现页（未登录先登录再回跳）
+
+### Track B：可编辑公开链接 + 匿名实时协同（072，PR #215 后端 + PR #216 前端）
+- 迁移 072：`shares.access_mode` 三态（disabled/public_read/public_edit，默认 public_read）+ backfill + 与 `is_public` 成对的一致性约束；`get_public_share` 带回 access_mode（前端缺失/未知 fail-safe 只读）
+- 新 DEFINER：`resolve_share_access`（token→实时 viewer/editor，属主漂移 fail-closed）、`save_public_note`（属主 scope 写、乐观锁与 v2 同形、显式按属主裁剪版本、`last_edit_by=null`、4MB/标题护栏）、`get/save_note_ydoc_by_token`（067 新鲜度规则与 4MB 原样保留，写权仅 editor 且 `is distinct from` 判权）
+- collab-server：`onAuthenticate` 匿名分支（`share:` 前缀令牌，anon key 调 `resolve_share_access`，viewer 置 readOnly）；load/store 按 `context.anonymous` 分流 token 版 RPC；两级握手限流（token+IP 30/min、单 token 120/min）；仍不引入 service role
+- API：POST `/api/share` 收 `access_mode`、新增 PATCH（属主改模式/过期，成对写 `is_public`）、GET/DELETE 带回；新路由 `/api/public-share/[token]/save`（token+IP 与单 token 两级内存限流 + 形状校验，透传 RPC 结果）；middleware 豁免 `/api/public-share/`
+- 前端：`useNoteCollab` 加 `anonymousToken`（share: 令牌、跳过会话查询、临时随机出席色，登录路径不变）；`/s/[token]` 按 access_mode 分支——public_edit 渲染 `PublicShareEditor`（节流快照仅 user 来源标脏、保存前校验含种子文本防播种前空文档落库、forbidden 即时转只读、mock/未配 WS 降级只读+提示）；`TaskItemToggleGuard` 编辑器扩展拦截本端 taskItem 勾选（远端同步照常）；PublicLinkSection 三态模式选择 + 过期时间 + 红字警示
+- 回填竞态修复（通用）：协作模式空文档+待播种时，块 id 回填等待播种完成——否则 UniqueID 回填的空文档更新会让服务端租约 markSeeded，非空种子永远无法播种
+
+### 验证
+- pgTAP：071（身份切换兑现矩阵 + 结构断言钉住不调 `add_workspace_member`/`grant_resource`）、072 共 72 例（resolve 矩阵/save 矩阵/新鲜度/一致性约束/结构断言 `is distinct from`）——CI db-test 全绿
+- web：`tsc --noEmit` 0 err、vitest 130 文件 / 940 用例全绿（新增 guard 4 例 + 匿名 hook 3 例 + rate-limit）；e2e `anon-collab.spec.ts` 双匿名浏览器并发输入不丢字/远端光标/刷新仍在/public_read 不可编辑（本地真实后端全过，CI 沿 COLLAB_E2E 门禁跳过）；既有登录协作 e2e 回归通过
+- mock：协作层整体不启用（ADR 0003 合同），邀请 503 / 匿名实时降级只读+提示，不假成功
+- 文档：collaboration-plan 分叉 2 标注 B 已落地；ADR 0002/0003 修订段；ROADMAP P5-04
+
 ## P4-01 macOS 桌面壳真机验证 + 托盘常驻（2026-09-01）
 
 - 分支 `feat/desktop-macos-shell`（master = 6d97e74，迁移仍为 070）

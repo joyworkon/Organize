@@ -1,6 +1,7 @@
 import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
 import { getPublicShare } from "@/lib/share/public-share";
 import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
+import PublicShareEditor from "@/components/share/public-share-editor";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -42,6 +43,23 @@ export default async function SharePage({ params }: PageProps) {
   }
 
   if (share.resource_type === "note") {
+    // 072 可编辑公开链接：匿名实时协同编辑（mock / 未配 WS 时组件内降级只读）
+    if (share.access_mode === "public_edit") {
+      return (
+        <Shell>
+          <div className="mx-auto max-w-3xl">
+            {share.resource.title && (
+              <h1 className="mb-6 text-3xl font-bold">{share.resource.title}</h1>
+            )}
+            <PublicShareEditor
+              token={token}
+              noteId={share.resource.id}
+              seedContent={share.resource.content}
+            />
+          </div>
+        </Shell>
+      );
+    }
     const html = sanitizeContent(
       tiptapJsonToHtml(share.resource.content)
     );

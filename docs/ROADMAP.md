@@ -54,6 +54,7 @@
 | P5 | P5-01 协作权限模型验证 | ✅ 完成（2026-08-31：ADR 0002 + 063 三表 workspace/membership/resource_acl + `resource_role()` 唯一判定链 + 三身份 85 断言 pgTAP，业务表 RLS 未动） | M | P2-03 |
 | P5 | P5-02 邀请共享与编辑 | ✅ 完成（2026-08-31：四卡全合——063 原型 + 064 只读可见性 + 065 保存 RPC 分权 + 前端接入（分享面板 / `/shared` 页 / 保存管线按角色切 v1/v2 / viewer 只读）；`last_edit_by` 归属列已由 066 补齐，逐域属主迁移留作后续） | L | P5-01 |
 | P5 | P5-03 实时协同技术验证 | ✅ 完成（2026-08-31：ADR 0003 拍板 Yjs + Hocuspocus 自托管；`apps/collab-server` + 编辑器协作模式 + 双账号 e2e 全过。生产化卡 067 已补齐：`note_ydocs` blob 回放/落库 + 新鲜度规则 + 播种租约协议，ADR 0003 修订段留档） | L | P5-02 |
+| P5 | P5-04 匿名分享（邀请未注册 + 可编辑公开链接） | ✅ 完成（2026-09-02：071 邮箱邀请魔法链接兑现进既有协作 ACL + 072 `shares.access_mode` 三态与 token 版 DEFINER RPC（`resolve_share_access`/`save_public_note`/`get·save_note_ydoc_by_token`）+ collab-server `share:` 匿名分支 + 前端可编辑公开视图与三态分享面板；匿名无 `last_edit_by`、不可改任务勾选为刻意边界，ADR 0002/0003 修订段留档） | L | P5-03 |
 
 ---
 
@@ -212,6 +213,10 @@ P5 后续待办（开工前先读 ADR 0002）：
 ### P5-03 实时协同技术验证 ✅（2026-08-31 完成：ADR 0003 拍板 Yjs + Hocuspocus 自托管，垂直切片 + 双账号 e2e 全过，详见 PROGRESS.md）
 
 验证结论：**Yjs CRDT + 自托管 Hocuspocus（`apps/collab-server`）** 为生产架构。否决 Supabase Realtime Broadcast（本地 signature_error 已知问题 + 无生产级 y-transport 封装）与 y-webrtc（NAT 不可控）。已落地：笔记实时协同编辑（owner/editor 可写、viewer 实时只读连接）、远端光标 + 出席栏、客户端节流快照（复用 v2 RPC + 版本/任务链触发器）、ws 未配置/mock 时整体降级回 Stage 0 乐观锁主链。双账号 e2e 验证：并发输入不丢字、双向可见、断线重连合并、快照刷新恢复。
+
+### P5-04 匿名分享 ✅（2026-09-02 完成：071 邮箱邀请未注册用户 + 072 可编辑公开链接与匿名实时协同，详见 PROGRESS.md）
+
+两条给未注册用户「查看 + 编辑」的路径，均复用既有协作链、不另造权限事实源：**Track A** 邀请未注册邮箱 → 对方点魔法链接注册 → `/invites/[token]` 经 DEFINER `redeem_share_invite` 把 invite 行（属主预授权）落地为标准 `workspace_members`/`resource_acl` → 之后与已注册协作者完全同链；**Track B** 公开链接三态（关闭/只读/可编辑），匿名凭 `share:` 前缀令牌进实时房间，鉴权与读写走 token 版 DEFINER RPC（`resolve_share_access`/`save_public_note`/`get·save_note_ydoc_by_token`），collab-server 仍无 service role，匿名与登录用户共享 `note:<uuid>` 房间。安全底座：判权每次实时读 shares 行（改模式/过期即刻生效）、save 路由与握手两级内存限流、统一 forbidden/null 不泄漏存在性。已知边界（合同非缺口）：匿名无 `last_edit_by` 归属、不可改任务勾选、子资源不开放；ADR 0002/0003 修订段留档。
 
 ---
 
