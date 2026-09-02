@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Organize 桌面壳默认权限：窗口 + 系统通知 + 全局快捷键",
-  "windows": ["main", "notch-trigger", "notch-panel"],
+  "windows": ["main", "notch-trigger-*", "notch-panel"],
   "remote": {
     "urls": ["https://organize-web.vercel.app", "http://localhost:3000"]
   },
