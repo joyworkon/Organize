@@ -138,3 +138,25 @@
    归属与权限正交：它回答「谁编辑的」，`resource_role()` 回答「能做什么」，互不参与对方判定。
 5. **实时协同（presence / CRDT）不依赖本 ADR 的写权限模型**：`resource_role()` 只回答「能不能写」，不回答「谁在写」。Stage 1/2 复用同一判定，不引入第二套权限事实源。
 6. **账号删除级联**：`workspaces.owner_id`、`workspace_members.user_id`、`resource_acl.created_by` 均 `references auth.users on delete cascade`，P2-02 的账号删除 API 无需改动即覆盖这三张表 —— 该结论来自读迁移定义，未额外写测试。
+
+## 修订（2026-09-02，071/072 匿名分享）：权限链扩展到未注册用户
+
+给未注册用户开「查看 + 编辑」的两条路径（`docs/anon-share-collab-plan.md`），都不引入
+第三套权限事实源：
+
+1. **Track A（071 邮箱邀请）= 预授权落地，零新事实源**。`share_invites` 行是属主创建
+   邀请时记录的预授权；`redeem_share_invite`（DEFINER，自带身份匹配守卫）兑现时
+   **直接 INSERT** `workspace_members` / `resource_acl`，刻意不调
+   `add_workspace_member`/`grant_resource`——两函数的守卫要求调用者是空间属主/资源
+   控制者，而兑现者是被邀请人本人，调用必被拒。兑现后资源访问完全回到既有
+   `resource_role()` 判定链，与已注册协作者无差别。
+2. **Track B（072 可编辑公开链接）= 匿名侧的并列判定入口**。新增
+   `resolve_share_access(token, resource_id)`（DEFINER，stable）：public_edit→editor、
+   public_read→viewer、disabled/过期/resource_id 不匹配/属主漂移→一律 null。它与
+   `resource_role()` **并列、互不掺和**：登录用户仍只走 `resource_role()`，匿名连接只走
+   token 入口，且该入口只是 shares 行的实时投影（不缓存、不落第二份事实）。`save_public_note`
+   以**属主 scope** 写（actor = share.owner_id 而非 auth.uid()），匿名 `auth.uid()` 为 null、
+   `last_edit_by` 置 null——「归属与权限正交」原则延伸到匿名：匿名可改内容但不产生归属。
+3. **fail-closed 口径**：匿名侧统一 forbidden/null，不区分「不存在/无权/过期」，不给
+   存在性探针；`save_note_ydoc_by_token` 判权用 `is distinct from`（NULL 陷阱，同 067
+   血泪教训）。所有新 DEFINER 均 `set search_path` 并 EXECUTE 仅授所需角色。

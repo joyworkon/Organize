@@ -86,3 +86,22 @@ Stage 0（乐观锁 + 冲突对话框）交付的是「无实时推送的多人�
      、客户端先到先得（无原子原语，Yjs 操作可加不可撤）。
 3. **blob 定位**：派生缓存，不进备份合同 v4（`EXPORT_EXCLUSIONS` 声明 `note_ydocs`），
    不进 mock（协作层在 mock 下整体不启用）。blob 可随时从 content 重建。
+
+## 修订（2026-09-02，072 匿名协同）：`share:` 前缀令牌的匿名连接分支
+
+可编辑公开链接（`shares.access_mode='public_edit'`）允许未登录用户与登录用户进入
+**同一实时房间**（`note:<uuid>` 不变）协同编辑：
+
+1. **鉴权**：匿名连接的 provider token 以 `share:` 前缀携带公开分享令牌；
+   `onAuthenticate` 匿名分支用 **anon key** 客户端调 `resolve_share_access` 判权
+   （editor 可写 / viewer 服务端置 readOnly / null 拒绝）。collab-server 仍不持有
+   service role——凭据面与 067 修订保持一致：服务端无密钥，一切判权经连接者可调的
+   token-scoped DEFINER RPC。握手两级限流（token+IP、单 token）。
+2. **读写分流**：`onLoadDocument`/`onStoreDocument` 按 `context.anonymous` 改调
+   token 版 ydoc RPC（`get_note_ydoc_by_token`/`save_note_ydoc_by_token`），067 的
+   新鲜度规则（`blob.updated_at >= notes.updated_at` 才回放）与 4MB 上限原样保留；
+   登录用户的 JWT + `get/save_note_ydoc` 路径不变。
+3. **出席**：匿名出席名/色为临时随机值，不查 `user_profiles`（匿名无身份行可查）。
+4. **撤销时效**：判权每次连接实时读 shares 行——属主改模式/过期在**下一次连接**生效，
+   存量连接不强制踢出，与登录侧「角色变更重连复核」口径一致（见 BLOCKED P5-03
+   勘察：连接内角色复核依赖上游 provider token 刷新能力，暂不可行）。
