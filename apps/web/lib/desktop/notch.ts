@@ -21,9 +21,12 @@ export function readNotchTriggerHidden(): boolean {
 
 export type NotchWindowRole = "trigger" | "panel" | "demo";
 
-/** Tauri 窗口 label → 页面角色；非 notch 窗口（含普通浏览器）为演示态 */
+/**
+ * Tauri 窗口 label → 页面角色；非 notch 窗口（含普通浏览器）为演示态。
+ * v1.1 起每块屏一个胶囊窗（notch-trigger-0 = 主屏，notch-trigger-1 = 副屏…）。
+ */
 export function notchRoleFromLabel(label: string | null | undefined): NotchWindowRole {
-  if (label === "notch-trigger") return "trigger";
+  if (/^notch-trigger-\d+$/.test(label ?? "")) return "trigger";
   if (label === "notch-panel") return "panel";
   return "demo";
 }

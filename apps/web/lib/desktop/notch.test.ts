@@ -43,7 +43,9 @@ function memo(id: string, createdAt: string): Memo {
 
 describe("notchRoleFromLabel", () => {
   it("按 Tauri 窗口 label 映射角色，其余为演示态", () => {
-    expect(notchRoleFromLabel("notch-trigger")).toBe("trigger");
+    expect(notchRoleFromLabel("notch-trigger-0")).toBe("trigger");
+    expect(notchRoleFromLabel("notch-trigger-1")).toBe("trigger");
+    expect(notchRoleFromLabel("notch-trigger")).toBe("demo");
     expect(notchRoleFromLabel("notch-panel")).toBe("panel");
     expect(notchRoleFromLabel("main")).toBe("demo");
     expect(notchRoleFromLabel(null)).toBe("demo");
