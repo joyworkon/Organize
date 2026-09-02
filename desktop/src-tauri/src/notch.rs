@@ -10,7 +10,8 @@
 //! 胶囊窗 set_ignore_cursor_events(true) 纯视觉穿透。光标停留 150ms
 //! （HOVER_DWELL）展开面板并聚焦（tao set_focus 自带 activateIgnoringOtherApps，
 //! 未激活也能夺焦）；失焦 120ms 宽限 / Esc / 保存成功 → 收起。
-//! ⌘⇧M 兜底 toggle（见 main.rs 的 global_shortcuts）。
+//! ⌘⇧M 兜底 toggle（见 main.rs 的 global_shortcuts）。用户在设置里隐藏激发器时
+//! （web 上报 notch-trigger-visibility），hover 热区随胶囊一起失效，展开入口只剩 ⌘⇧M。
 //!
 //! 数据链路零新后端：速记/待办/快速入口全部复用既有 web API 与事件，
 //! web 侧实现见 apps/web/components/desktop/notch/。
@@ -45,15 +46,28 @@ const PANEL_GAP: f64 = 8.0;
 
 /// 面板快速入口跳转白名单——web 侧 lib/desktop/notch.ts 的 NOTCH_OPEN_PATHS
 /// 镜像；主窗口接收端另有 sanitizeNavigatePath 兜底，这里是第一道闸
-const OPEN_PATH_WHITELIST: [&str; 6] =
-    ["/memos", "/library", "/notes", "/tasks", "/settings", "/login"];
+const OPEN_PATH_WHITELIST: [&str; 6] = [
+    "/memos",
+    "/library",
+    "/notes",
+    "/tasks",
+    "/settings",
+    "/login",
+];
 
 #[derive(Default)]
 struct NotchState {
     /// 面板是否处于展开态
     expanded: bool,
+    /// 本机主屏是否带刘海：detect_notch() 依赖 MainThreadMarker，只有主线程拿得到，
+    /// 故 setup 阶段算一次缓存；后台线程的 reposition 复用此值，不重算
+    has_hardware_notch: bool,
     /// 每块 trigger 所在屏是否有刘海（主屏 safeAreaInsets.top；外接屏默认无刘海）
     has_notch_by_trigger: Vec<bool>,
+    /// 胶囊当前是否可见：由 web 侧 notch-trigger-visibility 上报。
+    /// 隐藏时 hover 热区一并失效（⌘⇧M 仍是兜底入口）；启动默认 false，
+    /// 与窗口 .visible(false) 一致，避免设置里已隐藏时启动瞬间还能误触发
+    trigger_visible: bool,
     /// 光标当前命中/靠近的胶囊索引（None = 都不在）
     active_trigger: Option<usize>,
     /// 进入当前胶囊的时刻（150ms 停留判定用）
@@ -86,10 +100,6 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .map(|monitors| monitors.len())
         .unwrap_or(1);
     for index in 0..monitor_count.max(1) {
-        // 探针：确认 webview 是否到达页面加载完成（区分「没发请求」与「请求了但没水合」）
-        let probe = move |window: WebviewWindow, payload: tauri::webview::PageLoadPayload| {
-            eprintln!("[notch] trigger-{index} page_load event={:?} url={:?}", payload.event(), window.url().ok());
-        };
         let trigger = WebviewWindowBuilder::new(
             app,
             trigger_label(index),
@@ -104,16 +114,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         .visible_on_all_workspaces(true)
         .shadow(false)
         .resizable(false)
-        .on_page_load(probe)
         // 纯视觉热区：鼠标事件穿透，hover 由 Rust 光标轮询判定（v1.1）。
         // 穿透同时避免胶囊挡住菜单栏点击。
         // 先隐藏：等 web 侧上报「隐藏激发器」设置（notch-trigger-visibility）后
-        // 再决定显隐，避免已隐藏设置下启动闪现胶囊
+        // 再决定显隐，避免已隐藏设置下启动闪现胶囊；穿透同样在那之后才设置
         .visible(false)
         .build()?;
-        // NOTE: set_ignore_cursor_events 暂缓——头部嫌疑：该调用走主线程
-        // DispatchQueue.exec_async，在 setup 阶段（主线程正忙）可能死锁，
-        // 阻断后续 webview 加载/水合。穿透与否待 hover 链路验证后再定。
 
         // 胶囊要盖在系统菜单栏/刘海区域上：always_on_top 只是 floating 级（3），
         // 会被菜单栏压住，需要抬到 NSStatusWindowLevel（25，菜单栏同级）
@@ -122,30 +128,26 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         }
     }
 
-    let _panel = WebviewWindowBuilder::new(
-        app,
-        "notch-panel",
-        WebviewUrl::App("desktop/notch".into()),
-    )
-    .title("Organize 速记面板")
-    .inner_size(PANEL_SIZE.0, PANEL_SIZE.1)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .visible_on_all_workspaces(true)
-    .shadow(false)
-    .resizable(false)
-    .visible(false)
-    .build()?;
+    let _panel =
+        WebviewWindowBuilder::new(app, "notch-panel", WebviewUrl::App("desktop/notch".into()))
+            .title("Organize 速记面板")
+            .inner_size(PANEL_SIZE.0, PANEL_SIZE.1)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .visible_on_all_workspaces(true)
+            .shadow(false)
+            .resizable(false)
+            .visible(false)
+            .build()?;
 
-    {
-        let state = app.state::<SharedState>();
-        let mut guard = state.lock().unwrap();
-        guard.has_notch_by_trigger = (0..trigger_count(app))
-            .map(|index| index == 0 && detect_notch())
-            .collect();
-    }
+    // 刘海硬件检测只能在主线程做（detect_notch 依赖 MainThreadMarker）：
+    // setup 跑在主线程，这里算一次缓存，reposition 在后台线程复用它
+    app.state::<SharedState>()
+        .lock()
+        .unwrap()
+        .has_hardware_notch = detect_notch();
 
     reposition(app);
     spawn_monitor_poll(app.clone());
@@ -165,15 +167,24 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             return;
         };
         eprintln!("[notch] trigger visibility {visible}");
+        handle
+            .state::<SharedState>()
+            .lock()
+            .unwrap()
+            .trigger_visible = visible;
         for index in 0..trigger_count(&handle) {
-        if let Some(trigger) = handle.get_webview_window(&trigger_label(index)) {
-            let _ = if visible { trigger.show() } else { trigger.hide() };
-            // 穿透在 show 之后设置：先让 webview 正常加载，再切纯视觉模式
-            if visible {
-                let _ = trigger.set_ignore_cursor_events(true);
+            if let Some(trigger) = handle.get_webview_window(&trigger_label(index)) {
+                let _ = if visible {
+                    trigger.show()
+                } else {
+                    trigger.hide()
+                };
+                // 穿透在 show 之后设置：先让 webview 正常加载，再切纯视觉模式
+                if visible {
+                    let _ = trigger.set_ignore_cursor_events(true);
+                }
             }
         }
-    }
         // 回执刘海检测结论：触发方（胶囊页/设置页）此时监听已挂好，
         // 见 notch-trigger.tsx 里「先 listen 再 emit」的握手顺序。
         // 用广播而非 emit_to 定向：JS listen 默认只匹配 Any 目标事件，
@@ -254,10 +265,24 @@ fn spawn_cursor_poll(app: AppHandle) {
             Ok(position) => position,
             Err(_) => continue,
         };
-        let expanded = app.state::<SharedState>().lock().unwrap().expanded;
-        let hit = hit_trigger(&app, cursor);
+        let (expanded, trigger_visible) = {
+            let state = app.state::<SharedState>();
+            let guard = state.lock().unwrap();
+            (guard.expanded, guard.trigger_visible)
+        };
+        // 胶囊被隐藏时热区一并失效：命中/靠近恒为 None，展开入口只剩 ⌘⇧M。
+        // 展开态仍要跑 tick_expanded，否则面板收不起来
+        let hit = if trigger_visible {
+            hit_trigger(&app, cursor)
+        } else {
+            None
+        };
         // 「靠近」仅折叠态广播：展开后光标本来就在胶囊下方活动，广播无意义
-        let near = if expanded { None } else { near_trigger(&app, cursor) };
+        let near = if expanded || !trigger_visible {
+            None
+        } else {
+            near_trigger(&app, cursor)
+        };
         if expanded {
             tick_expanded(&app, cursor, hit);
         } else {
@@ -294,8 +319,7 @@ fn tick_collapsed(
     if should_expand && claim_expand(app) {
         eprintln!("[notch] hover dwell reached, expanding (trigger={hit:?})");
         // 面板挂在光标所在屏：副屏把手 hover 时面板从副屏顶部落下
-        app.state::<SharedState>().lock().unwrap().panel_monitor =
-            monitor_index_at(app, cursor);
+        app.state::<SharedState>().lock().unwrap().panel_monitor = monitor_index_at(app, cursor);
         show_panel(app);
     }
 }
@@ -469,19 +493,25 @@ fn reposition(app: &AppHandle) {
     let mut ordered: Vec<&tauri::Monitor> = monitors.iter().collect();
     ordered.sort_by_key(|monitor| {
         // 主屏恒为 0，其余按位置稳定排序（插拔后索引漂移可接受：胶囊均等价）
-        let is_primary = primary_id.as_deref().is_some_and(|id| monitor.name().as_deref() == Some(id));
+        let is_primary = primary_id
+            .as_deref()
+            .is_some_and(|id| monitor.name().as_deref() == Some(id));
         match is_primary {
             true => (0, monitor.position().x),
             false => (1, monitor.position().x),
         }
     });
 
-    let has_notch_by_trigger: Vec<bool> = ordered
-        .iter()
-        .enumerate()
-        .map(|(index, _)| index == 0 && detect_notch())
-        .collect();
-    app.state::<SharedState>().lock().unwrap().has_notch_by_trigger = has_notch_by_trigger;
+    // 用 setup 缓存的硬件结论，绝不在此重算 detect_notch()：本函数会在光标轮询 /
+    // 显示器轮询的后台线程上被调用，那里取不到 MainThreadMarker，重算会把刘海判成 false
+    {
+        let state = app.state::<SharedState>();
+        let mut guard = state.lock().unwrap();
+        let has_hardware_notch = guard.has_hardware_notch;
+        guard.has_notch_by_trigger = (0..ordered.len())
+            .map(|index| index == 0 && has_hardware_notch)
+            .collect();
+    }
 
     for (index, monitor) in ordered.iter().enumerate() {
         let Some(trigger) = app.get_webview_window(&trigger_label(index)) else {
@@ -491,21 +521,14 @@ fn reposition(app: &AppHandle) {
         let size = monitor.size();
         let origin = monitor.position();
         let center_x = origin.x as f64 + (size.width as f64 - TRIGGER_SIZE.0 * scale) / 2.0;
-        let _ = trigger.set_position(tauri::PhysicalPosition::new(
-            center_x as i32,
-            origin.y,
-        ));
+        let _ = trigger.set_position(tauri::PhysicalPosition::new(center_x as i32, origin.y));
 
         if index == panel_monitor_index(app) {
             // 面板从可见胶囊下缘下落；trigger 窗口额外高度仅供提示箭头，不能下推面板。
             let y = origin.y + ((CAPSULE_HEIGHT + PANEL_GAP) * scale) as i32;
             if let Some(panel) = app.get_webview_window("notch-panel") {
-                let panel_x =
-                    origin.x as f64 + (size.width as f64 - PANEL_SIZE.0 * scale) / 2.0;
-                let _ = panel.set_position(tauri::PhysicalPosition::new(
-                    panel_x as i32,
-                    y,
-                ));
+                let panel_x = origin.x as f64 + (size.width as f64 - PANEL_SIZE.0 * scale) / 2.0;
+                let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x as i32, y));
             }
         }
     }
@@ -513,7 +536,11 @@ fn reposition(app: &AppHandle) {
 
 /// 面板应挂载的屏索引：hover 展开时光标所在屏；⌘⇧M 兜底为主屏（None）
 fn panel_monitor_index(app: &AppHandle) -> usize {
-    app.state::<SharedState>().lock().unwrap().panel_monitor.unwrap_or(0)
+    app.state::<SharedState>()
+        .lock()
+        .unwrap()
+        .panel_monitor
+        .unwrap_or(0)
 }
 
 fn spawn_monitor_poll(app: AppHandle) {
