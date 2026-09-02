@@ -42,6 +42,7 @@ describe("getPublicShare", () => {
       state: "active",
       resource_type: "note",
       expires_at: null,
+      access_mode: "public_read",
       resource: {
         id: "note-id",
         title: "Public note",
@@ -49,6 +50,39 @@ describe("getPublicShare", () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain("user_id");
+  });
+
+  it("keeps public_edit only when the RPC says so, defaulting everything else to read-only", async () => {
+    const editable = await getPublicShare(
+      "1234567890123456",
+      clientReturning([
+        {
+          status: "active",
+          resource_type: "note",
+          expires_at: null,
+          access_mode: "public_edit",
+          resource: { id: "note-id", title: "Editable", content: { type: "doc" } },
+        },
+      ])
+    );
+    expect(editable).toMatchObject({ state: "active", access_mode: "public_edit" });
+
+    for (const accessMode of [undefined, "disabled", "unknown_future_mode"]) {
+      const result = await getPublicShare(
+        "1234567890123456",
+        clientReturning([
+          {
+            status: "active",
+            resource_type: "note",
+            expires_at: null,
+            access_mode: accessMode,
+            resource: { id: "note-id", title: "Legacy", content: { type: "doc" } },
+          },
+        ])
+      );
+      // 缺失/未知/disabled 一律 fail-safe 为只读
+      expect(result).toMatchObject({ state: "active", access_mode: "public_read" });
+    }
   });
 
   it("keeps expired and missing shares non-readable", async () => {

@@ -47,8 +47,10 @@ function parseDocumentName(name: string): { noteId: string } | null {
 interface CollabContext {
   userId: string;
   role: "owner" | "editor" | "viewer";
-  /** 发起连接时的 access token（blob 读写 RPC 以它调用；过期后落库失败仅记日志） */
+  /** 发起连接时的凭证：登录用户为 access token；匿名连接为 share 令牌（无 share: 前缀） */
   token: string;
+  /** 匿名公开链接连接（Track B 072）：token 为分享令牌，读写走 *_by_token RPC */
+  anonymous?: boolean;
 }
 
 // anon key 仅用于 auth.getUser(token) 验签与携带用户 JWT 调 PostgREST，
@@ -64,26 +66,90 @@ function asUserClient(token: string) {
   });
 }
 
-// 每房间一份播种租约 + 最后写者 token（onStoreDocument 的 lastContext 即最后
+// 每房间一份播种租约 + 最后写者凭证（onStoreDocument 的 lastContext 即最后
 // 写者，token 在此仅作 context 缺失时的兜底）
-const rooms = new Map<string, { lease: SeedLease; lastWriterToken: string | null }>();
+const rooms = new Map<
+  string,
+  { lease: SeedLease; lastWriterToken: string | null; lastWriterAnonymous: boolean }
+>();
 
 function roomState(documentName: string) {
   let state = rooms.get(documentName);
   if (!state) {
-    state = { lease: new SeedLease(), lastWriterToken: null };
+    state = { lease: new SeedLease(), lastWriterToken: null, lastWriterAnonymous: false };
     rooms.set(documentName, state);
   }
   return state;
 }
 
+// 匿名鉴权限流（§6 非协商项）：滑动窗口，防拿公开 token 刷握手。
+// 两级键：token+IP 每档 30/min（单攻击者封不住整条链接）、单 token 总量
+// 120/min（教室级同时进入不被误伤，同时仍有界）。进程内实现，多实例部署时
+// 各节点独立计数；XFF 需由边缘代理覆写，否则按「无 IP」退化为单 token 总量档。
+const ANON_AUTH_LIMIT_PER_KEY = 30;
+const ANON_AUTH_LIMIT_PER_TOKEN = 120;
+const ANON_AUTH_WINDOW_MS = 60_000;
+const anonAuthHits = new Map<string, number[]>();
+
+function anonAuthHitsAllowed(key: string, limit: number): boolean {
+  const now = Date.now();
+  const hits = (anonAuthHits.get(key) ?? []).filter((t) => now - t < ANON_AUTH_WINDOW_MS);
+  if (hits.length >= limit) {
+    anonAuthHits.set(key, hits);
+    return false;
+  }
+  hits.push(now);
+  anonAuthHits.set(key, hits);
+  if (anonAuthHits.size > 10000) {
+    for (const [k, v] of anonAuthHits) {
+      if (v.every((t) => now - t >= ANON_AUTH_WINDOW_MS)) anonAuthHits.delete(k);
+    }
+  }
+  return true;
+}
+
+function anonAuthAllowed(shareToken: string, ip: string | null): boolean {
+  // 单 token 总量档永远计入
+  if (!anonAuthHitsAllowed(`t:${shareToken}`, ANON_AUTH_LIMIT_PER_TOKEN)) return false;
+  // 有可信边缘代理给到的 XFF 才按 token+IP 细分
+  if (!ip) return true;
+  return anonAuthHitsAllowed(`ti:${shareToken}:${ip}`, ANON_AUTH_LIMIT_PER_KEY);
+}
+
 const server = new Server<CollabContext>({
   port: PORT,
 
-  async onAuthenticate({ token, documentName, connectionConfig }) {
+  async onAuthenticate({ token, documentName, connectionConfig, requestHeaders }) {
     console.log("[auth] begin", documentName, "tokenLen", token?.length);
     const parsed = parseDocumentName(documentName);
     if (!parsed) { console.log("[auth] bad name"); throw new Error("bad document name"); }
+
+    // 匿名分支（Track B 072）：token 以 "share:" 前缀携带公开分享令牌。
+    // 授权经 072 的 resolve_share_access 实时判权（属主改回只读/关闭即刻断权）；
+    // 角色映射 editor→可写、viewer→readOnly，与登录用户同一房间。
+    if (token.startsWith("share:")) {
+      const shareToken = token.slice("share:".length);
+      const ip = requestHeaders?.get?.("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+      if (!shareToken || !anonAuthAllowed(shareToken, ip)) {
+        console.log("[auth] anonymous rate limited or empty token");
+        throw new Error("unauthorized");
+      }
+      const { data: role, error: roleError } = await authClient.rpc("resolve_share_access", {
+        p_token: shareToken,
+        p_resource_id: parsed.noteId,
+      });
+      if (roleError) {
+        console.log("[auth] share role rpc failed:", roleError.message);
+        throw new Error("forbidden");
+      }
+      console.log("[auth] anonymous role:", role);
+      if (role !== "editor" && role !== "viewer") {
+        throw new Error("forbidden");
+      }
+      connectionConfig.isAuthenticated = true;
+      connectionConfig.readOnly = role === "viewer";
+      return { userId: "anon", role, token: shareToken, anonymous: true };
+    }
 
     // 1. 验 token：拿不到用户即拒（getUser 会向 Supabase Auth 验签）
     const { data: userData, error: userError } = await authClient.auth.getUser(token);
@@ -117,15 +183,17 @@ const server = new Server<CollabContext>({
     return { userId, role, token };
   },
 
-  // 回放 blob（067）。null = 无 blob / 过期 / 无权——都走客户端播种路径
+  // 回放 blob（067 / 072）。null = 无 blob / 过期 / 无权——都走客户端播种路径
   async onLoadDocument({ document, documentName, context }) {
     const parsed = parseDocumentName(documentName);
     if (!parsed || !context?.token) return;
 
-    const { data: b64, error } = await asUserClient(context.token).rpc(
-      "get_note_ydoc",
-      { p_note_id: parsed.noteId }
-    );
+    const { data: b64, error } = context.anonymous
+      ? await authClient.rpc("get_note_ydoc_by_token", {
+          p_token: context.token,
+          p_note_id: parsed.noteId,
+        })
+      : await asUserClient(context.token).rpc("get_note_ydoc", { p_note_id: parsed.noteId });
     if (error) {
       console.log("[ydoc] load failed:", error.message);
       return; // 播种路径兜底，不阻断房间
@@ -143,30 +211,44 @@ const server = new Server<CollabContext>({
     const state = roomState(documentName);
     // 任何内容更新都终结播种阶段（含回放后的首次编辑）
     state.lease.markSeeded();
-    if (context?.role !== "viewer") state.lastWriterToken = context?.token ?? null;
+    if (context?.role !== "viewer") {
+      state.lastWriterToken = context?.token ?? null;
+      state.lastWriterAnonymous = !!context?.anonymous;
+    }
   },
 
-  // Hocuspocus 内置防抖（默认 2s / 上限 10s）后调用；lastContext = 最后写者
+  // Hocuspocus 内置防抖（默认 2s / 上限 10s）后调用；lastContext = 最后写者。
+  // 匿名写者经 save_note_ydoc_by_token（072），登录写者经 save_note_ydoc（067）。
   async onStoreDocument({ document, documentName, lastContext }) {
     const parsed = parseDocumentName(documentName);
     if (!parsed) return;
 
-    const token =
+    const state = roomState(documentName);
+    const lastIsWriter =
       lastContext?.role && lastContext.role !== "viewer"
-        ? lastContext.token
-        : roomState(documentName).lastWriterToken;
-    if (!token) {
+        ? lastContext
+        : null;
+    const writerToken = lastIsWriter?.token ?? state.lastWriterToken;
+    const writerAnonymous = lastIsWriter ? !!lastIsWriter.anonymous : state.lastWriterAnonymous;
+    if (!writerToken) {
       console.log("[ydoc] no writer token, skip persist", documentName);
       return;
     }
 
     const b64 = Buffer.from(Y.encodeStateAsUpdate(document)).toString("base64");
-    const { error } = await asUserClient(token).rpc("save_note_ydoc", {
-      p_note_id: parsed.noteId,
-      p_ydoc_b64: b64,
-    });
+    const { error } = writerAnonymous
+      ? await authClient.rpc("save_note_ydoc_by_token", {
+          p_token: writerToken,
+          p_note_id: parsed.noteId,
+          p_ydoc_b64: b64,
+        })
+      : await asUserClient(writerToken).rpc("save_note_ydoc", {
+          p_note_id: parsed.noteId,
+          p_ydoc_b64: b64,
+        });
     if (error) {
-      // 常见于会话 JWT 过期或权限被撤：fail-closed，可读内容仍有客户端快照兜底
+      // 常见于权限被撤（属主改回只读/关闭）或会话 JWT 过期：fail-closed，
+      // 可读内容仍有客户端快照兜底
       console.log("[ydoc] persist failed:", error.message);
       return;
     }

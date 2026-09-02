@@ -12,6 +12,9 @@ export function isAuthExemptPath(pathname: string): boolean {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/s/") || // 公开分享页：/s/[token]
+    // 匿名可编辑公开链接的快照保存（072）：无登录态可达；权限由 save_public_note
+    // 按 token 实时判定（token 即能力），路由另有 token+IP 限流
+    pathname.startsWith("/api/public-share/") ||
     // 桌面壳刘海激发器小窗（/desktop/notch）：未登录也要能渲染「登录后可用」
     // 提示（数据接口自行 401）；middleware 重定向会把小窗变成登录页
     pathname.startsWith("/desktop") ||
