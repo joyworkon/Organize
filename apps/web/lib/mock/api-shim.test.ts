@@ -226,6 +226,11 @@ describe("mock api shim", () => {
     const filtered = await call("/api/memos?tag=阅读方法");
     expect(filtered.body.every((m: any) => m.tags.includes("阅读方法"))).toBe(true);
 
+    const limited = await call("/api/memos?limit=1");
+    expect(limited.body.length).toBe(1);
+    const badLimit = await call("/api/memos?limit=abc");
+    expect(badLimit.body.length).toBeGreaterThan(1);
+
     const patched = await call(`/api/memos/${created.body.id}`, {
       method: "PATCH",
       body: JSON.stringify({ content: "改过的内容 #新标签" }),

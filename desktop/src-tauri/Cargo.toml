@@ -9,11 +9,16 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 刘海激发器：objc 桥接（胶囊窗口抬到 NSStatusWindowLevel + safeAreaInsets 刘海检测）
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSResponder", "NSWindow", "NSScreen"] }
 
 [features]
 default = ["custom-protocol"]

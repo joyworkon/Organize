@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
 import { parseMemoTags } from "@/lib/memos/tags";
 
-// GET /api/memos - 列出速记（软删除外，时间倒序，可选 ?tag= 筛选）
+// GET /api/memos - 列出速记（软删除外，时间倒序，可选 ?tag= 筛选、?limit= 截断）
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const {
@@ -11,14 +11,19 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
-  const tag = new URL(request.url).searchParams.get("tag");
+  const params = new URL(request.url).searchParams;
+  const tag = params.get("tag");
+  // 刘海面板等轻量调用方只取最近几条；1–500 内取整，非法值回落全量上限
+  const limitParam = Number(params.get("limit"));
+  const limit =
+    Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 500) : 500;
   let query = supabase
     .from("memos")
     .select("*")
     .eq("user_id", user.id)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(limit);
   if (tag) query = query.contains("tags", [tag]);
 
   const { data, error } = await query;

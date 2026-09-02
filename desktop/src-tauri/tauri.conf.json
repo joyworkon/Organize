@@ -9,6 +9,7 @@
     "frontendDist": "https://organize-web.vercel.app"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",

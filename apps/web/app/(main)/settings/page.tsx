@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { AISettingsSection } from "@/components/settings/ai-settings";
 import { RestoreSection } from "@/components/settings/restore-section";
+import { NotchTriggerSetting } from "@/components/settings/notch-trigger-setting";
 import { PageHeader } from "@/components/layout/page-header";
 import { ThemeColorPicker } from "@/components/theme-color-picker";
 
@@ -409,6 +410,8 @@ export default function SettingsPage() {
         </div>
 
         <AISettingsSection />
+
+        <NotchTriggerSetting />
 
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">
