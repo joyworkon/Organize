@@ -765,6 +765,21 @@ function TransferOwnershipSection({
 
 /* ----------------------------- 公开链接 ----------------------------- */
 
+type ShareAccessMode = "disabled" | "public_read" | "public_edit";
+type ShareExpiryChoice = "never" | "7d" | "30d";
+
+const ACCESS_MODE_LABELS: Record<ShareAccessMode, string> = {
+  disabled: "关闭",
+  public_read: "公开只读",
+  public_edit: "公开可编辑",
+};
+
+function expiryDateFromChoice(choice: ShareExpiryChoice): string | null {
+  if (choice === "never") return null;
+  const days = choice === "7d" ? 7 : 30;
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 function PublicLinkSection({
   resourceType,
   resourceId,
@@ -772,11 +787,19 @@ function PublicLinkSection({
   resourceType: ShareResourceType;
   resourceId: string;
 }) {
-  const [share, setShare] = useState<{ token: string; url: string; is_public: boolean } | null>(null);
+  const [share, setShare] = useState<{
+    token: string;
+    url: string;
+    is_public: boolean;
+    access_mode: ShareAccessMode;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [patching, setPatching] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 072：过期时间选择（建议默认 7 天，§6 非协商项），创建与改模式共用
+  const [expiry, setExpiry] = useState<ShareExpiryChoice>("7d");
 
   const loadShare = useCallback(async () => {
     setLoading(true);
@@ -787,7 +810,16 @@ function PublicLinkSection({
       });
       if (!res.ok) throw new Error("加载失败");
       const data = await res.json();
-      setShare(data ? { token: data.token, url: data.url, is_public: data.is_public } : null);
+      setShare(
+        data
+          ? {
+              token: data.token,
+              url: data.url,
+              is_public: data.is_public,
+              access_mode: (data.access_mode ?? (data.is_public ? "public_read" : "disabled")) as ShareAccessMode,
+            }
+          : null
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
@@ -799,25 +831,59 @@ function PublicLinkSection({
     void loadShare();
   }, [loadShare]);
 
-  const createShare = async () => {
+  const createShare = async (accessMode: Exclude<ShareAccessMode, "disabled">) => {
     setCreating(true);
     setError(null);
     try {
       const res = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resource_type: resourceType, resource_id: resourceId }),
+        body: JSON.stringify({
+          resource_type: resourceType,
+          resource_id: resourceId,
+          access_mode: accessMode,
+          expires_at: expiryDateFromChoice(expiry),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "创建失败");
       }
       const data = await res.json();
-      setShare({ token: data.token, url: data.url, is_public: data.is_public });
+      setShare({ token: data.token, url: data.url, is_public: data.is_public, access_mode: data.access_mode });
     } catch (e) {
       setError(e instanceof Error ? e.message : "创建失败");
     } finally {
       setCreating(false);
+    }
+  };
+
+  // 072：三态即时切换（disabled ↔ public_read ↔ public_edit），每次切换立即生效——
+  // 服务端各通道按实时 shares 行判权，改回只读/关闭即刻断掉匿名快照保存与实时写
+  const patchAccessMode = async (mode: ShareAccessMode) => {
+    if (!share || patching) return;
+    setPatching(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/share", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: share.token,
+          access_mode: mode,
+          ...(mode !== "disabled" ? { expires_at: expiryDateFromChoice(expiry) } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "修改失败");
+      }
+      const data = await res.json();
+      setShare({ token: data.token, url: data.url, is_public: data.is_public, access_mode: data.access_mode });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "修改失败");
+    } finally {
+      setPatching(false);
     }
   };
 
@@ -871,12 +937,50 @@ function PublicLinkSection({
               {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={share.access_mode}
+              onValueChange={(v) => void patchAccessMode(v as ShareAccessMode)}
+              disabled={patching}
+            >
+              <SelectTrigger className="h-8 w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(ACCESS_MODE_LABELS) as ShareAccessMode[]).map((mode) => (
+                  <SelectItem key={mode} value={mode}>
+                    {ACCESS_MODE_LABELS[mode]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={expiry} onValueChange={(v) => setExpiry(v as ShareExpiryChoice)}>
+              <SelectTrigger className="h-8 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d">7 天后过期</SelectItem>
+                <SelectItem value="30d">30 天后过期</SelectItem>
+                <SelectItem value="never">不过期</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {share.access_mode === "public_edit" && (
+            <p className="text-xs text-destructive">
+              任何持此链接者均可编辑本篇内容，可随时改回只读或关闭。
+            </p>
+          )}
+          {!share.is_public && (
+            <p className="text-xs text-muted-foreground">该分享已关闭公开访问</p>
+          )}
           <div className="flex items-center justify-between">
             <a
               href={fullUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+              className={`inline-flex items-center gap-1 text-sm hover:underline ${
+                share.is_public ? "text-primary" : "text-muted-foreground"
+              }`}
             >
               <ExternalLink className="h-3.5 w-3.5" />
               在新窗口打开
@@ -891,23 +995,47 @@ function PublicLinkSection({
               撤销分享
             </Button>
           </div>
-          {!share.is_public && <p className="text-xs text-muted-foreground">该分享已关闭公开访问</p>}
         </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            创建公开只读链接，任何人不登录也能查看（与上方协作授权相互独立）。
+            创建公开链接，任何人不登录也能查看；也可设为「公开可编辑」与他人实时协作（与上方协作授权相互独立）。
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void createShare()}
-            disabled={creating}
-            className="gap-1.5"
-          >
-            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
-            创建公开链接
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={expiry} onValueChange={(v) => setExpiry(v as ShareExpiryChoice)}>
+              <SelectTrigger className="h-8 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d">7 天后过期</SelectItem>
+                <SelectItem value="30d">30 天后过期</SelectItem>
+                <SelectItem value="never">不过期</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void createShare("public_read")}
+              disabled={creating}
+              className="gap-1.5"
+            >
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+              创建公开只读链接
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void createShare("public_edit")}
+              disabled={creating}
+              className="gap-1.5"
+            >
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+              创建公开可编辑链接
+            </Button>
+          </div>
+          <p className="text-xs text-destructive">
+            「公开可编辑」意味着任何持链接者（含未注册访客）都能编辑，建议保留默认 7 天过期。
+          </p>
         </div>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}

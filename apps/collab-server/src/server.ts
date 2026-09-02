@@ -207,8 +207,8 @@ const server = new Server<CollabContext>({
     }
   },
 
-  async onChange({ documentName, context }) {
-    const state = roomState(documentName);
+  async onChange({ documentName, context, update }) {
+        const state = roomState(documentName);
     // 任何内容更新都终结播种阶段（含回放后的首次编辑）
     state.lease.markSeeded();
     if (context?.role !== "viewer") {
