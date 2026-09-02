@@ -26,6 +26,9 @@ interface ReadingShareResource {
   url: string;
 }
 
+/** 072 公开链接三态：disabled 不会出现在 active 行（is_public 一致性约束），仅类型完整 */
+export type ShareAccessMode = "disabled" | "public_read" | "public_edit";
+
 export type PublicShareResult =
   | { state: "missing" }
   | { state: "expired"; resource_type: "note" | "reading_item"; expires_at: string }
@@ -33,6 +36,7 @@ export type PublicShareResult =
       state: "active";
       resource_type: "note";
       expires_at: string | null;
+      access_mode: ShareAccessMode;
       resource: NoteShareResource;
     }
   | {
@@ -46,6 +50,7 @@ interface RpcRow {
   status?: unknown;
   resource_type?: unknown;
   expires_at?: unknown;
+  access_mode?: unknown;
   resource?: unknown;
 }
 
@@ -91,6 +96,8 @@ function parseRpcRow(value: unknown): PublicShareResult {
       state: "active",
       resource_type: "note",
       expires_at: expiresAt,
+      // fail-safe：access_mode 缺失/未知（旧 RPC / 未来新态）一律按只读处理
+      access_mode: row.access_mode === "public_edit" ? "public_edit" : "public_read",
       resource: {
         id: resource.id,
         title: resource.title as string | null,
