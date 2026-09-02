@@ -31,8 +31,14 @@ const MONITOR_POLL: Duration = Duration::from_secs(5);
 const CURSOR_POLL: Duration = Duration::from_millis(80);
 /// 命中判定的外扩边距（逻辑像素）：胶囊边缘几像素的误擦过也算
 const HIT_INSET: f64 = 2.0;
+/// 收起延迟：光标离开面板+胶囊区后宽限这么久（覆盖滑过缝隙的瞬间）再自动收起
+const COLLAPSE_DELAY: Duration = Duration::from_millis(300);
+/// 「靠近」判定区：光标距胶囊边缘 ≤ 该值（逻辑像素）时触发副屏把手/主屏箭头提示
+const NEAR_INSET: f64 = 48.0;
 
-const TRIGGER_SIZE: (f64, f64) = (180.0, 28.0);
+/// trigger 窗口需额外容纳主屏刘海下方的靠近提示箭头；可见胶囊仍固定在顶部。
+const TRIGGER_SIZE: (f64, f64) = (180.0, 40.0);
+const CAPSULE_HEIGHT: f64 = 28.0;
 const PANEL_SIZE: (f64, f64) = (380.0, 520.0);
 /// 胶囊与面板的间距（逻辑像素）
 const PANEL_GAP: f64 = 8.0;
@@ -44,14 +50,16 @@ const OPEN_PATH_WHITELIST: [&str; 6] =
 
 #[derive(Default)]
 struct NotchState {
-    /// 光标当前是否悬在某块胶囊热区内（Rust 轮询判定，不再走 DOM 事件）
-    hovered: bool,
     /// 面板是否处于展开态
     expanded: bool,
-    /// 主显示器是否有刘海（NSScreen.safeAreaInsets.top > 0，方案默认值 4）
-    has_notch: bool,
-    /// hover 进入时刻（150ms 停留判定用）
-    hovered_since: Option<Instant>,
+    /// 每块 trigger 所在屏是否有刘海（主屏 safeAreaInsets.top；外接屏默认无刘海）
+    has_notch_by_trigger: Vec<bool>,
+    /// 光标当前命中/靠近的胶囊索引（None = 都不在）
+    active_trigger: Option<usize>,
+    /// 进入当前胶囊的时刻（150ms 停留判定用）
+    active_since: Option<Instant>,
+    /// 展开后光标离开「面板+全部胶囊」区的时刻（300ms 延迟收起用）
+    away_since: Option<Instant>,
     /// 面板当前挂在哪块屏上（reposition 用；None = 主屏）
     panel_monitor: Option<usize>,
 }
@@ -65,6 +73,7 @@ struct VisibilityPayload {
 
 #[derive(serde::Serialize, Clone)]
 struct NotchInfoPayload {
+    trigger: usize,
     has_notch: bool,
 }
 
@@ -132,7 +141,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
     {
         let state = app.state::<SharedState>();
-        state.lock().unwrap().has_notch = detect_notch();
+        let mut guard = state.lock().unwrap();
+        guard.has_notch_by_trigger = (0..trigger_count(app))
+            .map(|index| index == 0 && detect_notch())
+            .collect();
     }
 
     reposition(app);
@@ -154,20 +166,27 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         };
         eprintln!("[notch] trigger visibility {visible}");
         for index in 0..trigger_count(&handle) {
-            if let Some(trigger) = handle.get_webview_window(&trigger_label(index)) {
-                let _ = if visible { trigger.show() } else { trigger.hide() };
-                // 穿透在 show 之后设置：先让 webview 正常加载，再切纯视觉模式
-                if visible {
-                    let _ = trigger.set_ignore_cursor_events(true);
-                }
+        if let Some(trigger) = handle.get_webview_window(&trigger_label(index)) {
+            let _ = if visible { trigger.show() } else { trigger.hide() };
+            // 穿透在 show 之后设置：先让 webview 正常加载，再切纯视觉模式
+            if visible {
+                let _ = trigger.set_ignore_cursor_events(true);
             }
         }
+    }
         // 回执刘海检测结论：触发方（胶囊页/设置页）此时监听已挂好，
         // 见 notch-trigger.tsx 里「先 listen 再 emit」的握手顺序。
         // 用广播而非 emit_to 定向：JS listen 默认只匹配 Any 目标事件，
         // notch-info 只有胶囊页监听，无串扰
-        let has_notch = handle.state::<SharedState>().lock().unwrap().has_notch;
-        let _ = handle.emit("notch-info", NotchInfoPayload { has_notch });
+        let has_notch_by_trigger = handle
+            .state::<SharedState>()
+            .lock()
+            .unwrap()
+            .has_notch_by_trigger
+            .clone();
+        for (trigger, has_notch) in has_notch_by_trigger.into_iter().enumerate() {
+            let _ = handle.emit("notch-info", NotchInfoPayload { trigger, has_notch });
+        }
     });
 
     let handle = app.clone();
@@ -223,56 +242,136 @@ fn trigger_count(app: &AppHandle) -> usize {
         .count()
 }
 
-/// 光标全局轮询（v1.1 核心）：应用未激活时 WKWebView 收不到可靠鼠标事件，
-/// hover 改由 Rust 侧采样 cursor_position() 对照各胶囊窗矩形判定。
-/// 判定与屏幕无关、无需辅助功能权限；「在胶囊区停留 ≥HOVER_DWELL」才展开。
+/// 光标全局轮询（v1.2 重写）：
+/// - 折叠态：判定光标是否命中某胶囊，同一块停留 ≥HOVER_DWELL → 展开
+/// - 展开态：持续追踪光标，「离开面板+所有胶囊 ≥COLLAPSE_DELAY」→ 收起；
+///   「命中另一块屏的胶囊」→ 面板切屏重挂
+/// - 命中/靠近状态广播给胶囊窗（hover 加宽 + 靠近出箭头提示）
 fn spawn_cursor_poll(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(CURSOR_POLL);
-        if app.state::<SharedState>().lock().unwrap().expanded {
-            // 展开态不再判定 hover（收起由失焦/Esc/保存驱动）
-            continue;
-        }
         let cursor = match app.cursor_position() {
             Ok(position) => position,
             Err(_) => continue,
         };
+        let expanded = app.state::<SharedState>().lock().unwrap().expanded;
         let hit = hit_trigger(&app, cursor);
-        let should_expand = {
-            let state = app.state::<SharedState>();
-            let mut guard = state.lock().unwrap();
-            let (next_hovered, entered_changed) = match (hit, guard.hovered) {
-                (true, true) => (true, false),
-                (true, false) => (true, true),
-                (false, true) => (false, true),
-                (false, false) => (false, false),
-            };
-            if entered_changed {
-                guard.hovered = next_hovered;
-                guard.hovered_since = next_hovered.then(Instant::now);
-                // 视觉反馈：胶囊透明度 15% → 40%。广播给所有胶囊窗（各自
-                // 监听同名事件，行为一致），与窗口显隐无关
-                let _ = app.emit("notch-hover-broadcast", serde_json::json!({ "entered": next_hovered }));
-            }
-            match (hit, guard.hovered_since) {
-                (true, Some(since)) => since.elapsed() >= HOVER_DWELL,
-                _ => false,
-            }
-        };
-        if should_expand && claim_expand(&app) {
-            eprintln!("[notch] hover dwell reached, expanding");
-            // 面板挂在光标所在屏：副屏把手 hover 时面板从副屏顶部落下
-            app.state::<SharedState>().lock().unwrap().panel_monitor =
-                monitor_index_at(&app, cursor);
-            show_panel(&app);
+        // 「靠近」仅折叠态广播：展开后光标本来就在胶囊下方活动，广播无意义
+        let near = if expanded { None } else { near_trigger(&app, cursor) };
+        if expanded {
+            tick_expanded(&app, cursor, hit);
+        } else {
+            tick_collapsed(&app, cursor, hit, near);
         }
     });
 }
 
-/// 光标是否落在任一胶囊窗矩形内（物理坐标比较，外扩 HIT_INSET 容差）
-fn hit_trigger(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> bool {
-    (0..trigger_count(app)).any(|index| {
-        app.get_webview_window(&trigger_label(index))
+/// 折叠态 tick：命中判定 + 150ms 停留展开 + hover/靠近视觉广播
+fn tick_collapsed(
+    app: &AppHandle,
+    cursor: tauri::PhysicalPosition<f64>,
+    hit: Option<usize>,
+    near: Option<usize>,
+) {
+    let should_expand = {
+        let state = app.state::<SharedState>();
+        let mut guard = state.lock().unwrap();
+        let changed = guard.active_trigger != hit;
+        if changed {
+            guard.active_trigger = hit;
+            guard.active_since = hit.map(|_| Instant::now());
+        }
+        let entered = hit.is_some();
+        let _ = app.emit(
+            "notch-hover-broadcast",
+            serde_json::json!({ "entered": entered, "trigger": hit, "near": near }),
+        );
+        match (hit, guard.active_since) {
+            (Some(_), Some(since)) => since.elapsed() >= HOVER_DWELL,
+            _ => false,
+        }
+    };
+    if should_expand && claim_expand(app) {
+        eprintln!("[notch] hover dwell reached, expanding (trigger={hit:?})");
+        // 面板挂在光标所在屏：副屏把手 hover 时面板从副屏顶部落下
+        app.state::<SharedState>().lock().unwrap().panel_monitor =
+            monitor_index_at(app, cursor);
+        show_panel(app);
+    }
+}
+
+/// 展开态 tick：离开自动收起 + 跨屏切换
+fn tick_expanded(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>, hit: Option<usize>) {
+    let in_panel = cursor_in_panel(app, cursor);
+    let inside = in_panel || hit.is_some();
+
+    let (should_collapse, switch_to) = {
+        let state = app.state::<SharedState>();
+        let mut guard = state.lock().unwrap();
+        let current_monitor = guard.panel_monitor.unwrap_or(0);
+
+        // 跨屏切换：命中另一块屏的胶囊（直接命中即切，无需停留）
+        let switch_to = hit.filter(|&index| index != current_monitor);
+
+        if inside {
+            guard.away_since = None;
+        } else if guard.away_since.is_none() {
+            guard.away_since = Some(Instant::now());
+        }
+        let should_collapse = switch_to.is_none()
+            && guard
+                .away_since
+                .is_some_and(|since| since.elapsed() >= COLLAPSE_DELAY);
+        (should_collapse, switch_to)
+    };
+
+    if let Some(index) = switch_to {
+        eprintln!("[notch] cross-monitor hover, switching panel to trigger-{index}");
+        app.state::<SharedState>().lock().unwrap().panel_monitor = Some(index);
+        reposition(app);
+        return;
+    }
+    if should_collapse {
+        eprintln!("[notch] cursor left panel+triggers, collapsing");
+        collapse(app);
+    }
+}
+
+/// 光标是否落在面板矩形内
+fn cursor_in_panel(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> bool {
+    app.get_webview_window("notch-panel")
+        .and_then(|panel| {
+            let position = panel.outer_position().ok()?;
+            let size = panel.outer_size().ok()?;
+            Some((position, size))
+        })
+        .is_some_and(|(position, size)| {
+            let inset = 2.0;
+            cursor.x >= position.x as f64 - inset
+                && cursor.x <= position.x as f64 + size.width as f64 + inset
+                && cursor.y >= position.y as f64 - inset
+                && cursor.y <= position.y as f64 + size.height as f64 + inset
+        })
+}
+
+/// 光标落在哪个胶囊窗矩形内（物理坐标比较，外扩 HIT_INSET 容差）
+fn hit_trigger(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> Option<usize> {
+    trigger_hit_with_inset(app, cursor, HIT_INSET)
+}
+
+/// 光标是否靠近某胶囊（外扩 NEAR_INSET）：仅折叠态用于箭头/把手提示
+fn near_trigger(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> Option<usize> {
+    trigger_hit_with_inset(app, cursor, NEAR_INSET)
+}
+
+/// 按外扩边距求命中的胶囊索引
+fn trigger_hit_with_inset(
+    app: &AppHandle,
+    cursor: tauri::PhysicalPosition<f64>,
+    inset_logical: f64,
+) -> Option<usize> {
+    (0..trigger_count(app)).find(|index| {
+        app.get_webview_window(&trigger_label(*index))
             .and_then(|trigger| {
                 let position = trigger.outer_position().ok()?;
                 let size = trigger.outer_size().ok()?;
@@ -280,10 +379,10 @@ fn hit_trigger(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> bool {
             })
             .is_some_and(|(position, size)| {
                 let scale = app
-                    .get_webview_window(&trigger_label(index))
+                    .get_webview_window(&trigger_label(*index))
                     .and_then(|trigger| trigger.scale_factor().ok())
                     .unwrap_or(1.0);
-                let inset = HIT_INSET * scale;
+                let inset = inset_logical * scale;
                 let left = position.x as f64 - inset;
                 let right = position.x as f64 + size.width as f64 + inset;
                 let top = position.y as f64 - inset;
@@ -345,8 +444,9 @@ fn collapse(app: &AppHandle) {
             return;
         }
         guard.expanded = false;
-        guard.hovered = false;
-        guard.hovered_since = None;
+        guard.active_trigger = None;
+        guard.active_since = None;
+        guard.away_since = None;
     }
     eprintln!("[notch] panel collapsed");
     if let Some(panel) = app.get_webview_window("notch-panel") {
@@ -376,6 +476,13 @@ fn reposition(app: &AppHandle) {
         }
     });
 
+    let has_notch_by_trigger: Vec<bool> = ordered
+        .iter()
+        .enumerate()
+        .map(|(index, _)| index == 0 && detect_notch())
+        .collect();
+    app.state::<SharedState>().lock().unwrap().has_notch_by_trigger = has_notch_by_trigger;
+
     for (index, monitor) in ordered.iter().enumerate() {
         let Some(trigger) = app.get_webview_window(&trigger_label(index)) else {
             break; // 窗口数是启动时按屏数建好的，超出即不再有
@@ -390,7 +497,8 @@ fn reposition(app: &AppHandle) {
         ));
 
         if index == panel_monitor_index(app) {
-            let y = origin.y + ((TRIGGER_SIZE.1 + PANEL_GAP) * scale) as i32;
+            // 面板从可见胶囊下缘下落；trigger 窗口额外高度仅供提示箭头，不能下推面板。
+            let y = origin.y + ((CAPSULE_HEIGHT + PANEL_GAP) * scale) as i32;
             if let Some(panel) = app.get_webview_window("notch-panel") {
                 let panel_x =
                     origin.x as f64 + (size.width as f64 - PANEL_SIZE.0 * scale) / 2.0;

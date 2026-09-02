@@ -6,19 +6,17 @@ import { getPlatform } from "@/lib/platform/detect";
 import { readNotchTriggerHidden } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";
 
+/** 窗口内胶囊的物理位置：窗口 180px 宽，胶囊 168px 宽。 */
+const CAPSULE_LEFT = 6;
+
 /**
- * 刘海胶囊 / 副屏透明把手（notch-trigger-{i} 窗口）：纯黑胶囊 + 极淡 ⚡，
- * 平时 ≈15% 透明度，hover 升到 40% 并微加宽（方案决策 2）。
- *
- * v1.1：窗口 set_ignore_cursor_events(true) 纯视觉穿透，本组件不再上报
- * DOM mouseenter/leave（应用未激活时 WKWebView 鼠标事件不可靠，v1 实测
- * 「必须点一下才弹」的根因）；hover 判定在 Rust 侧光标轮询里做，这里只
- * 监听 notch-hover-broadcast 做视觉反馈。挂载时上报「隐藏激发器」设置
- * 决定本窗口显隐，避免已隐藏设置下的启动闪现。
+ * 刘海胶囊 / 副屏透明把手（notch-trigger-{i} 窗口）。鼠标状态由 Rust 全局
+ * 光标轮询提供；当前窗口只消费自己的 trigger 索引，避免多屏视觉串扰。
  */
 export function NotchTrigger() {
   const [hovered, setHovered] = useState(false);
-  const [hasNotch, setHasNotch] = useState(true);
+  const [near, setNear] = useState(false);
+  const [hasNotch, setHasNotch] = useState(false);
 
   useEffect(() => {
     if (getPlatform() !== "tauri") return;
@@ -27,19 +25,28 @@ export function NotchTrigger() {
     let unlistenInfo: (() => void) | undefined;
 
     void (async () => {
-      const { emit, listen } = await import("@tauri-apps/api/event");
-      if (cancelled) return;
-      // 先挂监听再上报显隐设置：Rust 收到上报会回执刘海检测结论，
-      // 顺序反了回执会丢（Rust 侧见 notch.rs 的 notch-trigger-visibility 处理器）
-      unlistenInfo = await listen<{ has_notch: boolean }>("notch-info", (event) => {
-        setHasNotch(Boolean(event.payload?.has_notch));
+      const [{ emit, listen }, { getCurrentWebviewWindow }] = await Promise.all([
+        import("@tauri-apps/api/event"),
+        import("@tauri-apps/api/webviewWindow"),
+      ]);
+      const match = /notch-trigger-(\d+)/.exec(getCurrentWebviewWindow().label);
+      const ownTriggerIndex = match ? Number(match[1]) : null;
+      if (cancelled || ownTriggerIndex == null) return;
+
+      unlistenInfo = await listen<{ trigger: number; has_notch: boolean }>("notch-info", (event) => {
+        if (event.payload?.trigger === ownTriggerIndex) {
+          setHasNotch(Boolean(event.payload.has_notch));
+        }
       });
-      // hover 视觉反馈：Rust 光标轮询判定命中任一胶囊后广播（广播 vs emit_to：
-      // JS listen 默认只匹配 Any 目标，单监听即可，多屏胶囊窗口行为一致）
-      unlistenHover = await listen<{ entered: boolean }>("notch-hover-broadcast", (event) => {
-        setHovered(Boolean(event.payload?.entered));
+      unlistenHover = await listen<{
+        entered: boolean;
+        trigger: number | null;
+        near: number | null;
+      }>("notch-hover-broadcast", (event) => {
+        const { entered, trigger, near: nearIndex } = event.payload ?? {};
+        setHovered(Boolean(entered) && trigger === ownTriggerIndex);
+        setNear(nearIndex === ownTriggerIndex && trigger == null);
       });
-      // 启动上报显隐设置（Rust 侧窗口默认隐藏，收到 visible 才显示，防闪现）
       await emit("notch-trigger-visibility", { visible: !readNotchTriggerHidden() });
     })();
 
@@ -50,17 +57,21 @@ export function NotchTrigger() {
     };
   }, []);
 
+  const showHints = hasNotch && near && !hovered;
+
   return (
-    // 透明窗口：根页面不能带背景色（globals.css 的 organize-notch-body 置透明）
-    <div className="flex h-screen w-screen items-start justify-center bg-transparent pt-[1px]">
+    <div className="relative flex h-screen w-screen items-start justify-center bg-transparent pt-[1px]">
+      {showHints && (
+        <>
+          <span className="organize-notch-hint" style={{ left: CAPSULE_LEFT + 14 }} aria-hidden />
+          <span className="organize-notch-hint" style={{ right: CAPSULE_LEFT + 14 }} aria-hidden />
+        </>
+      )}
       <div
-        role="button"
-        aria-label="Organize 速记激发器"
-        tabIndex={-1}
+        role="presentation"
         className={cn(
-          "flex h-[26px] items-center justify-center gap-1.5 rounded-full bg-black transition-all duration-150 ease-out",
+          "organize-notch-capsule flex h-[26px] items-center justify-center gap-1.5 rounded-full transition-all duration-150 ease-out",
           hovered ? "w-[186px] opacity-40" : "w-[168px] opacity-[0.15]",
-          // 副屏 / 无刘海屏：胶囊悬浮在菜单栏上，加一圈描边当「把手」提示
           !hasNotch && "ring-1 ring-white/25",
         )}
       >

@@ -4934,6 +4934,32 @@ mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; paddi
 body.organize-notch-body {
   background: transparent;
 }
+/* 扩高后的 trigger 窗口留白必须透明；黑色只属于可见胶囊，避免副屏合成黑块。 */
+.organize-notch-capsule {
+  background: #000;
+  isolation: isolate;
+}
+/* 主屏刘海两侧的悬停提示箭头：光标「靠近」（未命中）时从黑条两侧长出，
+   呼吸微光提示「再往上碰会展开」。纯 CSS 绘制，命中后收起避免干扰 */
+@keyframes notch-hint-glow {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.7; }
+}
+.organize-notch-hint {
+  position: absolute;
+  top: 28px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(255, 255, 255, 0.72);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
+  animation: notch-hint-glow 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .organize-notch-hint { animation: none; }
+}
 /* 面板展开动画：淡入 + 下滑 8px（180ms ease-out）；收起 120ms（方案默认值 1）。
    展开由 React key 重挂载重放；收起先播动画再 emit notch-collapse 交给 Rust 隐藏 */
 @keyframes notch-panel-in {
