@@ -1237,7 +1237,7 @@ export function TipTapEditor({
           ]
         : []),
     ];
-  }, [collab]);
+  }, [collab, disableTaskItemToggle]);
 
   const editor = useEditor({
     extensions,
