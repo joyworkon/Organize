@@ -4,6 +4,9 @@ import { useEffect } from "react";
 
 export function ServiceWorkerRegistrar() {
   useEffect(() => {
+    // 刘海激发器等桌面壳小窗（/desktop）不注册：常驻小窗由 Tauri 管生命周期，
+    // SW 的页面缓存反而可能让胶囊/面板拿到过期 HTML
+    if (window.location.pathname.startsWith("/desktop")) return;
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")

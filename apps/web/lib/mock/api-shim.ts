@@ -279,9 +279,14 @@ const moveBlock: MockHandler = ({ body, params }) => {
 
 const listMemos: MockHandler = ({ url }) => {
   const tag = url.searchParams.get("tag");
+  // 与真实路由一致：?limit= 截断（1–500），非法值回落全量
+  const limitParam = Number(url.searchParams.get("limit"));
+  const limit =
+    Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 500) : 500;
   const rows = mockDb.memos
     .filter((m) => !m.deleted_at && (!tag || (m.tags as string[]).includes(tag)))
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, limit);
   return { body: rows };
 };
 

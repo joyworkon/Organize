@@ -1,7 +1,10 @@
 # 刘海激发器（Notch Trigger）方案 —— 定稿 v2（2026-09-01 原型讨论拍板）
 
-> 状态: **方案定稿，待实现**。原型阶段四项核心决策已由用户拍板（§3），
-> 其余小项按行业惯例定默认值（§5），实现前无需再讨论。
+> 状态: **已实现（v1）**。实现落点：Rust 侧 `desktop/src-tauri/src/notch.rs`
+> （两窗口 + hover 状态机 + ⌘⇧M + 窗口层级/刘海检测），web 侧
+> `apps/web/app/desktop/notch/` 与 `apps/web/components/desktop/notch/`
+> （胶囊/面板/演示态），纯逻辑与白名单在 `apps/web/lib/desktop/notch.ts`。
+> 下文保留原始方案内容（决策依据与默认值仍然有效）。
 > 前置: 依赖 ADR 0004 的托盘常驻基建（已落地，master = 039910c）。
 
 ## 1. 目标
