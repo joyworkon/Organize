@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
+import { generateToken } from "@/lib/share/token";
 import type { ShareResourceType } from "@organize/shared";
-
-// 生成一个足够随机的 token（22 字符 url-safe，约 128 bit 熵）
-function generateToken(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  const b64 = btoa(binary);
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
 
 // POST /api/share - 创建分享
 // body: { resource_type: "note" | "reading_item", resource_id: string, expires_at?: string }

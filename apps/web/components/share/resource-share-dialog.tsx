@@ -311,8 +311,11 @@ function InviteSection({
   const [newWsName, setNewWsName] = useState("");
   const [teamWorkspaces, setTeamWorkspaces] = useState<WorkspaceRow[]>([]);
   const [matched, setMatched] = useState<{ user_id: string; display_name: string | null } | null>(null);
+  const [notFoundEmail, setNotFoundEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
@@ -334,6 +337,8 @@ function InviteSection({
     if (!trimmed) return;
     setChecking(true);
     setMatched(null);
+    setNotFoundEmail(null);
+    setInviteSent(false);
     setError(null);
     setDone(false);
     try {
@@ -347,7 +352,8 @@ function InviteSection({
         display_name: string | null;
       }>;
       if (rows.length === 0) {
-        setError("该邮箱没有对应的注册账号");
+        // 未注册邮箱 → 走邮箱邀请（Track A）：对方注册后自动获得访问权
+        setNotFoundEmail(trimmed);
       } else {
         setMatched(rows[0]);
       }
@@ -399,6 +405,73 @@ function InviteSection({
     }
   };
 
+  const sendInvite = async () => {
+    if (!notFoundEmail) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/share/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resource_type: resourceType,
+          resource_id: resourceId,
+          access_role: role,
+          email: notFoundEmail,
+          workspace_id: workspaceChoice === "__new__" ? undefined : workspaceChoice,
+          new_workspace_name:
+            workspaceChoice === "__new__" ? newWsName.trim() || "协作空间" : undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "邀请发送失败");
+      setInviteSent(true);
+      setEmail("");
+      setNotFoundEmail(null);
+      setNewWsName("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "邀请发送失败");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // 角色/空间选择在「已注册邀请」与「未注册邮箱邀请」两个分支间复用
+  const inviteControls = (
+    <>
+      <Select value={role} onValueChange={(v) => setRole(v as "viewer" | "editor")}>
+        <SelectTrigger className="h-8 w-[110px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="editor">可编辑</SelectItem>
+          <SelectItem value="viewer">可查看</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select value={workspaceChoice} onValueChange={setWorkspaceChoice}>
+        <SelectTrigger className="h-8 w-[180px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {teamWorkspaces.map((ws) => (
+            <SelectItem key={ws.id} value={ws.id}>
+              加入 {ws.name}
+            </SelectItem>
+          ))}
+          <SelectItem value="__new__">新建协作空间…</SelectItem>
+        </SelectContent>
+      </Select>
+      {workspaceChoice === "__new__" && (
+        <Input
+          placeholder="新空间名称"
+          value={newWsName}
+          onChange={(e) => setNewWsName(e.target.value)}
+          className="h-8 w-[150px]"
+        />
+      )}
+    </>
+  );
+
   return (
     <section className="space-y-2">
       <h3 className="flex items-center gap-1.5 text-sm font-medium">
@@ -428,43 +501,33 @@ function InviteSection({
             找到用户：<span className="font-medium">{matched.display_name || "未设置昵称"}</span>
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={role} onValueChange={(v) => setRole(v as "viewer" | "editor")}>
-              <SelectTrigger className="h-8 w-[110px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editor">可编辑</SelectItem>
-                <SelectItem value="viewer">可查看</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={workspaceChoice} onValueChange={setWorkspaceChoice}>
-              <SelectTrigger className="h-8 w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {teamWorkspaces.map((ws) => (
-                  <SelectItem key={ws.id} value={ws.id}>
-                    加入 {ws.name}
-                  </SelectItem>
-                ))}
-                <SelectItem value="__new__">新建协作空间…</SelectItem>
-              </SelectContent>
-            </Select>
-            {workspaceChoice === "__new__" && (
-              <Input
-                placeholder="新空间名称"
-                value={newWsName}
-                onChange={(e) => setNewWsName(e.target.value)}
-                className="h-8 w-[150px]"
-              />
-            )}
+            {inviteControls}
             <Button size="sm" onClick={() => void invite()} disabled={inviting}>
               {inviting ? <Loader2 className="h-4 w-4 animate-spin" /> : "邀请并授权"}
             </Button>
           </div>
         </div>
       )}
+      {notFoundEmail && (
+        <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+          <p className="text-sm">
+            「<span className="font-medium">{notFoundEmail}</span>」尚未注册，
+            可发送邀请邮件，对方注册后会自动获得访问权。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {inviteControls}
+            <Button size="sm" onClick={() => void sendInvite()} disabled={sending}>
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : "发送邀请邮件"}
+            </Button>
+          </div>
+        </div>
+      )}
       {done && <p className="text-sm text-green-600">已邀请并完成授权</p>}
+      {inviteSent && (
+        <p className="text-sm text-green-600">
+          邀请邮件已发送，对方点击链接注册后会自动获得访问权
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </section>
   );
