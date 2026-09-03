@@ -11,6 +11,7 @@ import { PromptHost } from "@/components/ui/prompt-dialog";
 import { BodyPointerEventsGuard } from "@/components/layout/pointer-events-guard";
 import { QuickSaveBridge } from "@/components/desktop/quick-save";
 import { NavigateBridge } from "@/components/desktop/navigate-bridge";
+import { UpdaterBridge } from "@/components/desktop/updater";
 import { ShareBridge } from "@/components/mobile/share-bridge";
 import { NoteTabsBar } from "@/components/notes/note-tabs-bar";
 
@@ -39,6 +40,7 @@ export default function MainLayout({
       <ShareBridge />
       <QuickSaveBridge />
       <NavigateBridge />
+      <UpdaterBridge />
       <Onboarding />
       <PromptHost />
     </div>

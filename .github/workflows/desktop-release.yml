@@ -1,0 +1,193 @@
+name: desktop-release
+
+# Windows 桌面发布链路（multi-platform-plan §3.3 / deploy-runbook「Windows 发布 runbook」）：
+# - build：windows-latest 用 tauri-action 出 NSIS 安装包。签名密钥（TAURI_SIGNING_PRIVATE_KEY）
+#   存在时额外产出 updater 签名产物（.sig）；缺失时通过 config 覆盖关闭 updater 产物，
+#   只警告不失败（跳过签名而非整体失败）。
+# - publish：分发门。repo variable WEB_PROD_URL 未设置、或 frontendDist 仍是占位域名
+#   （organize-web.vercel.app 被无关第三方占用）、或两处不一致时，Release 只建
+#   draft + prerelease 并打警告，不发布 public latest.json；人工完成上线切换后
+#   （WEB_PROD_URL + frontendDist + remote.urls 三处一致）打 tag 才会公开发布。
+#
+# 触发：tag desktop-v*；workflow_dispatch 仅跑 build 出 artifact 冒烟。
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build NSIS (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: 安装 desktop 依赖（tauri CLI）
+        run: pnpm install --filter @organize/desktop
+
+      # 签名密钥缺失 → 关闭 createUpdaterArtifacts（无密钥时 bundler 会直接失败），
+      # 即「跳过签名而非整体失败」；密钥存在 → 产出 .sig 签名产物。
+      # 注意覆盖 JSON 不含空格（tauri-action 按空格切分 args）。
+      - name: 判定 updater 签名密钥
+        id: signing
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo 'args=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo 'args=' >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY 未配置，本次构建跳过 updater 签名（无 .sig / latest.json 不含签名，不发布更新清单）"
+          fi
+
+      - name: tauri build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          args: ${{ steps.signing.outputs.args }}
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: organize-windows-nsis
+          path: desktop/src-tauri/target/release/bundle/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish (分发门)
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: organize-windows-nsis
+          path: dist
+
+      - name: 分发门判定（WEB_PROD_URL + frontendDist 一致且非占位域名）
+        id: gate
+        env:
+          WEB_PROD_URL: ${{ vars.WEB_PROD_URL }}
+        run: |
+          frontend_dist="$(node -p "require('$PWD/desktop/src-tauri/tauri.conf.json').build.frontendDist")"
+          placeholder="https://organize-web.vercel.app"
+          echo "frontendDist=$frontend_dist"
+          echo "WEB_PROD_URL=${WEB_PROD_URL:-<未设置>}"
+
+          ready=true
+          if [ -z "$WEB_PROD_URL" ]; then
+            echo "::warning::repo variable WEB_PROD_URL 未设置：生产 Web 未上线，按分发门只出 draft/prerelease"
+            ready=false
+          fi
+          if [ "$frontend_dist" = "$placeholder" ]; then
+            echo "::warning::tauri.conf.json frontendDist 仍是占位域名（$placeholder，已被无关第三方占用）：产物不得公开分发"
+            ready=false
+          fi
+          if [ -n "$WEB_PROD_URL" ] && [ "$frontend_dist" != "$WEB_PROD_URL" ]; then
+            echo "::warning::frontendDist（$frontend_dist）与 WEB_PROD_URL（$WEB_PROD_URL）不一致：先统一两处（连同 capabilities remote.urls）再公开发布"
+            ready=false
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      # latest.json 只在有签名产物时生成（无签名的更新清单会让 updater 校验必败）
+      - name: 生成 updater latest.json
+        id: latest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          exe="$(find dist -name '*-setup.exe' | head -1)"
+          if [ -z "$exe" ]; then
+            echo "::error::未找到 NSIS 安装包（*-setup.exe）"; exit 1
+          fi
+          sig="$exe.sig"
+          if [ ! -f "$sig" ]; then
+            echo "::warning::无 .sig 签名产物：跳过 latest.json（updater 关闭，仅分发安装包）"
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(node -p "require('$PWD/desktop/src-tauri/tauri.conf.json').version")"
+          base="$(basename "$exe")"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${base}"
+          node -e '
+            const fs = require("fs");
+            const [exe, sig, url, version, tag] = process.argv.slice(1);
+            const json = {
+              version,
+              notes: `Organize 桌面版 ${version}（${tag}）。详见 Release 说明。`,
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "windows-x86_64": {
+                  signature: fs.readFileSync(sig, "utf8").trim(),
+                  url,
+                },
+              },
+            };
+            fs.writeFileSync("latest.json", JSON.stringify(json, null, 2) + "\n");
+          ' "$exe" "$sig" "$url" "$version" "$TAG"
+          echo "generated=true" >> "$GITHUB_OUTPUT"
+
+      - name: 发布 Release（draft 门控）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          READY: ${{ steps.gate.outputs.ready }}
+          LATEST: ${{ steps.latest.outputs.generated }}
+        run: |
+          set -e
+          exe="$(find dist -name '*-setup.exe' | head -1)"
+          files=("$exe")
+          [ -f "$exe.sig" ] && files+=("$exe.sig")
+
+          notes_common="Windows NSIS 安装包（自动构建）。"
+          if [ "$READY" != "true" ]; then
+            title="Organize Desktop $TAG (draft)"
+            notes="$notes_common
+
+          > ⚠️ **分发门生效：本 Release 处于 draft + prerelease，勿对外分发。**
+          > 生产 Web 未上线（WEB_PROD_URL 未设置 / frontendDist 仍为占位域名 / 两处不一致）。
+          > 上线步骤见 docs/deploy-runbook.md「Windows 发布 runbook」。"
+            flags=(--draft --prerelease)
+          else
+            title="Organize Desktop $TAG"
+            notes="$notes_common
+
+          - 安装：下载 *-setup.exe 运行（未做 Authenticode 签名时 SmartScreen 会提示，见 runbook）
+          - 自动更新：latest.json 挂于本 Release，端内 updater 指 releases/latest/download/latest.json"
+            flags=(--draft=false --prerelease=false)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            [ "$LATEST" = "true" ] && gh release upload "$TAG" latest.json --clobber
+            gh release edit "$TAG" --title "$title" --notes "$notes" "${flags[@]}"
+          else
+            gh release create "$TAG" "${files[@]}" --title "$title" --notes "$notes" "${flags[@]}"
+            [ "$LATEST" = "true" ] && gh release upload "$TAG" latest.json --clobber
+          fi
+          echo "已发布 $TAG（ready=$READY latest=$LATEST）"

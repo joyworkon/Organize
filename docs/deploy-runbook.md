@@ -83,3 +83,69 @@ Supabase Cloud（ref `sgkviverpercklxsjbcv`）001–061 迁移全部应用，543
 **第二轮（修复后）全部通过：** A 补种子（同步区块×1、数据库块×1 挂父页、数据行×2、父页正文含两处块引用、note_versions×1），导出 13 类数据，预检与恢复成功；数据库级核对确认——各表数量齐全、子页→父页层级与图标（🗂/📊）保留、`synced_blocks`/`db_databases`/`db_rows` 以全新 ID 落库、正文内 `syncedId`/`databaseId` 已重映射且可解析、清单状态与标签关联一致、账号 A 数据不受影响。云库 pgTAP 16 文件 / 177 断言全绿。
 
 经验：演练种子必须覆盖**自引用层级、页面元数据、正文内块引用**，否则这类丢失在数量核对中不可见；恢复链每新增一层包装函数，回归测试要断言「旧层负责写入的表仍然落库」。
+
+## 6. Windows 桌面发布 runbook（desktop-release.yml）
+
+> 链路：tag `desktop-v*` → `.github/workflows/desktop-release.yml`（windows-latest，
+> tauri-action 出 NSIS + updater 产物）→ publish 作业分发门判定 → GitHub Release。
+> 架构前提见 ADR 0004 与 multi-platform-plan §3：壳加载远程 Web，生产域名未落地前
+> 产物一律 draft，不得对外分发。
+
+### 6.1 打 tag 前置清单
+
+1. master 上 `desktop/src-tauri/tauri.conf.json` 的 `version` 与 `desktop/package.json`
+   已同步升版（updater 以 conf 版本判定新旧，两处不一致会让更新语义混乱）。
+2. 该版本改动已全部合并进 master，且 CI（tsc + vitest + desktop.yml 双平台 cargo
+   check）全绿。
+3. 确认 `tauri.conf.json` 的 `bundle.createUpdaterArtifacts`（仓库内默认关闭，仅在
+   签名密钥存在时由发布工作流经 `--config` 覆盖开启）。
+
+### 6.2 签名密钥（updater ed25519，一次性配置）
+
+- 公钥：已写入 `tauri.conf.json` 的 `plugins.updater.pubkey`（入库）。
+- 私钥：`desktop/src-tauri/keys/tauri.key`（**gitignored，永不出库**；当前口令为空）。
+  丢失 = 无法给既有安装用户发更新，请离线备份（密码管理器/加密盘）。
+- 人工配置 CI secret（仓库 owner 执行一次）：
+
+  ```bash
+  gh secret set TAURI_SIGNING_PRIVATE_KEY < desktop/src-tauri/keys/tauri.key
+  gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
+  ```
+
+- 未配置 secret 时发布流水线**跳过签名**（只警告，构建不失败），Release 无
+  latest.json，端内 updater 不可用；补配 secret 后重打 tag 即恢复。
+
+### 6.3 发布与分发门
+
+```bash
+git checkout master && git pull origin master
+git tag desktop-v0.2.0 && git push origin desktop-v0.2.0
+```
+
+publish 作业判定三个条件：repo variable `WEB_PROD_URL` 已设置、frontendDist 非
+占位域名（`https://organize-web.vercel.app` 已被无关第三方占用）、两者一致。
+任一不满足 → Release 为 **draft + prerelease**（带警告说明），只可内测下载；
+三个条件同时满足 → 公开 Release 并挂 latest.json（updater 端点固定拉
+`releases/latest/download/latest.json`，即最新公开 Release）。
+
+### 6.4 上线前人工待办（把 Release 从 draft 翻 public 的唯一前置）
+
+1. **生产 Web 部署 + 真实域名**（multi-platform-plan M0）：Vercel 部署 `apps/web`，
+   绑定自有域名；`GET /api/health` 返回 ok。
+2. 配 repo variable：`gh variable set WEB_PROD_URL --body "https://<真实域名>"`。
+3. 三处同步切真实域名（缺一不可，见 ADR 0004 已知坑 2）：
+   `tauri.conf.json` 的 `build.frontendDist`、`capabilities/default.json` 的
+   `remote.urls`、（Auth 回调白名单）。
+4. 重打 tag（如 `desktop-v0.2.1`）走一遍发布，确认 publish 门转绿、Release 公开。
+
+### 6.5 SmartScreen / 代码签名（人工采购项）
+
+- 当前产物**未做 Authenticode 签名**：Windows 首装会弹 SmartScreen「更多信息 →
+  仍要运行」，Edge/Chrome 下载也可能标记。这是无证书分发的预期体验，需在下载页
+  说明，不视为缺陷。
+- 消除提示需采购 OV（或 EV）代码签名证书：OV 证书签名后 SmartScreen 仍需积累
+  信誉，EV 立即通过。拿到证书后在 desktop-release.yml 的 build 作业插入签名步骤
+  （`signtool sign /fd SHA256 /tr <TSA> /td SHA256`，证书私钥走
+  `WINDOWS_PFX_BASE64` / `WINDOWS_PFX_PASSWORD` secret，管线预留位）。
+- NSIS 安装包签名后需重跑打包让 uninstaller 同步签名（tauri windows 签名钩子
+  `windows-certificate-thumbprint` 等 env 可用，届时按官方文档接）。
