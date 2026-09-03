@@ -149,3 +149,31 @@ publish 作业判定三个条件：repo variable `WEB_PROD_URL` 已设置、fron
   `WINDOWS_PFX_BASE64` / `WINDOWS_PFX_PASSWORD` secret，管线预留位）。
 - NSIS 安装包签名后需重跑打包让 uninstaller 同步签名（tauri windows 签名钩子
   `windows-certificate-thumbprint` 等 env 可用，届时按官方文档接）。
+
+### 6.6 端到端验证（真机，人工）
+
+- **deep link**：安装后运行 `start organize://note/<真实笔记id>`（PowerShell）/
+  `open "organize://note/<id>"`（macOS），应用应唤起主窗并直达笔记详情；
+  应用已在运行时二次调起走 single-instance 转发（热启动）。冷启动调起 =
+  应用未运行时点击链接。注意：Windows **dev 模式**（tauri dev）注册 scheme
+  需要管理员权限或先装一次安装包由 NSIS 写注册表；`organize://` 之外任意
+  host/id 组合应被白名单拒绝（Rust 单测钉住）。
+- **自动更新**：配置签名 secret（§6.2）后，用已安装的低版本打新 tag 发版 →
+  启动壳等 15s 首查（或等 4h 定时查）→ toast「发现新版本」→ 后台安装 →
+  「立即重启」→ 版本升级。draft Release 不会触发端内更新（updater 端点只解析
+  最新**公开** Release），这是分发门的一部分。
+- **通知兜底**：造一个 15 分钟内到期的任务 → 壳内最多等 5 分钟（轮询周期）→
+  系统通知「任务即将到期/开始」。同一任务同一锚点只响一次（task_id+anchor
+  去重）；壳内不订阅 Web Push（sw-registrar 平台门），与 Web 端 Push 不会双响。
+
+### 6.7 已知限制
+
+- `tauri.conf.json` / `capabilities/*.json` **不支持 JSONC 注释**（tauri-build 的
+  serde 解析直接报错），维护说明写在 `description` 字段或本 runbook。
+- tauri-action 的包管理器探测在 projectPath 下找 lockfile（本仓库 lockfile 在
+  根目录），必须显式 `tauriScript: "pnpm exec tauri"`，否则回退 `npm run tauri`
+  构建失败。
+- desktop-release.yml 的 run 步骤已 workflow 级钉 `shell: bash`（windows-latest
+  默认 PowerShell）。
+- 未做 Authenticode 签名前 SmartScreen 弹提示（§6.5）；updater 的 ed25519
+  签名只保证更新包完整性，不改变 SmartScreen 行为。

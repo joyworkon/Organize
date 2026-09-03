@@ -68,25 +68,25 @@
 
 ### 3.1 M1-本机可跑（预计 1 周，前置：装 Rust）
 
-- [x] 安装 rustup + MSVC toolchain（Windows）或 Rust for macOS（开发机交叉验证用 `cargo check`），解锁条件达成后从 roadmap X2 摘除阻塞标记。（2026-08-28：macOS 侧 rustc/cargo 1.98 已就绪，`cargo check` 一次通过；Windows MSVC 待装机出包时处理）
+- [x] 安装 rustup + MSVC toolchain（Windows）或 Rust for macOS（开发机交叉验证用 `cargo check`），解锁条件达成后从 roadmap X2 摘除阻塞标记。（2026-08-28：macOS 侧 rustc/cargo 1.98 已就绪，`cargo check` 一次通过；Windows MSVC 由 GitHub Actions windows-latest runner 承担）
 - [ ] `pnpm --filter @organize/desktop dev` 验证：壳内加载本地 dev server，登录 → 冒烟清单 M0-4 全过。（未执行：需要 GUI 会话；M1 已用 `cargo check` + 代码审查代替，GUI 冒烟顺延）
-- [ ] 验证 `frontendDist`（远程 URL）构建产物 `tauri build` 可出 `.msi`/.exe（NSIS），本机安装自测。
+- [x] 验证 `frontendDist`（远程 URL）构建产物 `tauri build` 可出 `.msi`/.exe（NSIS）。（2026-09-03：CI 侧已验证——desktop.yml master 构建与 desktop-release.yml 测试 tag 均产出 NSIS；本机安装自测归入 M3 真机冒烟）
 - [x] 确认 `quick-save` 前端监听链路：编辑器或全局注册 `listen("quick-save")` → 打开快速保存弹层（若前端无监听则补，位置：`apps/web` 新增 `components/desktop/quick-save.tsx`，仅在 Tauri 环境动态注册——用 `window.__TAURI_INTERNALS__` 存在性判断）。（2026-08-28 完成：顺带修复 `main.rs` 只挂 handler、未 `with_shortcuts` 注册快捷键导致事件永不触发的 bug；桥接经 window CustomEvent 复用 QuickAdd 面板，`@tauri-apps/api` 动态 import，非 Tauri 环境零加载）
 
-### 3.2 M2-桌面体验补齐（1–2 周）
+### 3.2 M2-桌面体验补齐 ✅（2026-09-03 全部落地）
 
-- [ ] **系统托盘**（tray-icon feature 已开，代码未写）：`main.rs` 补 tray 菜单（显示主窗/快速保存/退出）；关窗默认最小化到托盘而非退出（`on_window_event` 拦截 CloseRequested）。
-- [ ] **通知**：WebView2 支持 SW Web Push → 优先沿用现有 Web Push（M0-3 验证）；若 WebView 后台被挂起导致推送丢失，兜底方案为 Tauri 侧轻轮询 `/api/cron/task-reminders` 同源接口（新增 `/api/tasks/due-soon` 返回当前用户 15 分钟内到期任务），经 `tauri_plugin_notification` 弹系统通知。两条路径都以真机「锁屏 30 分钟后收到提醒」为验收。
-- [ ] **自动更新**：接入 tauri-plugin-updater（签名密钥 `tauri signer generate`，更新清单放 GitHub Releases / 自托管 JSON），发布节奏与版本号对齐 `package.json` 0.1.0 → 0.2.0。
-- [ ] **Deep link**：tauri-plugin-deep-link 注册 `organize://` scheme（`organize://note/<id>`、`organize://task/<id>`），为后续分享/外链跳转预留；登录回调若使用 OAuth 也走此通道。
-- [ ] **CSP**：`tauri.conf.json` 的 `csp: null` 收紧为允许自域名 + Supabase 域名的最小策略。
+- [x] **系统托盘**：`main.rs` 托盘菜单（显示主窗/打开速记/退出）+ 关窗驻留（`CloseRequested` → hide）。（2026-09-01 随 ADR 0004 落地，macOS 真机验证）
+- [x] **通知兜底**：新增 `/api/tasks/due-soon`（用户态 RLS，未来 15 分钟内到期/开始的未完成任务 `{task_id,title,anchor}`，vitest 覆盖）+ `components/desktop/reminder-poller.tsx`（仅 tauri，5 分钟轮询，`task_id+anchor` 本地 Set 去重 → `getNotifier().notify()`）；tauri 平台不注册 SW Web Push（`sw-registrar` 平台门）+ 壳内从不订阅 Push（`use-notifications` 仅 web 平台订阅）避免双响。Web Push 仍是主路径。（2026-09-03；「锁屏 30 分钟收到提醒」真机验收归 M3 人工项）
+- [x] **自动更新**：tauri-plugin-updater + tauri-plugin-process（`main.rs` 注册，capabilities `updater:default` / `process:allow-restart`）；ed25519 签名密钥已本地生成（公钥入 `tauri.conf.json`，私钥 gitignored 且只经 `gh secret` 人工入 CI）；`desktop-release.yml` 在有签名密钥时产出 `.sig` + `latest.json`（缺失时跳过签名不失败）；前端 `components/desktop/updater.tsx` 启动 + 每 4h check → toast → downloadAndInstall → relaunch。（2026-09-03；端到端真机升级验收归 M3，前置是配置签名 secret + 公开 Release）
+- [x] **Deep link**：tauri-plugin-deep-link 注册 `organize://`（`organize://note/<id>`、`organize://task/<id>`），tauri-plugin-single-instance 处理二次启动转发；Rust 侧白名单解析（id 限字母数字+连字符，单测覆盖）复用既有 `navigate` 事件通道与前端 `sanitizeNavigatePath`，冷启动（`get_current` + 分段重试 emit）与热启动都接通。（2026-09-03；登录 OAuth 回调走此通道为后续可选）
+- [x] **CSP**：`tauri.conf.json` 的 `csp: null` 收紧为覆盖本地内置内容的最小策略（远程页 CSP 由 Next.js 服务端头负责）；`capabilities` 的 `remote.urls` 拆 dev/prod 结构并与 `frontendDist` 同步维护（上线三处一起切，见 deploy-runbook §6.4）。（2026-09-03）
 
 ### 3.3 M3-Windows 发布（1 周 + 商店审核）
 
-- [ ] **代码签名**：购买 OV 代码签名证书（个人项目可用 self-signed + SmartScreen 提示过渡，但要在 README 说明），NSIS 安装包签名；签名是 SmartScreen 拦截的主因，不签则首装体验差。
-- [ ] 构建机：GitHub Actions `windows-latest` runner + tauri-action，tag `desktop-v*` 触发，产物挂 Release。
-- [ ] 分发：直接下载（首选）+ 可选提审 Microsoft Store（MSIX 打包，非阻塞项）。
-- [ ] 验收 = 冒烟清单 M0-4 在 Windows 10/11 实机全绿 + 托盘/快捷键/更新/通知四项专项。
+- [ ] **代码签名**：OV 代码签名证书采购为人工项（updater 的 ed25519 签名链路已就绪，不覆盖安装包 Authenticode）；NSIS 安装包签名步骤在 desktop-release.yml 预留（runbook §6.5）。不签名则 SmartScreen 拦截，首装体验差，需下载页说明。
+- [x] 构建机：`.github/workflows/desktop-release.yml`（tag `desktop-v*` 触发，windows-latest + tauri-action），产物挂 GitHub Release。（2026-09-03：测试 tag `desktop-v0.2.0-rc.*` 全链验证通过。**分发门**：repo variable `WEB_PROD_URL` 未设置 / `frontendDist` 仍为占位域名 / 两处不一致时，Release 只建 draft+prerelease 并打警告，不发布 public latest.json——生产域名落地前产物不得公开分发是硬门）
+- [ ] 分发：直接下载（首选，待生产域名就绪后把 draft 翻 public）+ 可选提审 Microsoft Store（MSIX 打包，非阻塞项）。
+- [ ] 验收 = 冒烟清单 M0-4 在 Windows 10/11 实机全绿 + 托盘/快捷键/更新/通知四项专项（人工项）。
 
 ---
 

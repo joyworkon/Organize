@@ -360,6 +360,12 @@ const restoreBackup: MockHandler = ({ body }) => {
   return { body: { success: true, counts } };
 };
 
+// ---- 任务到期兜底（桌面壳轮询用）----
+
+// mockDb 无时间推演语义（任务 schedule 不随真实时钟流动），返回空列表，
+// 轮询方按「本周期无提醒」消费即可
+const listDueSoonTasks: MockHandler = () => ({ body: [] });
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -377,6 +383,7 @@ const ROUTES: MockRoute[] = [
   { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
   { method: "PATCH", pattern: /^\/api\/memos\/([^/]+)$/, handler: patchMemo },
   { method: "DELETE", pattern: /^\/api\/memos\/([^/]+)$/, handler: deleteMemo },
+  { method: "GET", pattern: /^\/api\/tasks\/due-soon$/, handler: listDueSoonTasks },
   { method: "POST", pattern: /^\/api\/backup\/restore$/, handler: restoreBackup },
 ];
 

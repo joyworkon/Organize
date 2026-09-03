@@ -60,7 +60,30 @@ ROADMAP P4-01 要求桌面端先做有时限的真机验证、结论写成 ADR�
 
 ## 后续
 
-- 生产部署 URL 就绪后：改 `frontendDist` + `remote.urls`，评估 tauri-plugin-
-  updater 自动更新与 deep link（multi-platform-plan §3 M2 清单）。
+- ~~生产部署 URL 就绪后：改 `frontendDist` + `remote.urls`~~（切换步骤已固化在
+  `docs/deploy-runbook.md` §6.4；当前仍为占位域名，desktop-release.yml 分发门
+  强制 draft，公开分发前必须人工完成三处切换）。
+- ~~评估 tauri-plugin-updater 自动更新与 deep link~~（✅ 2026-09-03 落地，见修订段；
+  multi-platform-plan §3 M2 清单全部勾销）。
 - 刘海激发器（hover 弹出速记面板）按 `docs/notch-trigger-plan.md` 推进，
   原型讨论后再实现。
+
+## 修订（2026-09-03）：Windows 发布链路 + M2 能力全量
+
+1. **发布链路**：`.github/workflows/desktop-release.yml`（tag `desktop-v*`）在
+   windows-latest 用 tauri-action 出 NSIS；**分发门**（publish 作业）判定
+   `WEB_PROD_URL` 变量、`frontendDist` 占位域名与两者一致性，未就绪一律
+   draft + prerelease——本 ADR 决策 3「产物不得分发」由 CI 强制执行，
+   不再依赖人工自觉。
+2. **自动更新**：tauri-plugin-updater/process 已接入，端点指 Release 的
+   `latest.json`；ed25519 密钥对已生成——**公钥入库**（tauri.conf.json）、
+   **私钥只在本地** `desktop/src-tauri/keys/`（gitignored，`*.key` 全局排除），
+   经 `gh secret set TAURI_SIGNING_PRIVATE_KEY`（+`_PASSWORD`，当前空口令）
+   人工配置；密钥缺失时发布管线跳过签名而非失败。
+3. **Deep link**：`organize://note/<id>`、`organize://task/<id>`，Rust 侧白名单
+   解析（单测钉住）后仍走本 ADR 决策 2 的 `navigate` 事件通道，前端
+   `sanitizeNavigatePath` 二次校验——导航事实源未新增。single-instance 把
+   二次启动转发首实例并唤起主窗，与关窗驻留（决策 2）配套。
+4. **已知坑 2 补充**：三处同步（`frontendDist` / `remote.urls` / Auth 回调白名单）
+   之外，desktop-release.yml 的 `WEB_PROD_URL` 变量是第四处，四者一致分发门
+   才放行。
