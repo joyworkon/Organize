@@ -1127,7 +1127,7 @@ Windows 桌面发布版（multi-platform-plan §3 / ADR 0004 修订段）：
   冷启动 `get_current` + 分段重试 emit（2s/5s/10s，防前端未监听丢事件），热启动
   单次 emit，前端零新增桥；capabilities remote.urls 拆 dev/prod；csp null →
   本地内置内容最小策略。
-- **PR #221**（W5+W6）：`/api/tasks/due-soon`（用户态 RLS，15 分钟窗口
+- **PR #222**（W5+W6）：`/api/tasks/due-soon`（用户态 RLS，15 分钟窗口
   {task_id,title,anchor}，纯逻辑层 + mock 客户端路由级测试）；ReminderPoller
   （仅 tauri，5 分钟轮询，task_id+anchor 去重）；tauri 不注册 SW（sw-registrar
   平台门）防双响；api-shim 补 due-soon 空列表；四处文档回写。
