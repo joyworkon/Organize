@@ -29,13 +29,64 @@ fn global_shortcuts() -> Vec<&'static str> {
     vec!["CmdOrCtrl+Shift+S"]
 }
 
+/// deep link → 应用内路径（白名单两段式，复用前端既有 navigate 通道）：
+/// organize://note/<id> → /notes/<id>；organize://task/<id> → /tasks/<id>
+/// （路由段与 app/(main)/notes/[id]、app/(main)/tasks/[id] 一致）。
+/// id 只允许字母数字与连字符（UUID 形态），拒绝查询串/路径穿越/其余 host，
+/// 保证经 navigate 事件只能跳应用内详情页。
+fn deep_link_path(raw: &str) -> Option<String> {
+    let url = tauri::Url::parse(raw).ok()?;
+    if url.scheme() != "organize" {
+        return None;
+    }
+    let host = url.host_str()?;
+    let segment = url.path().trim_start_matches('/').split('/').next()?;
+    if segment.is_empty()
+        || segment.len() > 64
+        || !segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return None;
+    }
+    match host {
+        "note" => Some(format!("/notes/{segment}")),
+        "task" => Some(format!("/tasks/{segment}")),
+        _ => None,
+    }
+}
+
+/// 冷启动专用：webview 尚未加载、前端 NavigateBridge 未开始监听时直接 emit
+/// 会丢失事件。分段重试（2s/5s/10s）覆盖远程页面慢加载；Next 路由对相同
+/// 路径的重复 push 是 no-op，多次投递无害。热启动（应用已在跑）不走这里，
+/// single-instance 回调直接单次 emit。
+fn emit_navigate_cold_start<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path: String) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        for delay_ms in [2000, 5000, 10000] {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            let _ = handle.emit("navigate", &path);
+        }
+    });
+}
+
 fn main() {
     tauri::Builder::default()
+        // single-instance 必须最先注册（官方要求）：二次启动时把携带的
+        // organize:// URL 转发给首实例并唤起主窗（Windows 任务栏/开始菜单
+        // 再次点击、其他应用调起 deep link 都走这里）
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            show_main_window(app);
+            if let Some(path) = args.iter().rev().find_map(|arg| deep_link_path(arg)) {
+                let _ = app.emit("navigate", path);
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         // 自动更新（W2）：更新清单指 Release 的 latest.json，签名公钥在 tauri.conf.json；
         // 重启落盘由 process 插件的 relaunch 承担（前端 components/desktop/updater.tsx 驱动）
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // 全局快捷键只注册一次（Builder 上不再挂 global-shortcut 插件，重复注册会 panic）：
             // with_shortcuts 在插件 setup 时完成系统级注册（此前只挂 handler、
@@ -97,6 +148,15 @@ fn main() {
                 eprintln!("[notch] 初始化失败（忽略，不影响主功能）: {error}");
             }
 
+            // deep link 冷启动：进程首次启动即被 organize:// 唤起（首实例无二次
+            // 启动，single-instance 回调不会触发），走分段重试投递给前端
+            use tauri_plugin_deep_link::DeepLinkExt;
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                if let Some(path) = urls.iter().find_map(|url| deep_link_path(url.as_str())) {
+                    emit_navigate_cold_start(app.handle(), path);
+                }
+            }
+
             // 小窗创建可能把键窗口带偏到胶囊上（180×28 抢走键盘焦点），
             // 启动收尾把焦点还给主窗口
             #[cfg(target_os = "macos")]
@@ -132,4 +192,47 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deep_link_path;
+
+    #[test]
+    fn parses_note_and_task_to_app_paths() {
+        assert_eq!(
+            deep_link_path("organize://note/550e8400-e29b-41d4-a716-446655440000").as_deref(),
+            Some("/notes/550e8400-e29b-41d4-a716-446655440000")
+        );
+        assert_eq!(
+            deep_link_path("organize://task/abc-123").as_deref(),
+            Some("/tasks/abc-123")
+        );
+        // 查询串与多余段被丢弃，只保留首段 id
+        assert_eq!(
+            deep_link_path("organize://note/note-1?src=share").as_deref(),
+            Some("/notes/note-1")
+        );
+        assert_eq!(
+            deep_link_path("organize://task/t1/extra").as_deref(),
+            Some("/tasks/t1")
+        );
+    }
+
+    #[test]
+    fn rejects_schemes_hosts_and_unsafe_ids() {
+        // 非 organize scheme
+        assert!(deep_link_path("https://note/abc").is_none());
+        assert!(deep_link_path("http://organize/note/abc").is_none());
+        // 白名单外 host（不允许任意路径注入 navigate 通道）
+        assert!(deep_link_path("organize://settings/x").is_none());
+        assert!(deep_link_path("organize://evil/abc").is_none());
+        // 空 id / 路径穿越 / 特殊字符 / 超长
+        assert!(deep_link_path("organize://note/").is_none());
+        assert!(deep_link_path("organize://note/..%2Fsettings").is_none());
+        assert!(deep_link_path("organize://note/not%20safe").is_none());
+        assert!(deep_link_path(&format!("organize://note/{}", "a".repeat(65))).is_none());
+        // 非 UTF-8 解析失败的输入由 Url::parse 兜底拒绝
+        assert!(deep_link_path("not a url").is_none());
+    }
 }

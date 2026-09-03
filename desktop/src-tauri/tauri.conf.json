@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
     }
   },
   "bundle": {
@@ -44,6 +44,11 @@
       "endpoints": [
         "https://github.com/joyworkon/Organize/releases/latest/download/latest.json"
       ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["organize"]
+      }
     }
   }
 }
