@@ -257,6 +257,12 @@ describe("mock api shim", () => {
     expect(body.error).toContain("内容无效");
   });
 
+  it("任务到期兜底：mock 返回空列表（时间推演不在 mock 语义内）", async () => {
+    const { status, body } = await call("/api/tasks/due-soon");
+    expect(status).toBe(200);
+    expect(body).toEqual([]);
+  });
+
   it("未覆盖的 /api 接口返回 501，非 API 请求透传原始 fetch", async () => {
     const unmatched = await call("/api/ai/ask", { method: "POST", body: JSON.stringify({}) });
     expect(unmatched.status).toBe(501);

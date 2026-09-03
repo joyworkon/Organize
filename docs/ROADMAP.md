@@ -167,8 +167,15 @@
 > 托盘常驻 + 关窗驻留 + `navigate` 导航桥随卡落地；真机运行验证过
 > （渲染 / 鉴权重定向 / 托盘图标；交互项留人工一遍，见 ADR 0004）。
 > 刘海激发器（hover 弹速记面板）规划见 `docs/notch-trigger-plan.md`，原型讨论后实现。
-> 遗留：生产加载源（organize-web.vercel.app 被第三方占用，未解决前产物不得分发）、
-> Windows 真机冒烟、自动更新与 deep link（原 M2 清单）。
+> 遗留：生产加载源（organize-web.vercel.app 被第三方占用，未解决前产物不得分发，
+> 已由 desktop-release.yml 分发门 CI 强制）、Windows 真机冒烟
+> （自动更新与 deep link 已随 P4-04 落地）。
+
+### P4-04 Windows 可分发版 ✅（2026-09-03：代码/CI/文档全量落地，详见 PROGRESS.md）
+
+发布管线 + 桌面体验补齐（multi-platform-plan §3）：desktop-release.yml（tag
+`desktop-v*`，windows-latest tauri-action 出 NSIS + updater 产物，**分发门**：
+`WEB_PROD_URL`/`frontendDist` 未就绪一律 draft+prerelease）；updater/process/deep-link/single-instance 四插件接入（版本 0.2.0）；`organize://note|task/<id>` 白名单解析复用 navigate 通道（Rust 单测）；`/api/tasks/due-soon` + 5 分钟轮询的本地通知兜底（tauri 不订阅 Web Push 防双响）；CSP 收紧 + remote.urls 拆 dev/prod；updater ed25519 公钥入库、私钥 gitignored 走人工 secret。**人工项**：配 `TAURI_SIGNING_PRIVATE_KEY(+_PASSWORD)` secret、生产 Web 上线并设 `WEB_PROD_URL`、四处域名切换、OV 证书采购与 Authenticode 签名、Windows 真机冒烟（含托盘/快捷键/更新/通知四专项）。
 
 ### P4-02 Android 可分发版
 

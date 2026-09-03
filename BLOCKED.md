@@ -298,3 +298,22 @@ test 48/408、typecheck 0、build ✓、db test 30/30、migration 001-033、git 
 
 ## 无（越界项）
 无。
+
+## Windows 桌面发布版（W1–W6，已完成，2026-09-03）
+无阻塞。上线待办是人工项不是阻塞：配签名 secret、生产 Web 上线 + `WEB_PROD_URL`、
+四处域名切换、OV 证书、真机冒烟（见 deploy-runbook §6.4/§6.5 与交付说明）。
+声明归档（违反会重新打开本卡的坑）：
+1. **分发门是硬门**：`WEB_PROD_URL` 未设 / frontendDist 仍是占位域名
+   （organize-web.vercel.app 被第三方占用）/ 两处不一致 → Release 永远
+   draft+prerelease。不要为了「发出去」绕过 publish 作业的三条件判定。
+2. **私钥永不入库**：updater ed25519 私钥只在本地 `desktop/src-tauri/keys/`
+   （gitignored `*.key` + `keys/`）；CI 只认 `gh secret set`。丢了 = 既有安装
+   无法再发更新，需离线备份。
+3. **tauri 系 JSON 配置不吃注释**（tauri-build serde 直解），说明写 description
+   字段或 runbook；改 `frontendDist` 必须同步 `remote.urls`（ADR 0004 坑 2）。
+4. **发布工作流两坑已修**：windows run 步骤默认 PowerShell（workflow 级钉 bash）；
+   tauri-action 包管理器探测在 projectPath 下找不到 pnpm lockfile 会回退 npm
+   （显式 `tauriScript: pnpm exec tauri`）。新增发布类步骤先想 shell 环境。
+5. **双响防线别拆**：tauri 平台不注册 SW（sw-registrar 门）+ 壳内不订阅 Web Push
+   （use-notifications 仅 web 订阅）+ poller 本地 task_id+anchor 去重，三道锁
+   共同保证 Web Push 与本地轮询不同时响。

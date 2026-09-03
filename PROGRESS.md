@@ -1104,3 +1104,34 @@ lib/supabase/mock-data.ts 加 task_lists（工作/学习/生活默认清单）+ 
   verify（tsc + vitest 112/819 + build + 审计门禁）全过
 - 说明：三轮失败均为测试载荷形状问题，产品代码（迁移/RPC/合同/重映射）零缺陷
   返工；合并 PR #179
+
+### P4-04 交付态（2026-09-03）
+
+Windows 桌面发布版（multi-platform-plan §3 / ADR 0004 修订段）：
+
+- **PR #217**（W1+W2）：desktop-release.yml（tag `desktop-v*` → windows-latest
+  tauri-action 出 NSIS；签名密钥缺失经 `--config` 覆盖关闭 updater 产物=跳过签名
+  不失败；publish 分发门：`WEB_PROD_URL` 未设 / frontendDist 占位 / 两处不一致 →
+  仅 draft+prerelease+警告）；updater+process 插件（公钥入 tauri.conf.json，
+  endpoints 指 Releases latest.json；capabilities `updater:default` +
+  `process:allow-restart`）；UpdaterBridge（启动 15s + 每 4h check → toast →
+  downloadAndInstall → relaunch）；私钥 `desktop/src-tauri/keys/tauri.key` 本地
+  生成且 gitignored（`*.key` + `keys/`，check-ignore 验证）；版本 0.1.0→0.2.0；
+  runbook §6 Windows 发布章节。
+- **PR #218 / #220**（发布链修复）：windows run 步骤钉 bash（默认 PowerShell 解析
+  不了 bash 语法）；tauri-action 显式 `tauriScript: pnpm exec tauri`（desktop/ 下
+  无 lockfile，探测回退 npm 必炸）。
+- **PR #219**（W3+W4）：deep-link + single-instance（最先注册，二次启动转发 URL
+  + show 主窗）；`deep_link_path` 白名单解析（note→/notes/<id>、task→/tasks/<id>，
+  id 限字母数字+连字符 ≤64，拒其他 scheme/host/穿越/编码字符，Rust 单测 ×2）；
+  冷启动 `get_current` + 分段重试 emit（2s/5s/10s，防前端未监听丢事件），热启动
+  单次 emit，前端零新增桥；capabilities remote.urls 拆 dev/prod；csp null →
+  本地内置内容最小策略。
+- **PR #221**（W5+W6）：`/api/tasks/due-soon`（用户态 RLS，15 分钟窗口
+  {task_id,title,anchor}，纯逻辑层 + mock 客户端路由级测试）；ReminderPoller
+  （仅 tauri，5 分钟轮询，task_id+anchor 去重）；tauri 不注册 SW（sw-registrar
+  平台门）防双响；api-shim 补 due-soon 空列表；四处文档回写。
+- **验证**：每个 PR 本地 tsc + vitest（940→951 用例）+ next lint 零警告全绿；
+  cargo check --all-targets + cargo test（macOS）；PR 级 windows-latest cargo
+  check 兜底绿；测试 tag `desktop-v0.2.0-rc.*` 验证发布链（rc.1 教训=shell、
+  rc.2 教训=tauriScript、rc.3 起全链通过，产物 draft=分发门生效）。
