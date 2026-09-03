@@ -19,6 +19,11 @@ on:
 permissions:
   contents: write
 
+# windows-latest 的 run 步骤默认 PowerShell，统一钉 bash（含门控判定/发布脚本）
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build NSIS (windows-latest)
