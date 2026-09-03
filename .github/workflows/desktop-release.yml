@@ -46,17 +46,27 @@ jobs:
       - name: 安装 desktop 依赖（tauri CLI）
         run: pnpm install --filter @organize/desktop
 
-      # 签名密钥缺失 → 关闭 createUpdaterArtifacts（无密钥时 bundler 会直接失败），
-      # 即「跳过签名而非整体失败」；密钥存在 → 产出 .sig 签名产物。
-      # 注意覆盖 JSON 不含空格（tauri-action 按空格切分 args）。
+      # 签名密钥缺失 → 不开 createUpdaterArtifacts（bundler 在无密钥时尝试签名
+      # 会直接失败），即「跳过签名而非整体失败」；密钥存在 → 开启 updater 产物
+      # 并注入签名 env。注意：空字符串 env ≠ 未设置——bundler 拿空串解密必炸，
+      # 所以签名 env 只在密钥存在时经 GITHUB_ENV 注入。
+      # 覆盖 JSON 不含空格（tauri-action 按空格切分 args）。
       - name: 判定 updater 签名密钥
         id: signing
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+          if [ -n "$KEY" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
             echo 'args=--config {"bundle":{"createUpdaterArtifacts":true}}' >> "$GITHUB_OUTPUT"
+            KEY="$(printf '%s' "$KEY" | tr -d '\r')"   # 规整：命令替换去尾部换行
+            {
+              echo 'TAURI_SIGNING_PRIVATE_KEY<<KEY_EOF'
+              printf '%s\n' "$KEY"
+              echo 'KEY_EOF'
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$PASSWORD"
+            } >> "$GITHUB_ENV"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo 'args=' >> "$GITHUB_OUTPUT"
@@ -67,8 +77,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           # pnpm 的 lockfile 在仓库根，tauri-action 在 projectPath 下探测不到会
