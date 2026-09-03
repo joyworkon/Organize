@@ -32,6 +32,10 @@ fn global_shortcuts() -> Vec<&'static str> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // 自动更新（W2）：更新清单指 Release 的 latest.json，签名公钥在 tauri.conf.json；
+        // 重启落盘由 process 插件的 relaunch 承担（前端 components/desktop/updater.tsx 驱动）
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // 全局快捷键只注册一次（Builder 上不再挂 global-shortcut 插件，重复注册会 panic）：
             // with_shortcuts 在插件 setup 时完成系统级注册（此前只挂 handler、

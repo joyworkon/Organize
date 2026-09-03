@@ -15,6 +15,9 @@ dist/
 # misc
 .DS_Store
 *.pem
+# 加固：Tauri updater 签名私钥等一切 .key 一律不入库（公钥 .pub 才进仓库）
+*.key
+desktop/src-tauri/keys/
 
 # debug
 npm-debug.log*
