@@ -71,6 +71,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
+          # pnpm 的 lockfile 在仓库根，tauri-action 在 projectPath 下探测不到会
+          # 回退 npm run tauri（desktop 无 tauri script 必炸）；显式指到 pnpm CLI
+          tauriScript: "pnpm exec tauri"
           args: ${{ steps.signing.outputs.args }}
 
       - name: 上传构建产物
