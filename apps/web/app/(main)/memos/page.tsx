@@ -9,7 +9,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { parseMemoTags } from "@/lib/memos/tags";
-import { createNewNote } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Memo } from "@organize/shared";
@@ -54,6 +53,42 @@ export default function MemosPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  // R11：速记 → 关联笔记状态（memo_notes join notes 含软删，用于状态展示）
+  const [conversions, setConversions] = useState<
+    Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>
+  >(new Map());
+
+  const loadConversions = useCallback(async () => {
+    try {
+      // 两次普通查询（不依赖关联嵌入 select；mock 与真实后端行为一致）
+      const { data: links } = await supabase
+        .from("memo_notes")
+        .select("memo_id, note_id");
+      const noteIds = ((links || []) as Array<{ note_id: string }>).map((l) => l.note_id);
+      const notesById = new Map<string, { title: string | null; deleted_at: string | null }>();
+      if (noteIds.length > 0) {
+        const { data: linkedNotes } = await supabase
+          .from("notes")
+          .select("id, title, deleted_at")
+          .in("id", noteIds);
+        for (const n of (linkedNotes || []) as Array<{ id: string; title: string | null; deleted_at: string | null }>) {
+          notesById.set(n.id, { title: n.title, deleted_at: n.deleted_at });
+        }
+      }
+      const next = new Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>();
+      for (const link of (links || []) as Array<{ memo_id: string; note_id: string }>) {
+        const note = notesById.get(link.note_id);
+        next.set(link.memo_id, {
+          noteId: link.note_id,
+          noteTitle: note?.title ?? null,
+          noteDeleted: note?.deleted_at != null,
+        });
+      }
+      setConversions(next);
+    } catch (e) {
+      console.error("[loadConversions]", e);
+    }
+  }, [supabase]);
 
   const fetchMemos = useCallback(async () => {
     setLoading(true);
@@ -69,7 +104,8 @@ export default function MemosPage() {
 
   useEffect(() => {
     fetchMemos();
-  }, [fetchMemos]);
+    void loadConversions();
+  }, [fetchMemos, loadConversions]);
 
   const tagCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -153,30 +189,30 @@ export default function MemosPage() {
     }
   };
 
-  // 转为笔记：新建笔记后把速记内容写成正文段落，跳转到编辑页继续加工
+  // R11 转为笔记：服务端单事务（笔记+关联+标签映射），幂等——已转换过=打开既有笔记
   const handleConvert = async (memo: Memo) => {
     if (convertingId) return;
     setConvertingId(memo.id);
     try {
-      const note = await createNewNote(supabase);
-      if (!note) {
-        toast({ title: "请先登录", variant: "destructive" });
+      const { data: rpcData, error: rpcError } = await supabase.rpc("convert_memo_to_note", {
+        p_memo_id: memo.id,
+      });
+      if (rpcError) throw rpcError;
+      const result = rpcData as { status?: string; note_id?: string } | null;
+      if (result?.status === "not_found") {
+        toast({ title: "速记不存在或已删除", variant: "destructive" });
         return;
       }
-      const paragraphs = memo.content
-        .split(/\n+/)
-        .filter(Boolean)
-        .map((line) => ({ type: "paragraph", content: [{ type: "text", text: line }] }));
-      const { error } = await supabase
-        .from("notes")
-        .update({
-          content: { type: "doc", content: paragraphs.length > 0 ? paragraphs : [{ type: "paragraph" }] },
-        })
-        .eq("id", note.id);
-      if (error) throw error;
+      if (!result?.note_id) {
+        toast({ title: "转为笔记失败", variant: "destructive" });
+        return;
+      }
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-      toast({ title: "已转为笔记，速记保留原处" });
-      router.push(`/notes/${note.id}`);
+      toast({
+        title: result.status === "exists" ? "已打开关联笔记" : "已转为笔记，速记保留原处",
+      });
+      void loadConversions();
+      router.push(`/notes/${result.note_id}`);
     } catch (error) {
       toast({
         title: "转为笔记失败",
@@ -324,22 +360,53 @@ export default function MemosPage() {
                               minute: "2-digit",
                             })}
                           </span>
-                          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 gap-1 px-2 text-xs"
-                              onClick={() => void handleConvert(memo)}
-                              disabled={convertingId === memo.id}
-                              title="转为笔记"
-                            >
-                              {convertingId === memo.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <FileText className="h-3 w-3" />
-                              )}
-                              转为笔记
-                            </Button>
+                          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            {(() => {
+                              const conversion = conversions.get(memo.id);
+                              // R11：已关联笔记软删除 → 显示状态（恢复走垃圾箱；不默默当没转换过）
+                              if (conversion?.noteDeleted) {
+                                return (
+                                  <span
+                                    className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed px-2 text-xs text-muted-foreground"
+                                    title="关联笔记已移入垃圾箱，可在垃圾箱恢复"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    关联笔记已删除
+                                  </span>
+                                );
+                              }
+                              if (conversion) {
+                                return (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-xs"
+                                    onClick={() => router.push(`/notes/${conversion.noteId}`)}
+                                    title="打开关联笔记"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    打开笔记
+                                  </Button>
+                                );
+                              }
+                              return (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 px-2 text-xs"
+                                  onClick={() => void handleConvert(memo)}
+                                  disabled={convertingId === memo.id}
+                                  title="转为笔记"
+                                >
+                                  {convertingId === memo.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <FileText className="h-3 w-3" />
+                                  )}
+                                  转为笔记
+                                </Button>
+                              );
+                            })()}
                             <Button
                               variant="ghost"
                               size="icon"
