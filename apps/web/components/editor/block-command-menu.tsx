@@ -5,14 +5,11 @@ import { Puzzle, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createEditorBridge } from "@/lib/plugin/editor-bridge";
 import { slashCommandRegistry } from "@/lib/plugin/slash-commands";
-import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
+import { BLOCK_COMMANDS, commandMatches, executeNestedCommand, isCommandAvailableInContext } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
 import { resolveTriggerDeleteRange } from "./slash-trigger";
-import type { BlockCommandDefinition } from "./types";
+import type { BlockCommandDefinition, BlockCommandContext } from "./types";
 import type { EditorMenuPoint } from "./types";
-
-// 不允许在嵌套块（表格/列表/分栏内）使用的命令
-const NESTED_BLOCKED_COMMANDS = new Set(["table", "page", "ai-notes", "columns-2", "columns-3", "columns-4", "columns-5"]);
 
 export function BlockCommandMenu({
   editor,
@@ -45,11 +42,10 @@ export function BlockCommandMenu({
     () => []
   );
 
-  // 嵌套场景下过滤掉不适用的命令；插件命令需要顶层块位置语义，嵌套场景不提供
+  // 可用性由命令定义的 supportedContexts 统一判定（R06）：
+  // 嵌套菜单只显示在嵌套上下文有真实执行路径的命令；插件命令需要顶层块位置语义
   const availableCommands = useMemo<BlockCommandDefinition[]>(() => {
-    const builtin = nested
-      ? BLOCK_COMMANDS.filter((cmd) => !NESTED_BLOCKED_COMMANDS.has(cmd.id))
-      : BLOCK_COMMANDS;
+    const builtin = BLOCK_COMMANDS.filter((cmd) => isCommandAvailableInContext(cmd, nested));
     if (nested || pluginSlashCommands.length === 0) return builtin;
     const pluginCommands: BlockCommandDefinition[] = pluginSlashCommands.map((entry) => ({
       id: entry.id,
@@ -58,6 +54,7 @@ export function BlockCommandMenu({
       category: "插件",
       icon: Puzzle,
       keywords: entry.command.keywords ?? [],
+      supportedContexts: ["top"] as const,
       run: (editor, pos) => {
         const bridge = createEditorBridge(editor, pos);
         return entry.command.handler(bridge, entry.ctx);
@@ -115,8 +112,13 @@ export function BlockCommandMenu({
     if (!command) return;
 
     if (nested && range) {
-      // 嵌套场景：在一个 chain 中删除触发文本并插入内容
-      executeNestedCommand(editor, command.id, range);
+      // 嵌套场景：只有能真实处理的命令才消费触发字符（R06 一致性约定）；
+      // unsupported 时不动文档——"/" 与已输入字符保留，用户可继续编辑
+      const result = executeNestedCommand(editor, command.id, range);
+      if (result !== "handled") {
+        onClose();
+        return;
+      }
     } else {
       clearTriggerText();
       command.run(editor, pos);
@@ -188,122 +190,3 @@ export function BlockCommandMenu({
   );
 }
 
-// 在嵌套场景（如表格单元格内）执行命令：在一个 chain 中删除触发文本并插入内容
-function executeNestedCommand(editor: Editor, commandId: string, range: { from: number; to: number }) {
-  // 对于 emit 类命令，派发事件让编辑器处理（事件处理器会负责删除 range 和插入内容）
-  const emitCommands = ["image", "html", "math", "reference"];
-  if (emitCommands.includes(commandId)) {
-    editor.view.dom.dispatchEvent(
-      new CustomEvent("organize-editor-action", {
-        bubbles: true,
-        detail: {
-          type: commandId,
-          pos: range.from,
-          nested: true,
-          range,
-        },
-      })
-    );
-    return;
-  }
-
-  // 直接插入内容的命令：先删除触发文本，再在当前光标位置插入内容
-  // （deleteRange 后光标自动定位到删除位置，使用 insertContent 比 insertContentAt 更安全）
-  let chain = editor.chain().focus().deleteRange(range);
-
-  switch (commandId) {
-    case "paragraph":
-      chain = chain.insertContent({ type: "paragraph", content: [] });
-      break;
-    case "heading-1":
-      chain = chain.insertContent({ type: "heading", attrs: { level: 1 }, content: [] });
-      break;
-    case "heading-2":
-      chain = chain.insertContent({ type: "heading", attrs: { level: 2 }, content: [] });
-      break;
-    case "heading-3":
-      chain = chain.insertContent({ type: "heading", attrs: { level: 3 }, content: [] });
-      break;
-    case "heading-4":
-      chain = chain.insertContent({ type: "heading", attrs: { level: 4 }, content: [] });
-      break;
-    case "bullet-list":
-      chain = chain.insertContent({
-        type: "bulletList",
-        content: [{ type: "listItem", content: [{ type: "paragraph", content: [] }] }],
-      });
-      break;
-    case "ordered-list":
-      chain = chain.insertContent({
-        type: "orderedList",
-        content: [{ type: "listItem", content: [{ type: "paragraph", content: [] }] }],
-      });
-      break;
-    case "task-list":
-      chain = chain.insertContent({
-        type: "taskList",
-        content: [{ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] }],
-      });
-      break;
-    case "details":
-      chain = chain.insertContent({
-        type: "details",
-        content: [
-          { type: "detailsSummary", content: [] },
-          { type: "detailsContent", content: [{ type: "paragraph" }] },
-        ],
-      });
-      break;
-    case "quote":
-      chain = chain.insertContent({ type: "blockquote", content: [{ type: "paragraph" }] });
-      break;
-    case "code":
-      chain = chain.insertContent({ type: "codeBlock", content: [] });
-      break;
-    case "callout":
-      chain = chain.insertContent({ type: "callout", attrs: { emoji: "💡" }, content: [{ type: "paragraph" }] });
-      break;
-    case "toggle-heading-1":
-      chain = chain.insertContent({
-        type: "details",
-        content: [
-          { type: "detailsSummary", attrs: { level: 1 }, content: [] },
-          { type: "detailsContent", content: [{ type: "paragraph" }] },
-        ],
-      });
-      break;
-    case "toggle-heading-2":
-      chain = chain.insertContent({
-        type: "details",
-        content: [
-          { type: "detailsSummary", attrs: { level: 2 }, content: [] },
-          { type: "detailsContent", content: [{ type: "paragraph" }] },
-        ],
-      });
-      break;
-    case "toggle-heading-3":
-      chain = chain.insertContent({
-        type: "details",
-        content: [
-          { type: "detailsSummary", attrs: { level: 3 }, content: [] },
-          { type: "detailsContent", content: [{ type: "paragraph" }] },
-        ],
-      });
-      break;
-    case "toggle-heading-4":
-      chain = chain.insertContent({
-        type: "details",
-        content: [
-          { type: "detailsSummary", attrs: { level: 4 }, content: [] },
-          { type: "detailsContent", content: [{ type: "paragraph" }] },
-        ],
-      });
-      break;
-    case "divider":
-      chain = chain.insertContent({ type: "horizontalRule" });
-      break;
-    default:
-      break;
-  }
-  chain.run();
-}

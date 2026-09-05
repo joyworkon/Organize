@@ -35,9 +35,31 @@ import {
   Repeat2,
   Database as DatabaseIcon,
 } from "lucide-react";
-import type { BlockCommandDefinition } from "./types";
+import type { BlockCommandContext, BlockCommandDefinition, BlockCommandRunResult } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
 import { normalizeColumnCount, normalizeColumnWidths } from "./extensions/columns";
+
+/**
+ * 命令上下文能力（R06）：
+ * - 每个命令要么在嵌套上下文有真实执行路径（executeNestedCommand 的 insert 分支或
+ *   嵌套 emit 路径），要么标注 TOP_ONLY_CONTEXTS 由 resolver 从嵌套菜单隐藏。
+ * - 禁止「菜单里显示了、执行时删掉 / 却什么都不做」——新增嵌套能力时必须同时补
+ *   executeNestedCommand 分支与本表。
+ * 顶层（top）全部命令都支持。
+ */
+const TOP_ONLY_CONTEXTS: readonly BlockCommandContext[] = ["top"];
+export const ALL_CONTEXTS: readonly BlockCommandContext[] = ["top", "nested"];
+
+/** 嵌套上下文走 emit 事件路径的命令（由 tiptap-editor 的 organize-editor-action 处理器负责删除触发文本并插入） */
+export const NESTED_EMIT_COMMANDS = ["image", "html", "math", "reference"] as const;
+
+export function isCommandAvailableInContext(
+  command: Pick<BlockCommandDefinition, "supportedContexts">,
+  nested: boolean
+): boolean {
+  const contexts = command.supportedContexts ?? ALL_CONTEXTS;
+  return contexts.includes(nested ? "nested" : "top");
+}
 
 export function preserveBlockId(content: JSONContent, blockId: string): JSONContent {
   const visit = (candidate: JSONContent): { node: JSONContent; preserved: boolean } => {
@@ -236,6 +258,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "AI 速记",
     description: "录音、转写并整理成结构化笔记",
     category: "建议",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: Mic2,
     keywords: ["ai", "录音", "会议", "转写", "总结"],
     run: (editor, pos) => emit(editor, "ai-notes", pos),
@@ -277,6 +300,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     id: "page",
     label: "页面",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: FileText,
     keywords: ["page", "页面", "子页面", "子笔记"],
     canTransform: true,
@@ -418,6 +442,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "表格",
     description: "拖动选择行列数",
     category: "媒体",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: TableIcon,
     keywords: ["table", "表格"],
     run: (editor, pos) => emit(editor, "table", pos),
@@ -450,6 +475,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "目录",
     description: "自动列出当前页标题大纲，点击跳转",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: ListTree,
     keywords: ["toc", "table of contents", "outline", "目录", "大纲"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "tableOfContents", attrs: {} }),
@@ -459,6 +485,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "路径栏",
     description: "显示当前页的父级路径面包屑",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: Route,
     keywords: ["breadcrumb", "path", "crumb", "路径", "面包屑"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "breadcrumb", attrs: {} }),
@@ -468,6 +495,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "按钮",
     description: "点击执行动作（打开链接或插入预设内容）",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: MousePointerClick,
     keywords: ["button", "action", "按钮", "动作"],
     run: (editor, pos) => replaceBlock(editor, pos, { type: "buttonBlock", attrs: {} }),
@@ -477,6 +505,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "选项卡",
     description: "Tab 容器，多页签切换内容",
     category: "布局",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: PanelTop,
     keywords: ["tabs", "tab", "选项卡", "标签页"],
     canTransform: true,
@@ -499,6 +528,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "Mermaid 图表",
     description: "Mermaid 代码实时渲染图表",
     category: "媒体",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: GitGraph,
     keywords: ["mermaid", "diagram", "flowchart", "图表", "流程图"],
     canTransform: true,
@@ -514,6 +544,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "嵌入",
     description: "粘贴 URL 生成富预览（视频/地图/社媒）",
     category: "媒体",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: Link2,
     keywords: ["embed", "oembed", "link", "iframe", "嵌入", "视频", "链接"],
     run: (editor, pos) => {
@@ -527,6 +558,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "同步区块",
     description: "一处编辑、多处同步的引用块",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: Repeat2,
     keywords: ["synced", "sync", "同步", "引用块", "transclude"],
     run: (editor, pos) => emit(editor, "synced-block", pos),
@@ -536,6 +568,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "数据库（行内）",
     description: "在当前笔记嵌入一张可筛选/排序的数据表",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: DatabaseIcon,
     keywords: ["database", "db", "数据库", "表格", "表", "spreadsheet"],
     run: (editor, pos) => emit(editor, "database-inline", pos),
@@ -545,6 +578,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "数据库（整页）",
     description: "创建一个独立页面的数据库（用于书籍清单/项目追踪等）",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: TableIcon,
     keywords: ["database", "db", "数据库", "整页", "full-page", "base"],
     run: (editor, pos) => emit(editor, "database-page", pos),
@@ -554,6 +588,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     label: "链接的视图",
     description: "在当前位置嵌入已有数据库的另一个视图",
     category: "基本区块",
+    supportedContexts: TOP_ONLY_CONTEXTS,
     icon: DatabaseIcon,
     keywords: ["linked", "link", "视图", "链接", "embed", "嵌入", "database"],
     run: (editor, pos) => emit(editor, "database-linked", pos),
@@ -566,6 +601,8 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["columns", "column", "分栏", `${cols}列`],
     canTransform: true,
     preview: { sample: "▯".repeat(cols), caption: `${["两", "三", "四", "五"][cols - 2]}栏并排布局` },
+    // 分栏容器内容模型 column+，不允许嵌套在列表/单元格/另一组分栏内
+    supportedContexts: TOP_ONLY_CONTEXTS,
     run: (editor: Editor, pos: number) => replaceBlockWithColumns(editor, pos, cols),
   })),
 ];
@@ -577,4 +614,80 @@ export function commandMatches(command: BlockCommandDefinition, query: string) {
     .join(" ")
     .toLowerCase()
     .includes(normalized);
+}
+
+/**
+ * 嵌套上下文（列表/表格单元格/分栏内）的命令执行器（R06）：
+ * 在一个 chain 中删除触发文本并插入内容；返回统一结果——
+ * 只有 handled 才消费触发字符；unsupported 时不动文档（触发文本保留）。
+ * 与 BLOCK_COMMANDS 的 supportedContexts 必须一致（由 block-command-contexts.test.ts 固定）。
+ */
+export function executeNestedCommand(
+  editor: Editor,
+  commandId: string,
+  range: { from: number; to: number }
+): BlockCommandRunResult {
+  // emit 类命令：派发事件让编辑器处理（事件处理器负责删除 range 并插入内容）
+  if ((NESTED_EMIT_COMMANDS as readonly string[]).includes(commandId)) {
+    editor.view.dom.dispatchEvent(
+      new CustomEvent("organize-editor-action", {
+        bubbles: true,
+        detail: {
+          type: commandId,
+          pos: range.from,
+          nested: true,
+          range,
+        },
+      })
+    );
+    return "handled";
+  }
+
+  // 直接插入类命令的构造表：与顶层 run 使用完全相同的节点 JSON
+  const insertContentById = new Map<string, JSONContent>([
+    ["paragraph", { type: "paragraph", content: [] }],
+    ...([1, 2, 3, 4] as const).flatMap((level): Array<[string, JSONContent]> => [
+      [`heading-${level}`, { type: "heading", attrs: { level }, content: [] }],
+      [
+        `toggle-heading-${level}`,
+        {
+          type: "details",
+          content: [
+            { type: "detailsSummary", attrs: { level }, content: [] },
+            { type: "detailsContent", content: [{ type: "paragraph" }] },
+          ],
+        },
+      ],
+    ]),
+    ["bullet-list", listBlock("bulletList")],
+    ["ordered-list", listBlock("orderedList")],
+    [
+      "task-list",
+      {
+        type: "taskList",
+        content: [{ type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] }],
+      },
+    ],
+    [
+      "details",
+      {
+        type: "details",
+        content: [
+          { type: "detailsSummary", content: [] },
+          { type: "detailsContent", content: [{ type: "paragraph" }] },
+        ],
+      },
+    ],
+    ["quote", { type: "blockquote", content: [{ type: "paragraph", content: [] }] }],
+    ["code", { type: "codeBlock", content: [] }],
+    ["callout", { type: "callout", attrs: { emoji: "💡" }, content: [{ type: "paragraph" }] }],
+    ["divider", { type: "horizontalRule" }],
+  ]);
+
+  const content = insertContentById.get(commandId);
+  if (!content) return "unsupported";
+
+  // deleteRange 后光标落在删除位置，insertContent 在此插入
+  editor.chain().focus().deleteRange(range).insertContent(content).run();
+  return "handled";
 }

@@ -92,9 +92,32 @@
 - 回退办法：revert 本 PR；revision 列留存无害（旧代码不读写）；pending localStorage 键残留不影响。
 - 下一张可执行卡：R06。
 
+### R06 命令定义、显示和执行一致 — ✅ 已完成（PR #230）
+
+- 基线提交：44f00bc
+- 原问题与复现：嵌套菜单过滤用黑名单 `NESTED_BLOCKED_COMMANDS`（仅 8 项），但 `executeNestedCommand` 的 switch 只实现 16 项 insert + 4 项 emit——目录/路径栏/按钮/选项卡/Mermaid/嵌入/同步块/三种数据库共 **10 个命令在嵌套场景显示却落入 `default: break`：删掉 `/` 触发字符后什么都不做**（代码路径确认 + 行为测试固定）。
+- 上下文支持矩阵（top=顶层 / nested=列表·单元格·分栏内；`✗` = 嵌套菜单隐藏，非禁用黑名单）：
+
+| 命令 | top | nested | nested 执行路径 |
+|---|---|---|---|
+| 文本/标题1-4/引用/代码块/分隔线 | ✓ | ✓ | insert |
+| 折叠/折叠标题1-4/标注 | ✓ | ✓ | insert |
+| 无序/有序/待办列表 | ✓ | ✓ | insert |
+| 图片/HTML/公式/引用阅读条目 | ✓ | ✓ | emit（nested 事件路径） |
+| AI 速记/页面/表格/分栏2-5列 | ✓ | ✗ | 容器或顶层语义 |
+| 目录/路径栏/按钮/选项卡/Mermaid/嵌入/同步块/三种数据库 | ✓ | ✗ | 首轮隐藏（原为静默无动作） |
+| 插件命令 | ✓ | ✗ | 需顶层块位置语义 |
+
+- 修改文件与职责：`types.ts`——`BlockCommandContext`/`BlockCommandRunResult` 类型与 `supportedContexts` 字段；`block-commands.ts`——13 个 top-only 命令标注 `supportedContexts: ["top"]`，新增 resolver `isCommandAvailableInContext`，嵌套执行器 `executeNestedCommand` 移入本文件并返回 handled/unsupported/failed（插入内容改构造表，与顶层 run 同源）；`block-command-menu.tsx`——删除黑名单改用 resolver，unsupported 时不消费触发字符（`/` 与已输入文字保留）；新增 `block-command-contexts.test.ts` 一致性测试（显示 ⇔ 有执行路径，防回归）。
+- 行为变化：嵌套菜单不再显示无执行路径的 10 个命令；unsupported 命令不再吞掉触发文本；顶层与全部既有嵌套能力不变。
+- 测试命令及退出结果：新增 5 用例（一致性表、顶层全显示、unsupported 保文本、嵌套 divider/task-list 插入且消费触发文本）；全量 `vitest run` 135 文件 / 1012 测试通过；`tsc --noEmit`、`next lint --max-warnings 0` 通过。
+- 未覆盖场景：表格单元格内的真实鼠标操作路径属 E2E/D05 范围；「合并顶层与嵌套通用插入逻辑」按计划措辞为逐步进行（本卡完成构造表同源化，顶层 replace 与嵌套 insert 语义差异保留）。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R07。
+
 ## 待办队列
 
-R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
