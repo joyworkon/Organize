@@ -32,8 +32,10 @@ import {
   Loader2,
   ListChecks,
   ChevronDown,
+  Feather,
 } from "lucide-react";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
+import { DashboardCapture } from "./dashboard-capture";
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -121,6 +123,8 @@ export default function TodayView() {
   const [inProgressTasks, setInProgressTasks] = useState<TaskWithTags[]>([]);
   const [unreadArticles, setUnreadArticles] = useState<ReadingItem[]>([]);
   const [recentNotes, setRecentNotes] = useState<NoteWithTags[]>([]);
+  // D03 §5.1：最近速记（最多 3 条；沿用 /api/memos 既有路径）
+  const [recentMemos, setRecentMemos] = useState<Array<{ id: string; content: string; created_at: string }>>([]);
   // 全量任务驻留内存：完成率与连续天数都由它即时计算（纯函数，见 lib/dashboard/workbench-stats）
   const [allTasks, setAllTasks] = useState<TaskWithTags[]>([]);
 
@@ -198,6 +202,13 @@ export default function TodayView() {
 
       if (results[2].status === "fulfilled") {
         setRecentNotes((results[2].value.data || []) as NoteWithTags[]);
+      }
+
+      try {
+        const res = await fetch("/api/memos?limit=3", { cache: "no-store" });
+        if (res.ok) setRecentMemos((await res.json()).slice(0, 3));
+      } catch {
+        // 速记加载失败不阻塞工作台其余模块
       }
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -289,7 +300,12 @@ export default function TodayView() {
   const todayCompletion = computeTodayCompletion(allTasks, today);
   const taskStreak = computeTaskStreak(allTasks.map((t) => t.completed_at), today);
 
-  const attentionCount = overdueTasks.length + todayTasks.length;
+  // D03 §5.1「继续处理」：逾期 → 今日到期 → 进行中 合并的待办清单（各段保持原排序）
+  const actionableTasks: TaskWithTags[] = [
+    ...overdueTasks,
+    ...todayTasks,
+    ...inProgressTasks,
+  ];
 
   if (loading) {
     return (
@@ -339,340 +355,196 @@ export default function TodayView() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-primary" />
-                今日概览
-              </h3>
-              <Badge variant="secondary">{todayCompletion.rate}%</Badge>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="relative h-16 w-16 flex items-center justify-center">
-                <svg className="h-16 w-16 -rotate-90">
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="28"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    className="text-muted"
-                  />
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="28"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    strokeDasharray={`${(todayCompletion.rate / 100) * 175.9} 175.9`}
-                    className="text-primary transition-all duration-500"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span className="absolute text-sm font-bold">{todayCompletion.completed}</span>
-              </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">完成</span>
-                  <span className="font-medium">{todayCompletion.completed} 项</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">待办</span>
-                  <span className="font-medium">{todayCompletion.planned - todayCompletion.completed} 项</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Flame className="h-3.5 w-3.5 text-orange-500" />
-                  <span className="text-muted-foreground">连续</span>
-                  <span className="font-medium">{taskStreak} 天</span>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <DashboardCapture onAdded={() => void loadData()} />
 
-        <Card className={cn(attentionCount > 0 && "border-destructive/50")}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium flex items-center gap-2">
-                <AlertCircle className={cn("h-4 w-4", attentionCount > 0 ? "text-destructive" : "text-muted-foreground")} />
-                需要关注
-              </h3>
-              {attentionCount > 0 && (
-                <Badge variant="destructive">{attentionCount}</Badge>
-              )}
-            </div>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-destructive" />
-                  逾期任务
-                </span>
-                <span className="font-medium text-destructive">{overdueTasks.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-primary" />
-                  今日到期
-                </span>
-                <span className="font-medium">{todayTasks.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  进行中
-                </span>
-                <span className="font-medium">{inProgressTasks.length}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-medium flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-primary" />
-                待读推荐
-              </h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={handleRecommendNext}
-                disabled={unreadArticles.length === 0}
-              >
-                <RefreshCw className="h-3 w-3 mr-1" />
-                随机一篇
-              </Button>
-            </div>
-            {unreadArticles.length > 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {unreadArticles.length} 篇文章待阅读，点击开始阅读吧
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                阅读清单已清空，去稍后读添加新文章
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="rounded-lg border bg-card">
-        <div className="p-5 border-b">
-          <h3 className="font-semibold flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-destructive" />
-            逾期任务
-            <Badge variant="destructive" className="ml-auto">{overdueTasks.length}</Badge>
-          </h3>
-        </div>
-        <div className="p-5">
-          {overdueTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">没有逾期任务，继续保持 🎉</p>
-          ) : (
-            <div className="space-y-2">
-              {overdueTasks.slice(0, 5).map((task) => (
-                <div
-                  key={task.id}
-                  className={cn(
-                    "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
-                  )}
-                  onClick={() => router.push(`/tasks`)}
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleTaskStatus(task.id, "done");
-                    }}
-                    className="mt-0.5 h-4 w-4 rounded-full border border-destructive/50 flex items-center justify-center hover:bg-destructive/20 transition-colors shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                      <span className="flex items-center gap-1 text-destructive">
-                        <Clock className="h-3 w-3" />
-                        {formatDueTime(task.due_date)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="p-5 border-b">
-          <h3 className="font-semibold flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-primary" />
-            今日到期
-            <Badge variant="secondary" className="ml-auto">{todayTasks.length}</Badge>
-          </h3>
-        </div>
-        <div className="p-5">
-          {todayTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">今天没有到期任务，享受轻松的一天吧</p>
-          ) : (
-            <div className="space-y-2">
-              {todayTasks.slice(0, 6).map((task) => (
-                <div
-                  key={task.id}
-                  className={cn(
-                    "flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
-                  )}
-                  onClick={() => router.push(`/tasks`)}
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleTaskStatus(task.id, "done");
-                    }}
-                    className="mt-0.5 h-4 w-4 rounded-full border border-primary flex items-center justify-center hover:bg-primary/20 transition-colors shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatDueTime(task.due_date)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="p-5 border-b">
-          <h3 className="font-semibold flex items-center gap-2">
-            <PlayCircle className="h-4 w-4 text-blue-500" />
-            进行中
-            <Badge variant="secondary" className="ml-auto">{inProgressTasks.length}</Badge>
-          </h3>
-        </div>
-        <div className="p-5">
-          {inProgressTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">没有进行中的任务，选择一个开始专注吧</p>
-          ) : (
-            <div className="space-y-2">
-              {inProgressTasks.slice(0, 5).map((task) => (
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* 主列（约 2/3）：继续处理 */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">继续处理</h3>
                 <Link
-                  key={task.id}
                   href="/tasks"
-                  className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
                 >
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleToggleTaskStatus(task.id, "todo");
-                    }}
-                    className="mt-0.5 h-4 w-4 rounded-full bg-primary/20 border border-primary flex items-center justify-center shrink-0"
-                  >
-                    <PlayCircle className="h-2.5 w-2.5 text-primary" />
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                      {task.due_date && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {formatDueTime(task.due_date)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  查看全部待办
                 </Link>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="p-5 border-b">
-          <h3 className="font-semibold flex items-center gap-2">
-            <BookOpen className="h-4 w-4 text-orange-500" />
-            待读推荐
-            <Link
-              href="/library"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
-            >
-              查看全部
-            </Link>
-          </h3>
-        </div>
-        <div className="p-5">
-          {unreadArticles.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">阅读清单是空的，去稍后读添加一些文章</p>
-          ) : (
-            <div className="space-y-2">
-              {unreadArticles.slice(0, 3).map((article) => (
-                <Link
-                  key={article.id}
-                  href={`/library/${article.id}`}
-                  className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
-                >
-                  <p className="text-sm font-medium line-clamp-1">{article.title || "无标题"}</p>
-                  {article.excerpt && (
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                      {article.excerpt}
-                    </p>
-                  )}
-                </Link>
-              ))}
-              {unreadArticles.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full mt-2"
-                  onClick={handleRecommendNext}
-                >
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                  推荐下一篇
-                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                今日完成 {todayCompletion.completed}/{todayCompletion.planned} · 连续 {taskStreak} 天
+              </p>
+              {actionableTasks.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  今天没有待办，享受轻松的一天吧
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {actionableTasks.slice(0, 5).map((task) => {
+                    const overdue = isOverdue(task.due_date, task.status);
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
+                        onClick={() => router.push("/tasks")}
+                      >
+                        <button
+                          aria-label={task.status === "in_progress" ? "标记为待办" : "标记完成"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleTaskStatus(task.id, task.status === "in_progress" ? "todo" : "done");
+                          }}
+                          className={cn(
+                            "mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center transition-colors shrink-0",
+                            task.status === "in_progress"
+                              ? "bg-primary/20 border-primary"
+                              : overdue
+                                ? "border-destructive/50 hover:bg-destructive/20"
+                                : "border-primary hover:bg-primary/20"
+                          )}
+                        >
+                          {task.status === "in_progress" && (
+                            <PlayCircle className="h-2.5 w-2.5 text-primary" />
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium line-clamp-1">{task.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                            <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
+                            <span className={cn(overdue && "text-destructive")}>
+                              {task.status === "in_progress" ? "进行中" : formatDueTime(task.due_date)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-            </div>
-          )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-primary" />
+                  继续阅读
+                </h3>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={handleRecommendNext}
+                    disabled={unreadArticles.length === 0}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    随机一篇
+                  </Button>
+                  <Link
+                    href="/library"
+                    className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
+                  >
+                    查看全部
+                  </Link>
+                </div>
+              </div>
+              {unreadArticles.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  阅读清单已清空，去稍后读添加新文章
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {unreadArticles.slice(0, 3).map((article) => (
+                    <Link
+                      key={article.id}
+                      href={`/library/${article.id}`}
+                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                    >
+                      <p className="text-sm font-medium line-clamp-1">{article.title || "无标题"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {article.excerpt ? article.excerpt.slice(0, 60) : "未读"}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="p-5 border-b">
-          <h3 className="font-semibold flex items-center gap-2">
-            <NoteIcon className="h-4 w-4 text-green-500" />
-            最近笔记
-            <Link
-              href="/notes"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "ml-auto h-7 px-2 text-xs")}
-            >
-              查看全部
-            </Link>
-          </h3>
-        </div>
-        <div className="p-5">
-          {recentNotes.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">还没有笔记，开始记录你的想法</p>
-          ) : (
-            <div className="space-y-2">
-              {recentNotes.map((note) => (
+        {/* 辅列（约 1/3）：最近笔记 + 最近速记 */}
+        <div className="space-y-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <NoteIcon className="h-4 w-4 text-primary" />
+                  最近笔记
+                </h3>
                 <Link
-                  key={note.id}
-                  href={`/notes/${note.id}`}
-                  className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                  href="/notes"
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
                 >
-                  <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
-                  {getNoteExcerpt(note.content) && (
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                      {getNoteExcerpt(note.content)}
-                    </p>
-                  )}
+                  查看全部
                 </Link>
-              ))}
-            </div>
-          )}
+              </div>
+              {recentNotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">还没有笔记，开始记录你的想法</p>
+              ) : (
+                <div className="space-y-1">
+                  {recentNotes.slice(0, 5).map((note) => (
+                    <Link
+                      key={note.id}
+                      href={`/notes/${note.id}`}
+                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                    >
+                      <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(note.updated_at).toLocaleDateString("zh-CN")}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Feather className="h-4 w-4 text-primary" />
+                  最近速记
+                </h3>
+                <Link
+                  href="/memos"
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
+                >
+                  查看全部
+                </Link>
+              </div>
+              {recentMemos.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">上方输入框可快速记一条</p>
+              ) : (
+                <div className="space-y-1">
+                  {recentMemos.map((memo) => (
+                    <Link
+                      key={memo.id}
+                      href="/memos"
+                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                    >
+                      <p className="text-sm line-clamp-2">{memo.content}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(memo.created_at).toLocaleDateString("zh-CN")}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

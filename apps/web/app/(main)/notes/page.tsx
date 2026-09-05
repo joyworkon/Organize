@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Network } from "lucide-react";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { useAllTags } from "@/components/tags/use-tags";
 import { BatchActionsBar } from "@/components/batch-actions-bar";
@@ -680,6 +681,18 @@ export default function NotesPage() {
             className="hidden sm:flex"
           >
             {sortOrder === "desc" ? "降序" : "升序"}
+          </Button>
+
+          {/* D00 迁移表：图谱入口收进笔记页工具行（仍到 /graph，保留其内部切换） */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push("/graph")}
+            title="图谱视图"
+          >
+            <Network className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">图谱</span>
           </Button>
 
           <div className="hidden sm:flex items-center rounded-md border overflow-hidden">
