@@ -64,9 +64,20 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R04。
 
+### R04 同步块正确判定成功并减少无效事务 — ✅ 已完成（PR #228）
+
+- 基线提交：63e61e6
+- 原问题与复现（代码路径确认 + 行为测试固定）：①PATCH/GET/POST 从不检查 `res.ok`——500 且响应含 JSON 时 `data.updated_at` 回退本地时间，**显示"已同步"并广播**，500 响应非 JSON 时静默吞掉；②transaction 监听器不检查 docChanged——光标移动/其他块编辑都会重排防抖 PATCH；③远端替换用普通事务无 meta，靠"1 秒内忽略"防回声，同页双实例互为回声源；④注水 `setNodeMarkup` 也触发监听器（属性变化≠内容变化）；⑤viewer（不可编辑）无写请求防护。
+- 修改文件与职责：新增 `components/editor/extensions/synced-block-sync.ts`——传输层（`patchSyncedBlock`/`fetchSyncedBlock`：HTTP 状态先行、坏 JSON/形状校验，类型化 ok/failure）、`syncedBlockNeedsSync`（docChanged→远端 meta→同块身份→内容 JSON 比较，pos 为新文档坐标经 invert 映射回旧文档）、`replaceSyncedBlockContent`（`organizeSyncedRemote` meta + `addToHistory:false`）、`shouldAcceptSyncMessage`（origin 会话 id + 单调 seq 来源识别，取代时间窗口）、`createSyncSessionId`；`synced-block.tsx`——状态机 loading/saved/saving/error + dirty，失败保留待写快照并显示块内"重试"，仅服务器确认成功后清 pending 并广播；保存期间新编辑自动再排空；`editor.isEditable` 为 false 不发写请求；`synced-block-client.ts`——POST 检查 res.ok 与 id 形状。
+- 行为变化：500/网络失败不再显示已同步、不再广播；选区移动与其他块编辑 0 次 PATCH；一次内容修改只产生一次防抖 PATCH（保存中继续编辑会串行再排空）；同页/跨标签回声由 origin+seq 根治；Undo 历史不再记录远端回写。
+- 测试命令及退出结果：新增 `synced-block-sync.test.ts` 16 用例（选区 0 PATCH、块内编辑触发、其他块编辑不触发、属性变化不触发、远端 meta 不回声、PATCH 500/坏 JSON/成功、GET 401/not-found/成功、origin+seq 识别、会话 id 唯一）；全量 `vitest run` 134 文件 / 1002 测试通过；`tsc --noEmit`、`next lint --max-warnings 0` 通过。
+- 未覆盖场景：真实双浏览器并发编辑的 E2E 属 R05 验收矩阵（跨设备冲突本卡不声称解决）；`COLLAB_E2E` 场景不受影响（同步块不经 CRDT）。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R05。
+
 ## 待办队列
 
-R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
