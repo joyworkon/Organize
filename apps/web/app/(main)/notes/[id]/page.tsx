@@ -11,6 +11,11 @@ import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
 import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
 import { useNoteSaveSession } from "@/hooks/use-note-session";
+import { useLinkedTaskSync } from "@/hooks/use-linked-task-sync";
+import { deriveNotePageCapabilities } from "@/lib/notes/capabilities";
+import { NoteSaveStatus } from "@/components/notes/note-save-status";
+import { NoteRecoveryDialog } from "@/components/notes/note-recovery-dialog";
+import { NoteConflictDialog } from "@/components/notes/note-conflict-dialog";
 import {
   createSupabaseNoteSaveTransport,
   type NoteSaveConflict,
@@ -237,6 +242,8 @@ export default function NoteEditorPage() {
     },
     onSaved: (info) => appEvents.emit("note:saved", info),
   });
+  // R08.5：角色能力集中派生（真实权限收口仍在保存 RPC / RLS）
+  const capabilities = deriveNotePageCapabilities(noteRole);
   // 统一派生的保存 UI 状态（旧名保留为派生常量，页面 JSX 无需改写）
   const saving = sessionUi?.phase === "saving";
   const saveError = sessionUi?.saveError ?? "";
@@ -489,53 +496,14 @@ export default function NoteEditorPage() {
     };
   }, [content, supabase]);
 
-  // G2 反向同步（任务→笔记）：订阅 tasks 表变更，任务状态变了→回勾笔记里对应块。
-  // 仅双链开启时生效。注意：editorRef 在 onEditorReady 时才赋值，可能晚于本 effect，
-  // 所以不在 effect 顶部 early-return，而是在 applyTaskStatus 内动态读 editorRef.current。
-  useEffect(() => {
-    if (!isTaskNoteLinkEnabled()) return;
-
-    // 把某 task 状态回写到编辑器里所有同 taskId 的 taskItem（checked = status==='done'）
-    const applyTaskStatus = (taskId: string, status: string) => {
-      const e = editorRef.current;
-      if (!e) return;
-      const checked = status === "done";
-      let changed = false;
-      const tr = e.state.tr;
-      e.state.doc.descendants((node, pos) => {
-        if (node.type.name === "taskItem" && node.attrs.taskId === taskId && node.attrs.checked !== checked) {
-          tr.setNodeMarkup(pos, undefined, { ...node.attrs, checked });
-          changed = true;
-        }
-        return true;
-      });
-      if (changed) {
-        // 系统事务：标 remote-sync，不激活、不进 Undo
-        tr.setMeta("transactionSource", "remote-sync");
-        tr.setMeta("addToHistory", false);
-        e.view.dispatch(tr);
-      }
-    };
-
-    // 反向同步（任务→笔记）：轮询拉取该笔记涉及的 task 状态对齐 checked。
-    // 注意：本地 Supabase dev 的 Realtime 有 signature_error 已知问题（订阅到 SUBSCRIBED 但收不到事件），
-    // 生产环境才稳；故本地用轮询（3秒），保证 dev 和生产都能工作。
-    const syncFromTasks = async () => {
-      const { data: refs } = await supabase
-        .from("task_item_refs")
-        .select("task_id, tasks!inner(status)")
-        .eq("note_id", noteId);
-      if (!refs) return;
-      for (const r of refs as any[]) {
-        const status = r.tasks?.status;
-        if (status) applyTaskStatus(r.task_id, status);
-      }
-    };
-    void syncFromTasks();
-    const timer = setInterval(() => void syncFromTasks(), 3000);
-
-    return () => clearInterval(timer);
-  }, [noteId, supabase]);
+  // G2 反向同步（任务→笔记）：R08 抽离至 useLinkedTaskSync——
+  // 无引用笔记不产生 3 秒轮询；不可见暂停、聚焦/可见立即同步、请求不重叠
+  useLinkedTaskSync({
+    noteId,
+    enabled: isTaskNoteLinkEnabled(),
+    getEditor: () => editorRef.current,
+    supabase,
+  });
 
   useEffect(() => {
     let active = true;
@@ -1295,47 +1263,15 @@ export default function NoteEditorPage() {
             />
           </div>
           <div className="note-topbar-group note-topbar-actions">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {!online && (
-                <span className="flex items-center gap-1" role="status">
-                  <WifiOff className="h-3 w-3" />
-                  离线中{offlinePending ? " · 更改将在联网后同步" : ""}
-                </span>
-              )}
-              {pendingSyncedBlocks > 0 && (
-                <span className="text-amber-600 dark:text-amber-300" role="status">
-                  {pendingSyncedBlocks} 个同步块待同步
-                </span>
-              )}
-              {saveError ? (
-                <span className="text-destructive">{saveError}</span>
-              ) : (
-                // 例行的「保存中/已保存」是桌面端状态区的一部分；移动端顶栏
-                // 只留 分享 + 更多（Notion 移动端样式），具体状态收进更多菜单
-                <span className="hidden items-center gap-1.5 md:flex">
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      保存中...
-                    </>
-                  ) : lastSaved ? (
-                    <>
-                      <Check className="h-3 w-3 text-green-500" />
-                      已保存 {lastSaved.toLocaleTimeString("zh-CN")}
-                    </>
-                  ) : null}
-                </span>
-              )}
-              {/* 协作 viewer：显式只读角标，解释为何没有保存状态 */}
-              {noteRole === "viewer" && (
-                <span
-                  className="hidden rounded border px-1.5 py-0.5 text-xs text-muted-foreground md:inline-block"
-                  title="这篇笔记以仅查看身份共享给你"
-                >
-                  仅查看
-                </span>
-              )}
-            </div>
+            <NoteSaveStatus
+              online={online}
+              offlinePending={offlinePending}
+              pendingSyncedBlocks={pendingSyncedBlocks}
+              saveError={saveError}
+              saving={saving}
+              lastSaved={lastSaved}
+              isViewer={capabilities.isViewer}
+            />
             <div className="hidden md:flex items-center">
               <NotePresenceBar peers={collab.peers} />
             </div>
@@ -1429,7 +1365,7 @@ export default function NoteEditorPage() {
           <textarea
             ref={titleRef}
             value={title}
-            readOnly={noteRole === "viewer"}
+            readOnly={capabilities.isViewer}
             onChange={(e) => handleTitleChange(e.target.value)}
             onKeyDown={handleTitleKeyDown}
             onInput={autoGrowTitle}
@@ -1453,9 +1389,9 @@ export default function NoteEditorPage() {
             note_tags 各人一份（按调用者记 user_id），editor 可以打自己的标签；viewer 只读 */}
         <div className="note-meta-row flex flex-wrap items-center gap-1.5">
           {displayNoteTags.map((t) => (
-            <TagBadge key={t.id} tag={t} size="sm" onRemove={noteRole === "viewer" ? undefined : () => void handleRemoveNoteTag(t.id)} />
+            <TagBadge key={t.id} tag={t} size="sm" onRemove={capabilities.canModifyTags ? () => void handleRemoveNoteTag(t.id) : undefined} />
           ))}
-          {noteRole !== "viewer" && (
+          {capabilities.canModifyTags && (
             <TagSelector
               selected={noteTags}
               options={allTagOptions}
@@ -1516,7 +1452,7 @@ export default function NoteEditorPage() {
             noteId={noteId}
             noteTitle={title}
             content={content}
-            editable={noteRole !== "viewer"}
+            editable={capabilities.canEdit}
             collab={editorCollab}
             onUpdate={handleContentUpdate}
             noteTree={allNotes}
@@ -1547,91 +1483,21 @@ export default function NoteEditorPage() {
         </div>
       )}
 
-      <Dialog open={recoveryDraft !== null} onOpenChange={() => {}}>
-        <DialogContent hideCloseButton>
-          <DialogHeader>
-            <DialogTitle>发现未保存的本地草稿</DialogTitle>
-            <DialogDescription>
-              上次编辑可能因断网或页面意外关闭而未保存。请选择恢复草稿或使用服务器版本。
-            </DialogDescription>
-          </DialogHeader>
-          {recoveryDraft && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              <p className="font-medium">{recoveryDraft.draft.title || "无标题"}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                本地修改于 {new Date(recoveryDraft.updatedAt).toLocaleString("zh-CN")}
-              </p>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={discardLocalDraft}>
-              使用服务器版本
-            </Button>
-            <Button onClick={restoreLocalDraft}>恢复本地草稿</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NoteRecoveryDialog
+        recoveryDraft={recoveryDraft}
+        onRestore={restoreLocalDraft}
+        onDiscard={discardLocalDraft}
+      />
 
-      <Dialog open={saveConflict !== null} onOpenChange={() => {}}>
-        <DialogContent hideCloseButton>
-          <DialogHeader>
-            <DialogTitle>笔记存在保存冲突</DialogTitle>
-            <DialogDescription>
-              {saveConflict?.actor.kind === "self"
-                ? "你的另一页面或设备已修改这篇笔记。"
-                : saveConflict?.actor.kind === "collaborator" && saveConflict.actor.name
-                  ? `协作者「${saveConflict.actor.name}」已修改这篇笔记。`
-                  : "另一页面、设备或协作者已修改这篇笔记。"}
-              {localDraftPersistFailed
-                ? "云端保存存在冲突，且本机草稿写入失败——请立即导出当前内容保留副本。"
-                : "当前内容没有丢失，并已保存在本地。"}
-            </DialogDescription>
-          </DialogHeader>
-          {saveConflict && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                <p className="text-xs font-medium text-muted-foreground">当前本地版本</p>
-                <p className="mt-1 truncate text-sm font-medium">
-                  {draftRef.current.title || "无标题"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  内容大小 {JSON.stringify(draftRef.current.content || {}).length} 字符
-                </p>
-              </div>
-              <div className="rounded-md border p-3">
-                <p className="text-xs font-medium text-muted-foreground">服务器版本</p>
-                <p className="mt-1 truncate text-sm font-medium">
-                  {saveConflict.remoteDraft?.title || "无标题"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  内容大小 {JSON.stringify(saveConflict.remoteDraft?.content || {}).length} 字符
-                  {saveConflict.remoteUpdatedAt
-                    ? ` · ${new Date(saveConflict.remoteUpdatedAt).toLocaleString("zh-CN")}`
-                    : ""}
-                </p>
-              </div>
-            </div>
-          )}
-          {saveConflict?.kind === "task" && (
-            <p className="text-xs text-destructive">
-              关联任务已被删除或发生变化，无法安全覆盖。请保留副本或重新加载服务器版本。
-            </p>
-          )}
-          <DialogFooter className="gap-2 sm:space-x-0">
-            <Button variant="outline" onClick={reloadRemoteVersion}>
-              重新加载服务器版本
-            </Button>
-            <Button variant="outline" onClick={() => void keepLocalCopy()}>
-              保留为新副本
-            </Button>
-            {saveConflict?.kind === "note" && (
-              <Button variant="destructive" onClick={overwriteRemoteVersion}>
-                用本地版本覆盖
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NoteConflictDialog
+        conflict={saveConflict}
+        localDraftPersistFailed={localDraftPersistFailed}
+        localTitle={draftRef.current.title}
+        localContentSize={JSON.stringify(draftRef.current.content || {}).length}
+        onOverwriteRemote={overwriteRemoteVersion}
+        onReloadRemote={reloadRemoteVersion}
+        onKeepLocalCopy={() => void keepLocalCopy()}
+      />
 
       <ResourceShareDialog
         resourceType="note"
