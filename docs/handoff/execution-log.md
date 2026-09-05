@@ -136,9 +136,24 @@
 - 回退办法：revert 本 PR 即恢复页面内联保存管线（会话模块留存不影响）。
 - 下一张可执行卡：R08。
 
+### R08 页面展示与任务同步抽离 — ✅ 已完成（PR #232）
+
+- 基线提交：b0b6240
+- 修改文件与职责：
+  - 新增 `hooks/use-linked-task-sync.ts`——任务→笔记反向同步自页面抽离，并落实 R08.4 轮询纪律：**无引用笔记不产生 3 秒轮询**（先探测一次，本笔记 note:saved 事件后再探测，出现引用才升级轮询）；页面不可见暂停 tick；重新可见/窗口聚焦立即同步；in-flight 门保证请求不重叠。回写仍为 remote-sync 系统事务（不进 Undo、不激活任务，R08 验收项保持）
+  - 新增 `lib/notes/capabilities.ts` + 测试——owner/editor/viewer 能力集中派生（canEdit/canModifyTags/isViewer），页面不再散落 `noteRole === "viewer"` 比较；真实权限收口仍在保存 RPC/RLS，分享按钮等入口未删除
+  - 新增 `components/notes/note-save-status.tsx`（顶栏状态区：离线/同步块/错误/保存中/已保存/viewer 角标，纯展示消费 R07 会话派生状态）
+  - 新增 `components/notes/note-recovery-dialog.tsx`、`components/notes/note-conflict-dialog.tsx`（恢复/冲突对话框抽离，含 066 归因文案、任务冲突警示、三动作）
+  - `app/(main)/notes/[id]/page.tsx`——轮询 effect 与三块 JSX 替换为 hook/组件；层级/图标/封面/字体仍走 session patch；标签仍走原标签接口
+- 行为变化（均为计划 R08.4 授权的改进）：无引用笔记不再每 3 秒查询 task_item_refs；后台标签页暂停轮询；聚焦/恢复可见立即同步一次。其余行为不变。
+- 测试命令及退出结果：capabilities 3 用例；全量 vitest 137 文件 / 1032 测试；tsc、lint 零警告；mock 生产构建 + Chromium E2E smoke 5/5（覆盖新组件渲染与笔记保存链路）。
+- 未覆盖场景：任务轮询纪律（可见性/聚焦）的浏览器级手测留待 D05 跨状态验收；Realtime 订阅仍按既有决策用轮询（本地 dev signature_error 问题未变）。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R09。
+
 ## 待办队列
 
-R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
