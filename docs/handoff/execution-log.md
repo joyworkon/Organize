@@ -224,9 +224,23 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R10。
 
+### R10 反向链接与关系索引 — ✅ R10a 最小交付已完成（PR #239）；R10b 长期索引表另卡
+
+- 基线提交：5e53a43
+- 原问题与复现：`components/notes/backlinks.tsx` 拉「最近更新 100 篇」全文在客户端扫描——101+ 篇时旧来源漏查（结构性丢失，代码路径确认）；且把 100 篇全文下发到浏览器。
+- R10a 交付（完整性最小交付，符合 handoff「后端分页查询或等效方案」）：
+  - 迁移 074：`get_note_backlinks(p_note_id, p_page_size, p_page)` RPC——security definer 内显式 `auth.uid()` 过滤（跨账号隔离）；软删除来源排除；`content::text LIKE '%/notes/{id}"%'` 精确匹配内链（与客户端 extractLinksFromContent 的 `/notes/{uuid}` 语义对齐，uuid 定长无误命中）；服务端分页（LIMIT/OFFSET + total）；只回命中行元数据（id/title/created_at），不下发正文。anon 显式 revoke。
+  - `lib/notes/backlinks.ts`——`fetchAllNoteBacklinks` 分页聚合（循环至 total，空页终止 + 5000 条防御上限）
+  - `components/notes/backlinks.tsx`——替换 100 篇扫描为 RPC 分页聚合；截断时计数显示 `N+`
+- R10b（文档链接索引表）未做，另卡：R10a 的 LIKE 方案在极端情况（纯文本偶然提到链接 URL）会保守多计，精确链接图索引与多位置跳转属 R10b 范围——handoff 允许「R10a 先修完整性」。
+- 测试命令及退出结果：**pgTAP 074 真实本地库 9 断言全过**（匿名 42501、151 篇规模下 3 来源全量计数无 100 截断、跨账号隔离双向、软删除来源不返回、不下发 content 字段、翻页 page0=2/page1=1 且不相交）；本地全套 pgTAP 28 文件 PASS；新增 backlinks helper 单测 3 用例（分页取全/单页即全/错误抛出+空页终止+防御上限）；全量 vitest 138 文件 / 1035 测试；tsc、lint 零警告。
+- 未覆盖场景（如实记录）：101+/1001+ 的**性能**基准（正确性已由 151 篇规模 pgTAP 证明；LIKE 全表扫在十万级笔记下的耗时未基准化——R10b 索引表解决）；备份恢复后关系正确性由「查询即计算」语义天然保证（无存储态可漂移）。
+- 回退办法：revert 本 PR；RPC 留存无害。客户端回退需同时回滚组件改动。
+- 下一张可执行卡：R11。
+
 ## 待办队列
 
-R10 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R11 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 

@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { extractLinksFromContent } from "@/lib/note-links";
+import { fetchAllNoteBacklinks } from "@/lib/notes/backlinks";
 import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "lucide-react";
 import type { ReadingItem } from "@organize/shared";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
@@ -22,6 +22,7 @@ interface BacklinksProps {
 export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   const supabase = useMemo(() => createClient(), []);
   const [backlinkNotes, setBacklinkNotes] = useState<BacklinkNote[]>([]);
+  const [backlinksTruncated, setBacklinksTruncated] = useState(false);
   const [readingItem, setReadingItem] = useState<ReadingItem | null>(null);
   const [highlightReferences, setHighlightReferences] = useState<HighlightReferenceState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,14 +41,9 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
         return;
       }
 
-      const [notesResult, readingResult, referenceResult, readingStateResult] = await Promise.all([
-        supabase
-          .from("notes")
-          .select("id, title, content, created_at")
-          .eq("user_id", user.id)
-          .neq("id", noteId)
-          .order("updated_at", { ascending: false })
-          .limit(100),
+      const [backlinkResult, readingResult, referenceResult, readingStateResult] = await Promise.all([
+        // R10a：后端分页 RPC 取全反链（只回元数据；服务端 auth.uid() 过滤 + 软删除排除）
+        fetchAllNoteBacklinks(supabase, noteId).catch(() => null),
         readingItemId
           ? supabase
               .from("reading_items")
@@ -64,20 +60,10 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
 
       if (!active) return;
 
-      if (!notesResult.error && notesResult.data) {
-        const linked: BacklinkNote[] = [];
-        for (const note of notesResult.data) {
-          const links = extractLinksFromContent(note.content);
-          if (links.some((l) => l.type === "note" && l.url === noteId)) {
-            linked.push({
-              id: note.id,
-              title: note.title,
-              created_at: note.created_at,
-            });
-            if (linked.length >= 20) break;
-          }
-        }
-        setBacklinkNotes(linked);
+      if (backlinkResult) {
+        // R10a：服务端已保证完整与权限；5000 条防御上限（与 helper 一致）内如实展示
+        setBacklinkNotes(backlinkResult.slice(0, 5000));
+        setBacklinksTruncated(backlinkResult.length > 5000);
       }
 
       if (readingItemId && !readingResult.error && readingResult.data) {
@@ -214,7 +200,9 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
           <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
             <ArrowLeftRight className="h-3.5 w-3.5" />
             反向链接
-            <span className="text-xs text-muted-foreground/70">({backlinkNotes.length})</span>
+            <span className="text-xs text-muted-foreground/70">
+              ({backlinkNotes.length}{backlinksTruncated ? "+" : ""})
+            </span>
           </h3>
           <div className="space-y-1">
             {backlinkNotes.map((note) => (
