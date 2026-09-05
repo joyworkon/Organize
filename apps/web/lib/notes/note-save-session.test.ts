@@ -291,6 +291,18 @@ describe("note-save-session：历史恢复与生命周期", () => {
     expect(session.getRevision()).toBe(0);
   });
 
+  it("草稿对象被整体替换（切笔记）：旧会话排空立即失效，不写新稿到旧 id", async () => {
+    const { deps, draftRef, transport, savedEvents } = makeDeps();
+    const session = createNoteSaveSession(deps);
+    session.setContent({ type: "doc" }, "user");
+    // 模拟切换笔记：loadNote 用新对象整体替换草稿（就地合并不受影响）
+    draftRef.current = draft({ title: "笔记B" });
+    const result = await session.flush();
+    expect(result.status).toBe("superseded");
+    expect(transport.save).not.toHaveBeenCalled();
+    expect(savedEvents).toHaveLength(0);
+  });
+
   it("destroy 清理重试定时器：销毁后退避重试不再发起", async () => {
     vi.useFakeTimers();
     const { deps, transport } = makeDeps();

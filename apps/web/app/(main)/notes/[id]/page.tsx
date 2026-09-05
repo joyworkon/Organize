@@ -205,7 +205,9 @@ export default function NoteEditorPage() {
   const editorRef = useRef<Editor | null>(null);
   // R07：保存会话（revision/mutation 幂等键/重试/冲突/排空循环全部内聚）
   const [accountId, setAccountId] = useState<string | null>(null);
-  const pendingHydrationRef = useRef<number | null>(null);
+  // 注水载荷用 state（ref 变化不会触发注水 effect 重跑——P0-1 修复）。
+  // 携带 noteId：只在「已成功加载的笔记 === 当前笔记」时注水，防止失败路径拿旧稿注水。
+  const [loadedRevision, setLoadedRevision] = useState<{ noteId: string; revision: number } | null>(null);
   const migrationRef = useRef<Partial<Pick<NoteDraft, "full_width" | "font_family" | "small_font">> | null>(null);
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
@@ -341,7 +343,7 @@ export default function NoteEditorPage() {
         setFullWidth(dbFullWidth);
         setFont(dbFont);
         setSmallFont(dbSmallFont);
-        pendingHydrationRef.current = Number(data.content_revision ?? 0);
+        setLoadedRevision({ noteId, revision: Number(data.content_revision ?? 0) });
         const remoteDraft: NoteDraft = {
           title: loadedTitle,
           content: loadedContent,
@@ -412,7 +414,7 @@ export default function NoteEditorPage() {
           setContent(initContent);
           setSeedContent(initContent);
           setCreatedAt(new Date(pending.created_at).toISOString());
-          pendingHydrationRef.current = 0;
+          setLoadedRevision({ noteId, revision: 0 });
           draftRef.current = {
             title: initTitle,
             content: initContent,
@@ -563,27 +565,36 @@ export default function NoteEditorPage() {
     return saveSession.flushSaved();
   }, [saveSession]);
 
-  // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移
+  // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移。
+  // loadedRevision 是 state：loadNote 成功拿到数据后必然触发本 effect（P0-1 修复）。
+  // 每个会话只注水一次；noteId 不匹配（失败路径残留的旧值）不注水。
+  const hydratedForRef = useRef<{ session: NoteSaveSession } | null>(null);
   useEffect(() => {
     if (!saveSession) return;
-    if (pendingHydrationRef.current === null) return;
-    const baseRevision = pendingHydrationRef.current;
-    pendingHydrationRef.current = null;
-    saveSession.hydrate(draftRef.current, baseRevision);
+    if (!loadedRevision || loadedRevision.noteId !== noteId) return;
+    if (hydratedForRef.current?.session === saveSession) return;
+    hydratedForRef.current = { session: saveSession };
+    saveSession.hydrate(draftRef.current, loadedRevision.revision);
     const patch = migrationRef.current;
     if (patch) {
       migrationRef.current = null;
       saveSession.patchDraft(patch);
       saveSession.queueSave();
     }
-    // 离线创建滞留队列：入队保存（离线→如实置“待同步”；在线→立即补交创建）
-    if (findNoteCreate(localStorage, noteId)) saveSession.queueSave();
-  }, [saveSession, draftRef, noteId]);
+    // 离线创建滞留队列：在线→立即补交创建；离线→如实点亮“待同步”（不制造 dirty）
+    if (findNoteCreate(localStorage, noteId)) {
+      if (isOnline()) saveSession.queueSave();
+      else saveSession.markOfflinePending();
+    }
+  }, [saveSession, loadedRevision, draftRef, noteId]);
 
-  // X1：联网后立即同步未保存改动（含滞留的离线创建）
+  // X1：联网后立即同步未保存改动（含滞留的离线创建）；断网瞬间如实点亮待同步
   useEffect(() => {
-    if (online && saveSession) {
+    if (!saveSession) return;
+    if (online) {
       if (saveSession.isDirty() || findNoteCreate(localStorage, noteId)) void saveSession.flush();
+    } else if (saveSession.isDirty()) {
+      saveSession.markOfflinePending();
     }
   }, [online, noteId, saveSession]);
 
@@ -625,7 +636,8 @@ export default function NoteEditorPage() {
     setFullWidth(draft.full_width);
     setFont(draft.font_family);
     setSmallFont(draft.small_font);
-    draftRef.current = { ...draft };
+    // 就地合并（保持草稿对象身份——保存会话按身份绑定归属；整体替换会被视为切稿）
+    Object.assign(draftRef.current, draft);
     editorRef.current?.commands.setContent(
       draft.content || { type: "doc", content: [{ type: "paragraph" }] },
       false

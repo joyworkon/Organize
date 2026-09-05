@@ -155,6 +155,7 @@ export interface NoteSaveSession {
   flush(): Promise<NoteFlushResult>;
   /** 兼容便捷：saved/not-needed = true */
   flushSaved(): Promise<boolean>;
+  markOfflinePending(): void;
   setPendingChildBlocks(count: number): void;
   // ---- 生命周期 ----
   /** 停掉防抖/重试定时器并清 dirty（删除笔记前防“删除瞬间之后的草稿写回”） */
@@ -175,6 +176,11 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
 
   // ---- 内部状态（页面不再直接管理）----
   let destroyed = false;
+  // 草稿对象身份绑定：页面切换笔记会整体替换 draftRef.current（新对象），
+  // 旧会话的排空循环此时必须立即失效——即使 destroy 尚未执行（兜底 flush 在途中）。
+  // 页面内的就地修改（Object.assign / 属性赋值）保持同一对象身份，不受影响。
+  const boundDraft = draftRef.current;
+  const draftOwnershipLost = () => draftRef.current !== boundDraft;
   let dirty = false;
   let revision = 0;
   let lastSource: TransactionSource = "user";
@@ -245,7 +251,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     | { kind: "superseded" }
   > {
     // 已切换会话：dirty/draft 归属新笔记，绝不能把新草稿写到旧会话 id 下
-    if (destroyed) return { kind: "superseded" };
+    if (destroyed || draftOwnershipLost()) return { kind: "superseded" };
     dirty = false;
     const snapshot: NoteDraftSnapshot = { ...draftRef.current };
     const mutations =
@@ -273,7 +279,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       pNoteSnapshot: snapshot,
     });
     // RPC 期间切换了会话：任何补救/回写都不得发生
-    if (destroyed) return { kind: "superseded" };
+    if (destroyed || draftOwnershipLost()) return { kind: "superseded" };
     const status = result?.status;
 
     if (status === "conflict_note" || status === "conflict_task") {
@@ -366,6 +372,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       }
     },
     setContent(content, source) {
+      if (destroyed || draftOwnershipLost()) return;
       draftRef.current.content = content;
       lastSource = source;
       // 协作远端事务不标脏不排队：内容由 CRDT 收敛，快照由打字端落库
@@ -388,6 +395,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       notifyUi();
     },
     hydrate(draft, baseRevision) {
+      if (destroyed) return;
       Object.assign(draftRef.current, draft);
       revision = baseRevision;
       dirty = false;
@@ -400,7 +408,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     isDirty: () => dirty,
     getRevision: () => revision,
     queueSave() {
-      if (destroyed) return;
+      if (destroyed || draftOwnershipLost()) return;
       dirty = true;
       persistDraft();
       if (saveTimer) deps.timers.clearTimeout(saveTimer);
@@ -412,7 +420,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     },
     hasPendingWork: () => dirty || savingPromise !== null,
     async flush() {
-      if (destroyed) return { status: "superseded" };
+      if (destroyed || draftOwnershipLost()) return { status: "superseded" };
       if (saveTimer) {
         deps.timers.clearTimeout(saveTimer);
         saveTimer = null;
@@ -492,6 +500,12 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     flushSaved: async () => {
       const result = await self.flush();
       return result.status === "saved" || result.status === "not-needed";
+    },
+    /** 断网瞬间点亮“待同步”（P2-4：不等滞留的 debounce flush） */
+    markOfflinePending() {
+      if (destroyed) return;
+      ui.offlinePending = true;
+      notifyUi();
     },
     setPendingChildBlocks(count) {
       pendingChildBlocks = count;

@@ -67,7 +67,8 @@ export function useNoteSaveSession(options: {
       debounceMs: 900,
       callbacks: {
         onUiState: () => {
-          if (sessionRef.current) setUi(sessionRef.current.getUiState());
+          // 必须传快照：会话内部原地变异同一 ui 对象，同引用 setState 会被 React bailout
+          if (sessionRef.current) setUi({ ...sessionRef.current.getUiState() });
         },
         onNotesChanged: () => {
           window.dispatchEvent(new CustomEvent("organize:notes-changed"));
@@ -82,10 +83,17 @@ export function useNoteSaveSession(options: {
     setSession(created);
     setUi(created.getUiState());
     return () => {
-      created.destroy();
-      if (sessionRef.current === created) {
-        sessionRef.current = null;
-      }
+      // 兜底 flush 先于销毁：SPA 切笔记/卸载时把防抖窗口内的未落库改动真实发出去
+      //（旧页面 pagehide cleanup 语义）；flush 拒绝已销毁会话，因此不能先 destroy
+      void created
+        .flush()
+        .catch(() => {})
+        .finally(() => {
+          created.destroy();
+          if (sessionRef.current === created) {
+            sessionRef.current = null;
+          }
+        });
     };
   }, [noteId, accountId, draftRef]);
 
