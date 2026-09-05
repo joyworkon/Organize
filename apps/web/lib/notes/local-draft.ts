@@ -76,6 +76,34 @@ export function readLocalNoteDraft(
   }
 }
 
+export type DraftWriteStatus = "ok" | "quota" | "unavailable" | "serialization";
+
+export interface DraftWriteResult {
+  status: DraftWriteStatus;
+  /** status === "ok" 时为写入的完整记录，其余为 null */
+  stored: StoredNoteDraft | null;
+}
+
+/** 保守分类：能确认配额才算 quota，其余一律 unavailable（UI 统一按“本机草稿未能保存”呈现）。 */
+function classifyStorageError(error: unknown): DraftWriteStatus {
+  if (error instanceof DOMException) {
+    if (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED") {
+      return "quota";
+    }
+    return "unavailable";
+  }
+  if (error && typeof error === "object") {
+    const name = (error as { name?: unknown }).name;
+    const code = (error as { code?: unknown }).code;
+    if (name === "QuotaExceededError" || code === 22 || code === 1014) return "quota";
+  }
+  return "unavailable";
+}
+
+/**
+ * 写入本地草稿，返回类型化结果；调用方必须消费 status 并如实呈现——
+ * 禁止在失败时展示“已保存在本地 / 草稿已保留”类文案。
+ */
 export function writeLocalNoteDraft(
   storage: DraftStorage,
   userId: string,
@@ -83,7 +111,7 @@ export function writeLocalNoteDraft(
   baseRevision: number,
   draft: NoteDraftSnapshot,
   now = new Date()
-): StoredNoteDraft | null {
+): DraftWriteResult {
   const stored: StoredNoteDraft = {
     version: 1,
     noteId,
@@ -92,11 +120,18 @@ export function writeLocalNoteDraft(
     updatedAt: now.toISOString(),
     draft,
   };
+  let body: string;
   try {
-    storage.setItem(noteDraftStorageKey(userId, noteId), JSON.stringify(stored));
-    return stored;
+    body = JSON.stringify(stored);
   } catch {
-    return null;
+    // 内容本身无法序列化（如循环引用）：与存储可用性区分开
+    return { status: "serialization", stored: null };
+  }
+  try {
+    storage.setItem(noteDraftStorageKey(userId, noteId), body);
+    return { status: "ok", stored };
+  } catch (error) {
+    return { status: classifyStorageError(error), stored: null };
   }
 }
 

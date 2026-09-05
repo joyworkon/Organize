@@ -553,12 +553,17 @@ export default function NoteEditorPage() {
     };
   }, [noteId, supabase]);
 
+  /** 本机草稿写入是否失败（quota/不可用/序列化）；驱动持续错误条与文案如实呈现 */
+  const [localDraftPersistFailed, setLocalDraftPersistFailed] = useState(false);
+
   const persistCurrentDraft = useCallback((baseRevision = contentRevisionRef.current) => {
     const userId = userIdRef.current;
-    if (!userId) return;
-    writeLocalNoteDraft(localStorage, userId, noteId, baseRevision, {
+    if (!userId) return null;
+    const result = writeLocalNoteDraft(localStorage, userId, noteId, baseRevision, {
       ...draftRef.current,
     });
+    setLocalDraftPersistFailed(result.status !== "ok");
+    return result;
   }, [noteId]);
 
   // 所有保存统一走带 revision 的原子 RPC，并串行排空保存期间产生的后续改动。
@@ -744,7 +749,8 @@ export default function NoteEditorPage() {
             setOfflinePending(true);
             setSaveError("");
           } else {
-            setSaveError("保存失败，本地草稿已保留，请检查网络后重试");
+            // 文案依据本机草稿写入的实际结果，不得谎称“已保留”
+            setSaveError("保存失败，请检查网络后重试；当前内容仍在页面上，可随时导出");
           }
           break;
         }
@@ -762,6 +768,8 @@ export default function NoteEditorPage() {
         if (!dirtyRef.current && areNoteDraftsEqual(draftRef.current, snapshot)) {
           const userId = userIdRef.current;
           if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
+          // 云端已确认保存：本机草稿持久化失败与否不再有影响，撤销持续错误条
+          setLocalDraftPersistFailed(false);
         }
         window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       }
@@ -794,6 +802,18 @@ export default function NoteEditorPage() {
     return () => {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
+  }, []);
+
+  // 仅内存修改未落库时，关闭/刷新前用标准 beforeunload 提醒。
+  // 只是辅助：不声称移动端关页一定能拦截；本机草稿兜底仍由 persistCurrentDraft 负责。
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
   const queueSave = useCallback(() => {
@@ -1599,6 +1619,23 @@ export default function NoteEditorPage() {
         </div>
       </div>
 
+      {/* 本机草稿写入失败：持续错误条（不自动消失），提供 R02 的本地快照导出入口 */}
+      {localDraftPersistFailed && (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300"
+          role="alert"
+        >
+          <span>本机草稿未能保存，请导出当前内容或保持页面打开</span>
+          <button
+            type="button"
+            onClick={exportMarkdown}
+            className="shrink-0 underline underline-offset-2 hover:opacity-80"
+          >
+            导出当前内容
+          </button>
+        </div>
+      )}
+
       {/* 标题区（图标/封面/评论 + 标题）与目录同处一个 hover 域：鼠标移入标题时显示三个「添加」操作 */}
       <div className="note-page-title-zone">
         <NotePageVisuals
@@ -1778,7 +1815,9 @@ export default function NoteEditorPage() {
                 : saveConflict?.actor.kind === "collaborator" && saveConflict.actor.name
                   ? `协作者「${saveConflict.actor.name}」已修改这篇笔记。`
                   : "另一页面、设备或协作者已修改这篇笔记。"}
-              当前内容没有丢失，并已保存在本地。
+              {localDraftPersistFailed
+                ? "云端保存存在冲突，且本机草稿写入失败——请立即导出当前内容保留副本。"
+                : "当前内容没有丢失，并已保存在本地。"}
             </DialogDescription>
           </DialogHeader>
           {saveConflict && (
