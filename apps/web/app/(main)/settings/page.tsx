@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -413,6 +414,24 @@ export default function SettingsPage() {
             选择主题色，明暗模式可在侧边栏底部切换。
           </p>
           <ThemeColorPicker />
+        </div>
+
+        {/* D06 迁移表：插件入口收进设置页（/plugins 原页保留，侧栏入口由改版移除） */}
+        <div className="p-5 border-b">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">插件管理</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                启用或配置内置插件（AI 摘要、标签推荐等）。
+              </p>
+            </div>
+            <Link
+              href="/plugins"
+              className="shrink-0 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
+            >
+              打开插件
+            </Link>
+          </div>
         </div>
 
         <AISettingsSection />
