@@ -125,7 +125,13 @@
   - `app/(main)/notes/[id]/page.tsx`——删除约 300 行保存管线（persistCurrentDraft/flushSave 排空循环/重试定时器/幂等键缓存/冲突组装），改为会话消费；共享 draftRef 桥接保留既有页面写点（documented bridge）
   - 新增 `lib/collab/transaction-source.ts`（TransactionSource 从编辑器组件下沉到 lib，避免 lib→components 依赖）
 - 语义保持：role→RPC 选择（owner v1/editor v2/协作在线 v2+null）✓；任务 mutation 仅 user 来源+双链开关 ✓；幂等键同内容复用 ✓；冲突不自动覆盖+归因 ✓；viewer 不写 ✓；离线创建先建后存（23505 幂等）✓；skip-flush 消费 ✓；beforeunload/pagehide ✓；R03 本机写入失败上报 ✓；R05 子块计数经 setPendingChildBlocks 汇入统一状态 ✓。行为差异：离线创建加载后原仅置标记，现排队保存（离线→local-only 标记；在线→立即补交，修复滞留）——已在代码注释说明。
-- 测试命令及退出结果：新增 `note-save-session.test.ts` 16 用例覆盖计划关键行为清单（A/B 切换隔离、保存中继续输入串行排空、响应丢失幂等重试、冲突不自动覆盖+覆盖/采用、离线/离线创建、恢复不写回、viewer、角色失败停止、来源过滤、防抖单飞、quota 如实上报、销毁清定时器）；全量 vitest 136 文件 / 1028 测试；tsc、lint 零警告；**本地真实浏览器 E2E（mock 生产构建 + Chromium）：smoke 5/5 通过，含「笔记保存后导航往返：内容持久化」——即本卡重构的保存管线端到端验证**；协作 E2E 3 条按设计跳过（COLLAB_E2E 未开）。
+- **独立第二遍代码审查**（方式：无利益关联的独立 agent 对照旧实现逐段 diff + 最小 React 复现）发现 2 P0 / 2 P2 / 3 P3，全部修复：
+  - P0-1 注水时序：pendingHydrationRef 不触发 effect 重跑→revision 恒 0→存量笔记首次保存必假冲突；且 SPA 切页会用旧笔记 revision 注水 → 改为 state（loadedRevision 携带 noteId）+「每会话一次、noteId 匹配」守卫
+  - P0-2 setUi 传同一可变引用触发 React eager bailout→冲突框/错误条/保存中在自动保存路径不可见 → 改传快照
+  - P1 兜底 flush 变死代码（cleanup 先 destroy）→ hook cleanup 改为 flush→finally destroy
+  - 修复引入的新竞态（flush-then-destroy 期间旧会话第二轮读到新笔记草稿）→ 会话绑定草稿对象身份，整体替换即失效（新增行为测试固定）；applyDraftToPage 改就地合并保持身份
+  - P2 断网瞬间 offlinePending 缺失（补 markOfflinePending）；离线创建打开即 queueSave 制造多余 dirty（改 offline→标记 / online→补交）；P3 setContent/hydrate 补 destroyed 守卫、keepLocalCopy 失败提示降为 toast（接受，已记录）
+- 测试命令及退出结果：新增 `note-save-session.test.ts` 17 用例覆盖计划关键行为清单（A/B 切换隔离、保存中继续输入串行排空、响应丢失幂等重试、冲突不自动覆盖+覆盖/采用、离线/离线创建、恢复不写回、viewer、角色失败停止、来源过滤、防抖单飞、quota 如实上报、销毁清定时器、草稿身份绑定失效）；全量 vitest 136 文件 / 1028 测试；tsc、lint 零警告；**审查修复后本地真实浏览器 E2E（mock 生产构建 + Chromium）复跑：smoke 5/5 通过，含「笔记保存后导航往返：内容持久化」**；协作 E2E 3 条按设计跳过（COLLAB_E2E 未开）。
 - 未覆盖场景：协作断线/恢复（CRDT 层，协议问题另开卡的计划约定不变）；⌘S 各分支的浏览器手动全遍历（flushSaved 映射有单测）。
 - 回退办法：revert 本 PR 即恢复页面内联保存管线（会话模块留存不影响）。
 - 下一张可执行卡：R08。
