@@ -4,27 +4,38 @@
 
 @layer base {
   :root {
-    /* Notion 极简风色板：黑白灰打底，品牌橙只出现在主操作上；
-       hover/选中底色一律中性灰（accent），彩色仅用于语义状态 */
-    --background: 0 0% 100%;
-    --foreground: 20 14.3% 9.1%;
+    /* 安静的知识工作台（D02）：暖白底/炭灰字/陶土橙品牌。
+       目标值（02-ui-redesign-plan §4）换算为 HSL：
+       bg #F7F6F2=45 22% 96% · surface #FFFFFF · sidebar #F0EFEA=50 16% 93%
+       text #292C28=105 5% 16% · muted #62685F=105 5% 39% · border #DDDFD7=75 11% 86%
+       selected #E6E8DF=73 16% 89% · brand #A4472B=14 58% 41% · error #B42318=4 76% 40%
+       success #356446=142 31% 30%。
+       hover/选中底色一律中性（accent），彩色仅品牌与语义状态。 */
+    --background: 45 22% 96%;
+    --foreground: 105 5% 16%;
     --card: 0 0% 100%;
-    --card-foreground: 20 14.3% 9.1%;
+    --card-foreground: 105 5% 16%;
     --popover: 0 0% 100%;
-    --popover-foreground: 20 14.3% 9.1%;
-    --primary: 16 85% 50%;
+    --popover-foreground: 105 5% 16%;
+    --primary: 14 58% 41%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 20 16% 95%;
-    --secondary-foreground: 20 14.6% 15%;
-    --muted: 20 16% 96%;
-    --muted-foreground: 25 8% 45%;
-    --accent: 20 16% 94%;
-    --accent-foreground: 20 14.3% 9.1%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 45 16% 94%;
+    --secondary-foreground: 105 5% 16%;
+    --muted: 45 22% 95%;
+    --muted-foreground: 105 5% 39%;
+    --accent: 73 16% 89%;
+    --accent-foreground: 105 5% 16%;
+    --destructive: 4 76% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 20 14% 90%;
-    --input: 20 14% 88%;
-    --ring: 16 85% 50%;
+    --border: 75 11% 86%;
+    --input: 75 11% 84%;
+    --ring: 14 58% 41%;
+    /* 壳层表面（R08/D02）：侧栏独立于内容纸面 */
+    --sidebar: 50 16% 93%;
+    --sidebar-foreground: 105 5% 16%;
+    /* 语义成功色（保存成功等状态配文字使用） */
+    --success: 142 31% 30%;
+    --success-foreground: 0 0% 98%;
     --radius: 0.5rem;
     /* 连续曲率圆角层级（参考 Apple HIG）：
        外层容器大、内层元素递减；嵌套时内圆角 ≈ 外圆角 − 内边距，保持同心。
@@ -52,26 +63,30 @@
   }
 
   .dark {
-    /* 暗色降饱和：中性炭灰打底（chroma 8% 以下），品牌橙降亮度防刺眼 */
-    --background: 20 8% 9%;
-    --foreground: 20 6% 93%;
-    --card: 20 8% 11%;
-    --card-foreground: 20 6% 93%;
-    --popover: 20 8% 11%;
-    --popover-foreground: 20 6% 93%;
-    --primary: 16 78% 56%;
-    --primary-foreground: 20 8% 9%;
-    --secondary: 20 6% 17%;
-    --secondary-foreground: 20 6% 93%;
-    --muted: 20 6% 17%;
-    --muted-foreground: 20 6% 64%;
-    --accent: 20 6% 16%;
-    --accent-foreground: 20 6% 93%;
-    --destructive: 0 62.8% 45%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 20 6% 20%;
-    --input: 20 6% 20%;
-    --ring: 16 78% 56%;
+    /* 暗色（D02）：炭绿灰 #191A19 底 / #20211F 纸面 / #E39B7F 品牌降饱和 */
+    --background: 120 3% 10%;          /* #191A19 */
+    --foreground: 60 12% 90%;          /* #E6E8E2 */
+    --card: 60 3% 12%;                 /* #20211F */
+    --card-foreground: 60 12% 90%;
+    --popover: 60 3% 12%;
+    --popover-foreground: 60 12% 90%;
+    --primary: 17 64% 69%;             /* #E39B7F */
+    --primary-foreground: 24 18% 11%;  /* #211B17 */
+    --secondary: 60 4% 16%;
+    --secondary-foreground: 60 12% 90%;
+    --muted: 60 3% 16%;
+    --muted-foreground: 60 7% 65%;     /* #A5ADA0 */
+    --accent: 98 8% 19%;               /* #30352D */
+    --accent-foreground: 60 12% 90%;
+    --destructive: 7 83% 79%;          /* #F6A99F */
+    --destructive-foreground: 20 8% 9%;
+    --border: 94 6% 23%;               /* #3A3E37 */
+    --input: 94 6% 23%;
+    --ring: 17 64% 69%;
+    --sidebar: 120 4% 11%;             /* #1C1D1B */
+    --sidebar-foreground: 60 12% 90%;
+    --success: 134 31% 71%;            /* #9DCCA8 */
+    --success-foreground: 120 3% 10%;
   }
 }
 
@@ -2188,14 +2203,17 @@
 
 /* ------------------------- 可折叠桌面侧边栏 ------------------------- */
 :root {
-  --organize-sidebar-width: 15rem;
+  --organize-sidebar-width: 14.5rem; /* 232px（D02 规格） */
 }
 :root[data-sidebar-collapsed="true"] {
-  --organize-sidebar-width: 4rem;
+  --organize-sidebar-width: 3.5rem;  /* 56px（D02 规格） */
 }
 @media (min-width: 768px) {
   .organize-sidebar-desktop {
     width: var(--organize-sidebar-width);
+    /* D02：侧栏独立表面（--sidebar），与内容纸面（--card/--background）区分 */
+    background-color: hsl(var(--sidebar));
+    color: hsl(var(--sidebar-foreground));
   }
   .organize-sidebar-offset {
     padding-left: var(--organize-sidebar-width);

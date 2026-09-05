@@ -18,17 +18,19 @@ interface ThemeColorConfig {
 }
 
 const COLORS: Record<ThemeColor, ThemeColorConfig> = {
+  // D02：默认 orange 采用「安静的知识工作台」陶土橙（#A4472B / 暗 #E39B7F）；
+  // 其余四色仍只影响品牌/焦点（导航选中保持中性，规格 §4）
   orange: {
-    primary: '16 85% 50%',
+    primary: '14 58% 41%',
     primaryFg: '0 0% 98%',
-    ring: '16 85% 50%',
-    accent: '16 70% 95%',
-    accentFg: '16 80% 25%',
-    primaryDark: '16 85% 55%',
-    primaryFgDark: '20 15% 8%',
-    ringDark: '16 85% 55%',
-    accentDark: '16 30% 22%',
-    accentFgDark: '16 70% 85%',
+    ring: '14 58% 41%',
+    accent: '16 40% 94%',
+    accentFg: '14 58% 30%',
+    primaryDark: '17 64% 69%',
+    primaryFgDark: '24 18% 11%',
+    ringDark: '17 64% 69%',
+    accentDark: '14 20% 22%',
+    accentFgDark: '17 64% 85%',
   },
   blue: {
     primary: '220 85% 50%',
@@ -90,8 +92,8 @@ export function applyThemeColor(color: ThemeColor) {
   root.style.setProperty('--primary', isDark ? c.primaryDark : c.primary);
   root.style.setProperty('--primary-foreground', isDark ? c.primaryFgDark : c.primaryFg);
   root.style.setProperty('--ring', isDark ? c.ringDark : c.ring);
-  root.style.setProperty('--accent', isDark ? c.accentDark : c.accent);
-  root.style.setProperty('--accent-foreground', isDark ? c.accentFgDark : c.accentFg);
+  // D02 规格 §4：hover/选中底色一律中性（globals 的 --accent 保持中性值，
+  // 不再随品牌覆盖）；品牌色只作用于主动作（primary）与焦点（ring）。
   localStorage.setItem(STORAGE_KEY, color);
 }
 
