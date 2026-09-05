@@ -61,5 +61,5 @@ begin
 end;
 $$;
 
-revoke all on function public.synced_block_patch(uuid, jsonb, integer) from public;
-grant execute on function public.synced_block_patch(uuid, jsonb, integer) to authenticated;
+revoke execute on function public.synced_block_patch(uuid, jsonb, integer) from public, anon;
+grant execute on function public.synced_block_patch(uuid, jsonb, integer) to authenticated, service_role;

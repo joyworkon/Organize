@@ -10,7 +10,7 @@
 --   6. 鉴权：匿名调用拒绝
 --   7. 兼容：不带 expected（旧客户端）覆盖并递增；恢复路径 insert 不带 revision 默认 1
 BEGIN;
-SELECT plan(12);
+SELECT plan(14);
 
 -- ========== 数据准备（postgres 直插，绕过 RLS）==========
 DO $$ BEGIN
@@ -25,10 +25,16 @@ ON CONFLICT (id) DO NOTHING;
 
 -- ========== 1. 结构 ==========
 SELECT has_column('public', 'synced_blocks', 'revision', '073: revision 列存在');
-SELECT has_function_privilege('authenticated', 'public.synced_block_patch(uuid, jsonb, integer)', 'EXECUTE'),
-  true, '073: authenticated 可调 synced_block_patch';
-SELECT has_function_privilege('anon', 'public.synced_block_patch(uuid, jsonb, integer)', 'EXECUTE'),
-  false, '073: anon 不可调 synced_block_patch';
+SELECT is(
+  has_function_privilege('authenticated', 'public.synced_block_patch(uuid, jsonb, integer)', 'EXECUTE'),
+  true,
+  '073: authenticated 可调 synced_block_patch'
+);
+SELECT is(
+  has_function_privilege('anon', 'public.synced_block_patch(uuid, jsonb, integer)', 'EXECUTE'),
+  false,
+  '073: anon 不可调 synced_block_patch'
+);
 
 -- ========== 2. 成功路径 ==========
 SET ROLE authenticated;

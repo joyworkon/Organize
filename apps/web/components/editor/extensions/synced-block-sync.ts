@@ -69,7 +69,8 @@ export function syncedBlockNeedsSync(
   return { changed: JSON.stringify(beforeJson) !== JSON.stringify(afterJson) };
 }
 
-/** 用服务端内容替换 pos 处同步块的子节点；带远端 meta 且不进 Undo 历史。 */
+/** 用服务端内容替换 pos 处同步块的子节点；带远端 meta 且不进 Undo 历史。
+ *  空内容回退为空段落（block+ 容器不接受零子节点）。 */
 export function replaceSyncedBlockContent(
   editor: Editor,
   pos: number,
@@ -78,12 +79,13 @@ export function replaceSyncedBlockContent(
 ): boolean {
   const node = editor.state.doc.nodeAt(pos);
   if (!node) return false;
+  const safeContent = content.length > 0 ? content : [{ type: "paragraph" }];
   const start = pos + 1;
   const end = pos + node.nodeSize - 1;
   const tr = editor.state.tr
     .setMeta(SYNCED_REMOTE_META, { syncedId })
     .setMeta("addToHistory", false)
-    .replaceWith(start, end, content.map((c) => editor.schema.nodeFromJSON(c)));
+    .replaceWith(start, end, safeContent.map((c) => editor.schema.nodeFromJSON(c)));
   editor.view.dispatch(tr);
   return true;
 }
@@ -195,9 +197,13 @@ export interface StoredSyncedPending {
   savedAt: string;
 }
 
+function pendingStorageKey(userId: string, syncedId: string): string {
+  return `${PENDING_PREFIX}${userId}:${syncedId}`;
+}
+
 /**
- * 读取持久化的待同步快照；userId 不匹配（换账号）或数据损坏一律视为不存在，
- * 不把别人的 pending 写进自己的块。
+ * 读取持久化的待同步快照；键含 userId，换账号天然隔离；
+ * 数据损坏一律视为不存在，不把别人的 pending 写进自己的块。
  */
 export function readSyncedPending(
   storage: Pick<Storage, "getItem">,
@@ -205,7 +211,7 @@ export function readSyncedPending(
   syncedId: string
 ): StoredSyncedPending | null {
   try {
-    const raw = storage.getItem(`${PENDING_PREFIX}${syncedId}`);
+    const raw = storage.getItem(pendingStorageKey(userId, syncedId));
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<StoredSyncedPending>;
     if (
@@ -236,7 +242,7 @@ export function writeSyncedPending(
   pending: StoredSyncedPending
 ): boolean {
   try {
-    storage.setItem(`${PENDING_PREFIX}${pending.syncedId}`, JSON.stringify(pending));
+    storage.setItem(pendingStorageKey(pending.userId, pending.syncedId), JSON.stringify(pending));
     return true;
   } catch {
     return false;
@@ -245,10 +251,11 @@ export function writeSyncedPending(
 
 export function clearSyncedPending(
   storage: Pick<Storage, "removeItem">,
+  userId: string,
   syncedId: string
 ): void {
   try {
-    storage.removeItem(`${PENDING_PREFIX}${syncedId}`);
+    storage.removeItem(pendingStorageKey(userId, syncedId));
   } catch {
     // 清理失败最多留下一条孤儿 pending，下次 flush 成功会再清
   }
@@ -273,10 +280,11 @@ export function emitSyncedBlockStatus(syncedId: string, pending: boolean): void 
 
 let cachedUserIdPromise: Promise<string | null> | null = null;
 
-/** 获取当前登录用户 id；未登录/不可用返回 null（此时不做 pending 持久化）。 */
+/** 获取当前登录用户 id；未登录/不可用返回 null（此时不做 pending 持久化）。
+ *  只缓存成功结果：auth 未就绪时的 null 不永久缓存，登出换号可重新解析。 */
 export function getSyncedUserId(): Promise<string | null> {
   if (!cachedUserIdPromise) {
-    cachedUserIdPromise = (async () => {
+    const promise = (async () => {
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const {
@@ -287,6 +295,15 @@ export function getSyncedUserId(): Promise<string | null> {
         return null;
       }
     })();
+    promise.then(
+      (id) => {
+        if (!id) cachedUserIdPromise = null;
+      },
+      () => {
+        cachedUserIdPromise = null;
+      }
+    );
+    cachedUserIdPromise = promise;
   }
   return cachedUserIdPromise;
 }

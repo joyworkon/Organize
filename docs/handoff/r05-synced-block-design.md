@@ -37,12 +37,16 @@ alter table synced_blocks add column revision integer not null default 1;
 ## 3. 组件状态变化（SyncedBlockView）
 
 - `status`: `loading | saved | saving | error | conflict | stale`
-  - `stale`：本地有 pending 时收到远端更新（GET 刷新 / 挂载拉取）→ 不自动覆盖；显示「远端有更新」+「拉取远端」（丢弃本地）+「用本地覆盖」（带当前 revision 写）
-  - `conflict`：PATCH 409 且远端内容 ≠ pending → 两个显式动作同上；默认不覆盖远端
-  - 409 且内容一致 → 幂等命中，按 saved 处理
-- `revisionRef`: 服务端确认的最新 revision（不写入文档 JSON）
-- pending：内存 + localStorage `organize:synced-pending:{userId}:{syncedId}`（含 content/revision/savedAt/userId）
-  - 挂载时读回：userId 匹配才采用 → 初始化 pending 并立即 flush（离线改→关页→重开→联网恢复）
+  - `conflict`：PATCH 409 且远端内容 ≠ 本地 pending → 两个显式动作「用本地覆盖远端」（带 409 返回的 current.revision 强制写）/「拉取远端」（丢弃本地）；默认不覆盖远端
+  - 409 且远端内容 == pending → 幂等命中：视为已同步（更新 revision）
+  - `stale`：本地有 pending 时收到远端更新（GET 刷新 / 挂载拉取）→ 不自动覆盖也不自动补交（补交会以服务端新 revision 成功写入 = 静默覆盖）；显示「远端有更新」+ 同两个显式动作
+- `revisionRef`: 服务端确认的最新 revision（不写入文档 JSON）。**保护规则**：pending 与远端分叉时不得用远端 revision 覆盖基准，否则任何后续 flush 都会变成静默覆盖
+- pending：内存 + localStorage `organize:synced-pending:{userId}:{syncedId}`（键含 userId，换账号天然隔离；含 content/revision/savedAt）
+  - 组件内 pending 唯一写入口 `setPending(content|null)`：编辑（onTransaction）与重试都走它
+  - 挂载恢复：读回 pending 后以 stored.revision 为基准拉取远端：
+    - 远端与 pending 一致（幂等）→ 直接收敛（不 PATCH，白增 revision）
+    - 远端分叉 → stale + 显式动作（不自动补交）
+    - 拉取失败 → 保留 pending，可用块内状态补交（基准 = stored.revision，分叉会回 409）
   - flush 成功清除存储；写存储失败不阻塞（保持内存 pending，页面摘要仍显示待同步）
 
 ## 4. hydrated 语义变更（兼容）

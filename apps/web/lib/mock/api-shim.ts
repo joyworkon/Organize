@@ -377,8 +377,13 @@ const listSyncedBlocks: MockHandler = ({ url }) => {
 };
 
 const createSyncedBlock: MockHandler = ({ body }) => {
+  const id = typeof body?.id === "string" && body.id.length ? body.id : genId("synced_blocks");
+  // 与真实 route 一致：主键冲突返回 500（insert .single() 报错）
+  if (mockDb.synced_blocks.some((r) => r.id === id)) {
+    return { status: 500, body: { error: `duplicate key value violates unique constraint "synced_blocks_pkey"` } };
+  }
   const row = {
-    id: typeof body?.id === "string" && body.id.length ? body.id : genId("synced_blocks"),
+    id,
     user_id: MOCK_USER.id,
     content: Array.isArray(body?.content) ? body.content : [],
     revision: 1,

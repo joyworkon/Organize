@@ -77,12 +77,18 @@
 
 ### R05 同步块重开、离线、并发完整性 — ✅ 已完成（PR #229，设计文档 docs/handoff/r05-synced-block-design.md）
 
-- 基线提交：b74911e。**高风险卡：先写设计（接口/状态/兼容/回退）后实施**。
+- 基线提交：b74911e。**高风险卡：先写设计（接口/状态/兼容/回退）后实施 + 独立第二遍代码审查**。
 - 缺口盘点（实施前确认）：hydrated 持久化属性致重开跳过拉取；PATCH 无并发检查静默覆盖；无离线 pending 持久化；无跨设备重验证；mock 下 501；备份恢复 insert 无 on conflict（既有边界，本卡不改，设计文档 §6 留档）。
-- 接口：迁移 073（revision 列 default 1 + security definer RPC `synced_block_patch`——单条 UPDATE 内完成 expected 比较，冲突返回 current.revision/content，not_found 不泄露存在性）；PATCH route 改走 RPC（200/409/404 同形状）；GET/POST 带 revision；备份导出为显式列清单故合同不变，恢复行 default 1。
-- 组件状态：loading/saved/saving/error/conflict/stale；hydrated 属性保留读写但组件忽略（重开必拉取）；pending 持久化 localStorage（userId+syncedId 隔离，换账号不采用）；409 幂等命中（重试场景）与真实冲突分流；冲突/stale 默认不覆盖远端，提供「拉取远端」「用本地覆盖」显式动作；可见性/聚焦/联网驱动 GET 重验证（5s 节流）；`organize:synced-block-status` 事件 + 笔记页顶栏「N 个同步块待同步」聚合。
-- 验证：新增/更新单测 21 处（乐观锁传输、409 冲突、幂等命中决策、pending 读写与账号隔离、mock 同形状、既有事务过滤回归）；**pgTAP 073 真实本地库通过**（12 断言：列/默认值/RPC 成功/冲突/重试幂等/not_found/匿名 42501/旧客户端/恢复兼容；全套 27 文件 PASS）；全量 vitest 134 文件 / 1007 测试；tsc、lint 零警告。
-- 未覆盖（如实记录）：两浏览器真实并发编辑的浏览器端演示未跑——协议层（原子 UPDATE + 409 流程）由真实库 pgTAP 与单测覆盖；待真实协作 E2E 安排（handoff 停止条件：不声称“同步已完善”）。
+- 接口：迁移 073（revision 列 default 1 + security definer RPC `synced_block_patch`——单条 UPDATE 内完成 expected 比较，冲突返回 current.revision/content，not_found 不泄露存在性；anon 显式 revoke 对齐 067 模式）；PATCH route 改走 RPC（200/409/404 同形状）；GET/POST 带 revision；备份导出为显式列清单故合同不变，恢复行 default 1。
+- 组件状态：loading/saved/saving/error/conflict/stale；hydrated 属性保留读写但组件忽略（重开必拉取）；pending 持久化 localStorage（键含 userId，换账号天然隔离）；409 幂等命中与真实冲突分流；冲突/stale 默认不覆盖远端，「拉取远端」「用本地覆盖」显式动作；可见性/聚焦/联网驱动 GET 重验证（5s 节流）；`organize:synced-block-status` 事件 + 笔记页顶栏「N 个同步块待同步」聚合。
+- **独立第二遍代码审查**（方式：无利益关联的独立 agent 只读审查全部 R05 文件 + 设计文档交叉核对）发现 9 项问题，全部修复：
+  - P0：pending 持久化接线错误——onTransaction/重试绕过 `setPending` 导致 localStorage 永远无写入（核心承诺失效）→ 统一走唯一写入口
+  - P0/P1：挂载恢复与可见性刷新无条件用远端 revision 覆盖乐观锁基准 → stale 态下任何 flush 都会静默覆盖远端 → 分叉时不动基准；挂载分叉不再自动补交（改 stale + 显式动作）；幂等一致时直接收敛不再空 PATCH
+  - P1：conflict 态 UI 缺「拉取远端/用本地覆盖」按钮（重试死循环）→ 补齐
+  - P2：pending 键补 userId 维度与设计文档对齐
+  - P3：getSyncedUserId 不再永久缓存 null；mock POST 补 id 冲突 500；pgTAP 特权断言改 `is()` 包装（原写法实际未注册测试）+ anon 显式 revoke
+- 验证：vitest 134 文件 / 1007 测试；**pgTAP 073 真实本地库 14 断言通过**（全套 27 文件 PASS）；tsc、lint 零警告。
+- 未覆盖（如实记录）：两浏览器真实并发编辑的浏览器端演示未跑——协议层（原子 UPDATE + 409 流程）由真实库 pgTAP 与单测覆盖；待真实协作 E2E 安排（handoff 停止条件：不声称”同步已完善”）。
 - 回退办法：revert 本 PR；revision 列留存无害（旧代码不读写）；pending localStorage 键残留不影响。
 - 下一张可执行卡：R06。
 

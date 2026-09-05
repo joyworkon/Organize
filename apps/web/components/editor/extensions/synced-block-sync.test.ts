@@ -179,7 +179,7 @@ describe("R05 冲突决策与 pending 持久化", () => {
     expect(classifyConflict(null, pending)).toBe("conflict");
   });
 
-  it("pending 持久化按 syncedId 写读，userId 不匹配时拒绝采用", () => {
+  it("pending 持久化按 userId+syncedId 键隔离，换账号读不到", () => {
     const storage = new MemoryStorage();
     const pending: StoredSyncedPending = {
       version: 1,
@@ -193,13 +193,13 @@ describe("R05 冲突决策与 pending 持久化", () => {
     expect(readSyncedPending(storage, "user-a", syncedId)?.content).toEqual(pending.content);
     // 换账号：不把别人的 pending 写进自己的块
     expect(readSyncedPending(storage, "user-b", syncedId)).toBeNull();
-    clearSyncedPending(storage, syncedId);
+    clearSyncedPending(storage, "user-a", syncedId);
     expect(readSyncedPending(storage, "user-a", syncedId)).toBeNull();
   });
 
   it("pending 持久化损坏数据视为不存在", () => {
     const storage = new MemoryStorage();
-    storage.setItem(`organize:synced-pending:${syncedId}`, "{bad");
+    storage.setItem(`organize:synced-pending:user-a:${syncedId}`, "{bad");
     expect(readSyncedPending(storage, "user-a", syncedId)).toBeNull();
   });
 });
