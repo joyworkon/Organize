@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organize · 安静的知识工作台 — D01 设计预览（演示数据）</title>
+<style>
+:root {
+  --bg:#F7F6F2; --paper:#FFFFFF; --nav:#F0EFEA; --text:#292C28; --muted:#62685F;
+  --line:#DDDFD7; --active:#E6E8DF; --brand:#A4472B; --brand-text:#FFFFFF;
+  --error:#B42318; --success:#356446; --amber:#8A5A00; --amber-bg:#FBF3DF;
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  --bg:#191A19; --paper:#20211F; --nav:#1C1D1B; --text:#E6E8E2; --muted:#A5ADA0;
+  --line:#3A3E37; --active:#30352D; --brand:#E39B7F; --brand-text:#211B17;
+  --error:#F6A99F; --success:#9DCCA8; --amber:#E7C36A; --amber-bg:#3A331F;
+  color-scheme: dark;
+}
+* { box-sizing:border-box; margin:0; }
+html,body { height:100%; }
+body { font:14px/1.65 system-ui,'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif; color:var(--text); background:var(--bg); }
+button { font:inherit; color:inherit; cursor:pointer; background:none; border:0; }
+.preview-banner { position:sticky; top:0; z-index:90; display:flex; gap:16px; align-items:center; flex-wrap:wrap; padding:8px 20px; background:var(--brand); color:var(--brand-text); font-size:12px; }
+.preview-banner strong { font-weight:600; }
+.preview-banner .spacer { flex:1; }
+.preview-banner button { color:var(--brand-text); border:1px solid rgba(255,255,255,.45); border-radius:6px; padding:3px 10px; }
+.preview-banner button[aria-pressed="true"] { background:rgba(255,255,255,.2); }
+.stage { display:flex; gap:0; align-items:flex-start; padding:24px; gap:32px; flex-wrap:wrap; }
+.stage-note { max-width:220px; font-size:12px; color:var(--muted); }
+/* ------- 桌面壳 ------- */
+.shell { display:grid; grid-template-columns:232px minmax(0,1fr); width:1180px; max-width:100%; height:760px; background:var(--paper); border:1px solid var(--line); border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.shell.collapsed { grid-template-columns:56px minmax(0,1fr); }
+aside { background:var(--nav); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:18px 10px; gap:2px; overflow:hidden; }
+.logo { font-size:18px; font-weight:600; letter-spacing:-.3px; padding:0 10px 16px; white-space:nowrap; }
+.logo em { color:var(--brand); font-style:normal; }
+.side-item { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:6px; text-align:left; width:100%; white-space:nowrap; color:var(--text); }
+.side-item:hover { background:var(--active); }
+.side-item[aria-current="page"] { background:var(--active); font-weight:500; }
+.side-item .ico { width:16px; text-align:center; flex:none; }
+.side-label { font-size:12px; color:var(--muted); padding:14px 10px 4px; white-space:nowrap; }
+.side-tree { padding:2px 0 4px 26px; font-size:13px; color:var(--muted); }
+.side-tree div { padding:4px 0; }
+.side-footer { margin-top:auto; }
+main { display:flex; flex-direction:column; min-width:0; height:100%; }
+/* ------- 工作台 ------- */
+.dash { background:var(--bg); padding:32px; overflow:auto; }
+.dash-inner { max-width:1120px; margin:0 auto; }
+.dash-head { display:flex; align-items:baseline; gap:16px; }
+.dash-head h1 { font-size:24px; line-height:1.35; font-weight:600; }
+.dash-head .views { margin-left:auto; display:flex; gap:4px; font-size:13px; color:var(--muted); }
+.dash-head .views button { padding:3px 10px; border-radius:6px; }
+.dash-head .views button[aria-pressed="true"] { background:var(--active); color:var(--text); }
+.date { color:var(--muted); font-size:13px; margin:10px 0 20px; }
+.capture { display:flex; gap:10px; align-items:center; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:12px 16px; color:var(--muted); margin-bottom:24px; }
+.columns { display:grid; grid-template-columns:1.6fr 1fr; gap:32px; }
+.card h2 { font-size:15px; font-weight:600; margin-bottom:10px; }
+.card .more { font-size:12px; color:var(--brand); }
+.row { display:flex; gap:10px; align-items:baseline; padding:10px 0; border-bottom:1px solid var(--line); }
+.row:last-child { border-bottom:0; }
+.row .t { flex:1; min-width:0; }
+.row .t small { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+.row > small { color:var(--muted); font-size:12px; flex:none; }
+.row .due { font-size:12px; }
+.checkbox { width:15px; height:15px; border:1.5px solid var(--muted); border-radius:4px; flex:none; position:relative; top:2px; }
+/* ------- 笔记列表 ------- */
+.list-page { background:var(--bg); padding:32px; overflow:auto; }
+.list-inner { max-width:1120px; margin:0 auto; }
+.list-head { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.list-head h1 { font-size:24px; font-weight:600; }
+.btn-primary { background:var(--brand); color:var(--brand-text); border-radius:6px; padding:6px 14px; font-weight:500; }
+.list-toolbar { display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px; padding:8px 0 4px; border-bottom:1px solid var(--line); }
+.list-toolbar .tabs { display:flex; gap:4px; }
+.list-toolbar .tabs button { padding:4px 12px; border-radius:6px; }
+.list-toolbar .tabs button[aria-pressed="true"] { background:var(--active); color:var(--text); }
+.list-toolbar .spacer { flex:1; }
+.note-row { display:flex; align-items:center; gap:14px; padding:14px 6px; border-bottom:1px solid var(--line); cursor:pointer; border-radius:6px; }
+.note-row:hover { background:var(--active); }
+.note-row .title { font-weight:500; }
+.note-row .sub { font-size:12px; color:var(--muted); }
+.note-row .meta { margin-left:auto; display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); white-space:nowrap; }
+.tagchip { background:var(--active); border-radius:4px; padding:1px 8px; font-size:12px; }
+.empty { padding:60px 0; text-align:center; color:var(--muted); }
+.empty .btn-primary { margin-top:12px; display:inline-block; }
+/* ------- 笔记详情 ------- */
+.tabbar { background:var(--bg); border-bottom:1px solid var(--line); padding:7px 18px 0; display:flex; gap:8px; font-size:12px; color:var(--muted); align-items:flex-end; }
+.tabbar .tab { padding:5px 14px; border-radius:6px 6px 0 0; background:var(--paper); color:var(--text); border:1px solid var(--line); border-bottom:0; }
+.toolbar { padding:9px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; font-size:12px; min-height:48px; }
+.toolbar .path { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.toolbar .spacer { flex:1; }
+.tool-btn { border:1px solid transparent; border-radius:6px; padding:4px 9px; color:var(--text); white-space:nowrap; }
+.tool-btn:hover { background:var(--active); }
+.tool-btn[aria-pressed="true"] { background:var(--active); }
+.reading { display:grid; grid-template-columns:minmax(0,1fr); flex:1; min-height:0; }
+.reading.panel-open { grid-template-columns:minmax(0,1fr) 280px; }
+.doc-scroll { overflow:auto; min-width:0; }
+.doc { max-width:760px; margin:0 auto; padding:40px 40px 64px; width:100%; }
+.kicker { color:var(--brand); font-size:12px; letter-spacing:1px; margin-bottom:10px; }
+.doc h1 { font-size:34px; line-height:1.3; font-weight:600; letter-spacing:-.5px; margin-bottom:14px; }
+.doc h1.long { font-size:28px; }
+.doc h2 { font-size:19px; font-weight:600; margin:28px 0 10px; }
+.doc p { margin:12px 0; line-height:1.85; }
+.meta-row { display:flex; gap:8px; flex-wrap:wrap; color:var(--muted); font-size:12px; margin-bottom:26px; align-items:center; }
+.chip { background:var(--bg); border:1px solid var(--line); padding:1px 8px; border-radius:4px; }
+.callout { border-left:2px solid var(--brand); padding:6px 0 6px 18px; color:var(--muted); margin:18px 0; }
+.save-bar-error { display:flex; align-items:center; justify-content:space-between; gap:12px; background:color-mix(in srgb, var(--error) 10%, var(--paper)); color:var(--error); border-bottom:1px solid var(--error); padding:8px 20px; font-size:13px; }
+.save-bar-error button { text-decoration:underline; color:inherit; font-weight:500; }
+.state-error { color:var(--error); }
+.state-amber { color:var(--amber); }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted); margin-right:5px; vertical-align:1px; }
+.spin { display:inline-block; width:10px; height:10px; border:2px solid var(--muted); border-top-color:transparent; border-radius:50%; animation:sp 1s linear infinite; vertical-align:-1px; margin-right:5px; }
+@keyframes sp { to { transform:rotate(360deg); } }
+.panel { border-left:1px solid var(--line); padding:22px 16px; font-size:13px; overflow:auto; }
+.panel h3 { font-size:12px; color:var(--muted); font-weight:500; margin-bottom:10px; letter-spacing:.5px; }
+.panel .toc-item { display:block; width:100%; text-align:left; padding:5px 8px; border-radius:5px; color:var(--text); }
+.panel .toc-item:hover { background:var(--active); }
+.panel .toc-item.l2 { padding-left:22px; color:var(--muted); }
+.menu-pop { position:absolute; right:16px; top:96px; background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.12); padding:6px; width:220px; z-index:60; }
+.menu-pop button { display:block; width:100%; text-align:left; padding:7px 10px; border-radius:6px; font-size:13px; }
+.menu-pop button:hover { background:var(--active); }
+.menu-pop .sep { border-top:1px solid var(--line); margin:5px 4px; }
+.menu-pop .danger { color:var(--error); }
+/* ------- 移动预览 ------- */
+.phone-wrap { width:390px; }
+.phone { width:390px; height:760px; background:var(--paper); border:1px solid var(--line); border-radius:24px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+.m-top { height:52px; flex:none; display:flex; align-items:center; gap:8px; padding:0 12px; border-bottom:1px solid var(--line); font-size:15px; font-weight:500; }
+.m-top .side { flex:1; display:flex; }
+.m-top .side:last-child { justify-content:flex-end; }
+.m-doc { flex:1; overflow:auto; padding:20px 16px 90px; }
+.m-doc h1 { font-size:28px; line-height:1.35; font-weight:600; margin-bottom:10px; }
+.m-input { font-size:16px; }
+.m-fab { position:absolute; bottom:76px; right:16px; background:var(--brand); color:var(--brand-text); border-radius:999px; padding:10px 16px; font-weight:500; box-shadow:0 2px 8px rgba(0,0,0,.18); }
+.m-bottom { height:56px; flex:none; border-top:1px solid var(--line); display:flex; align-items:center; justify-content:space-around; padding-bottom:env(safe-area-inset-bottom); color:var(--muted); font-size:12px; }
+.m-bottom .fab-slot { width:44px; height:44px; display:grid; place-items:center; }
+.m-bottom .mini-fab { width:40px; height:40px; border-radius:999px; background:var(--brand); color:var(--brand-text); display:grid; place-items:center; font-size:20px; }
+.keyboard-note { margin-top:8px; font-size:12px; color:var(--muted); }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="preview-banner">
+  <strong>设计预览 · D01 第一版</strong>
+  <span>「安静的知识工作台」方向 · 全部为演示数据，不连接真实后端；任何“已保存”均为演示状态</span>
+  <span class="spacer"></span>
+  <button id="themeToggle" aria-pressed="false">暗色</button>
+  <span>笔记详情保存状态（演示）：</span>
+  <button data-save="synced" aria-pressed="true">已同步</button>
+  <button data-save="saving" aria-pressed="false">保存中</button>
+  <button data-save="local" aria-pressed="false">仅本机</button>
+  <button data-save="error" aria-pressed="false">失败</button>
+</div>
+
+<div class="stage">
+  <div class="stage-note">
+    <p><strong>自查清单</strong></p>
+    <p>① 侧栏折叠（56px）/ 展开（232px）</p>
+    <p>② 目录辅助面板开关（280px）</p>
+    <p>③ 更多菜单（Esc 可关）</p>
+    <p>④ 保存状态四态可切换（横幅）</p>
+    <p>⑤ 长标题 / 空态样例</p>
+    <p>⑥ 移动 390×844 预览</p>
+    <p>⑦ 图标为示意（文字代替 Lucide），接入时用真实图标</p>
+  </div>
+
+  <!-- ================= 桌面壳（工作台 / 笔记列表 / 笔记详情） ================= -->
+  <div>
+    <div class="shell" id="shell">
+      <aside>
+        <div class="logo">Organize<em>.</em></div>
+        <button class="side-item" aria-label="搜索或访问">🔍 <span class="txt">搜索</span> <small style="color:var(--muted)">⌘K</small></button>
+        <button class="side-item">➕ <span class="txt">新建</span></button>
+        <div class="side-label">工作空间</div>
+        <button class="side-item nav" data-screen="dash" data-nav="dash" aria-current="page"><span class="ico">⌂</span><span class="txt">工作台</span></button>
+        <button class="side-item"><span class="ico">📚</span><span class="txt">稍后读</span></button>
+        <button class="side-item nav" data-screen="list" data-nav="notes"><span class="ico">📄</span><span class="txt">笔记</span></button>
+        <button class="side-item nav" data-screen="empty" data-nav="empty"><span class="ico">☑</span><span class="txt">待办（空态）</span></button>
+        <button class="side-item"><span class="ico">🪶</span><span class="txt">速记</span></button>
+        <div class="side-label">资料</div>
+        <button class="side-item"><span class="ico">★</span><span class="txt">收藏夹</span></button>
+        <div class="side-footer">
+          <button class="side-item"><span class="ico">🗑</span><span class="txt">垃圾箱</span></button>
+          <button class="side-item"><span class="ico">⚙</span><span class="txt">设置</span></button>
+          <button class="side-item" id="collapseBtn" aria-pressed="false"><span class="ico">«</span><span class="txt">收起侧栏</span></button>
+        </div>
+      </aside>
+      <main>
+        <!-- 工作台 -->
+        <section class="dash" data-page="dash">
+          <div class="dash-inner">
+            <div class="dash-head"><h1>工作台</h1>
+              <div class="views"><button aria-pressed="true">今天</button><button aria-pressed="false">回顾</button><button aria-pressed="false">统计</button></div>
+            </div>
+            <div class="date">9 月 5 日，星期六</div>
+            <div class="capture">💡 记录想法或粘贴链接… <span style="flex:1"></span><button class="btn-primary">创建</button></div>
+            <div class="columns">
+              <div>
+                <div class="card">
+                  <h2>继续处理 <a class="more" href="#" onclick="return false">查看全部待办</a></h2>
+                  <div class="row"><span class="checkbox" role="checkbox"></span><span class="t">补齐《论证的使用》阅读笔记</span><span class="due">今天</span></div>
+                  <div class="row"><span class="checkbox" role="checkbox"></span><span class="t">梳理下周写作计划</span><span class="due">今天</span></div>
+                </div>
+                <div class="card" style="margin-top:26px">
+                  <h2>继续阅读 <a class="more" href="#" onclick="return false">稍后读</a></h2>
+                  <div class="row"><span class="t">如何有效阅读一本书<small>example.com · 已读 40%</small></span></div>
+                  <div class="row"><span class="t">卡片笔记写作法（书摘）<small>zzz.today · 未读</small></span></div>
+                  <div class="row"><span class="t">论知识工作者的第二次大脑<small>example.com · 已读 92%</small></span></div>
+                </div>
+              </div>
+              <div>
+                <div class="card">
+                  <h2>最近笔记</h2>
+                  <div class="row"><span class="t">让阅读变成自己的知识<small>今天 09:41</small></span></div>
+                  <div class="row"><span class="t">为什么要做每日回顾<small>昨天</small></span></div>
+                  <div class="row"><span class="t">写作是把思考变清楚<small>9 月 2 日</small></span></div>
+                </div>
+                <div class="card" style="margin-top:26px">
+                  <h2>最近速记</h2>
+                  <div class="row"><span class="t">「输出倒逼输入」这句可以写进导论 <small>09:12</small></span></div>
+                  <div class="row"><span class="t">读 second brain 的框架图很有用 <small>昨天</small></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 笔记列表（含长标题 + 空态切换） -->
+        <section class="list-page" data-page="list" hidden>
+          <div class="list-inner">
+            <div class="list-head"><h1>笔记</h1><span style="flex:1"></span><button class="btn-primary">新建笔记</button></div>
+            <div class="list-toolbar">
+              <div class="tabs"><button aria-pressed="true">最近</button><button aria-pressed="false">全部</button><button aria-pressed="false">图谱</button></div>
+              <span class="spacer"></span>
+              <button class="tool-btn">🔍 搜索</button><button class="tool-btn">排序：最近编辑</button><button class="tool-btn">列表</button>
+            </div>
+            <div id="listFull">
+              <div class="note-row" onclick="showScreen('note')"><span>📄</span><div><div class="title">让阅读，变成自己的知识</div><div class="sub">来源 · 一篇关于主动阅读的文章</div></div><div class="meta"><span class="tagchip">阅读</span><span class="tagchip">方法</span>今天 09:41</div></div>
+              <div class="note-row"><span>📄</span><div><div class="title">这是一个非常长的标题用来检验两行截断与整体布局是否保持稳定不溢出也不挤压右侧的元信息区域——第二段继续加长以确认省略号行为符合预期设计</div><div class="sub">父页面 · 读书与方法</div></div><div class="meta"><span class="tagchip">长期</span><span class="tagchip">+1</span>昨天</div></div>
+              <div class="note-row"><span>📄</span><div><div class="title">为什么要做每日回顾</div><div class="sub">—</div></div><div class="meta">9 月 3 日</div></div>
+              <div class="note-row"><span>📄</span><div><div class="title">写作是把思考变清楚</div><div class="sub">父页面 · 项目想法</div></div><div class="meta">9 月 2 日</div></div>
+            </div>
+            <div class="empty" id="listEmpty" hidden>
+              <p>先写下一个想法</p>
+              <button class="btn-primary">新建笔记</button>
+            </div>
+            <p style="margin-top:14px;font-size:12px;color:var(--muted)"><button class="tool-btn" onclick="toggleEmpty()">切换 空库 / 有数据（演示）</button>　搜索无结果与加载失败为独立状态（示意图见 D00 §4）</p>
+          </div>
+        </section>
+
+        <!-- 笔记详情（桌面） -->
+        <section data-page="note" hidden style="display:flex;flex-direction:column;min-height:0;flex:1;position:relative">
+          <div class="tabbar"><span class="tab">让阅读，变成自己的知识</span><span style="padding:5px 10px">项目想法</span><span style="padding:5px 10px;color:var(--brand)">＋</span></div>
+          <div class="toolbar">
+            <span class="path">笔记 / 读书与方法</span>
+            <span class="spacer"></span>
+            <span id="saveState" class="state-ok"><span class="dot"></span>已同步</span>
+            <button class="tool-btn">分享</button>
+            <button class="tool-btn" id="tocToggle" aria-pressed="false">目录</button>
+            <button class="tool-btn" id="moreToggle" aria-pressed="false">更多 ▾</button>
+          </div>
+          <div class="save-bar-error" id="saveErrorBar" hidden role="alert">
+            <span>本机草稿未能保存，请导出当前内容或保持页面打开</span>
+            <button>导出当前内容</button>
+          </div>
+          <div class="reading" id="reading">
+            <div class="doc-scroll">
+              <article class="doc">
+                <div class="kicker">读书与方法</div>
+                <h1 id="docTitle">让阅读，变成自己的知识</h1>
+                <div class="meta-row"><span class="chip">阅读</span><span class="chip">学习方法</span><span>来源 · 一篇关于主动阅读的文章</span></div>
+                <p>收藏是一个开始。真正留下来的，是我们用自己的话重新表达、并且在生活中用过的部分。</p>
+                <div class="callout">💡 读完后合上书，先写三句话摘要——写不出来的地方就是没有读懂的地方。</div>
+                <h2 id="h-method">方法：从划线到改写</h2>
+                <p>划线只是定位。改写要求你用自己的语言重组论证结构，这一步决定了知识能否被调用。</p>
+                <h2 id="h-habit">习惯：固定输出位置</h2>
+                <p>给每个来源一个固定入口：一条速记、一篇笔记、一个任务。让「下一步」永远明确。</p>
+              </article>
+            </div>
+            <aside class="panel" id="tocPanel" hidden>
+              <h3>目录</h3>
+              <button class="toc-item">方法：从划线到改写</button>
+              <button class="toc-item l2">为什么改写有效</button>
+              <button class="toc-item">习惯：固定输出位置</button>
+            </aside>
+          </div>
+          <div class="menu-pop" id="moreMenu" hidden>
+            <button>页面设置：全宽</button>
+            <button>字体：衬线</button>
+            <button>小字号</button>
+            <button>目录</button>
+            <div class="sep"></div>
+            <button>复制链接</button><button>复制内容</button><button>移动</button><button>版本历史</button><button>导出 Markdown</button>
+            <div class="sep"></div>
+            <button style="color:var(--muted);cursor:default">创建于 8 月 28 日 · 页面信息</button>
+            <div class="sep"></div>
+            <button class="danger">移入垃圾箱</button>
+          </div>
+        </section>
+
+        <!-- 空态（以待办为例） -->
+        <section class="list-page" data-page="empty" hidden>
+          <div class="list-inner">
+            <div class="empty">
+              <p style="font-size:16px;color:var(--text);font-weight:500">今天没有待办</p>
+              <p>待办清空的感觉很好——去工作台看看要读什么。</p>
+              <button class="btn-primary" onclick="showScreen('dash')">回到工作台</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <p class="keyboard-note">桌面壳：点击列表第一行可进入笔记详情；Esc 关闭更多菜单；「收起侧栏」切换 232/56px。</p>
+  </div>
+
+  <!-- ================= 移动 390×844 ================= -->
+  <div class="phone-wrap">
+    <div class="phone" style="position:relative">
+      <div class="m-top">
+        <div class="side"><button aria-label="返回">‹ 返回</button></div>
+        <span>阅读摘记</span>
+        <div class="side"><button aria-label="更多">⋯</button></div>
+      </div>
+      <div class="m-doc">
+        <div class="kicker">读书与方法</div>
+        <h1>让阅读，变成自己的知识</h1>
+        <div class="meta-row"><span class="chip">阅读</span><span class="chip">方法</span></div>
+        <p class="m-input">收藏是一个开始。真正留下来的，是我们用自己的话重新表达、并且在生活中用过的部分。移动端正文 16px，输入区域保持系统字号以避免 iOS 聚焦缩放。</p>
+        <h2 style="font-size:18px;margin:20px 0 8px">方法：从划线到改写</h2>
+        <p class="m-input">划线只是定位。改写要求你用自己的语言重组论证结构。</p>
+      </div>
+      <button class="m-fab" id="mFab">＋ 新建</button>
+      <div class="m-bottom">
+        <span>⌂ 工作台</span><span>📚 稍后读</span>
+        <span class="fab-slot"><span class="mini-fab">＋</span></span>
+        <span>☑ 待办</span><span>🪶 速记</span>
+      </div>
+    </div>
+    <p class="keyboard-note">移动：软键盘聚焦时悬浮「＋ 新建」自动收起（演示：点击正文区域观察 FAB 消失）；底部保留搜索/新建结构；触控目标 ≥44px。</p>
+  </div>
+</div>
+
+<script>
+// 全部为演示交互；无任何真实后端调用
+const themeToggle = document.getElementById('themeToggle');
+themeToggle.onclick = () => {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? '' : 'dark');
+  themeToggle.setAttribute('aria-pressed', String(!dark));
+  themeToggle.textContent = dark ? '暗色' : '浅色';
+};
+
+function showScreen(name) {
+  document.querySelectorAll('[data-page]').forEach(sec => { sec.hidden = sec.dataset.page !== name; });
+  const navFor = name === 'dash' ? 'dash' : (name === 'empty' ? 'empty' : 'notes');
+  document.querySelectorAll('.side-item.nav').forEach(btn => {
+    if (btn.dataset.nav === navFor) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
+}
+document.querySelectorAll('.side-item.nav').forEach(btn => { btn.onclick = () => showScreen(btn.dataset.screen); });
+
+const shell = document.getElementById('shell');
+const collapseBtn = document.getElementById('collapseBtn');
+collapseBtn.onclick = () => {
+  const collapsed = shell.classList.toggle('collapsed');
+  collapseBtn.setAttribute('aria-pressed', String(collapsed));
+  document.querySelectorAll('.side-item .txt, .side-label').forEach(el => {
+    el.style.display = collapsed ? 'none' : '';
+  });
+};
+
+const tocPanel = document.getElementById('tocPanel');
+const reading = document.getElementById('reading');
+const tocToggle = document.getElementById('tocToggle');
+tocToggle.onclick = () => {
+  const open = tocPanel.hidden;
+  tocPanel.hidden = !open;
+  reading.classList.toggle('panel-open', open);
+  tocToggle.setAttribute('aria-pressed', String(open));
+};
+
+const moreMenu = document.getElementById('moreMenu');
+const moreToggle = document.getElementById('moreToggle');
+moreToggle.onclick = () => {
+  const open = moreMenu.hidden;
+  moreMenu.hidden = !open;
+  moreToggle.setAttribute('aria-pressed', String(open));
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !moreMenu.hidden) { moreMenu.hidden = true; moreToggle.setAttribute('aria-pressed', 'false'); moreToggle.focus(); }
+});
+
+// 保存状态四态（演示）：已同步 / 保存中 / 仅本机 / 失败
+const saveState = document.getElementById('saveState');
+const saveErrorBar = document.getElementById('saveErrorBar');
+const stateHtml = {
+  synced: '<span class="dot" style="background:var(--success)"></span>已同步',
+  saving: '<span class="spin"></span>保存中…',
+  local:  '<span class="dot" style="background:var(--amber)"></span><span class="state-amber">已存本机，待同步</span>',
+  error:  '<span class="dot" style="background:var(--error)"></span><span class="state-error">保存失败</span>',
+};
+document.querySelectorAll('[data-save]').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('[data-save]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+    btn.setAttribute('aria-pressed', 'true');
+    const mode = btn.dataset.save;
+    saveState.innerHTML = stateHtml[mode];
+    saveState.className = mode === 'error' ? 'state-error' : (mode === 'local' ? 'state-amber' : '');
+    // 失败态同时展示持续错误条（不自动消失，R03 语义）；错误条与“已存本机”互斥演示
+    saveErrorBar.hidden = mode !== 'error';
+  };
+});
+
+// 空态切换
+function toggleEmpty() {
+  document.getElementById('listFull').hidden = !document.getElementById('listFull').hidden;
+  document.getElementById('listEmpty').hidden = !document.getElementById('listEmpty').hidden;
+}
+
+// 移动：聚焦正文时 FAB 收起（演示软键盘避让）
+const mFab = document.getElementById('mFab');
+document.querySelectorAll('.m-input').forEach(p => {
+  p.addEventListener('focus', () => { mFab.hidden = true; });
+  p.addEventListener('blur', () => { mFab.hidden = false; });
+  p.setAttribute('tabindex', '0');
+});
+</script>
+</body>
+</html>
