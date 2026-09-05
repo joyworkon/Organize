@@ -20,7 +20,7 @@
 
 ## 每卡交付记录
 
-### R00 基线记录与时区稳定测试 — ✅ 已完成（PR #224）
+### R00 基线记录与时区稳定测试 — ✅ 已完成（PR #224，master df9f88d）
 
 - 基线提交：3df63c9
 - 原问题与复现：`notch.test.ts` 的 `selectPanelTasks` 两个用例用固定 UTC 时刻（`2026-09-01T18:00:00.000Z` 等）表达"今天到期"，在东八区跨到本地次日被排除；`TZ=Asia/Shanghai npx vitest run lib/desktop/notch.test.ts` 复现 2 failed。
@@ -31,9 +31,20 @@
 - 回退办法：revert 本 PR 即恢复旧样本。
 - 下一张可执行卡：R01。
 
+### R01 Markdown 导出正文完整性 — ✅ 已完成（PR #225）
+
+- 基线提交：df9f88d
+- 原问题与复现：旧 `lib/export/tiptap-to-md.ts` 对未知节点默认 `renderInline` 返回空、`renderListItem` 把所有子块拍平——直接执行复现：callout/分栏正文丢失、表格多段落单元格为空、嵌套列表子项丢失、任务列表缺 `- ` 前缀、有序列表不尊重 start、代码围栏被内容内 ``` 截断、tabs/mermaid/嵌入/按钮/数据库块全部输出空。回归测试 21 个用例在旧实现上失败（已确认复现后才改实现）。
+- 修改文件与职责：`lib/export/tiptap-to-md.ts`——块级递归与行内渲染分离；新增 `renderMarkdownExport() -> { markdown, warnings }` 类型化降级结果（unknown-node / database-rows-excluded / table-merged-cells / render-failed，同类去重），`tiptapJsonToMarkdown` 保留纯字符串 API 共用一次渲染；复杂块降级矩阵：callout→引用（emoji 前缀）、columns 依次展开、details 摘要加粗+正文、tabs 各页标题+正文、mermaid/htmlEmbed 代码围栏、embed 源链接（仅 http/https/站内安全目标）、buttonBlock 标签+安全目标（javascript: 等不导出）、目录/面包屑可读说明、syncedBlock 导出已有快照、databaseBlock 引用说明+警告（不读取行数据）；表格单元格多段落 `<br>` 连接、竖线防双转义、合并单元格平铺+警告；嵌套列表按标记宽度缩进；任务列表 `- [ ]`/`- [x]`；有序列表尊重 start；代码围栏避开内容内连续反引号。
+- 行为变化：导出内容更完整（修复丢失）；`tiptapJsonToMarkdown` 字符串 API 与空笔记/标题行为不变；调用方（settings 页、export-button）无需改动。
+- 测试命令及退出结果：`npx vitest run lib/export/tiptap-to-md.test.ts` 27 passed（旧实现上 21 failed）；全量 `vitest run` 132 文件 / 975 测试通过；`tsc --noEmit` 通过；`next lint --max-warnings 0` 通过；代表性语法用已有 marked@12 解析验证（列表/表格/引用块）。
+- 未覆盖场景：真实大型笔记（千块级）的导出耗时未测；Y.Doc 内容进入 JSON 后的形状由保存层保证。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R02。
+
 ## 待办队列
 
-R01 → R02 → R03 → R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R02 → R03 → R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
