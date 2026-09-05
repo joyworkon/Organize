@@ -76,7 +76,7 @@ export function NoteAttachmentsButton({ editor }: { editor: Editor | null }) {
   );
 }
 
-function AttachmentsPanel({
+export function AttachmentsPanel({
   editor,
   onClose,
 }: {

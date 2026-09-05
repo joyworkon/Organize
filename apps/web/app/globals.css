@@ -411,7 +411,7 @@
   top: 44px; /* 顶栏高度 */
   right: 0;
   bottom: 0;
-  width: 264px;
+  width: 280px; /* D04 §5.3：辅助面板统一 280px */
   display: flex;
   flex-direction: column;
   border-left: 1px solid hsl(var(--border)); /* 目录与正文之间的灰色竖线 */

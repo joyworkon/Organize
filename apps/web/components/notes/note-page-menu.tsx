@@ -22,6 +22,7 @@ import {
   FileDown,
   Trash2,
   ListTree,
+  Paperclip,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NoteFont } from "@organize/shared";
@@ -42,6 +43,10 @@ interface NotePageMenuProps {
   onMove?: () => void;
   /** 历史版本（不传则不显示） */
   onShowHistory?: () => void;
+  /** 附件面板（D04：入口收进更多菜单） */
+  onOpenAttachments?: () => void;
+  /** 创建时间（收进页面信息区，§5.3） */
+  createdAt?: string | null;
   /** 导出 Markdown（不传则不显示） */
   onExport?: () => void;
   /** 删除（移入垃圾箱；不传则不显示） */
@@ -107,6 +112,8 @@ export function NotePageMenu({
   onDuplicate,
   onMove,
   onShowHistory,
+  onOpenAttachments,
+  createdAt,
   onExport,
   onDelete,
   wordCount,
@@ -205,6 +212,14 @@ export function NotePageMenu({
           icon: CopyPlus,
           onSelect: onDuplicate,
         },
+        ...(onOpenAttachments ? [{
+          id: "attachments",
+          type: "action" as const,
+          label: "附件",
+          keywords: ["attachment", "files", "附件", "文件", "fu jian"],
+          icon: Paperclip,
+          onSelect: onOpenAttachments,
+        }] : []),
         ...(onShowHistory ? [{
           id: "history",
           type: "action" as const,
@@ -232,7 +247,7 @@ export function NotePageMenu({
         }] : []),
       ],
     },
-  ], [font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onExport, onDelete]);
+  ], [font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onOpenAttachments, onExport, onDelete]);
 
   /** 打平的可选项列表（用于键盘导航和过滤） */
   const flatItems = useMemo(() => {
@@ -489,6 +504,7 @@ export function NotePageMenu({
           <div className="border-t px-3 py-2.5 text-xs leading-5 text-muted-foreground">
             {typeof wordCount === "number" && <div>字数统计: {wordCount}</div>}
             {typeof blockCount === "number" && <div>块数统计: {blockCount}</div>}
+            {createdAt && <div>创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}</div>}
             {lastEditedAt && (
               <div className="mt-1.5">最后编辑于 {lastEditedAt.toLocaleString("zh-CN")}</div>
             )}
