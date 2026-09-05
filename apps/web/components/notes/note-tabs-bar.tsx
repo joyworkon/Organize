@@ -11,6 +11,8 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { createNewNote } from "@/lib/notes/create-note";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
@@ -103,6 +105,20 @@ export function NoteTabsBar() {
   if (!isNotesRoute) return null;
 
   return (
+    <>
+    {/* 移动端：不显示整条 Chrome 式 tabs（§3），提供「已打开笔记 N」切换 sheet */}
+    {mounted && tabs.length > 0 && (
+      <div className="md:hidden">
+      <NoteTabsSheet
+        tabs={tabs}
+        activeId={activeId}
+        onSwitch={(id) => router.push(`/notes/${id}`)}
+        onClose={(id) => closeTab(id)}
+        onNew={() => void handleNewNote()}
+        creating={creating}
+      />
+      </div>
+    )}
     <div className="note-tabs-bar sticky top-0 z-50 hidden h-10 items-end gap-1 border-b bg-background px-2 md:flex">
       <div className="flex shrink-0 items-center gap-0.5 pb-1.5">
         <button
@@ -199,5 +215,85 @@ export function NoteTabsBar() {
         {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       </button>
     </div>
+    </>
+  );
+}
+
+/**
+ * 移动端「已打开笔记 N」切换 sheet（D04 §3）：
+ * 触发器固定在移动顶栏下方左侧；列出全部标签（当前高亮、可关闭），
+ * 保留与桌面一致的切换/关闭/新建；Radix Dialog 自带 Esc / 遮罩关闭。
+ */
+function NoteTabsSheet({
+  tabs,
+  activeId,
+  onSwitch,
+  onClose,
+  onNew,
+  creating,
+}: {
+  tabs: Array<{ id: string; title: string; icon: string | null }>;
+  activeId: string | null;
+  onSwitch: (id: string) => void;
+  onClose: (id: string) => void;
+  onNew: () => void;
+  creating: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="fixed left-3 top-16 z-40 flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-xs text-muted-foreground shadow-sm"
+        aria-label={`已打开笔记 ${tabs.length}`}
+      >
+        <FileText className="h-3.5 w-3.5" />
+        已打开笔记 {tabs.length}
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-sm" hideCloseButton>
+          <DialogHeader>
+            <DialogTitle className="text-base">已打开笔记 {tabs.length}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={cn(
+                  "flex items-center gap-2 rounded-md border p-2 text-sm",
+                  tab.id === activeId && "bg-accent text-accent-foreground"
+                )}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  onClick={() => {
+                    onSwitch(tab.id);
+                    setOpen(false);
+                  }}
+                >
+                  {tab.icon ? <span aria-hidden="true">{tab.icon}</span> : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  <span className="truncate">{tab.title || "无标题笔记"}</span>
+                  {tab.id === activeId && <span className="ml-auto shrink-0 text-xs text-muted-foreground">当前</span>}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`关闭 ${tab.title || "无标题笔记"}`}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={() => onClose(tab.id)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" className="w-full" onClick={() => { setOpen(false); onNew(); }} disabled={creating}>
+            {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+            新建笔记
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -191,9 +191,24 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：D04。
 
+### D04 笔记详情展示接入 — ✅ 已完成（PR #237）
+
+- 基线提交：08e76b5。前置 R07–R09 接口稳定 ✓
+- 修改文件与职责：
+  - `app/(main)/notes/[id]/page.tsx`——正文标准宽 768→760px（§5.3；full_width 已存偏好不动）；右侧辅助面板统一收口 `openPanelExclusive`（目录/评论/历史/附件/none 一次一种；目录开合仍写 localStorage 偏好）；工具行撤历史/附件常驻图标、补常驻「目录」按钮（aria-pressed）；附件改走菜单项+`AttachmentsPanel` 辅助面板（原模态遮罩行为保留）；创建时间移出属性行
+  - `components/notes/note-page-menu.tsx`——新增「附件」菜单项与 `createdAt` 页面信息展示（创建/编辑时间收进页面信息，§5.3）
+  - `components/editor/note-attachments-panel.tsx`——`AttachmentsPanel` 导出复用
+  - `components/notes/note-tabs-bar.tsx`——移动端「已打开笔记 N」切换 sheet（规格 §3：移动不显示整条 tabs；Radix Dialog 自带 Esc/遮罩关闭；切换/关闭/新建能力与桌面一致）；桌面 tabs 条不变
+  - `app/globals.css`——`.note-toc` 264→280px
+- 行为保持：保存会话/编辑器实例不受面板开关影响（无重建）；full_width/font/small_font 走 session patch；历史恢复/冲突流程未动；分享按钮保留
+- 测试命令及退出结果：全量 vitest 137 文件 / 1032 测试；tsc、lint 零警告；真实浏览器实测硬指标（760/280/互斥/移动 sheet）+ **独立视觉评审两轮迭代至 6/6 pass「可交付」**。截图归档 `docs/handoff/d04-verification/`。
+- 未覆盖场景：目录跳转滚动定位的锚点偏移在长文档下的手测（sticky 顶栏遮挡逻辑未改动）；平板断点 768–1023 抽屉交互留 D05。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：D05。
+
 ## 待办队列
 
-D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+D05 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 

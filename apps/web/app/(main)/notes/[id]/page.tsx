@@ -6,7 +6,7 @@ import type { Editor } from "@tiptap/react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
-import { NoteAttachmentsButton } from "@/components/editor/note-attachments-panel";
+import { AttachmentsPanel as NoteAttachmentsPanel } from "@/components/editor/note-attachments-panel";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
 import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
@@ -34,7 +34,7 @@ import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowLeft, Loader2, Check, FileText, Calendar, Share2, WifiOff, History, Tag as TagIcon } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
@@ -139,6 +139,7 @@ export default function NoteEditorPage() {
     (NoteVersionMeta & { content: Record<string, unknown> | null }) | null
   >(null);
   const [tocOpen, setTocOpen] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
   // 协作角色（P5-02 卡 4）：null=未判定；viewer 只读，editor 走 v2 保存，owner 走 v1 主链。
   // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
@@ -815,6 +816,26 @@ export default function NoteEditorPage() {
   };
 
   // 目录开关：持久化到 localStorage（纯 UI 状态，不入库）
+  // D04 §5.3：右侧辅助面板一次只开一种（目录/评论/历史）；开关点分散，集中收口。
+  // 目录开合仍写 localStorage 偏好（既有行为）。
+  const openPanelExclusive = useCallback(
+    (panel: "toc" | "comments" | "history" | "attachments" | "none") => {
+      setTocOpen((prevToc) => {
+        const next = panel === "toc";
+        if (next !== prevToc) {
+          try {
+            localStorage.setItem(tocKeyFor(noteId), next ? "1" : "0");
+          } catch { /* localStorage 不可用时仅内存态 */ }
+        }
+        return next;
+      });
+      setCommentsOpen(panel === "comments");
+      setHistoryOpen(panel === "history");
+      setAttachmentsOpen(panel === "attachments");
+    },
+    [noteId]
+  );
+
   const toggleToc = useCallback(() => {
     setTocOpen((prev) => {
       const next = !prev;
@@ -1230,7 +1251,7 @@ export default function NoteEditorPage() {
 
   const contentClassName = fullWidth
     ? "mx-auto w-full max-w-none px-4 md:px-10"
-    : "mx-auto w-full max-w-3xl px-4 md:px-6";
+    : "mx-auto w-full max-w-[760px] px-4 md:px-6";
 
   return (
       <div
@@ -1278,18 +1299,17 @@ export default function NoteEditorPage() {
             <div className="hidden md:flex items-center">
               <FavoriteButton targetType="note" targetId={noteId} />
             </div>
+            {/* D04 §5.3：目录为工具行常驻入口；历史/附件收进更多菜单与辅助面板 */}
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setHistoryOpen((open) => !open)}
-              title="版本历史"
-              className={cn("hidden md:inline-flex", historyOpen && "text-primary bg-primary/10")}
+              onClick={() => toggleToc()}
+              title="目录"
+              aria-pressed={tocOpen}
+              className={cn("hidden md:inline-flex", tocOpen && "text-primary bg-primary/10")}
             >
-              <History className="h-4 w-4" />
+              <ListTree className="h-4 w-4" />
             </Button>
-            <div className="hidden md:inline-flex">
-              <NoteAttachmentsButton editor={editorInstance} />
-            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -1311,12 +1331,14 @@ export default function NoteEditorPage() {
               onCopyContent={copyContent}
               onDuplicate={duplicateNote}
               onMove={() => setMoveDialogOpen(true)}
-              onShowHistory={() => setHistoryOpen(true)}
+              onShowHistory={() => openPanelExclusive("history")}
+              onOpenAttachments={() => openPanelExclusive("attachments")}
               onExport={() => void exportMarkdown()}
               onDelete={() => void deleteNote()}
               wordCount={wordCount}
               blockCount={blockCount}
               lastEditedAt={lastSaved}
+              createdAt={createdAt}
             />
           </div>
         </div>
@@ -1356,7 +1378,7 @@ export default function NoteEditorPage() {
           onCoverPositionChange={(nextPosition) =>
             updatePageMetadata({ cover_position: nextPosition })
           }
-          onToggleComments={() => setCommentsOpen((open) => !open)}
+          onToggleComments={() => openPanelExclusive(commentsOpen ? "none" : "comments")}
           onError={showToast}
         />
 
@@ -1377,14 +1399,6 @@ export default function NoteEditorPage() {
       </div>
 
       <div className={cn(contentClassName, "note-page-body")}>
-        {/* 创建时间 */}
-        {createdAt && (
-          <div className="note-meta-row flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Calendar className="h-3 w-3" />
-            创建于 {new Date(createdAt).toLocaleDateString("zh-CN")}
-          </div>
-        )}
-
         {/* 标签：Notion 式页面属性行，徽标可点 X 移除，「标签」打开选择器（支持输入新名直接创建）。
             note_tags 各人一份（按调用者记 user_id），editor 可以打自己的标签；viewer 只读 */}
         <div className="note-meta-row flex flex-wrap items-center gap-1.5">
@@ -1410,6 +1424,13 @@ export default function NoteEditorPage() {
 
         {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
         <LinkedTaskBanner noteId={noteId} />
+
+        {attachmentsOpen && editorInstance && (
+          <NoteAttachmentsPanel
+            editor={editorInstance}
+            onClose={() => openPanelExclusive("none")}
+          />
+        )}
 
         {commentsOpen && (
           <NotePageComments
