@@ -366,6 +366,62 @@ const restoreBackup: MockHandler = ({ body }) => {
 // 轮询方按「本周期无提醒」消费即可
 const listDueSoonTasks: MockHandler = () => ({ body: [] });
 
+// ---- 同步区块（R05：revision 乐观锁与真实 route 同形状）----
+
+const listSyncedBlocks: MockHandler = ({ url }) => {
+  const idsParam = url.searchParams.get("ids");
+  const rows = mockDb.synced_blocks.filter((row) => row.user_id === MOCK_USER.id);
+  if (!idsParam) return { body: rows };
+  const ids = new Set(idsParam.split(",").map((s) => s.trim()).filter(Boolean));
+  return { body: rows.filter((row) => ids.has(row.id)) };
+};
+
+const createSyncedBlock: MockHandler = ({ body }) => {
+  const row = {
+    id: typeof body?.id === "string" && body.id.length ? body.id : genId("synced_blocks"),
+    user_id: MOCK_USER.id,
+    content: Array.isArray(body?.content) ? body.content : [],
+    revision: 1,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  mockDb.synced_blocks.push(row);
+  return { status: 201, body: row };
+};
+
+const patchSyncedBlock: MockHandler = ({ body, params }) => {
+  const row = mockDb.synced_blocks.find(
+    (r) => r.id === params.id && r.user_id === MOCK_USER.id
+  );
+  if (!row) return { status: 404, body: { error: "同步区块不存在" } };
+  const content = Array.isArray(body?.content) ? body.content : [];
+  const expected =
+    typeof body?.expected_revision === "number" && Number.isInteger(body.expected_revision)
+      ? body.expected_revision
+      : null;
+  if (expected !== null && row.revision !== expected) {
+    // 与真实 409 形状一致：current 带服务端当前 revision/content
+    return {
+      status: 409,
+      body: {
+        error: "同步区块已被其他修改更新",
+        current: { revision: row.revision, content: row.content },
+      },
+    };
+  }
+  row.content = content;
+  row.revision = (expected ?? row.revision ?? 1) + 1;
+  row.updated_at = nowIso();
+  return { body: { id: row.id, content: row.content, revision: row.revision, updated_at: row.updated_at } };
+};
+
+const deleteSyncedBlock: MockHandler = ({ params }) => {
+  mockDb.synced_blocks = mockDb.synced_blocks.filter(
+    (r) => !(r.id === params.id && r.user_id === MOCK_USER.id)
+  );
+  return { body: { ok: true } };
+};
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -385,6 +441,10 @@ const ROUTES: MockRoute[] = [
   { method: "DELETE", pattern: /^\/api\/memos\/([^/]+)$/, handler: deleteMemo },
   { method: "GET", pattern: /^\/api\/tasks\/due-soon$/, handler: listDueSoonTasks },
   { method: "POST", pattern: /^\/api\/backup\/restore$/, handler: restoreBackup },
+  { method: "GET", pattern: /^\/api\/synced-blocks$/, handler: listSyncedBlocks },
+  { method: "POST", pattern: /^\/api\/synced-blocks$/, handler: createSyncedBlock },
+  { method: "PATCH", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: patchSyncedBlock },
+  { method: "DELETE", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: deleteSyncedBlock },
 ];
 
 const jsonResponse = (body: unknown, status: number) =>

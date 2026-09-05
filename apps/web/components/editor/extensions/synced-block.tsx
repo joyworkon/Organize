@@ -11,12 +11,18 @@ import {
 import { AlertTriangle, Loader2, RefreshCw, Repeat2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  classifyConflict,
+  clearSyncedPending,
   createSyncSessionId,
+  emitSyncedBlockStatus,
   fetchSyncedBlock,
+  getSyncedUserId,
   patchSyncedBlock,
+  readSyncedPending,
   replaceSyncedBlockContent,
   shouldAcceptSyncMessage,
   syncedBlockNeedsSync,
+  writeSyncedPending,
   type SyncMessage,
 } from "./synced-block-sync";
 
@@ -33,20 +39,27 @@ function broadcast(message: SyncMessage) {
   window.dispatchEvent(new CustomEvent(CHANNEL_NAME, { detail: message }));
 }
 
-type SyncedStatus = "loading" | "saved" | "saving" | "error";
+type SyncedStatus = "loading" | "saved" | "saving" | "error" | "conflict" | "stale";
 
 function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
   const syncedId = String(node.attrs.syncedId || "");
-  const [status, setStatus] = useState<SyncedStatus>(node.attrs.hydrated ? "saved" : "loading");
+  // hydrated 是历史持久化属性（R05 起忽略其网络可信性）：每次挂载都视为未注水，
+  // 一律从服务端拉取；本地 pending 优先于远端（见挂载 effect）。
+  const [status, setStatus] = useState<SyncedStatus>("loading");
   const [dirty, setDirty] = useState(false);
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 待写快照：编辑后始终先落在内存，服务器确认成功才清空；失败时保留供重试
+  // 待写快照：编辑后先落内存与 localStorage，服务器确认成功才清空；失败保留供重试
   const pendingRef = useRef<JSONContent[] | null>(null);
   const inflightRef = useRef(false);
+  // 服务端确认的最新 revision（乐观锁基准；不写入文档 JSON）
+  const revisionRef = useRef<number | null>(null);
   const sessionRef = useRef(createSyncSessionId());
   const seqRef = useRef(0);
   const lastSeqByOriginRef = useRef<Map<string, number>>(new Map());
+  const lastRefreshRef = useRef(0);
+  // 冲突/过期时服务端当前内容快照，供「拉取远端 / 用本地覆盖」决策
+  const remoteSnapshotRef = useRef<{ revision: number; content: JSONContent[] } | null>(null);
 
   const currentPos = useCallback((): number | null => {
     const pos = typeof getPos === "function" ? (getPos() as number | (() => number)) : null;
@@ -62,21 +75,53 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
     return Array.isArray(json.content) ? json.content : [];
   }, [currentPos, editor]);
 
-  /** 把待写快照提交到服务端；只有确认成功才清 pending 并广播。 */
-  const flushToServer = useCallback(async () => {
+  const setPending = useCallback((content: JSONContent[] | null) => {
+    pendingRef.current = content;
+    setDirty(content !== null);
+    emitSyncedBlockStatus(syncedId, content !== null);
+    if (content !== null) {
+      void getSyncedUserId().then((userId) => {
+        if (!userId || pendingRef.current !== content) return;
+        writeSyncedPending(localStorage, {
+          version: 1,
+          syncedId,
+          userId,
+          revision: revisionRef.current,
+          content,
+          savedAt: new Date().toISOString(),
+        });
+      });
+    } else {
+      clearSyncedPending(localStorage, syncedId);
+    }
+  }, [syncedId]);
+
+  /** 应用远端内容：一致则不动（不打断光标），不一致用远端 meta 事务替换。 */
+  const applyRemoteContent = useCallback((content: JSONContent[]): boolean => {
+    const local = readCurrentContent();
+    if (local && JSON.stringify(local) === JSON.stringify(content)) return false;
+    const pos = currentPos();
+    if (pos === null) return false;
+    replaceSyncedBlockContent(editor, pos, content, syncedId);
+    return true;
+  }, [currentPos, editor, readCurrentContent, syncedId]);
+
+  /** 把待写快照提交到服务端（乐观锁）；只有确认成功才清 pending 并广播。 */
+  const flushToServer = useCallback(async (forceRevision?: number) => {
     if (inflightRef.current) return;
     const content = pendingRef.current;
     if (content === null) return;
+    const expected = forceRevision ?? revisionRef.current;
     inflightRef.current = true;
     setStatus("saving");
-    const result = await patchSyncedBlock(syncedId, content);
+    const result = await patchSyncedBlock(syncedId, content, expected);
     inflightRef.current = false;
     if (result.ok) {
+      revisionRef.current = result.revision;
       // 保存期间又有新编辑时保留 dirty 并立刻再排空
       const stillPending = pendingRef.current !== null && pendingRef.current !== content;
       if (!stillPending) {
-        pendingRef.current = null;
-        setDirty(false);
+        setPending(null);
       }
       setSyncedAt(result.updatedAt);
       setStatus("saved");
@@ -84,16 +129,33 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
       broadcast({
         syncedId,
         content,
+        revision: result.revision,
         updatedAt: result.updatedAt,
         origin: sessionRef.current,
         seq: seqRef.current,
       });
       if (stillPending) void flushToServer();
-    } else {
-      // 失败：保留待写快照，块内显示重试；不广播、不显示已同步
-      setStatus("error");
+      return;
     }
-  }, [syncedId]);
+    if (result.reason === "conflict") {
+      // 幂等命中：服务端内容与本地待写一致（上次响应丢失但已写入）
+      if (result.currentContent && classifyConflict(result.currentContent, content) === "idempotent-hit") {
+        revisionRef.current = result.currentRevision;
+        setPending(null);
+        setSyncedAt(new Date().toISOString());
+        setStatus("saved");
+        return;
+      }
+      // 真实冲突：保留双方内容，默认不覆盖远端，给出两个显式动作
+      if (result.currentRevision !== null && result.currentContent) {
+        remoteSnapshotRef.current = { revision: result.currentRevision, content: result.currentContent };
+      }
+      setStatus("conflict");
+      return;
+    }
+    // 网络/服务端错误：保留待写快照，块内显示重试；不广播、不显示已同步
+    setStatus("error");
+  }, [setPending, syncedId]);
 
   const scheduleFlush = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -103,33 +165,85 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
     }, SYNC_DEBOUNCE_MS);
   }, [flushToServer]);
 
-  // 首次渲染：若未注水（hydrated），从服务端拉最新内容；失败不进入成功分支
+  // 挂载 + 注水（会话级）：忽略文档里的 hydrated 旧值，每次挂载都拉取。
+  // 有本地 pending 时优先保护本地：远端不一致只置 stale 提示，不自动覆盖。
   useEffect(() => {
-    if (!syncedId || node.attrs.hydrated) return;
+    if (!syncedId) return;
     let cancelled = false;
     (async () => {
+      // 恢复持久化 pending（离线改 → 关页 → 重开 → 联网自动补交）
+      const userId = await getSyncedUserId();
+      if (cancelled) return;
+      const stored = userId ? readSyncedPending(localStorage, userId, syncedId) : null;
+      if (stored) {
+        pendingRef.current = stored.content;
+        setDirty(true);
+        emitSyncedBlockStatus(syncedId, true);
+        revisionRef.current = stored.revision;
+      }
+
       const result = await fetchSyncedBlock(syncedId);
       if (cancelled) return;
       if (!result.ok) {
         // 404（未创建）沿用本地内容；其余失败保留本地内容但块内提示，可重试拉取
         setStatus(result.reason === "not-found" ? "saved" : "error");
+        if (stored) void flushToServer();
         return;
       }
-      const pos = currentPos();
-      if (pos === null) return;
-      // hydrated 标记 + 内容替换都是远端来源事务：不触发回写
-      editor.view.dispatch(
-        editor.state.tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          hydrated: true,
-        })
-      );
-      replaceSyncedBlockContent(editor, pos, result.content, syncedId);
+      revisionRef.current = result.revision;
       setSyncedAt(result.updatedAt);
+      if (stored) {
+        // 本地有未同步修改：远端更新不覆盖，提示远端有更新（默认保留本地）
+        if (classifyConflict(result.content, stored.content) === "conflict") {
+          remoteSnapshotRef.current = { revision: result.revision, content: result.content };
+          setStatus("stale");
+        } else {
+          setStatus("saved");
+        }
+        void flushToServer();
+        return;
+      }
+      applyRemoteContent(result.content);
       setStatus("saved");
     })();
     return () => {
       cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncedId]);
+
+  // 跨设备更新：可见性/聚焦/联网驱动重验证（5 秒节流）；不是跨设备推送
+  useEffect(() => {
+    if (!syncedId) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefreshRef.current < 5000) return;
+      lastRefreshRef.current = now;
+      void (async () => {
+        const result = await fetchSyncedBlock(syncedId);
+        if (result.ok) {
+          revisionRef.current = result.revision;
+          if (pendingRef.current === null) {
+            setSyncedAt(result.updatedAt);
+            applyRemoteContent(result.content);
+          } else if (classifyConflict(result.content, pendingRef.current) === "conflict") {
+            remoteSnapshotRef.current = { revision: result.revision, content: result.content };
+            setStatus((prev) => (prev === "saving" || prev === "loading" ? prev : "stale"));
+          }
+        }
+      })();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncedId]);
@@ -140,8 +254,11 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
     const handler = (message: SyncMessage | null | undefined) => {
       if (!shouldAcceptSyncMessage(message, sessionRef.current, lastSeqByOriginRef.current)) return;
       if (!message || message.syncedId !== syncedId) return;
+      // 有未同步修改时不自动覆盖（保护本地），交由可见性刷新/stale 提示处理
+      if (pendingRef.current !== null) return;
       const pos = currentPos();
       if (pos === null) return;
+      if (typeof message.revision === "number") revisionRef.current = message.revision;
       // 远端 meta 事务：本组件的 transaction 监听器识别后不会回写
       replaceSyncedBlockContent(editor, pos, message.content, message.syncedId);
       setSyncedAt(message.updatedAt);
@@ -174,6 +291,7 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
       if (!content) return;
       pendingRef.current = content;
       setDirty(true);
+      emitSyncedBlockStatus(syncedId, true);
       scheduleFlush();
     };
     editor.on("transaction", onTransaction);
@@ -184,6 +302,29 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncedId, editor, currentPos, readCurrentContent, scheduleFlush]);
 
+  // 卸载时若仍有 pending，确保状态事件不悬挂（页面摘要不再计入本块）
+  useEffect(() => {
+    return () => {
+      if (pendingRef.current !== null) emitSyncedBlockStatus(syncedId, false);
+    };
+  }, [syncedId]);
+
+  /** 拉取远端：丢弃本地未同步修改（显式动作）。 */
+  const pullRemote = useCallback(() => {
+    const snapshot = remoteSnapshotRef.current;
+    if (snapshot) applyRemoteContent(snapshot.content);
+    setPending(null);
+    setStatus("saved");
+  }, [applyRemoteContent, setPending]);
+
+  /** 用本地覆盖远端：以服务端当前 revision 为基准强制写（显式动作，非静默覆盖）。 */
+  const pushLocal = useCallback(() => {
+    const snapshot = remoteSnapshotRef.current;
+    if (snapshot) revisionRef.current = snapshot.revision;
+    setStatus("saving");
+    void flushToServer(revisionRef.current ?? undefined);
+  }, [flushToServer]);
+
   return (
     <NodeViewWrapper className="organize-synced-block" data-synced-block="" data-synced-id={syncedId} as="div">
       <div className="organize-synced-toolbar" contentEditable={false}>
@@ -192,23 +333,34 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
         {status === "saving" && (
           <span className="organize-synced-status"><Loader2 className="h-3 w-3 animate-spin" />保存中</span>
         )}
-        {status === "error" && (
+        {(status === "error" || status === "conflict") && (
           <span className="organize-synced-status text-destructive inline-flex items-center gap-1">
             <AlertTriangle className="h-3 w-3" />
-            同步失败
+            {status === "conflict" ? "检测到其他修改" : "同步失败"}
             <button
               type="button"
               className="underline underline-offset-2"
               onClick={() => {
                 if (pendingRef.current === null) {
                   const content = readCurrentContent();
-                  if (content) pendingRef.current = content;
+                  if (content) {
+                    pendingRef.current = content;
+                    setDirty(true);
+                  }
                 }
                 void flushToServer();
               }}
             >
               重试
             </button>
+          </span>
+        )}
+        {status === "stale" && (
+          <span className="organize-synced-status text-amber-600 inline-flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            远端有更新
+            <button type="button" className="underline underline-offset-2" onClick={pullRemote}>拉取远端</button>
+            <button type="button" className="underline underline-offset-2" onClick={pushLocal}>用本地覆盖</button>
           </span>
         )}
         {status === "saved" && dirty && (
