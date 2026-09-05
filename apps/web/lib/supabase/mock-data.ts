@@ -527,6 +527,8 @@ export const mockDb: Record<string, any[]> = {
   note_suggestions: [],
   highlights: [],
   favorites: [],
+  // R05：同步区块（/api/synced-blocks mock 实现共用；带 revision 乐观锁语义）
+  synced_blocks: [],
   // 059 任务原子变更协议的幂等日志（同步管道内部数据，不入备份）
   task_mutations: [],
   // 033 任务工作台新表

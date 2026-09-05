@@ -263,6 +263,49 @@ describe("mock api shim", () => {
     expect(body).toEqual([]);
   });
 
+  it("同步块：创建 → 带 expected_revision 更新 → 过期 409（形状与真实 route 一致）", async () => {
+    const created = await call("/api/synced-blocks", {
+      method: "POST",
+      body: JSON.stringify({ content: [{ type: "paragraph" }] }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.revision).toBe(1);
+    const blockId = created.body.id as string;
+
+    const updated = await call(`/api/synced-blocks/${blockId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        content: [{ type: "paragraph", content: [{ type: "text", text: "v2" }] }],
+        expected_revision: 1,
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ id: blockId, revision: 2 });
+
+    // 过期 expected → 409 + current（revision/content），内容不被覆盖
+    const conflict = await call(`/api/synced-blocks/${blockId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        content: [{ type: "paragraph", content: [{ type: "text", text: "stale" }] }],
+        expected_revision: 1,
+      }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.current.revision).toBe(2);
+    expect(JSON.stringify(conflict.body.current.content)).toContain("v2");
+
+    // GET?ids= 过滤并带 revision
+    const listed = await call(`/api/synced-blocks?ids=${blockId}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toHaveLength(1);
+    expect(listed.body[0].revision).toBe(2);
+
+    const removed = await call(`/api/synced-blocks/${blockId}`, { method: "DELETE" });
+    expect(removed.body).toEqual({ ok: true });
+    const afterDelete = await call(`/api/synced-blocks?ids=${blockId}`);
+    expect(afterDelete.body).toHaveLength(0);
+  });
+
   it("未覆盖的 /api 接口返回 501，非 API 请求透传原始 fetch", async () => {
     const unmatched = await call("/api/ai/ask", { method: "POST", body: JSON.stringify({}) });
     expect(unmatched.status).toBe(501);

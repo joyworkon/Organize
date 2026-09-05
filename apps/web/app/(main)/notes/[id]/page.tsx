@@ -804,6 +804,23 @@ export default function NoteEditorPage() {
     };
   }, []);
 
+  // R05：同步块待同步状态聚合——存在未同步块时页面不得宣称全部已同步
+  const [pendingSyncedBlocks, setPendingSyncedBlocks] = useState(0);
+  useEffect(() => {
+    setPendingSyncedBlocks(0);
+    const pendingMap = new Map<string, boolean>();
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ syncedId: string; pending: boolean }>).detail;
+      if (!detail?.syncedId) return;
+      pendingMap.set(detail.syncedId, detail.pending);
+      setPendingSyncedBlocks(
+        Array.from(pendingMap.values()).filter(Boolean).length
+      );
+    };
+    window.addEventListener("organize:synced-block-status", handler);
+    return () => window.removeEventListener("organize:synced-block-status", handler);
+  }, [noteId]);
+
   // 仅内存修改未落库时，关闭/刷新前用标准 beforeunload 提醒。
   // 只是辅助：不声称移动端关页一定能拦截；本机草稿兜底仍由 persistCurrentDraft 负责。
   useEffect(() => {
@@ -1538,6 +1555,11 @@ export default function NoteEditorPage() {
                 <span className="flex items-center gap-1" role="status">
                   <WifiOff className="h-3 w-3" />
                   离线中{offlinePending ? " · 更改将在联网后同步" : ""}
+                </span>
+              )}
+              {pendingSyncedBlocks > 0 && (
+                <span className="text-amber-600 dark:text-amber-300" role="status">
+                  {pendingSyncedBlocks} 个同步块待同步
                 </span>
               )}
               {saveError ? (

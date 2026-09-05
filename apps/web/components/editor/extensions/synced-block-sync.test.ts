@@ -8,12 +8,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SyncedBlock } from "./synced-block";
 import {
   SYNCED_REMOTE_META,
+  classifyConflict,
+  clearSyncedPending,
   createSyncSessionId,
   fetchSyncedBlock,
   patchSyncedBlock,
+  readSyncedPending,
   replaceSyncedBlockContent,
   shouldAcceptSyncMessage,
   syncedBlockNeedsSync,
+  writeSyncedPending,
+  type StoredSyncedPending,
   type SyncMessage,
 } from "./synced-block-sync";
 
@@ -114,20 +119,34 @@ describe("传输层：HTTP 状态与响应形状先行", () => {
 
   it("PATCH 500 不算成功", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{\"error\":\"boom\"}", { status: 500 })));
-    const result = await patchSyncedBlock(syncedId, []);
+    const result = await patchSyncedBlock(syncedId, [], 1);
     expect(result).toEqual({ ok: false, reason: "http", status: 500 });
   });
 
   it("PATCH 200 但坏 JSON 不算成功", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })));
-    const result = await patchSyncedBlock(syncedId, []);
+    const result = await patchSyncedBlock(syncedId, [], 1);
     expect(result).toEqual({ ok: false, reason: "shape" });
   });
 
-  it("PATCH 200 且形状正确才算成功", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: syncedId, updated_at: "2026-09-05T00:00:00Z" }), { status: 200 })));
-    const result = await patchSyncedBlock(syncedId, [{ type: "paragraph" }]);
-    expect(result).toEqual({ ok: true, updatedAt: "2026-09-05T00:00:00Z" });
+  it("PATCH 409 返回服务端当前 revision/content（冲突路径）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: "同步区块已被其他修改更新", current: { revision: 3, content: [{ type: "paragraph" }] } }),
+      { status: 409 }
+    )));
+    const result = await patchSyncedBlock(syncedId, [], 2);
+    expect(result).toEqual({
+      ok: false,
+      reason: "conflict",
+      currentRevision: 3,
+      currentContent: [{ type: "paragraph" }],
+    });
+  });
+
+  it("PATCH 200 且形状正确才算成功（带新 revision）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: syncedId, revision: 2, updated_at: "2026-09-05T00:00:00Z" }), { status: 200 })));
+    const result = await patchSyncedBlock(syncedId, [{ type: "paragraph" }], 1);
+    expect(result).toEqual({ ok: true, revision: 2, updatedAt: "2026-09-05T00:00:00Z" });
   });
 
   it("GET 401 不算成功", async () => {
@@ -142,15 +161,67 @@ describe("传输层：HTTP 状态与响应形状先行", () => {
     expect(result).toEqual({ ok: false, reason: "not-found" });
   });
 
-  it("GET 成功返回内容与 updated_at", async () => {
+  it("GET 成功返回内容与 revision", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
-      JSON.stringify([{ id: syncedId, content: [{ type: "paragraph" }], updated_at: "2026-09-05T01:00:00Z" }]),
+      JSON.stringify([{ id: syncedId, content: [{ type: "paragraph" }], revision: 4, updated_at: "2026-09-05T01:00:00Z" }]),
       { status: 200 }
     )));
     const result = await fetchSyncedBlock(syncedId);
-    expect(result).toEqual({ ok: true, content: [{ type: "paragraph" }], updatedAt: "2026-09-05T01:00:00Z" });
+    expect(result).toEqual({ ok: true, content: [{ type: "paragraph" }], revision: 4, updatedAt: "2026-09-05T01:00:00Z" });
   });
 });
+
+describe("R05 冲突决策与 pending 持久化", () => {
+  it("classifyConflict：内容一致 = 幂等命中，不一致 = 真实冲突", () => {
+    const pending = [{ type: "paragraph", content: [{ type: "text", text: "本地" }] }];
+    expect(classifyConflict(pending, pending)).toBe("idempotent-hit");
+    expect(classifyConflict([{ type: "paragraph" }], pending)).toBe("conflict");
+    expect(classifyConflict(null, pending)).toBe("conflict");
+  });
+
+  it("pending 持久化按 userId+syncedId 键隔离，换账号读不到", () => {
+    const storage = new MemoryStorage();
+    const pending: StoredSyncedPending = {
+      version: 1,
+      syncedId,
+      userId: "user-a",
+      revision: 3,
+      content: [{ type: "paragraph", content: [{ type: "text", text: "离线修改" }] }],
+      savedAt: "2026-09-05T00:00:00Z",
+    };
+    expect(writeSyncedPending(storage, pending)).toBe(true);
+    expect(readSyncedPending(storage, "user-a", syncedId)?.content).toEqual(pending.content);
+    // 换账号：不把别人的 pending 写进自己的块
+    expect(readSyncedPending(storage, "user-b", syncedId)).toBeNull();
+    clearSyncedPending(storage, "user-a", syncedId);
+    expect(readSyncedPending(storage, "user-a", syncedId)).toBeNull();
+  });
+
+  it("pending 持久化损坏数据视为不存在", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(`organize:synced-pending:user-a:${syncedId}`, "{bad");
+    expect(readSyncedPending(storage, "user-a", syncedId)).toBeNull();
+  });
+});
+
+class MemoryStorage {
+  private values = new Map<string, string>();
+  get length() {
+    return this.values.size;
+  }
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+  key(index: number) {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
+}
 
 describe("shouldAcceptSyncMessage：来源识别", () => {
   const makeMessage = (over: Partial<SyncMessage>): SyncMessage => ({

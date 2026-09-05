@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 interface SyncedBlockRow {
   id: string;
   content: unknown;
+  revision?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   const idsParam = searchParams.get("ids");
   let query = supabase
     .from("synced_blocks")
-    .select("id, content, created_at, updated_at")
+    .select("id, content, revision, created_at, updated_at")
     .eq("user_id", user.id);
 
   if (idsParam) {
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       user_id: user.id,
       content,
     })
-    .select("id, content, created_at, updated_at")
+    .select("id, content, revision, created_at, updated_at")
     .single();
 
   if (error) {
