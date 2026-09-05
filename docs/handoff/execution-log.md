@@ -115,9 +115,24 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R07。
 
+### R07 笔记保存会话抽离 — ✅ 已完成（PR #231）
+
+- 基线提交：832f07d。**高风险卡：先行为测试、后搬代码；真实浏览器 E2E 验证后才合并。**
+- 行为时序图（搬移前盘点，对应计划 R07.1）：加载（getSession→拉笔记→角色判定→本地草稿恢复/离线创建初始化）→ 编辑（onUpdate→draft+来源标记→persist→900ms 防抖）→ 排空（while dirty：快照复制→幂等键复用→按角色/协作选 RPC→循环）→ 冲突（不自动覆盖→拉远端+066 归因→三动作）→ 失败（planSaveFailure 分类：退避重试/等联网/明确报错）→ 成功（revision 推进/清草稿/notes-changed）→ 切页（draftNoteId 归属校验→新会话）→ 卸载（pagehide flush + beforeunload）→ 恢复（skip-flush 标志消费）。
+- 修改文件与职责：
+  - 新增 `lib/notes/note-save-session.ts`——纯会话核心，依赖注入（transport/draftStorage/timers/randomId/consumeSkipFlush/role·collab·online 活跃值），页面不再直接编排 dirty/revision/mutation/重试；对外 API：patchDraft/setContent/restoreDraft/hydrate/exportSnapshot/queueSave/flush(返回类型化 NoteFlushResult)/flushSaved/suppressAutosave/resolveConflictOverwriteRemote/resolveConflictReloadRemote/discardLocalDraft/destroy/getUiState
+  - 新增 `hooks/use-note-session.ts`——React 绑定：noteId+accountId 为 generation，变化即销毁旧会话；页面经 useSyncExternalStore 式订阅消费统一派生 UI 状态（phase: clean/dirty/saving/local-only/conflict/error + lastSavedAt/saveError/offlinePending/conflict/localPersistence/pendingChildBlocks），不再用互不约束的散 flag
+  - `app/(main)/notes/[id]/page.tsx`——删除约 300 行保存管线（persistCurrentDraft/flushSave 排空循环/重试定时器/幂等键缓存/冲突组装），改为会话消费；共享 draftRef 桥接保留既有页面写点（documented bridge）
+  - 新增 `lib/collab/transaction-source.ts`（TransactionSource 从编辑器组件下沉到 lib，避免 lib→components 依赖）
+- 语义保持：role→RPC 选择（owner v1/editor v2/协作在线 v2+null）✓；任务 mutation 仅 user 来源+双链开关 ✓；幂等键同内容复用 ✓；冲突不自动覆盖+归因 ✓；viewer 不写 ✓；离线创建先建后存（23505 幂等）✓；skip-flush 消费 ✓；beforeunload/pagehide ✓；R03 本机写入失败上报 ✓；R05 子块计数经 setPendingChildBlocks 汇入统一状态 ✓。行为差异：离线创建加载后原仅置标记，现排队保存（离线→local-only 标记；在线→立即补交，修复滞留）——已在代码注释说明。
+- 测试命令及退出结果：新增 `note-save-session.test.ts` 16 用例覆盖计划关键行为清单（A/B 切换隔离、保存中继续输入串行排空、响应丢失幂等重试、冲突不自动覆盖+覆盖/采用、离线/离线创建、恢复不写回、viewer、角色失败停止、来源过滤、防抖单飞、quota 如实上报、销毁清定时器）；全量 vitest 136 文件 / 1028 测试；tsc、lint 零警告；**本地真实浏览器 E2E（mock 生产构建 + Chromium）：smoke 5/5 通过，含「笔记保存后导航往返：内容持久化」——即本卡重构的保存管线端到端验证**；协作 E2E 3 条按设计跳过（COLLAB_E2E 未开）。
+- 未覆盖场景：协作断线/恢复（CRDT 层，协议问题另开卡的计划约定不变）；⌘S 各分支的浏览器手动全遍历（flushSaved 映射有单测）。
+- 回退办法：revert 本 PR 即恢复页面内联保存管线（会话模块留存不影响）。
+- 下一张可执行卡：R08。
+
 ## 待办队列
 
-R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
