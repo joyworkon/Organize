@@ -67,17 +67,24 @@ describe("isNotchOpenPathAllowed", () => {
 });
 
 describe("selectPanelTasks", () => {
-  const now = new Date("2026-09-01T10:00:00");
+  // 生产 startOfDay 按进程时区的本地日历判定“今天”。样本一律用本地日历显式构造，
+  // 避免固定 UTC 时刻在其他时区跨日导致用例抖动；跨日语义由 UTC 跨日样本单独覆盖。
+  const localMoment = (dayOffset: number, hours: number, minutes = 0): Date => {
+    const date = new Date(2026, 8, 1, hours, minutes, 0, 0); // 本地 2026-09-01
+    date.setDate(date.getDate() + dayOffset);
+    return date;
+  };
+  const now = localMoment(0, 10);
 
   it("只留今天到期或已逾期的未完成根任务", () => {
     const tasks = [
-      task({ id: "today", title: "今天", due_date: "2026-09-01T18:00:00.000Z" }),
-      task({ id: "overdue", title: "逾期", due_date: "2026-08-20T09:00:00.000Z" }),
-      task({ id: "tomorrow", title: "明天", due_date: "2026-09-02T09:00:00.000Z" }),
+      task({ id: "today", title: "今天", due_date: localMoment(0, 18).toISOString() }),
+      task({ id: "overdue", title: "逾期", due_date: localMoment(-12, 9).toISOString() }),
+      task({ id: "tomorrow", title: "明天", due_date: localMoment(1, 9).toISOString() }),
       task({ id: "nodue", title: "无日期" }),
-      task({ id: "done", title: "已完成", status: "done", due_date: "2026-09-01T09:00:00.000Z" }),
-      task({ id: "child", title: "子任务", parent_task_id: "today", due_date: "2026-09-01T09:00:00.000Z" }),
-      task({ id: "deleted", title: "已删", deleted_at: "2026-08-31T00:00:00.000Z", due_date: "2026-09-01T09:00:00.000Z" }),
+      task({ id: "done", title: "已完成", status: "done", due_date: localMoment(0, 9).toISOString() }),
+      task({ id: "child", title: "子任务", parent_task_id: "today", due_date: localMoment(0, 9).toISOString() }),
+      task({ id: "deleted", title: "已删", deleted_at: localMoment(-1, 0).toISOString(), due_date: localMoment(0, 9).toISOString() }),
     ];
     const ids = selectPanelTasks(tasks, now).map((t) => t.id);
     expect(ids).toEqual(["overdue", "today"]);
@@ -85,19 +92,31 @@ describe("selectPanelTasks", () => {
 
   it("schedule_start_at 优先于 due_date 参与判定", () => {
     const tasks = [
-      task({ id: "scheduled-today", due_date: "2026-08-01T00:00:00.000Z", schedule_start_at: "2026-09-01T12:00:00.000Z" }),
+      task({ id: "scheduled-today", due_date: localMoment(-31, 0).toISOString(), schedule_start_at: localMoment(0, 12).toISOString() }),
     ];
     expect(selectPanelTasks(tasks, now).map((t) => t.id)).toEqual(["scheduled-today"]);
   });
 
   it("置顶优先、日期近的在前，最多 3 条", () => {
     const tasks = [
-      task({ id: "later", title: "逾期两天", due_date: "2026-08-30T09:00:00.000Z" }),
-      task({ id: "earlier", title: "逾期五天", due_date: "2026-08-27T09:00:00.000Z" }),
-      task({ id: "pinned", title: "置顶今天", is_pinned: true, due_date: "2026-09-01T20:00:00.000Z" }),
-      task({ id: "fourth", title: "今天第四", due_date: "2026-09-01T21:00:00.000Z" }),
+      task({ id: "later", title: "逾期两天", due_date: localMoment(-2, 9).toISOString() }),
+      task({ id: "earlier", title: "逾期五天", due_date: localMoment(-5, 9).toISOString() }),
+      task({ id: "pinned", title: "置顶今天", is_pinned: true, due_date: localMoment(0, 20).toISOString() }),
+      task({ id: "fourth", title: "今天第四", due_date: localMoment(0, 21).toISOString() }),
     ];
     expect(selectPanelTasks(tasks, now).map((t) => t.id)).toEqual(["pinned", "earlier", "later"]);
+  });
+
+  it("本地晚间 23:30 的今天任务在东八区 UTC 已跨次日仍算今天（UTC 跨日样本）", () => {
+    // 若实现退化成截取 UTC 字符串日期，东八区下该时刻的 UTC 日期是 09-02，会被误排除。
+    const tasks = [task({ id: "late-today", due_date: localMoment(0, 23, 30).toISOString() })];
+    expect(selectPanelTasks(tasks, now).map((t) => t.id)).toEqual(["late-today"]);
+  });
+
+  it("本地次日凌晨的任务不算今天，即使 UTC 日期仍是今天（UTC 跨日样本）", () => {
+    // 东八区下本地 09-02 02:00 的 UTC 日期是 09-01；按 UTC 字符串判定会误收录。
+    const tasks = [task({ id: "tomorrow-early", due_date: localMoment(1, 2).toISOString() })];
+    expect(selectPanelTasks(tasks, now)).toEqual([]);
   });
 });
 
