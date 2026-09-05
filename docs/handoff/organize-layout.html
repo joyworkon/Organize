@@ -1,0 +1,120 @@
+<style>
+#organize-concept { --org-bg:light-dark(#f7f6f2,#191a19); --org-paper:light-dark(#fff,#20211f); --org-nav:light-dark(#f0efea,#1c1d1b); --org-text:light-dark(#292c28,#e6e8e2); --org-muted:light-dark(#62685f,#a5ada0); --org-line:light-dark(#dddfd7,#3a3e37); --org-active:light-dark(#e6e8df,#30352d); --org-brand:light-dark(#a4472b,#e39b7f); font:14px/1.65 system-ui,'Microsoft YaHei',sans-serif;color:var(--org-text);background:var(--org-paper);border:1px solid var(--org-line);border-radius:10px;overflow:hidden; }
+#organize-concept * {box-sizing:border-box}
+#organize-concept button {font:inherit;color:inherit;cursor:pointer}
+#organize-concept .org-layout {display:grid;grid-template-columns:210px minmax(0,1fr)}
+#organize-concept aside.org-sidebar {background:var(--org-nav);padding:22px 14px;display:flex;flex-direction:column;gap:5px;border-right:1px solid var(--org-line)}
+#organize-concept .org-logo {font-size:20px;letter-spacing:-.5px;font-weight:500;padding:0 10px 24px}
+#organize-concept .org-label {font-size:12px;color:var(--org-muted);padding:17px 10px 5px}
+#organize-concept .org-navitem {display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;background:transparent;border-radius:6px;text-align:left;width:100%}
+#organize-concept .org-navitem[aria-current=page] {background:var(--org-active);font-weight:500}
+#organize-concept .org-muted {color:var(--org-muted)}
+#organize-concept .org-static {padding:8px 10px;display:flex;gap:10px;align-items:center;color:var(--org-muted)}
+#organize-concept .org-tree {padding:3px 0 15px 24px;font-size:13px;color:var(--org-muted)}
+#organize-concept .org-tree div {padding:6px 0}
+#organize-concept .org-footer {margin-top:auto;padding-top:70px}
+#organize-concept .org-main {min-width:0}
+#organize-concept .org-tabbar {background:var(--org-bg);border-bottom:1px solid var(--org-line);padding:7px 18px 0;display:flex;gap:8px;font-size:12px;color:var(--org-muted)}
+#organize-concept .org-tab {padding:5px 12px;border-radius:6px 6px 0 0;background:var(--org-paper);color:var(--org-text);border:1px solid var(--org-line);border-bottom:0}
+#organize-concept .org-toolbar {padding:11px 20px;border-bottom:1px solid var(--org-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+#organize-concept .org-toolbar .org-spacer {flex:1}
+#organize-concept .org-tool {background:transparent;border:1px solid var(--org-line);border-radius:6px;padding:4px 9px}
+#organize-concept .org-tool[aria-pressed=true] {background:var(--org-active)}
+#organize-concept .org-reading {display:grid;grid-template-columns:minmax(0,1fr)}
+#organize-concept[data-panel=true] .org-reading {grid-template-columns:minmax(0,1fr) 178px}
+#organize-concept .org-document {max-width:760px;margin:0 auto;padding:44px 40px 60px;width:100%;min-width:0}
+#organize-concept .org-kicker {color:var(--org-brand);font-size:12px;letter-spacing:1px;margin-bottom:12px}
+#organize-concept h1 {font-size:30px;line-height:1.35;font-weight:500;margin:0 0 15px;letter-spacing:-.7px}
+#organize-concept h2 {font-size:19px;line-height:1.5;font-weight:500;margin:30px 0 12px}
+#organize-concept p {margin:12px 0;line-height:1.9}
+#organize-concept .org-meta {display:flex;gap:8px;flex-wrap:wrap;color:var(--org-muted);font-size:12px;margin:0 0 30px;align-items:center}
+#organize-concept .org-chip {background:var(--org-bg);padding:2px 7px;border-radius:4px}
+#organize-concept .org-quote {margin:22px 0;padding:8px 0 8px 18px;border-left:2px solid var(--org-brand);color:var(--org-muted)}
+#organize-concept .org-check {display:flex;gap:10px;align-items:center;margin:10px 0}
+#organize-concept .org-check input {accent-color:var(--org-brand);width:16px;height:16px}
+#organize-concept .org-context {border-left:1px solid var(--org-line);padding:28px 18px;color:var(--org-muted);font-size:12px}
+#organize-concept .org-context p {margin:17px 0}
+#organize-concept .org-bottom {border-top:1px solid var(--org-line);padding-top:18px;margin-top:30px;font-size:12px;color:var(--org-muted)}
+#organize-concept .org-dashboard {background:var(--org-bg);padding:32px;min-height:610px}
+#organize-concept .org-date {font-size:12px;color:var(--org-muted);margin-bottom:28px}
+#organize-concept .org-capture {background:var(--org-paper);border:1px solid var(--org-line);border-radius:8px;padding:17px 18px;color:var(--org-muted);margin-bottom:26px}
+#organize-concept .org-columns {display:grid;grid-template-columns:1.6fr 1fr;gap:30px}
+#organize-concept .org-row {padding:14px 0;border-bottom:1px solid var(--org-line)}
+#organize-concept .org-row small {display:block;font-size:12px;color:var(--org-muted);margin-top:5px}
+#organize-concept .org-list {padding:32px;min-height:610px}
+#organize-concept .org-note-link {border:0;background:transparent;width:100%;padding:18px 0;text-align:left;border-bottom:1px solid var(--org-line);display:flex;justify-content:space-between;gap:18px}
+#organize-concept .org-note-link small {color:var(--org-muted);font-size:12px}
+#organize-concept .org-mobile-nav {display:none}
+#organize-concept [hidden] {display:none!important}
+@media(max-width:780px){#organize-concept .org-layout{grid-template-columns:150px minmax(0,1fr)}#organize-concept aside.org-sidebar{padding:18px 8px}#organize-concept .org-document{padding:30px 24px}#organize-concept[data-panel=true] .org-reading{grid-template-columns:minmax(0,1fr)}#organize-concept .org-context{border-left:0;border-top:1px solid var(--org-line)}#organize-concept .org-columns{grid-template-columns:1fr}#organize-concept .org-dashboard,#organize-concept .org-list{padding:24px}}
+@media(max-width:540px){#organize-concept .org-layout{grid-template-columns:minmax(0,1fr)}#organize-concept aside.org-sidebar{display:none}#organize-concept .org-mobile-nav{display:flex;gap:6px;padding:8px 12px;background:var(--org-nav)}#organize-concept .org-mobile-nav button{padding:8px 12px;background:transparent;border:0;border-radius:5px}#organize-concept .org-mobile-nav button[aria-current=page]{background:var(--org-active)}#organize-concept .org-tabbar{display:none}#organize-concept .org-document{padding:28px 18px}#organize-concept h1{font-size:27px}#organize-concept .org-toolbar{padding:10px 14px}#organize-concept .org-toolbar .org-status{display:none}#organize-concept .org-note-link{flex-direction:column;gap:4px}#organize-concept button{min-height:44px}}
+</style>
+<div id="organize-concept" data-panel="false" aria-label="Organize 布局方案预览">
+ <nav class="org-mobile-nav" aria-label="预览页面切换"><button type="button" data-page="dashboard">工作台</button><button type="button" data-page="list">笔记列表</button><button type="button" data-page="note" aria-current="page">笔记详情</button></nav>
+ <div class="org-layout">
+  <aside class="org-sidebar">
+   <div class="org-logo">Organize<span style="color:var(--org-brand)">.</span></div>
+   <div class="org-static"><i data-lucide="search" aria-hidden="true"></i>搜索 <small>⌘ K</small></div>
+   <div class="org-static"><i data-lucide="plus" aria-hidden="true"></i>新建</div>
+   <div class="org-label">工作空间</div>
+   <button type="button" class="org-navitem" data-page="dashboard"><i data-lucide="house" aria-hidden="true"></i>工作台</button>
+   <div class="org-static"><i data-lucide="book-open" aria-hidden="true"></i>稍后读</div>
+   <button type="button" class="org-navitem" data-page="list"><i data-lucide="files" aria-hidden="true"></i>笔记列表</button>
+   <button type="button" class="org-navitem" data-page="note" aria-current="page"><i data-lucide="file-text" aria-hidden="true"></i>阅读摘记</button>
+   <div class="org-tree"><div>学习与思考</div><div>项目想法</div></div>
+   <div class="org-static"><i data-lucide="list-checks" aria-hidden="true"></i>待办</div>
+   <div class="org-static"><i data-lucide="feather" aria-hidden="true"></i>速记</div>
+   <div class="org-label">资料</div>
+   <div class="org-static"><i data-lucide="star" aria-hidden="true"></i>收藏夹</div>
+   <div class="org-footer"><div class="org-static"><i data-lucide="trash-2" aria-hidden="true"></i>垃圾箱</div><div class="org-static"><i data-lucide="settings" aria-hidden="true"></i>设置</div><div class="org-label">布局预览 · 演示数据</div></div>
+  </aside>
+  <main class="org-main">
+   <section data-screen="note" aria-label="笔记详情">
+    <div class="org-tabbar"><span class="org-tab">阅读摘记</span><span style="padding:5px 10px">项目想法</span></div>
+    <div class="org-toolbar"><span class="org-muted">笔记 / 学习与思考</span><span class="org-spacer"></span><span class="org-status org-muted">同步状态示意</span><button type="button" class="org-tool" id="org-context-toggle" aria-pressed="false">目录</button></div>
+    <div class="org-reading">
+     <article class="org-document">
+      <div class="org-kicker">阅读摘记</div>
+      <h1>让阅读，变成自己的知识</h1>
+      <div class="org-meta"><span class="org-chip">阅读</span><span class="org-chip">学习方法</span><span>来源 · 一篇关于主动阅读的文章</span></div>
+      <p>收藏是一个开始。真正留下来的，是我们用自己的话重新表达、并且在生活中用过的部分。</p>
+      <div class="org-quote">读完以后，试着回答：这篇文章改变了我的哪个想法？</div>
+      <h2>从收集到理解</h2>
+      <p>先标出一个值得继续思考的观点，再写下为什么。笔记不必重复整篇文章，但应该保留回到来源的路径。</p>
+      <h2>下一步行动</h2>
+      <label class="org-check"><input type="checkbox">用三句话概括核心观点</label>
+      <label class="org-check"><input type="checkbox">联系一个最近遇到的实际问题</label>
+      <div class="org-bottom">关联 · 2 篇笔记　　来源 · 1 篇文章</div>
+     </article>
+     <aside class="org-context" id="org-context-panel" hidden aria-label="笔记目录"><span>目录</span><p style="color:var(--org-brand)">从收集到理解</p><p>下一步行动</p></aside>
+    </div>
+   </section>
+   <section data-screen="dashboard" hidden aria-label="工作台">
+    <div class="org-toolbar"><span>工作台</span><span class="org-spacer"></span><span>今天</span><span class="org-muted">回顾　统计</span></div>
+    <div class="org-dashboard"><h1>继续今天的思考</h1><div class="org-date">9 月 5 日，星期六 · 演示内容</div><div class="org-capture">记录想法，或粘贴一个链接…</div><div class="org-columns"><div><h2>今天待办</h2><label class="org-check"><input type="checkbox">整理本周的阅读摘记</label><label class="org-check"><input type="checkbox">梳理下周的项目计划</label><h2>继续阅读</h2><div class="org-row">主动阅读：从理解到应用<small>阅读到 42% · 学习方法</small></div><div class="org-row">如何建立长期可用的笔记<small>阅读到 18% · 知识管理</small></div></div><div><h2>最近笔记</h2><button type="button" class="org-note-link" data-page="note">让阅读，变成自己的知识</button><div class="org-row">项目想法<small>昨天编辑</small></div><h2>最近速记</h2><div class="org-row">笔记的价值，或许在下一次用到它时才开始。<small>今天 09:20</small></div></div></div></div>
+   </section>
+   <section data-screen="list" hidden aria-label="笔记列表">
+    <div class="org-toolbar"><span>笔记</span><span class="org-spacer"></span><span class="org-muted">最近　全部　图谱</span></div>
+    <div class="org-list"><h1>笔记</h1><div class="org-date">最近编辑 · 演示内容</div><button type="button" class="org-note-link" data-page="note"><span>让阅读，变成自己的知识</span><small>学习与思考 · 今天</small></button><div class="org-note-link"><span>项目想法</span><small>工作 · 昨天</small></div><div class="org-note-link"><span>本周复盘：留出一点思考时间</span><small>复盘 · 9 月 3 日</small></div></div>
+   </section>
+  </main>
+ </div>
+</div>
+<script>
+(() => {
+ const root = document.getElementById('organize-concept');
+ const state = { page:'note', panel:false, density:'comfortable' };
+ function render(){
+  root.querySelectorAll('[data-screen]').forEach(el => {el.hidden=el.dataset.screen!==state.page;});
+  root.querySelectorAll('[data-page]').forEach(el => {if(el.dataset.page===state.page)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+  root.dataset.panel=String(state.panel);
+  root.querySelector('#org-context-panel').hidden=!state.panel;
+  root.querySelector('#org-context-toggle').setAttribute('aria-pressed',String(state.panel));
+  root.querySelector('.org-document').style.paddingTop=state.density==='compact'?'28px':'44px';
+ }
+ root.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>{state.page=el.dataset.page;render();}));
+ root.querySelector('#org-context-toggle').addEventListener('click',()=>{state.panel=!state.panel;render();});
+ render();
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(state,'page',{label:'预览页面',options:[{label:'笔记详情',value:'note'},{label:'工作台',value:'dashboard'},{label:'笔记列表',value:'list'}]});tweak.addToggle(state,'panel',{label:'显示辅助目录'});tweak.addSelect(state,'density',{label:'正文留白',options:[{label:'舒展',value:'comfortable'},{label:'紧凑',value:'compact'}]});}
+})();
+</script>
