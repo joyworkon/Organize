@@ -75,7 +75,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
-import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText } from "./block-utils";
+import { buildEditorExtensions } from "./editor-extensions";
+import { useEditorUpload } from "./use-editor-upload";
+import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText, replaceAt } from "./block-utils";
 import { BLOCK_COMMANDS } from "./block-commands";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
@@ -895,12 +897,6 @@ interface BlockPointerDrag {
   active: boolean;
 }
 
-function replaceAt(editor: Editor, pos: number, content: Record<string, unknown>) {
-  const node = editor.state.doc.nodeAt(pos);
-  if (!node) return;
-  editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, content).run();
-}
-
 function nodePosForElement(editor: Editor, element: HTMLElement) {
   const domPos = editor.view.posAtDOM(element, 0);
   const $pos = editor.state.doc.resolve(domPos);
@@ -1134,107 +1130,17 @@ export function TipTapEditor({
   const activePlugins = usePluginStore((state) => Array.from(state.activePlugins.entries()));
   const pluginContexts = usePluginStore((state) => state.contexts);
 
-  const extensions = useMemo(() => {
-    return [
-      // 协作模式下 History 由 Collaboration 的 Yjs UndoManager 接管（TipTap 合同）
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] },
-        ...(collab ? { history: false } : {}),
+  // R09：扩展装配抽离至 editor-extensions.ts；依赖保持 [collab, disableTaskItemToggle]，
+  // 数组引用稳定，不会重建编辑器
+  const extensions = useMemo(
+    () =>
+      buildEditorExtensions({
+        collab,
+        disableTaskItemToggle,
+        getInternalLinkStates: () => internalLinkStatesRef.current,
       }),
-      ListStyleExtension,
-      TextStyle,
-      Color,
-      Highlight.configure({ multicolor: true }),
-      Underline,
-      ResizableImage.configure({ inline: false, allowBase64: true }),
-      Link.configure({ openOnClick: false }),
-      Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
-      TaskList,
-      TaskItemLinked.configure({ nested: true }),
-      // 匿名可编辑公开链接（072）：拦截本端 taskItem 勾选（任务属主不可匿名变更）
-      ...(disableTaskItemToggle ? [TaskItemToggleGuard.configure({ enabled: true })] : []),
-      OrganizeTable.configure({
-        resizable: true,
-        allowTableNodeSelection: true,
-        lastColumnResizable: true,
-        cellMinWidth: 48,
-        View: OrganizeTableView,
-      }),
-      OrganizeTableRow,
-      OrganizeTableCell,
-      OrganizeTableHeader,
-      // persist: 展开/收起状态写入文档（刷新后保持）；默认展开，
-      // 新建折叠块直接进入可编辑状态，旧文档里没有 open 属性的折叠块也会展开显示。
-      Details.extend({
-        addAttributes() {
-          return {
-            ...this.parent?.(),
-            open: {
-              default: true,
-              parseHTML: (el) => (el as HTMLElement).hasAttribute("open"),
-              renderHTML: ({ open }) => (open ? { open: "" } : {}),
-            },
-          };
-        },
-      }).configure({ persist: true }),
-      DetailsContent,
-      // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
-      DetailsSummary.extend({
-        addAttributes() {
-          return {
-            ...this.parent?.(),
-            level: {
-              default: 0,
-              parseHTML: (el) => Number((el as HTMLElement).getAttribute("data-level") || 0),
-              renderHTML: (attrs) => (attrs.level ? { "data-level": String(attrs.level) } : {}),
-            },
-          };
-        },
-      }),
-      Callout,
-      InlineMath,
-      MathBlock,
-      MathCommands,
-      Columns,
-      Column,
-    HtmlEmbed,
-    FileAttachment,
-    TableOfContents,
-    Breadcrumb,
-    ButtonBlock,
-    Tabs,
-    Tab,
-    Mermaid,
-    Embed,
-    SyncedBlock,
-    DatabaseBlock,
-      SlashCommand,
-      BlockDeepLink,
-      InternalLinkStateDecorations.configure({
-        getStates: () => internalLinkStatesRef.current,
-      }),
-      TransformedBlockSelection,
-      BlockMultiSelect,
-      BlockStyle,
-      ListBackspaceFix,
-      UniqueID.configure({
-        types: BLOCK_ID_TYPES,
-        // 协作：只给本地事务补 id（远端节点自带 id，否则两端各自生成会冲突）
-        ...(collab
-          ? { filterTransaction: (transaction: Transaction) => !transaction.getMeta("y-sync$") }
-          : {}),
-      }),
-      ...(collab
-        ? [
-            Collaboration.configure({ document: collab.provider.document }),
-            CollaborationCursor.configure({
-              provider: collab.provider,
-              user: collab.user,
-            }),
-          ]
-        : []),
-    ];
-  }, [collab, disableTaskItemToggle]);
+    [collab, disableTaskItemToggle]
+  );
 
   const editor = useEditor({
     extensions,
@@ -1494,120 +1400,9 @@ export function TipTapEditor({
     };
   }, [editor, collab]);
 
-  const insertImage = useCallback((url: string, pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
-    if (!editor) return;
-    if (nested && range) {
-      editor.chain().focus().deleteRange(range).insertContent({ type: "image", attrs: { src: url } }).run();
-    } else if (pos === undefined) {
-      editor.chain().focus().setImage({ src: url }).run();
-    } else {
-      replaceAt(editor, pos, { type: "image", attrs: { src: url } });
-    }
-  }, [editor]);
-
-  const uploadImage = useCallback((pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
-    if (!editor) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/jpeg,image/png,image/gif,image/webp,image/svg+xml";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const formData = new FormData();
-      formData.append("file", file);
-      try {
-        const response = await fetch("/api/upload", { method: "POST", body: formData });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "上传失败");
-        insertImage(data.url, pos, nested, range);
-      } catch {
-        const reader = new FileReader();
-        reader.onload = () => insertImage(String(reader.result), pos, nested, range);
-        reader.readAsDataURL(file);
-      }
-    };
-    input.click();
-  }, [editor, insertImage]);
-
-  // 从外部拖入 / 粘贴 / 菜单选择的文件：图片插入图片块，其余作为附件块（视频/音频内联播放）
-  const insertFiles = useCallback(async (files: File[], pos?: number) => {
-    if (!editor || !files.length) return;
-    const nodes: JSONContent[] = [];
-    for (const file of files) {
-      const isImage = file.type.startsWith("image/");
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const response = await fetch("/api/upload", { method: "POST", body: formData });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "上传失败");
-        nodes.push(
-          isImage
-            ? { type: "image", attrs: { src: data.url as string } }
-            : {
-                type: "fileAttachment",
-                attrs: {
-                  src: data.url as string,
-                  name: (data.name as string) || file.name,
-                  size: typeof data.size === "number" ? data.size : file.size,
-                  mime: (data.mime as string) || file.type,
-                },
-              }
-        );
-      } catch (error) {
-        if (isImage) {
-          // 上传接口不可用时图片回退为 base64 内联（与 uploadImage 一致）
-          const dataUrl = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = () => resolve("");
-            reader.readAsDataURL(file);
-          });
-          if (dataUrl) nodes.push({ type: "image", attrs: { src: dataUrl } });
-        } else {
-          console.warn("[editor] 附件上传失败", error);
-          toast({
-            title: `「${file.name}」上传失败`,
-            description: error instanceof Error ? error.message : "请稍后重试",
-            variant: "destructive",
-          });
-        }
-      }
-    }
-    if (!nodes.length) return;
-    if (pos === undefined) {
-      editor.chain().focus().insertContent(nodes).run();
-      return;
-    }
-    try {
-      editor.chain().focus().insertContentAt(pos, nodes).run();
-    } catch {
-      // 落点放不下块级内容（如表格单元格内）时追加到文末
-      editor.chain().focus("end").insertContent(nodes).run();
-    }
-  }, [editor]);
-
-  // editorProps 在编辑器初始化时定型，通过 ref 拿到最新的 insertFiles
-  const insertFilesRef = useRef(insertFiles);
-  insertFilesRef.current = insertFiles;
-
-  const uploadAttachment = useCallback(() => {
-    if (!editor) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.multiple = true;
-    input.onchange = () => {
-      const files = Array.from(input.files ?? []);
-      if (files.length) void insertFiles(files);
-    };
-    input.click();
-  }, [editor, insertFiles]);
-
-  const addImageUrl = useCallback(() => {
-    void showPrompt({ title: "输入图片 URL", placeholder: "https://" }).then((url) => {
-      if (url) insertImage(url);
-    });
-  }, [insertImage]);
+  // R09：上传与插入抽离至 use-editor-upload（含编辑器销毁守卫：切页/关页后不再插入）
+  const { insertImage, uploadImage, insertFiles, insertFilesRef, uploadAttachment, addImageUrl } =
+    useEditorUpload(editor);
 
   const addReadingReference = useCallback((pos?: number) => {
     if (!editor) return;

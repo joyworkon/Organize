@@ -151,9 +151,22 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R09。
 
+### R09 编辑器职责拆分 — ✅ 已完成（PR #233；范围=装配+上传，见下）
+
+- 基线提交：cef5ba0
+- 修改文件与职责：
+  - 新增 `components/editor/editor-extensions.ts`——扩展装配自 tiptap-editor 抽离（`buildEditorExtensions`），数组逐字保持（configure 参数/顺序/collab 分支不变）；tiptap-editor 的 useMemo 依赖保持 `[collab, disableTaskItemToggle]`，数组引用稳定、不会重建编辑器（R09「回调稳定性」验收）
+  - 新增 `components/editor/use-editor-upload.ts`——insertImage/uploadImage/insertFiles/uploadAttachment/addImageUrl 抽离为 hook，**全部插入路径补 `editor.isDestroyed` 守卫**（R09 验收：文件选择到上传完成期间编辑器已销毁/切页则不插入，不可能插入别的文档）；取消语义保持（选择框取消静默返回）；base64 回退策略未动（R12 范围）
+  - `replaceAt` 下沉 `block-utils.ts`（编辑器与上传 hook 共用）；`insertFilesRef` 模式随 hook 保持（editorProps 定型取最新回调）
+- 范围说明（如实记录）：计划「建议模块」中的 block-interactions（选择/拖拽）与 collab-adapter（播种/来源适配）本轮未拆——handoff 步骤为「先装配→上传→UI 控制，每小步验证」，命令调度部分已由 R06 完成（executeNestedCommand 同源化）。两模块的抽离不改变行为，留作后续小步进行。
+- 测试命令及退出结果：全量 vitest 137 文件 / 1032 测试；tsc、lint 零警告；mock 生产构建 + Chromium E2E smoke 5/5（含笔记创建编辑保存——编辑器装配/上传路径真实浏览器验证；拖拽/粘贴/取消为同步语义搬运+销毁守卫新增）。
+- 未覆盖场景：协作模式（Hocuspocus）下的播种次数与扩展集合真实服务验证（COLLAB_E2E 未开）；拖拽上传的销毁竞态无自动化用例（守卫为纯新增检查）。
+- 回退办法：revert 本 PR（两个新文件随之移除，内联实现恢复）。
+- 下一张可执行卡：D00/D01。
+
 ## 待办队列
 
-R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+D00/D01 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
