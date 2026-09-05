@@ -238,6 +238,12 @@ export default function SettingsPage() {
           userOwned: true,
           order: ["id"],
         },
+        {
+          table: "memo_notes",
+          columns: "id, memo_id, note_id, created_at",
+          userOwned: true,
+          order: ["id"],
+        },
       ] as const;
 
       const pageSize = 500;

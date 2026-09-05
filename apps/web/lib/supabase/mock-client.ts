@@ -515,6 +515,82 @@ function removeTaskDependency(args: Record<string, any>) {
   };
 }
 
+/** R11：速记转笔记（与 075 RPC 同语义：幂等 exists、标题首行、标签映射、软删 not_found） */
+function convertMemoToNote(args: Record<string, any>) {
+  const memo = (mockDb.memos || []).find(
+    (row) => row.id === args.p_memo_id && row.user_id === MOCK_USER.id
+  );
+  if (!memo || memo.deleted_at) {
+    return { data: { status: "not_found" }, error: null };
+  }
+  const existing = (mockDb.memo_notes || []).find(
+    (row) => row.memo_id === memo.id && row.user_id === MOCK_USER.id
+  );
+  if (existing) {
+    return { data: { status: "exists", note_id: existing.note_id }, error: null };
+  }
+
+  const firstLine =
+    (memo.content || "")
+      .split("\n")
+      .map((line: string) => line.trim())
+      .find((line: string) => line !== "") || "";
+  const title = firstLine.slice(0, 50);
+  const paragraphs = (memo.content || "")
+    .split(/\n+/)
+    .filter((line: string) => line.trim() !== "")
+    .map((line: string) => ({
+      type: "paragraph",
+      content: [{ type: "text", text: line }],
+    }));
+  const noteId = `note-${Math.random().toString(36).slice(2, 10)}`;
+  mockDb.notes.push({
+    id: noteId,
+    user_id: MOCK_USER.id,
+    title,
+    content: { type: "doc", content: paragraphs.length ? paragraphs : [{ type: "paragraph" }] },
+    icon: null,
+    cover_url: null,
+    cover_position: 50,
+    parent_note_id: null,
+    full_width: false,
+    font_family: "default",
+    small_font: false,
+    is_pinned: false,
+    deleted_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+  mockDb.memo_notes.push({
+    id: `memo-note-${Math.random().toString(36).slice(2, 10)}`,
+    user_id: MOCK_USER.id,
+    memo_id: memo.id,
+    note_id: noteId,
+    created_at: new Date().toISOString(),
+  });
+  // #标签 → note tags（trim 精确匹配 upsert，与真实 RPC 一致）
+  for (const tag of memo.tags || []) {
+    if (!String(tag).trim()) continue;
+    const name = String(tag).trim();
+    let tagRow = (mockDb.tags || []).find((t) => t.user_id === MOCK_USER.id && t.name === name);
+    if (!tagRow) {
+      tagRow = {
+        id: `tag-${Math.random().toString(36).slice(2, 10)}`,
+        user_id: MOCK_USER.id,
+        name,
+        created_at: new Date().toISOString(),
+      };
+      mockDb.tags.push(tagRow);
+    }
+    mockDb.note_tags.push({
+      note_id: noteId,
+      tag_id: tagRow.id,
+      user_id: MOCK_USER.id,
+    });
+  }
+  return { data: { status: "created", note_id: noteId }, error: null };
+}
+
 function convertHighlightReference(args: Record<string, any>) {
   const highlight = (mockDb.highlights || []).find(
     (row) => row.id === args.p_highlight_id && row.user_id === MOCK_USER.id
@@ -737,6 +813,7 @@ export function createMockClient(): any {
       if (name === "add_task_dependency") return addTaskDependency(args);
       if (name === "remove_task_dependency") return removeTaskDependency(args);
       if (name === "convert_highlight_reference") return convertHighlightReference(args);
+      if (name === "convert_memo_to_note") return convertMemoToNote(args);
       if (name === "get_highlight_reference_states") return getHighlightReferenceStates(args);
       if (name === "get_linked_content_states") return getLinkedContentStates(args);
       if (name === "get_note_content_link_states") return getNoteContentLinkStates(args);

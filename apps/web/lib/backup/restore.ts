@@ -39,6 +39,7 @@ const ID_TABLES = [
   // 058（P0-04）收录
   "memos",
   "task_item_refs",
+  "memo_notes",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -242,6 +243,13 @@ export function prepareRestorePayload(
   data.task_item_refs = (backup.data.task_item_refs || []).map((row) => ({
     ...withId(row, maps.task_item_refs),
     task_id: remap(row.task_id, maps.tasks),
+    note_id: remap(row.note_id, maps.notes),
+  }));
+
+  // R11：memo_notes 引用重映射（memo_id → 新 memos，note_id → 新 notes）
+  data.memo_notes = (backup.data.memo_notes || []).map((row) => ({
+    ...withId(row, maps.memo_notes),
+    memo_id: remap(row.memo_id, maps.memos),
     note_id: remap(row.note_id, maps.notes),
   }));
 

@@ -29,6 +29,7 @@ const ids = {
   taskReminder: "20000000-0000-4000-8000-000000000002",
   // 058（P0-04）
   memo: "30000000-0000-4000-8000-000000000002",
+  memoNote: "30000000-0000-4000-8000-000000000003",
   taskItemRef: "40000000-0000-4000-8000-000000000002",
 };
 const timestamp = "2026-07-29T12:00:00.000Z";
@@ -309,6 +310,14 @@ function fixtureData(): BackupData {
         task_id: ids.task,
         note_id: ids.note,
         block_id: "blk-backup-1",
+        created_at: timestamp,
+      },
+    ],
+    memo_notes: [
+      {
+        id: ids.memoNote,
+        memo_id: ids.memo,
+        note_id: ids.note,
         created_at: timestamp,
       },
     ],

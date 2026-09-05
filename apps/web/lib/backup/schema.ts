@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 4;
-/** 备份版本兼容范围：v4 是当前格式（058 起收录 memos 与 task_item_refs），v2/v3 仍可导入（新表按空处理） */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4] as const;
+export const BACKUP_VERSION = 5;
+/** 备份版本兼容范围：v5 是当前格式（075 起收录 memo_notes），v2/v3/v4 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -37,6 +37,8 @@ export const BACKUP_TABLES = [
   // 058（P0-04）收录：速记与任务↔笔记双链
   "memos",
   "task_item_refs",
+  // 075（R11）：速记转笔记关联
+  "memo_notes",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -440,6 +442,15 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id", "note_id", "block_id"],
   },
+  memo_notes: {
+    fields: {
+      id: isUuid,
+      memo_id: isUuid,
+      note_id: isUuid,
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 // 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
@@ -662,10 +673,13 @@ function validateManifest(
   // P0-04：v2/v3 老备份的 manifest 没有新表键（当时尚不存在），缺键按 0 记；
   // v4 起严格要求数据与 counts 都齐全
   const v3CompatTables = new Set(["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs"]);
+  // v4 备份没有 075 的 memo_notes，缺键按 0 记
+  const v4CompatTables = new Set(["memo_notes"]);
   for (const table of BACKUP_TABLES) {
     const declared = value.counts[table];
     const isLegacyMissing =
-      (version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined;
+      ((version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined) ||
+      (version === 4 && v4CompatTables.has(table) && declared === undefined);
     if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(

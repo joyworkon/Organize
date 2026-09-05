@@ -238,9 +238,23 @@
 - 回退办法：revert 本 PR；RPC 留存无害。客户端回退需同时回滚组件改动。
 - 下一张可执行卡：R11。
 
+### R11 速记转笔记闭环 — ✅ 已完成（PR #240）
+
+- 基线提交：6c331ee
+- 原问题：`handleConvert` 先 `createNewNote`（空笔记）再 `update` 内容——两步网络请求存在部分成功（建了空笔记、更新失败）；无关联记录（重复点击重复建页）；#标签不映射为笔记标签。
+- 修改：
+  - 迁移 075：`memo_notes` 关联表（unique (user_id, memo_id) 幂等保证 + RLS + GRANT）；`convert_memo_to_note` RPC——security definer 单事务完成 笔记（标题=首个非空行截断 50 字 / 正文逐行完整保留，#标签保留在正文）+ 关联 + #标签→note tags（trim 精确匹配 upsert、缺失创建，与 /api/notes/[id]/tags 规则一致）；软删除速记 not_found；重复转换返回 exists+同一 note_id（含并发 unique_violation 兜底）；`restore_backup_v2_full` 重定义追加 memo_notes 落块（复制 058 主体的仓库链式模式）
+  - 备份合同 v5：`BACKUP_TABLES`/schema 校验/`BACKUP_ACCEPTED_VERSIONS=[2,3,4,5]`（v4 缺 memo_notes 兼容补空）/settings 导出查询/`restore.ts` memo_id+note_id 重映射
+  - mock：`convert_memo_to_note` handler（同语义）；mockDb.memo_notes
+  - 速记页：转换走 RPC；已转换显示「打开笔记」；关联笔记软删除显示「关联笔记已删除」状态（恢复走垃圾箱，不默默当未转换）；离线转换不可用（RPC 失败 toast 如实提示，输入保留）
+- 测试命令及退出结果：**pgTAP 075 真实本地库 10 断言全过**（created/exists 幂等、标题首行、正文含第二行与 #标签、标签映射 2 条、单关联、他人速记 not_found、软删 not_found、匿名 42501、备份恢复落库关联）；本地全套 pgTAP PASS；备份 schema v5 测试 23 用例更新通过（夹具含 memo_notes）；全量 vitest 138 文件 / 1035 测试；tsc、lint 零警告；**真实浏览器验证**：转换→note id→SPA 回列表→「打开笔记」→同一 note id ✓。
+- 未覆盖场景（如实记录）：真实双账号 RLS（pgTAP 覆盖同语义）；恢复/显式新建的「显式新建」入口简化为删除关联后重转（当前 UI 提供恢复指引，未加重建按钮——首次转换幂等已覆盖常规流）。
+- 回退办法：revert 本 PR；memo_notes 表与 RPC 留存无害。
+- 下一张可执行卡：R12。
+
 ## 待办队列
 
-R11 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R12 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 
