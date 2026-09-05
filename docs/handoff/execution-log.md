@@ -53,9 +53,20 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R03。
 
+### R03 本地草稿失败必须可见 — ✅ 已完成（PR #227）
+
+- 基线提交：7584587
+- 原问题与复现：`writeLocalNoteDraft` catch 所有异常返回 null，`persistCurrentDraft` 忽略结果——配额满/隐私模式时页面照常显示"保存失败，本地草稿已保留，请检查网络后重试"和冲突框"当前内容没有丢失，并已保存在本地"，均为不实陈述（代码路径确认，注入抛错 storage 的行为测试固定）。
+- 修改文件与职责：`lib/notes/local-draft.ts`——`writeLocalNoteDraft` 返回类型化 `DraftWriteResult`（ok/quota/unavailable/serialization；DOMException name 与 code 22/1014 判 quota，序列化失败单列，其余保守 unavailable），序列化前置于存储写入避免半成品；`app/(main)/notes/[id]/page.tsx`——`persistCurrentDraft` 消费结果并维护 `localDraftPersistFailed` 状态；新增持续错误条（amber，role=alert，不自动消失）附"导出当前内容"入口（复用 R02 本地快照导出）；冲突对话框文案按实际写入结果二态；保存失败文案改为不依赖写入结果的如实表述；云端保存成功清草稿时撤销错误条；新增标准 beforeunload 提醒（仅内存修改时，注释明确只是辅助）。
+- 行为变化：草稿写入失败不再被吞——持续可见 + 可导出；编辑/正常服务器保存链路、viewer、离线创建队列行为不变。
+- 测试命令及退出结果：`lib/notes/local-draft.test.ts` 8 passed（新增 quota/unavailable/serialization/ok 四类注入用例 + 既有键隔离保持）；全量 `vitest run` 133 文件 / 986 测试通过；`tsc --noEmit`、`next lint --max-warnings 0` 通过。
+- 未覆盖场景：真实浏览器配额注入（DevTools 覆盖 storage）留待 D05 跨状态验收；beforeunload 在移动端不可靠已在代码注释与文档声明。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R04。
+
 ## 待办队列
 
-R03 → R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 

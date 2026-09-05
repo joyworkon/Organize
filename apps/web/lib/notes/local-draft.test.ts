@@ -48,7 +48,7 @@ const draft: NoteDraftSnapshot = {
 describe("local note draft", () => {
   it("按用户和笔记隔离，并完整恢复 revision 与页面快照", () => {
     const storage = new MemoryStorage();
-    const stored = writeLocalNoteDraft(
+    const result = writeLocalNoteDraft(
       storage,
       "user-1",
       "note-1",
@@ -57,8 +57,9 @@ describe("local note draft", () => {
       new Date("2026-08-20T10:00:00Z")
     );
 
-    expect(stored?.updatedAt).toBe("2026-08-20T10:00:00.000Z");
-    expect(readLocalNoteDraft(storage, "user-1", "note-1")).toEqual(stored);
+    expect(result.status).toBe("ok");
+    expect(result.stored?.updatedAt).toBe("2026-08-20T10:00:00.000Z");
+    expect(readLocalNoteDraft(storage, "user-1", "note-1")).toEqual(result.stored);
     expect(readLocalNoteDraft(storage, "user-2", "note-1")).toBeNull();
   });
 
@@ -92,5 +93,73 @@ describe("local note draft", () => {
   it("快照比较能区分旧草稿与数据库当前值", () => {
     expect(areNoteDraftsEqual(draft, { ...draft })).toBe(true);
     expect(areNoteDraftsEqual(draft, { ...draft, title: "远端标题" })).toBe(false);
+  });
+});
+
+describe("writeLocalNoteDraft：类型化失败结果", () => {
+  class FailingStorage {
+    get length() {
+      return 0;
+    }
+    getItem() {
+      return null;
+    }
+    key() {
+      return null;
+    }
+    removeItem() {}
+    setItem() {
+      const error = new DOMException("storage full", "QuotaExceededError");
+      throw error;
+    }
+  }
+
+  class UnavailableStorage {
+    get length() {
+      return 0;
+    }
+    getItem() {
+      return null;
+    }
+    key() {
+      return null;
+    }
+    removeItem() {}
+    setItem() {
+      throw new Error("access denied");
+    }
+  }
+
+  it("QuotaExceededError 分类为 quota，且不抛出、不返回伪成功", () => {
+    const result = writeLocalNoteDraft(new FailingStorage(), "u", "n", 1, draft);
+    expect(result.status).toBe("quota");
+    expect(result.stored).toBeNull();
+  });
+
+  it("其他存储异常保守分类为 unavailable", () => {
+    const result = writeLocalNoteDraft(new UnavailableStorage(), "u", "n", 1, draft);
+    expect(result.status).toBe("unavailable");
+    expect(result.stored).toBeNull();
+  });
+
+  it("无法序列化的内容分类为 serialization", () => {
+    const circular: Record<string, unknown> = { type: "doc" };
+    circular["self"] = circular;
+    const storage = new MemoryStorage();
+    const result = writeLocalNoteDraft(storage, "u", "n", 1, {
+      ...draft,
+      content: circular as NoteDraftSnapshot["content"],
+    });
+    expect(result.status).toBe("serialization");
+    expect(result.stored).toBeNull();
+    // 未写入任何半成品数据
+    expect(readLocalNoteDraft(storage, "u", "n")).toBeNull();
+  });
+
+  it("成功 storage 返回 ok 并可读回", () => {
+    const storage = new MemoryStorage();
+    const result = writeLocalNoteDraft(storage, "u", "n", 3, draft);
+    expect(result.status).toBe("ok");
+    expect(readLocalNoteDraft(storage, "u", "n")).toEqual(result.stored);
   });
 });
