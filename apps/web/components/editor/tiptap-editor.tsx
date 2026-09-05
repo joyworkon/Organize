@@ -139,12 +139,9 @@ import {
 } from "lucide-react";
 
 /** 事务来源分类（见 docs/g0-protocol.md §4）。 */
-export type TransactionSource =
-  | "user"
-  | "hydrate"
-  | "remote-sync"
-  | "version-restore"
-  | "backup-restore";
+import type { TransactionSource } from "@/lib/collab/transaction-source";
+
+export type { TransactionSource };
 
 interface EditorProps {
   noteId: string;

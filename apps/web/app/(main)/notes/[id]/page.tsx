@@ -10,6 +10,12 @@ import { NoteAttachmentsButton } from "@/components/editor/note-attachments-pane
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
 import { findNoteCreate, removeNoteCreate } from "@/lib/offline/note-queue";
+import { useNoteSaveSession } from "@/hooks/use-note-session";
+import {
+  createSupabaseNoteSaveTransport,
+  type NoteSaveConflict,
+  type NoteSaveSession,
+} from "@/lib/notes/note-save-session";
 import { enqueueNoteDelete } from "@/lib/offline/note-delete-queue";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont, Tag } from "@organize/shared";
@@ -82,21 +88,8 @@ function isTaskNoteLinkEnabled(): boolean {
  * G0 §3 状态机：此函数只读 content，不改动它。
  */
 type NoteDraft = NoteDraftSnapshot;
-
-/** 冲突对方的归因（066 last_edit_by）：self=自己其他设备；collaborator=查到名字的协作者 */
-interface ConflictActor {
-  kind: "self" | "collaborator" | "unknown";
-  name: string | null;
-}
-
-interface SaveConflict {
-  kind: "note" | "task";
-  currentRevision: number | null;
-  taskId?: string;
-  remoteDraft: NoteDraft | null;
-  remoteUpdatedAt: string | null;
-  actor: ConflictActor;
-}
+// 冲突类型由保存会话提供（含 066 last_edit_by 归因）
+type SaveConflict = NoteSaveConflict;
 
 export default function NoteEditorPage() {
   const params = useParams();
@@ -131,9 +124,6 @@ export default function NoteEditorPage() {
   const [loading, setLoading] = useState(true);
   /** 加载失败原因：not-found=在线确认不存在；offline=离线导致查询失败（服务器可能有数据） */
   const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [fullWidth, setFullWidth] = useState(true);
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
@@ -145,7 +135,6 @@ export default function NoteEditorPage() {
   >(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
-  const [saveConflict, setSaveConflict] = useState<SaveConflict | null>(null);
   // 协作角色（P5-02 卡 4）：null=未判定；viewer 只读，editor 走 v2 保存，owner 走 v1 主链。
   // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
   const [noteRole, setNoteRole] = useState<CollabRole | null>(null);
@@ -201,7 +190,6 @@ export default function NoteEditorPage() {
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const draftRef = useRef<NoteDraft>({
     title: "",
     content: null,
@@ -213,28 +201,57 @@ export default function NoteEditorPage() {
     font_family: "default",
     small_font: false,
   });
-  const dirtyRef = useRef(false);
-  // draftRef/dirtyRef 当前归属的笔记 id：切换笔记的瞬间，旧笔记的在途保存
-  // 循环不得把新笔记的草稿写到旧笔记 id 下（flushSave 排空循环每轮前校验）
-  const draftNoteIdRef = useRef(noteId);
-  // 最近一次内容变更的来源（user / hydrate / remote-sync / version-restore / backup-restore）
-  const lastSourceRef = useRef<TransactionSource>("user");
-  // notes.content_revision（G1 乐观锁），双链 RPC 保存时用
-  const contentRevisionRef = useRef(0);
   const userIdRef = useRef<string | null>(null);
-  /** 在途保存互斥：resolve 值表示本轮是否真正落库（⌘S 提示据此如实反馈） */
-  const savingPromiseRef = useRef<Promise<boolean> | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  // R07：保存会话（revision/mutation 幂等键/重试/冲突/排空循环全部内聚）
+  const [accountId, setAccountId] = useState<string | null>(null);
+  // 注水载荷用 state（ref 变化不会触发注水 effect 重跑——P0-1 修复）。
+  // 携带 noteId：只在「已成功加载的笔记 === 当前笔记」时注水，防止失败路径拿旧稿注水。
+  const [loadedRevision, setLoadedRevision] = useState<{ noteId: string; revision: number } | null>(null);
+  const migrationRef = useRef<Partial<Pick<NoteDraft, "full_width" | "font_family" | "small_font">> | null>(null);
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
-  // X1 离线同步：网络状态 + 未同步改动标记 + 自动重试计时
+  // X1 离线同步：网络状态（未同步标记由保存会话派生）
   const online = useOnlineStatus();
-  const [offlinePending, setOfflinePending] = useState(false);
-  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const retryCountRef = useRef(0);
-  // 幂等键缓存：同一内容批次的重试复用同一 mutation_id（防响应丢失造成重复写入/假冲突）
-  const lastAttemptRef = useRef<{ draft: NoteDraft; mutationId: string } | null>(null);
+
+  // R07：保存会话。accountId 就绪后创建；noteId/accountId 任一变化即换代（旧会话销毁）
+  const { session: saveSession, ui: sessionUi } = useNoteSaveSession({
+    noteId,
+    accountId,
+    draftRef,
+    getRole: () => noteRoleRef.current,
+    isCollabActive: () => collabConnectedRef.current,
+    isOnline: () => isOnline(),
+    isTaskNoteLinkEnabled,
+    createTransport: () => createSupabaseNoteSaveTransport(supabase, noteId),
+    consumeSkipFlush: () => {
+      try {
+        const key = `organize:skip-flush:${noteId}`;
+        if (sessionStorage.getItem(key)) {
+          sessionStorage.removeItem(key);
+          return true;
+        }
+      } catch { /* sessionStorage 不可用时按正常流程 */ }
+      return false;
+    },
+    onSaved: (info) => appEvents.emit("note:saved", info),
+  });
+  // 统一派生的保存 UI 状态（旧名保留为派生常量，页面 JSX 无需改写）
+  const saving = sessionUi?.phase === "saving";
+  const saveError = sessionUi?.saveError ?? "";
+  const lastSaved = sessionUi?.lastSavedAt ?? null;
+  const saveConflict = sessionUi?.conflict ?? null;
+  const offlinePending = sessionUi?.offlinePending ?? false;
+  const localDraftPersistFailed = sessionUi?.localPersistence === "failed";
+  const pendingSyncedBlocks = sessionUi?.pendingChildBlocks ?? 0;
+
+  // 轻量内联提示：显示一条短消息，2 秒后自动消失。
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(""), 2000);
+  }, []);
 
   const loadNoteTree = useCallback(async () => {
     const {
@@ -276,19 +293,8 @@ export default function NoteEditorPage() {
   useEffect(() => {
     let active = true;
     async function loadNote() {
-      // 切换笔记（App Router 参数导航会复用页面实例）时彻底复位保存协议状态：
-      // 幂等键跨笔记复用会让新笔记首次保存命中上一笔记的历史结果被"吞"掉，
-      // 随后 revision 参照错乱陷入永久假冲突；重试定时器与冲突框同理不能串台。
-      lastAttemptRef.current = null;
-      retryCountRef.current = 0;
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-      setSaveConflict(null);
-      setSaveError("");
-      setLastSaved(null);
-      setOfflinePending(false);
+      // 切换笔记：保存协议状态（幂等键/重试/冲突/revision）由保存会话换代处理；
+      // 旧会话已在 hook effect 中 destroy，在途保存与重试定时器全部失效
       setLoadFailure(null);
       noteRoleRef.current = null;
       setNoteRole(null);
@@ -304,6 +310,7 @@ export default function NoteEditorPage() {
         return;
       }
       userIdRef.current = user.id;
+      setAccountId(user.id);
       // 064 RLS：属主行与「被授权共享给我」的行都能按 id 读到；不再限定 user_id，
       // 协作者打开共享笔记靠这里放行（写路径仍由保存 RPC 按角色收口）。
       const { data, error } = await supabase
@@ -336,7 +343,7 @@ export default function NoteEditorPage() {
         setFullWidth(dbFullWidth);
         setFont(dbFont);
         setSmallFont(dbSmallFont);
-        contentRevisionRef.current = Number(data.content_revision ?? 0);
+        setLoadedRevision({ noteId, revision: Number(data.content_revision ?? 0) });
         const remoteDraft: NoteDraft = {
           title: loadedTitle,
           content: loadedContent,
@@ -349,7 +356,6 @@ export default function NoteEditorPage() {
           small_font: dbSmallFont,
         };
         draftRef.current = remoteDraft;
-        draftNoteIdRef.current = noteId;
         appEvents.emit("note:opened", { noteId, title: loadedTitle });
 
         const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
@@ -387,10 +393,8 @@ export default function NoteEditorPage() {
                 patch.small_font = v;
                 setSmallFont(v);
               }
-              Object.assign(draftRef.current, patch);
-              dirtyRef.current = true;
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              saveTimerRef.current = setTimeout(() => void flushSave(), 500);
+              // 会话就绪后由 hydration effect 打补丁并入队保存（一次性幂等迁移）
+              migrationRef.current = patch;
             }
           } catch {
             /* localStorage 不可用时跳过迁移 */
@@ -410,7 +414,7 @@ export default function NoteEditorPage() {
           setContent(initContent);
           setSeedContent(initContent);
           setCreatedAt(new Date(pending.created_at).toISOString());
-          contentRevisionRef.current = 0;
+          setLoadedRevision({ noteId, revision: 0 });
           draftRef.current = {
             title: initTitle,
             content: initContent,
@@ -422,8 +426,6 @@ export default function NoteEditorPage() {
             font_family: "default",
             small_font: false,
           };
-          draftNoteIdRef.current = noteId;
-          setOfflinePending(true);
         } else if (!isOnline()) {
           // 离线打开一篇服务器上已有的笔记：查询失败≠笔记不存在，
           // 明确告知离线不可读，联网后重新进入本页即可恢复
@@ -553,292 +555,76 @@ export default function NoteEditorPage() {
     };
   }, [noteId, supabase]);
 
-  /** 本机草稿写入是否失败（quota/不可用/序列化）；驱动持续错误条与文案如实呈现 */
-  const [localDraftPersistFailed, setLocalDraftPersistFailed] = useState(false);
+  // ---- R07：保存统一走保存会话（dirty/revision/幂等键/重试/冲突内聚于会话） ----
+  const queueSave = useCallback(() => {
+    saveSession?.queueSave();
+  }, [saveSession]);
 
-  const persistCurrentDraft = useCallback((baseRevision = contentRevisionRef.current) => {
-    const userId = userIdRef.current;
-    if (!userId) return null;
-    const result = writeLocalNoteDraft(localStorage, userId, noteId, baseRevision, {
-      ...draftRef.current,
-    });
-    setLocalDraftPersistFailed(result.status !== "ok");
-    return result;
-  }, [noteId]);
+  const flushSave = useCallback((): Promise<boolean> => {
+    if (!saveSession) return Promise.resolve(true);
+    return saveSession.flushSaved();
+  }, [saveSession]);
 
-  // 所有保存统一走带 revision 的原子 RPC，并串行排空保存期间产生的后续改动。
-  const flushSave = useCallback(async () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
+  // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移。
+  // loadedRevision 是 state：loadNote 成功拿到数据后必然触发本 effect（P0-1 修复）。
+  // 每个会话只注水一次；noteId 不匹配（失败路径残留的旧值）不注水。
+  const hydratedForRef = useRef<{ session: NoteSaveSession } | null>(null);
+  useEffect(() => {
+    if (!saveSession) return;
+    if (!loadedRevision || loadedRevision.noteId !== noteId) return;
+    if (hydratedForRef.current?.session === saveSession) return;
+    hydratedForRef.current = { session: saveSession };
+    saveSession.hydrate(draftRef.current, loadedRevision.revision);
+    const patch = migrationRef.current;
+    if (patch) {
+      migrationRef.current = null;
+      saveSession.patchDraft(patch);
+      saveSession.queueSave();
     }
-    // 协作 viewer 只读：编辑器已禁输入，不存在可落库改动；直接按「无需保存」返回
-    if (noteRoleRef.current === "viewer") return true;
-    // 刚执行过"恢复历史版本"：本地草稿已被服务端快照替代，跳过兜底保存，
-    // 否则卸载时的 flushSave 会把旧草稿写回，盖掉刚恢复的内容。
-    try {
-      if (sessionStorage.getItem(`organize:skip-flush:${noteId}`)) {
-        sessionStorage.removeItem(`organize:skip-flush:${noteId}`);
-        dirtyRef.current = false;
-        const userId = userIdRef.current;
-        if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
-        return true; // 本地草稿已被服务端快照替代：与服务器一致
-      }
-    } catch { /* sessionStorage 不可用时按正常流程 */ }
-    if (savingPromiseRef.current) return savingPromiseRef.current;
-    const promise = (async (): Promise<boolean> => {
-      setSaving(true);
-      setSaveError("");
-      let failed = false;
-      // X1：离线时不发起 RPC（必然失败），保留草稿等 online 事件触发同步；
-      // 顶栏离线角标负责可见反馈，不占用 saveError。
-      if (!isOnline()) {
-        if (dirtyRef.current) {
-          persistCurrentDraft();
-          setOfflinePending(true);
-          return false; // 有未落库改动且当前无法保存
-        }
-        return true; // 无未落库改动
-      }
-      // X1-2B：本条笔记的创建仍滞留离线队列 → 先落创建（主键幂等）再走乐观锁保存；
-      // 统一处理 online 事件 / 重试定时器 / 卸载兜底等各触发路径的时序。
-      const pendingCreate = findNoteCreate(localStorage, noteId);
-      if (pendingCreate) {
-        const { error: createErr } = await supabase.from("notes").insert(pendingCreate.note);
-        const createCode = (createErr as { code?: unknown } | null)?.code;
-        if (createErr && createCode !== "23505") {
-          if (isNetworkSaveError(createErr)) {
-            // 创建都发不出去 → 按离线处理，草稿保留待下次 online
-            if (dirtyRef.current) {
-              persistCurrentDraft();
-              setOfflinePending(true);
-            }
-            return false;
-          }
-          // 业务错误：移出队列避免死循环，继续走 RPC 暴露真实错误给冲突/失败分支
-        }
-        removeNoteCreate(localStorage, noteId);
-        if (!dirtyRef.current) setOfflinePending(false);
-      }
-      while (dirtyRef.current) {
-        // 已切换到其他笔记：dirty/draft 现在归属新笔记，留给新笔记的保存管线，
-        // 绝不能把新笔记的草稿快照写到本循环捕获的旧 noteId 名下
-        if (draftNoteIdRef.current !== noteId) break;
-        dirtyRef.current = false;
-        const snapshot = { ...draftRef.current };
-        const { mutations } =
-          isTaskNoteLinkEnabled() && lastSourceRef.current === "user"
-            ? extractTaskMutations(snapshot.content)
-            : { mutations: [] };
-        // 幂等键：与上次尝试的内容一致（自动重试场景）时复用同一 mutation_id，
-        // 服务端 save_mutation_log 命中直接返回上次结果，不会重复写入或误报冲突。
-        const lastAttempt = lastAttemptRef.current;
-        const mutationId =
-          lastAttempt && areNoteDraftsEqual(lastAttempt.draft, snapshot)
-            ? lastAttempt.mutationId
-            : crypto.randomUUID();
-        lastAttemptRef.current = { draft: snapshot, mutationId };
-        // 保存路径（ADR 0003）：协作会话在线时走 v2 + expected_revision=null ——
-        // CRDT 天然合并，乐观锁没有意义，快照节流落库（版本/任务链/归属全复用既有触发器）；
-        // 会话离线/未启用时按角色回退乐观锁主链（owner→v1，editor→v2 带锁）。
-        const collabActive = collabConnectedRef.current;
-        const rpcName = collabActive
-          ? "save_note_with_tasks_v2"
-          : saveRpcNameForRole(noteRoleRef.current ?? "owner");
-        const { data: rpcResult, error: rpcErr } = await supabase.rpc(rpcName, {
-          p_note_id: noteId,
-          p_content: snapshot.content,
-          p_expected_note_revision: collabActive ? null : contentRevisionRef.current,
-          p_title: snapshot.title,
-          p_task_mutations: mutations.length > 0 ? mutations : null,
-          // 前端尚未维护任务 sync_version 缓存，传 null 只对笔记执行乐观锁。
-          p_expected_task_revisions: null,
-          p_mutation_id: mutationId,
-          p_note_snapshot: snapshot,
-        });
-        // RPC 期间切换了笔记：共享 refs（contentRevision/dirty/draft）已归属新笔记，
-        // 任何失败补救/成功回写都会污染新笔记状态。保存结果以服务端为准；
-        // 本笔记未落库的改动已由编辑期 persistCurrentDraft 兜底，重开时可恢复。
-        if (draftNoteIdRef.current !== noteId) break;
-        const result = rpcResult as {
-          status?: string;
-          note_revision?: number;
-          current_revision?: number;
-          task_id?: string;
-        } | null;
-        const status = result?.status;
+    // 离线创建滞留队列：在线→立即补交创建；离线→如实点亮“待同步”（不制造 dirty）
+    if (findNoteCreate(localStorage, noteId)) {
+      if (isOnline()) saveSession.queueSave();
+      else saveSession.markOfflinePending();
+    }
+  }, [saveSession, loadedRevision, draftRef, noteId]);
 
-        if (status === "conflict_note" || status === "conflict_task") {
-          dirtyRef.current = true;
-          persistCurrentDraft();
-          const { data: remote } = await supabase
-            .from("notes")
-            .select("*")
-            .eq("id", noteId)
-            .single();
-          const remoteDraft: NoteDraft | null = remote
-            ? {
-                title: remote.title || "",
-                content: remote.content || null,
-                icon: remote.icon || null,
-                cover_url: remote.cover_url || null,
-                cover_position: Number(remote.cover_position ?? 50),
-                parent_note_id: remote.parent_note_id || null,
-                full_width: remote.full_width === true,
-                font_family:
-                  remote.font_family === "serif" || remote.font_family === "mono"
-                    ? remote.font_family
-                    : "default",
-                small_font: remote.small_font === true,
-              }
-            : null;
-          // 归因冲突对方（066 last_edit_by）：自己其他设备 / 查得到名字的协作者 / 未知。
-          // 悬空 uuid 或档案不可见（RLS 可见集之外）都按 unknown 回退通用文案
-          const lastEditBy = (remote as { last_edit_by?: string | null } | null)?.last_edit_by ?? null;
-          let actor: ConflictActor = { kind: "unknown", name: null };
-          if (lastEditBy && lastEditBy === userIdRef.current) {
-            actor = { kind: "self", name: null };
-          } else if (lastEditBy) {
-            const { data: profile } = await supabase
-              .from("user_profiles")
-              .select("display_name")
-              .eq("id", lastEditBy)
-              .maybeSingle();
-            if (profile?.display_name) actor = { kind: "collaborator", name: profile.display_name };
-          }
-          setSaveConflict({
-            kind: status === "conflict_note" ? "note" : "task",
-            currentRevision:
-              typeof result?.current_revision === "number"
-                ? result.current_revision
-                : remote
-                  ? Number(remote.content_revision ?? 0)
-                  : null,
-            taskId: result?.task_id,
-            remoteDraft,
-            remoteUpdatedAt: remote?.updated_at || null,
-            actor,
-          });
-          setSaveError("检测到其他位置的修改，请处理保存冲突");
-          failed = true;
-          break;
-        }
-
-        if (rpcErr || status !== "ok" || typeof result?.note_revision !== "number") {
-          failed = true;
-          dirtyRef.current = true;
-          persistCurrentDraft();
-          // X1：失败分类——网络错误自动重试（指数退避）/离线等 online 事件/其他错误不自动重试
-          const action = planSaveFailure({
-            error: rpcErr,
-            retries: retryCountRef.current,
-            online: isOnline(),
-          });
-          if (action.type === "retry") {
-            retryCountRef.current += 1;
-            setOfflinePending(true);
-            setSaveError(
-              `网络异常，${Math.round(action.delayMs / 1000)} 秒后自动重试（第 ${retryCountRef.current} 次）`
-            );
-            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-            retryTimerRef.current = setTimeout(() => {
-              retryTimerRef.current = null;
-              void flushSaveRef.current?.();
-            }, action.delayMs);
-          } else if (action.type === "wait-online") {
-            setOfflinePending(true);
-            setSaveError("");
-          } else {
-            // 文案依据本机草稿写入的实际结果，不得谎称“已保留”
-            setSaveError("保存失败，请检查网络后重试；当前内容仍在页面上，可随时导出");
-          }
-          break;
-        }
-        // 成功：复位重试状态与离线标记
-        retryCountRef.current = 0;
-        if (retryTimerRef.current) {
-          clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = null;
-        }
-        setOfflinePending(false);
-        contentRevisionRef.current = result.note_revision;
-        appEvents.emit("note:saved", { noteId, title: snapshot.title });
-        setSaveConflict(null);
-        setLastSaved(new Date());
-        if (!dirtyRef.current && areNoteDraftsEqual(draftRef.current, snapshot)) {
-          const userId = userIdRef.current;
-          if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
-          // 云端已确认保存：本机草稿持久化失败与否不再有影响，撤销持续错误条
-          setLocalDraftPersistFailed(false);
-        }
-        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-      }
-      return !failed;
-    })().finally(() => {
-      setSaving(false);
-      savingPromiseRef.current = null;
-    });
-    savingPromiseRef.current = promise;
-    return promise;
-  }, [noteId, persistCurrentDraft, supabase]);
-
-  // X1：flushSave 的最新引用，供重试定时器 / online 事件回调安全调用
-  const flushSaveRef = useRef<typeof flushSave | null>(null);
+  // X1：联网后立即同步未保存改动（含滞留的离线创建）；断网瞬间如实点亮待同步
   useEffect(() => {
-    flushSaveRef.current = flushSave;
-  }, [flushSave]);
-
-  // X1：联网后立即同步未保存改动（含滞留的离线创建）；离线时若有改动则展示待同步标记
-  useEffect(() => {
+    if (!saveSession) return;
     if (online) {
-      if (dirtyRef.current || findNoteCreate(localStorage, noteId)) void flushSaveRef.current?.();
-    } else if (dirtyRef.current) {
-      setOfflinePending(true);
+      if (saveSession.isDirty() || findNoteCreate(localStorage, noteId)) void saveSession.flush();
+    } else if (saveSession.isDirty()) {
+      saveSession.markOfflinePending();
     }
-  }, [online, noteId]);
-
-  // X1：卸载时清理重试定时器（保存本身的 pagehide/unmount 兜底在下方 effect）
-  useEffect(() => {
-    return () => {
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    };
-  }, []);
+  }, [online, noteId, saveSession]);
 
   // R05：同步块待同步状态聚合——存在未同步块时页面不得宣称全部已同步
-  const [pendingSyncedBlocks, setPendingSyncedBlocks] = useState(0);
   useEffect(() => {
-    setPendingSyncedBlocks(0);
+    saveSession?.setPendingChildBlocks(0);
     const pendingMap = new Map<string, boolean>();
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ syncedId: string; pending: boolean }>).detail;
       if (!detail?.syncedId) return;
       pendingMap.set(detail.syncedId, detail.pending);
-      setPendingSyncedBlocks(
+      saveSession?.setPendingChildBlocks(
         Array.from(pendingMap.values()).filter(Boolean).length
       );
     };
     window.addEventListener("organize:synced-block-status", handler);
     return () => window.removeEventListener("organize:synced-block-status", handler);
-  }, [noteId]);
+  }, [noteId, saveSession]);
 
   // 仅内存修改未落库时，关闭/刷新前用标准 beforeunload 提醒。
-  // 只是辅助：不声称移动端关页一定能拦截；本机草稿兜底仍由 persistCurrentDraft 负责。
+  // 只是辅助：不声称移动端关页一定能拦截；本机草稿兜底由会话的 queueSave 负责。
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
+      if (!saveSession?.isDirty()) return;
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, []);
-
-  const queueSave = useCallback(() => {
-    dirtyRef.current = true;
-    persistCurrentDraft();
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => void flushSave(), 900);
-  }, [flushSave, persistCurrentDraft]);
+  }, [saveSession]);
 
   const applyDraftToPage = useCallback((draft: NoteDraft) => {
     setTitle(draft.title);
@@ -850,8 +636,8 @@ export default function NoteEditorPage() {
     setFullWidth(draft.full_width);
     setFont(draft.font_family);
     setSmallFont(draft.small_font);
-    draftRef.current = { ...draft };
-    lastSourceRef.current = "user";
+    // 就地合并（保持草稿对象身份——保存会话按身份绑定归属；整体替换会被视为切稿）
+    Object.assign(draftRef.current, draft);
     editorRef.current?.commands.setContent(
       draft.content || { type: "doc", content: [{ type: "paragraph" }] },
       false
@@ -860,46 +646,32 @@ export default function NoteEditorPage() {
 
   const restoreLocalDraft = useCallback(() => {
     if (!recoveryDraft) return;
-    contentRevisionRef.current = recoveryDraft.baseRevision;
+    saveSession?.restoreDraft(recoveryDraft.draft, { baseRevision: recoveryDraft.baseRevision });
     applyDraftToPage(recoveryDraft.draft);
     setRecoveryDraft(null);
     queueSave();
-  }, [applyDraftToPage, queueSave, recoveryDraft]);
+  }, [applyDraftToPage, queueSave, recoveryDraft, saveSession]);
 
   const discardLocalDraft = useCallback(() => {
-    const userId = userIdRef.current;
-    if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
+    saveSession?.discardLocalDraft();
     setRecoveryDraft(null);
-  }, [noteId]);
+  }, [saveSession]);
 
   const reloadRemoteVersion = useCallback(() => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    dirtyRef.current = false;
-    const userId = userIdRef.current;
-    if (userId) clearLocalNoteDraft(localStorage, userId, noteId);
-    setSaveConflict(null);
+    saveSession?.resolveConflictReloadRemote();
     window.location.reload();
-  }, [noteId]);
+  }, [saveSession]);
 
   const overwriteRemoteVersion = useCallback(() => {
-    if (!saveConflict || saveConflict.currentRevision === null) return;
-    contentRevisionRef.current = saveConflict.currentRevision;
-    setSaveConflict(null);
-    setSaveError("");
-    dirtyRef.current = true;
-    persistCurrentDraft(saveConflict.currentRevision);
-    void flushSave();
-  }, [flushSave, persistCurrentDraft, saveConflict]);
+    saveSession?.resolveConflictOverwriteRemote();
+  }, [saveSession]);
 
   const keepLocalCopy = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
-      setSaveError("未登录，无法保留副本");
+      showToast("未登录，无法保留副本");
       return;
     }
     const snapshot = { ...draftRef.current };
@@ -913,18 +685,13 @@ export default function NoteEditorPage() {
       .select("id")
       .single();
     if (error || !data) {
-      setSaveError("创建本地副本失败，请重试");
+      showToast("创建本地副本失败，请重试");
       return;
     }
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    dirtyRef.current = false;
-    clearLocalNoteDraft(localStorage, user.id, noteId);
-    setSaveConflict(null);
+    // 副本已建立：清理本会话的冲突状态与本地草稿，跳转副本页
+    saveSession?.resolveConflictReloadRemote();
     router.push(`/notes/${data.id}`);
-  }, [noteId, router, supabase]);
+  }, [router, supabase, saveSession, showToast]);
 
   const updatePageMetadata = useCallback(
     (patch: Partial<Pick<NoteDraft, "icon" | "cover_url" | "cover_position" | "parent_note_id">>) => {
@@ -1097,13 +864,6 @@ export default function NoteEditorPage() {
     } catch { /* ignore */ }
   }, [noteId]);
 
-  // 轻量内联提示：显示一条短消息，2 秒后自动消失。
-  const showToast = useCallback((message: string) => {
-    setToast(message);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToast(""), 2000);
-  }, []);
-
   // ---- 版本历史：预览 / 恢复 ----
   const selectPreviewVersion = useCallback(
     async (version: NoteVersionMeta) => {
@@ -1264,27 +1024,16 @@ export default function NoteEditorPage() {
       ? "；数据库块仅导出引用"
       : "";
     showToast(
-      (dirtyRef.current ? "已导出当前内容，云端仍待同步" : "已导出当前内容") + warningSuffix
+      (saveSession?.isDirty() ? "已导出当前内容，云端仍待同步" : "已导出当前内容") + warningSuffix
     );
-  }, [content, showToast, title]);
+  }, [content, saveSession, showToast, title]);
 
   /** 删除当前页（移入垃圾箱，可恢复） */
   const deleteNote = useCallback(async () => {
     if (!window.confirm("将这篇笔记移入垃圾箱？")) return;
-    // 掐灭滞留的自动保存：900ms 防抖定时器 / 重试定时器 / 卸载兜底 flush
-    // 都会把删除瞬间之后的草稿写进已进垃圾箱的笔记（服务端 RPC 有软删校验，
-    // 但不该让请求发出去；同时避免垃圾箱快照漂移）。
-    const suppressAutosave = () => {
-      dirtyRef.current = false;
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-    };
+    // 掐灭滞留的自动保存：防抖/重试定时器与 dirty 一并清除，
+    // 删除瞬间之后的草稿不再发往已进垃圾箱的笔记（服务端 RPC 有软删校验兜底）。
+    const suppressAutosave = () => saveSession?.suppressAutosave();
     // X1：离线删除——仍在离线创建队列里的笔记（服务端还没有）直接丢弃草稿；
     // 服务端已有笔记入删除队列，联网回放 mutate_trash RPC
     const offlineDelete = () => {
@@ -1322,7 +1071,7 @@ export default function NoteEditorPage() {
       }
       showToast("删除失败");
     }
-  }, [noteId, router, showToast]);
+  }, [noteId, router, saveSession, showToast]);
 
   /** 移动笔记：先更新本地状态，再交给统一 revision 保存处理。 */
   const handleMove = useCallback(
@@ -1343,12 +1092,8 @@ export default function NoteEditorPage() {
 
   const handleContentUpdate = (newContent: Record<string, unknown>, source: TransactionSource) => {
     setContent(newContent);
-    draftRef.current.content = newContent;
-    // 记录本次变更来源，供 flushSave 在 G2 后续逻辑里区分：
-    // user → 走原子 RPC(激活 legacy / 生成 task mutation)；系统事务 → 跳过任务激活。
-    lastSourceRef.current = source;
-    // 协作远端事务（remote-sync）不标脏不排队保存：内容已由 CRDT 在房间内收敛，
-    // 可读快照由真正打字的客户端落库；单用户链路该来源不会出现
+    // 来源与标脏/排空判定内聚在保存会话：remote-sync 不标脏不排队（CRDT 收敛语义）
+    saveSession?.setContent(newContent, source);
     if (source !== "remote-sync") {
       queueSave();
     }
