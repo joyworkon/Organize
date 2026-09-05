@@ -1,6 +1,6 @@
 "use client";
 
-import { Node, mergeAttributes, type Editor } from "@tiptap/core";
+import { Node, mergeAttributes } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
 import {
   NodeViewContent,
@@ -8,17 +8,20 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { RefreshCw, Repeat2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Loader2, RefreshCw, Repeat2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createSyncSessionId,
+  fetchSyncedBlock,
+  patchSyncedBlock,
+  replaceSyncedBlockContent,
+  shouldAcceptSyncMessage,
+  syncedBlockNeedsSync,
+  type SyncMessage,
+} from "./synced-block-sync";
 
 const SYNC_DEBOUNCE_MS = 1000;
 const CHANNEL_NAME = "organize-synced-blocks";
-
-interface SyncMessage {
-  syncedId: string;
-  content: JSONContent[];
-  updatedAt: string;
-}
 
 function broadcast(message: SyncMessage) {
   if (typeof window === "undefined") return;
@@ -30,53 +33,100 @@ function broadcast(message: SyncMessage) {
   window.dispatchEvent(new CustomEvent(CHANNEL_NAME, { detail: message }));
 }
 
-/**
- * 把 ProseMirror 节点序列化为可存储/恢复的 content 数组。
- */
-function nodeToContent(node: { toJSON: () => JSONContent }): JSONContent[] {
-  const json = node.toJSON();
-  return Array.isArray(json.content) ? json.content : [];
-}
+type SyncedStatus = "loading" | "saved" | "saving" | "error";
 
 function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
   const syncedId = String(node.attrs.syncedId || "");
-  const [loading, setLoading] = useState(!node.attrs.hydrated);
+  const [status, setStatus] = useState<SyncedStatus>(node.attrs.hydrated ? "saved" : "loading");
+  const [dirty, setDirty] = useState(false);
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastBroadcastRef = useRef<number>(0);
+  // 待写快照：编辑后始终先落在内存，服务器确认成功才清空；失败时保留供重试
+  const pendingRef = useRef<JSONContent[] | null>(null);
+  const inflightRef = useRef(false);
+  const sessionRef = useRef(createSyncSessionId());
+  const seqRef = useRef(0);
+  const lastSeqByOriginRef = useRef<Map<string, number>>(new Map());
 
-  // 首次渲染：若未注水（hydrated），从服务端拉最新内容覆盖本地
+  const currentPos = useCallback((): number | null => {
+    const pos = typeof getPos === "function" ? (getPos() as number | (() => number)) : null;
+    return typeof pos === "number" ? pos : null;
+  }, [getPos]);
+
+  const readCurrentContent = useCallback((): JSONContent[] | null => {
+    const pos = currentPos();
+    if (pos === null) return null;
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (!currentNode || currentNode.type.name !== "syncedBlock") return null;
+    const json = currentNode.toJSON();
+    return Array.isArray(json.content) ? json.content : [];
+  }, [currentPos, editor]);
+
+  /** 把待写快照提交到服务端；只有确认成功才清 pending 并广播。 */
+  const flushToServer = useCallback(async () => {
+    if (inflightRef.current) return;
+    const content = pendingRef.current;
+    if (content === null) return;
+    inflightRef.current = true;
+    setStatus("saving");
+    const result = await patchSyncedBlock(syncedId, content);
+    inflightRef.current = false;
+    if (result.ok) {
+      // 保存期间又有新编辑时保留 dirty 并立刻再排空
+      const stillPending = pendingRef.current !== null && pendingRef.current !== content;
+      if (!stillPending) {
+        pendingRef.current = null;
+        setDirty(false);
+      }
+      setSyncedAt(result.updatedAt);
+      setStatus("saved");
+      seqRef.current += 1;
+      broadcast({
+        syncedId,
+        content,
+        updatedAt: result.updatedAt,
+        origin: sessionRef.current,
+        seq: seqRef.current,
+      });
+      if (stillPending) void flushToServer();
+    } else {
+      // 失败：保留待写快照，块内显示重试；不广播、不显示已同步
+      setStatus("error");
+    }
+  }, [syncedId]);
+
+  const scheduleFlush = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      void flushToServer();
+    }, SYNC_DEBOUNCE_MS);
+  }, [flushToServer]);
+
+  // 首次渲染：若未注水（hydrated），从服务端拉最新内容；失败不进入成功分支
   useEffect(() => {
     if (!syncedId || node.attrs.hydrated) return;
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch(`/api/synced-blocks?ids=${encodeURIComponent(syncedId)}`);
-        const data: { id: string; content: JSONContent[]; updated_at?: string }[] = await res.json();
-        const row = Array.isArray(data) ? data[0] : undefined;
-        if (cancelled || !row) {
-          setLoading(false);
-          return;
-        }
-        const pos = typeof getPos === "function" ? (getPos() as number) : null;
-        if (pos === null) {
-          setLoading(false);
-          return;
-        }
-        // 用服务端内容替换本块的子内容（保留块本身与 attrs）
-        editor.view.dispatch(
-          editor.state.tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            hydrated: true,
-          })
-        );
-        replaceBlockContent(editor, pos, row.content);
-        setSyncedAt(row.updated_at || null);
-      } catch {
-        /* 离线或未创建：用本地内容即可 */
-      } finally {
-        if (!cancelled) setLoading(false);
+      const result = await fetchSyncedBlock(syncedId);
+      if (cancelled) return;
+      if (!result.ok) {
+        // 404（未创建）沿用本地内容；其余失败保留本地内容但块内提示，可重试拉取
+        setStatus(result.reason === "not-found" ? "saved" : "error");
+        return;
       }
+      const pos = currentPos();
+      if (pos === null) return;
+      // hydrated 标记 + 内容替换都是远端来源事务：不触发回写
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(pos, undefined, {
+          ...node.attrs,
+          hydrated: true,
+        })
+      );
+      replaceSyncedBlockContent(editor, pos, result.content, syncedId);
+      setSyncedAt(result.updatedAt);
+      setStatus("saved");
     })();
     return () => {
       cancelled = true;
@@ -84,61 +134,47 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncedId]);
 
-  // 监听跨实例/跨标签同步消息，实时更新本块内容
+  // 监听跨实例/跨标签同步消息；origin+seq 来源识别，不用时间窗口
   useEffect(() => {
     if (!syncedId) return;
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<SyncMessage>).detail;
-      if (!detail || detail.syncedId !== syncedId) return;
-      // 跳过自己刚发出的（避免编辑时光标乱跳）
-      if (Date.now() - lastBroadcastRef.current < SYNC_DEBOUNCE_MS) return;
-      const pos = typeof getPos === "function" ? (getPos() as number) : null;
+    const handler = (message: SyncMessage | null | undefined) => {
+      if (!shouldAcceptSyncMessage(message, sessionRef.current, lastSeqByOriginRef.current)) return;
+      if (!message || message.syncedId !== syncedId) return;
+      const pos = currentPos();
       if (pos === null) return;
-      replaceBlockContent(editor, pos, detail.content);
-      setSyncedAt(detail.updatedAt);
+      // 远端 meta 事务：本组件的 transaction 监听器识别后不会回写
+      replaceSyncedBlockContent(editor, pos, message.content, message.syncedId);
+      setSyncedAt(message.updatedAt);
     };
     // BroadcastChannel（跨标签）
     const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
     channel?.addEventListener("message", (e: MessageEvent<SyncMessage>) => {
-      handler(new CustomEvent(CHANNEL_NAME, { detail: e.data }));
+      handler(e.data);
     });
-    window.addEventListener(CHANNEL_NAME, handler);
+    const windowHandler = (event: Event) => {
+      handler((event as CustomEvent<SyncMessage>).detail);
+    };
+    window.addEventListener(CHANNEL_NAME, windowHandler);
     return () => {
       channel?.close();
-      window.removeEventListener(CHANNEL_NAME, handler);
+      window.removeEventListener(CHANNEL_NAME, windowHandler);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncedId]);
+  }, [syncedId, editor, currentPos]);
 
-  // 防抖持久化 + 广播：监听本块内容变化（通过 editor transaction）
+  // 防抖持久化：只对本块真实内容变化触发；viewer（不可编辑）不发起写请求
   useEffect(() => {
-    const onTransaction = () => {
-      if (!syncedId || loading) return;
-      const pos = typeof getPos === "function" ? (getPos() as number) : null;
+    const onTransaction = ({ transaction }: { transaction: Parameters<typeof syncedBlockNeedsSync>[0] }) => {
+      if (!syncedId || !editor.isEditable) return;
+      const pos = currentPos();
       if (pos === null) return;
-      const currentNode = editor.state.doc.nodeAt(pos);
-      if (!currentNode) return;
-      const content = nodeToContent(currentNode);
-
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(async () => {
-        // 写回服务端
-        try {
-          const res = await fetch(`/api/synced-blocks/${syncedId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content }),
-          });
-          const data: { updated_at?: string } = await res.json();
-          const updatedAt = data.updated_at || new Date().toISOString();
-          setSyncedAt(updatedAt);
-          // 广播给其它实例（同页 + 跨标签）
-          lastBroadcastRef.current = Date.now();
-          broadcast({ syncedId, content, updatedAt });
-        } catch {
-          /* 离线：静默失败，下次联网时由 debounced 写入重试 */
-        }
-      }, SYNC_DEBOUNCE_MS);
+      const { changed } = syncedBlockNeedsSync(transaction, pos);
+      if (!changed) return;
+      const content = readCurrentContent();
+      if (!content) return;
+      pendingRef.current = content;
+      setDirty(true);
+      scheduleFlush();
     };
     editor.on("transaction", onTransaction);
     return () => {
@@ -146,14 +182,39 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncedId, loading, editor]);
+  }, [syncedId, editor, currentPos, readCurrentContent, scheduleFlush]);
 
   return (
     <NodeViewWrapper className="organize-synced-block" data-synced-block="" data-synced-id={syncedId} as="div">
       <div className="organize-synced-toolbar" contentEditable={false}>
         <span><Repeat2 className="h-3.5 w-3.5" />同步区块</span>
-        {loading && <span className="organize-synced-status">同步中…</span>}
-        {!loading && syncedAt && (
+        {status === "loading" && <span className="organize-synced-status">加载中…</span>}
+        {status === "saving" && (
+          <span className="organize-synced-status"><Loader2 className="h-3 w-3 animate-spin" />保存中</span>
+        )}
+        {status === "error" && (
+          <span className="organize-synced-status text-destructive inline-flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            同步失败
+            <button
+              type="button"
+              className="underline underline-offset-2"
+              onClick={() => {
+                if (pendingRef.current === null) {
+                  const content = readCurrentContent();
+                  if (content) pendingRef.current = content;
+                }
+                void flushToServer();
+              }}
+            >
+              重试
+            </button>
+          </span>
+        )}
+        {status === "saved" && dirty && (
+          <span className="organize-synced-status">待同步</span>
+        )}
+        {status === "saved" && !dirty && syncedAt && (
           <span className="organize-synced-status" title={syncedAt}>
             <RefreshCw className="h-3 w-3" />已同步
           </span>
@@ -162,16 +223,6 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
       <NodeViewContent className="organize-synced-content" as="div" />
     </NodeViewWrapper>
   );
-}
-
-/** 用新的 content 数组替换某个块（pos 处）的全部子节点。 */
-function replaceBlockContent(editor: Editor, pos: number, content: JSONContent[]) {
-  const node = editor.state.doc.nodeAt(pos);
-  if (!node) return;
-  const start = pos + 1;
-  const end = pos + node.nodeSize - 1;
-  const tr = editor.state.tr.replaceWith(start, end, content.map((c) => editor.schema.nodeFromJSON(c)));
-  editor.view.dispatch(tr);
 }
 
 declare module "@tiptap/core" {

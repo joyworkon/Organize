@@ -15,8 +15,13 @@ export async function createSyncedBlockAt(editor: Editor, pos?: number): Promise
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: [{ type: "paragraph" }] }),
     });
-    const data: { id?: string } = await res.json();
-    syncedId = data.id || "";
+    // 401/500 等都不进入成功分支；失败回退为普通段落容器（不阻塞用户）
+    if (!res.ok) throw new Error(`创建同步区块失败（${res.status}）`);
+    const data: unknown = await res.json();
+    const id =
+      !!data && typeof data === "object" ? (data as { id?: unknown }).id : undefined;
+    if (typeof id !== "string" || !id) throw new Error("创建同步区块响应缺少 id");
+    syncedId = id;
   } catch {
     syncedId = "";
   }
