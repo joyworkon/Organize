@@ -42,9 +42,20 @@
 - 回退办法：revert 本 PR。
 - 下一张可执行卡：R02。
 
+### R02 导出当前编辑快照 — ✅ 已完成（PR #226）
+
+- 基线提交：3be3c6b
+- 原问题与复现：编辑页 `exportMarkdown` 先 `await flushSave()` 再让 `exportNoteToMarkdown` 重新从数据库拉数据——离线/保存失败时导出的是服务器旧内容甚至直接失败；异步间隙读共享 refs，快速切页可能导出错笔记。卡片路径 `note-card.tsx` 菜单调用 `exportNoteToMarkdown` 无 catch，失败产生未处理 rejection 且无用户反馈；`ExportButton` 的 handleExport 也无 catch。
+- 修改文件与职责：新增 `lib/export/note-export.ts`——`renderNoteExport()`（纯函数：快照→markdown+清洗文件名+warnings）与 `downloadNoteExport()`（触发下载），核心库不依赖 React/网络；`components/share/export-button.tsx`——服务端路径改用 note-export 渲染（保持权限读库），`exportNoteToMarkdown` 改为返回 boolean、内部 catch+toast 反馈，不再抛未处理异常；`app/(main)/notes/[id]/page.tsx`——`exportMarkdown` 改为同步捕获点击瞬间快照（editor.getJSON 优先）后立即渲染下载，移除 `await flushSave()`，dirty 时提示"已导出当前内容，云端仍待同步"，不清 dirty/草稿/冲突状态，数据库块降级有简短提示。
+- 行为变化：编辑页导出=本地最新快照（离线/冲突也含本地最新字，不落库）；卡片导出仍=服务器已保存版本；失败有 toast 反馈。
+- 测试命令及退出结果：新增 `lib/export/note-export.test.ts` 7 passed（离线快照、冲突快照、快照不可变、中文/非法文件名、标题回退、warnings 分离、下载触发）；全量 `vitest run` 133 文件 / 982 测试通过；`tsc --noEmit`、`next lint --max-warnings 0` 通过；PR 上 CI E2E（浏览器层含笔记页保存链路）通过。
+- 未覆盖场景：真实浏览器中"编辑后立即离线导出"的手动点击验证安排在最终跨模块 E2E（避免每卡起生产构建）。
+- 回退办法：revert 本 PR。
+- 下一张可执行卡：R03。
+
 ## 待办队列
 
-R02 → R03 → R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
+R03 → R04 → R05 → R06 → R07 → R08 → R09 → D00/D01 → D02 → D03 → D04 → D05 → R10 → R11 → R12 → D06 → 跨模块端到端检查。
 
 ## 遗留问题
 

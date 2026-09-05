@@ -37,7 +37,7 @@ import { NotePresenceBar } from "@/components/notes/note-presence-bar";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
-import { exportNoteToMarkdown } from "@/components/share/export-button";
+import { downloadNoteExport } from "@/lib/export/note-export";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
@@ -1212,11 +1212,24 @@ export default function NoteEditorPage() {
     smallFont,
   ]);
 
-  /** 导出当前页为 Markdown（先落库保证导出最新内容） */
-  const exportMarkdown = useCallback(async () => {
-    await flushSave();
-    exportNoteToMarkdown(noteId, title || undefined);
-  }, [flushSave, noteId, title]);
+  /** 导出当前页为 Markdown：点击瞬间捕获本地快照，不依赖网络保存成功。
+   *  同步捕获 title/content 后立即渲染下载，没有 await 间隙——
+   *  即使随后快速切换笔记，也不会读到另一篇笔记的 refs。 */
+  const exportMarkdown = useCallback(() => {
+    const snapshot = {
+      title: draftRef.current.title || title || "",
+      content:
+        editorRef.current?.getJSON?.() ?? draftRef.current.content ?? content ?? null,
+    };
+    const rendered = downloadNoteExport(snapshot);
+    // 导出成功只说明下载已触发；未同步改动仍保持 dirty，不清草稿、不动冲突状态
+    const warningSuffix = rendered.warnings.some((w) => w.code === "database-rows-excluded")
+      ? "；数据库块仅导出引用"
+      : "";
+    showToast(
+      (dirtyRef.current ? "已导出当前内容，云端仍待同步" : "已导出当前内容") + warningSuffix
+    );
+  }, [content, showToast, title]);
 
   /** 删除当前页（移入垃圾箱，可恢复） */
   const deleteNote = useCallback(async () => {
