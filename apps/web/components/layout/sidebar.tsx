@@ -439,7 +439,7 @@ const visibleNavItems = useMemo(() => {
                   className={cn(
                     "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   )}
                 >
@@ -515,7 +515,7 @@ const visibleNavItems = useMemo(() => {
                   className={cn(
                     "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   )}
                 >
@@ -569,7 +569,7 @@ const visibleNavItems = useMemo(() => {
                   className={cn(
                     "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   )}
                 >
@@ -640,7 +640,7 @@ const visibleNavItems = useMemo(() => {
                 "flex items-center rounded-md py-2 text-sm font-medium transition-colors min-w-0",
                 compact ? "justify-center px-2" : "gap-3 px-3",
                 isActive
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
@@ -684,7 +684,7 @@ const visibleNavItems = useMemo(() => {
       </aside>
 
       {/* 移动端顶栏 */}
-      <header className="fixed top-0 left-0 right-0 z-50 flex h-14 items-center border-b bg-card px-4 md:hidden pt-safe">
+      <header className="fixed top-0 left-0 right-0 z-50 flex h-14 items-center border-b bg-sidebar text-sidebar-foreground px-4 md:hidden pt-safe">
         <Button
           variant="ghost"
           size="icon"
@@ -702,7 +702,7 @@ const visibleNavItems = useMemo(() => {
             className="fixed inset-0 bg-black/50 animate-in fade-in duration-200"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-card shadow-lg animate-in slide-in-from-left duration-200 flex flex-col">
+          <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground shadow-lg animate-in slide-in-from-left duration-200 flex flex-col">
             <NavContent onClose={() => setMobileOpen(false)} />
           </div>
         </div>
