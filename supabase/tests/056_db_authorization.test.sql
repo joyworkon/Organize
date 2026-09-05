@@ -33,12 +33,13 @@ INSERT INTO notes (id, user_id, title, content) VALUES
   ('48230000-0000-0000-0000-000000000002', '48200002-0000-0000-0000-000000000002',
    'B的笔记', '{"type":"doc","content":[{"type":"paragraph"}]}'::jsonb);
 
--- A 的笔记：两条自动版本（同一小时内，裁剪应只留最新）+ 一条命名版本
+-- A 的笔记：两条自动版本（锚定当前小时内的固定分钟，裁剪应只留最新；
+-- 用 now()+1min 在整点边界运行时会跨小时导致用例抖动，故用 date_trunc 锚定）+ 一条命名版本
 INSERT INTO note_versions (id, note_id, content, message, created_at) VALUES
   ('48240000-0000-0000-0000-000000000001', '48230000-0000-0000-0000-000000000001',
-   '{"type":"doc","content":[]}'::jsonb, NULL, now()),
+   '{"type":"doc","content":[]}'::jsonb, NULL, date_trunc('hour', now()) + interval '10 minutes'),
   ('48240000-0000-0000-0000-000000000002', '48230000-0000-0000-0000-000000000001',
-   '{"type":"doc","content":[]}'::jsonb, NULL, now() + interval '1 minute'),
+   '{"type":"doc","content":[]}'::jsonb, NULL, date_trunc('hour', now()) + interval '11 minutes'),
   ('48240000-0000-0000-0000-000000000003', '48230000-0000-0000-0000-000000000001',
    '{"type":"doc","content":[]}'::jsonb, '保留我', now() - interval '2 hour');
 

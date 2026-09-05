@@ -1,4 +1,4 @@
-import type { JSONContent } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 
@@ -167,4 +167,12 @@ export function buildPresentationSlides(
   }
 
   return slides.length ? slides : [{ id: "empty", title: "空白笔记", content: [] }];
+}
+
+
+/** 把 pos 处的块整体替换为给定内容（保持块手柄/选中语义的通用替换）。 */
+export function replaceAt(editor: Editor, pos: number, content: Record<string, unknown>) {
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) return;
+  editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, content).run();
 }
