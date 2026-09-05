@@ -697,6 +697,9 @@ const visibleNavItems = useMemo(() => {
 
       {/* 移动端抽屉 */}
       {mobileOpen && (
+        <DrawerEscapeHandler onClose={() => setMobileOpen(false)} />
+      )}
+      {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div
             className="fixed inset-0 bg-black/50 animate-in fade-in duration-200"
@@ -786,4 +789,16 @@ function SidebarNoteTree({
     return <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有笔记</p>;
   }
   return <>{renderNodes(nodes, 0)}</>;
+}
+
+/** 抽屉打开期间按 Esc 关闭（D05 无障碍验收项；挂载在组件内以共享 mobileOpen 状态语义） */
+function DrawerEscapeHandler({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  return null;
 }

@@ -288,6 +288,8 @@ export function NotePageMenu({
   }, [open]);
 
   /** 在 Radix 打开菜单自动聚焦时，将焦点重定向到搜索输入框 */
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
   const handleOpenAutoFocus = useCallback((e: Event) => {
     e.preventDefault();
     inputRef.current?.focus();
@@ -378,7 +380,7 @@ export function NotePageMenu({
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="更多">
+        <Button ref={triggerRef} variant="ghost" size="icon" className="h-8 w-8" title="更多">
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -386,8 +388,10 @@ export function NotePageMenu({
         align="end"
         className="w-64 p-0"
         onCloseAutoFocus={(e) => {
-          // 防止关闭后焦点回到 trigger 造成再次打开
+          // 防止关闭后焦点回到 trigger 造成再次打开（保留原 workaround），
+          // 但仍要满足「Esc 关闭浮层并返回触发器」：显式聚焦触发器。
           e.preventDefault();
+          triggerRef.current?.focus();
         }}
         {...{ onOpenAutoFocus: handleOpenAutoFocus } as any}
       >
