@@ -275,6 +275,13 @@ function TasksPageInner() {
   const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const activeTasksRef = useRef<TaskWithTags[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // U03：移动端筛选默认折叠为「筛选 · N」入口，点开才占首屏空间
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilterCount =
+    (statusFilter !== "all" ? 1 : 0)
+    + (categoryFilter !== "all" ? 1 : 0)
+    + (priorityFilter !== "all" ? 1 : 0)
+    + selectedTagIds.length;
   // 待办组按日期分组展示（分组模式下禁用手动排序，避免与 sort_order 语义冲突）
   const [groupByDate, setGroupByDate] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -947,9 +954,10 @@ function TasksPageInner() {
   return (
     <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
       <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden lg:flex")}>
-        <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
-          <span className="text-2xl">{currentList?.icon || "📋"}</span>
-          <h1 className="truncate text-xl font-semibold">{listTitle}</h1>
+        {/* U03：移动端清单头压缩（h1 缩小），首屏让位给任务列表 */}
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 md:h-16 md:gap-4 md:px-8">
+          <span className="text-xl md:text-2xl">{currentList?.icon || "📋"}</span>
+          <h1 className="truncate text-base font-semibold md:text-xl">{listTitle}</h1>
           {!online && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
               <WifiOff className="h-3.5 w-3.5" />
@@ -981,7 +989,7 @@ function TasksPageInner() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="w-full px-4 pb-12 pt-5 md:px-8">
             {sidebarSelection.scope !== "trash" && (
-              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-6 h-14 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20" />
+              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-4 h-12 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20 md:mb-6 md:h-14" />
             )}
             {sidebarSelection.scope === "trash" && (
               <p className="mb-6 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
@@ -989,19 +997,56 @@ function TasksPageInner() {
               </p>
             )}
 
-            {permission === "default" && <div className="mb-4 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><span>开启浏览器通知以接收任务到期提醒</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
+            {/* U03：通知状态用短摘要呈现，长说明收进悬停提示，不再占首屏两行 */}
+            {permission === "default" && <div className="mb-3 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:mb-4"><span title="开启浏览器通知以接收任务到期提醒">🔔 浏览器通知未开启</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
             {permission === "denied" && (
-              <div className="mb-4 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。
+              <div className="mb-3 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:mb-4" title="通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。">
+                🔕 通知已禁用<span className="hidden md:inline">：提醒将无法送达，可在站点设置改为「允许」</span>
               </div>
             )}
 
-            <div className="mb-4 flex flex-wrap items-center gap-2">
+            {/* U03：移动端筛选默认折叠为带生效数量的入口；md+ 保持常驻 */}
+            <div className="mb-3 flex items-center gap-2 md:hidden">
+              <Button
+                variant={filtersOpen ? "default" : "outline"}
+                size="sm"
+                className="gap-1.5"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((value) => !value)}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                筛选{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
+              </Button>
+              <div className="ml-auto flex items-center gap-1 md:hidden">
+                <Button
+                  variant={groupByDate ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  title="按日期分组待办任务（按 v）"
+                  onClick={() => setGroupByDate((value) => !value)}
+                >
+                  <Group className="h-3.5 w-3.5" />
+                </Button>
+                {sidebarSelection.scope !== "trash" && (
+                  <Button
+                    variant={showCheckbox ? "default" : "outline"}
+                    size="sm"
+                    className="gap-1.5"
+                    title="多选批量操作（按 m）"
+                    onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
+                  >
+                    <ListChecks className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className={cn("mb-4 flex flex-wrap items-center gap-2", !filtersOpen && "hidden md:flex")}>
               <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <Select value={priorityFilter} onValueChange={(value: PriorityFilter) => setPriorityFilter(value)}><SelectTrigger className="h-9 w-auto min-w-[112px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部优先级</SelectItem>{Object.entries(TASK_PRIORITY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
               <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
-              <div className="ml-auto flex items-center gap-1">
+              <div className="ml-auto hidden items-center gap-1 md:flex">
                 <Button
                   variant={groupByDate ? "default" : "outline"}
                   size="sm"

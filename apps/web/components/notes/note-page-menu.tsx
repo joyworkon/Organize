@@ -28,6 +28,8 @@ import type { LucideIcon } from "lucide-react";
 import type { NoteFont } from "@organize/shared";
 
 interface NotePageMenuProps {
+  /** N03：只读角色隐藏会写库的设置/动作（全宽/字体/移动/副本/删除等） */
+  readOnly?: boolean;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
   font: NoteFont;
@@ -99,6 +101,7 @@ function commandMatches(item: MenuItem, query: string): boolean {
 }
 
 export function NotePageMenu({
+  readOnly = false,
   fullWidth,
   onToggleFullWidth,
   font,
@@ -127,6 +130,7 @@ export function NotePageMenu({
   const executingRef = useRef(false);
 
   /** 构建菜单项数据（每次渲染从 props 派生，确保回调和 checked 状态是最新的） */
+  const MUTATING_ITEM_IDS = new Set(["full-width", "small-font", "move", "duplicate", "delete"]);
   const sections: MenuSection[] = useMemo(() => [
     {
       label: "页面显示",
@@ -249,16 +253,30 @@ export function NotePageMenu({
     },
   ], [font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onOpenAttachments, onExport, onDelete]);
 
+  // N03：只读角色隐藏会变更持久内容的条目（页面显示设置/字体/移动/副本/删除）；
+  // 拷贝、目录、附件与历史查看等只读动作保留
+  const roleFilteredSections = useMemo(
+    () => readOnly
+      ? sections
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((item) => !MUTATING_ITEM_IDS.has(item.id)),
+          }))
+          .filter((section) => section.items.length > 0)
+      : sections,
+    [sections, readOnly]
+  );
+
   /** 打平的可选项列表（用于键盘导航和过滤） */
   const flatItems = useMemo(() => {
     const items: { section: number; index: number; item: MenuItem }[] = [];
-    sections.forEach((section, si) => {
+    roleFilteredSections.forEach((section, si) => {
       section.items.forEach((item, ii) => {
         items.push({ section: si, index: ii, item });
       });
     });
     return items;
-  }, [sections]);
+  }, [roleFilteredSections]);
 
   /** 过滤后的列表 */
   const filteredItems = useMemo(
@@ -269,14 +287,14 @@ export function NotePageMenu({
   /** 过滤后仍有可见项的 sections（保持原分组顺序） */
   const visibleSections = useMemo(() => {
     const result: { section: MenuSection; visibleItems: MenuItem[] }[] = [];
-    sections.forEach((section) => {
+    roleFilteredSections.forEach((section) => {
       const visibleItems = section.items.filter((item) => commandMatches(item, query));
       if (visibleItems.length > 0 || !query) {
         result.push({ section, visibleItems: query ? visibleItems : section.items });
       }
     });
     return result.filter(({ visibleItems }) => visibleItems.length > 0);
-  }, [sections, query]);
+  }, [roleFilteredSections, query]);
 
   /** 菜单打开时重置状态 */
   useEffect(() => {

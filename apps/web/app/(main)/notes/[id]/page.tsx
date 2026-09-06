@@ -1279,9 +1279,9 @@ export default function NoteEditorPage() {
               icon={icon}
               parentNoteId={parentNoteId}
               notes={allNotes}
-              onParentChange={(nextParentId) =>
-                updatePageMetadata({ parent_note_id: nextParentId })
-              }
+              onParentChange={capabilities.canEdit
+                ? (nextParentId) => updatePageMetadata({ parent_note_id: nextParentId })
+                : undefined}
             />
           </div>
           <div className="note-topbar-group note-topbar-actions">
@@ -1324,6 +1324,7 @@ export default function NoteEditorPage() {
               <Share2 className="h-4 w-4" />
             </Button>
             <NotePageMenu
+              readOnly={capabilities.isViewer}
               fullWidth={fullWidth}
               onToggleFullWidth={toggleFullWidth}
               font={font}
@@ -1370,6 +1371,7 @@ export default function NoteEditorPage() {
       <div className="note-page-title-zone">
         <NotePageVisuals
           noteId={noteId}
+          readOnly={capabilities.isViewer}
           contentClassName={contentClassName}
           icon={icon}
           coverUrl={coverUrl}

@@ -23,6 +23,7 @@ import {
   Trash2,
   Upload,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -77,6 +78,36 @@ function confirmBlocking(blocking: { id: string; title: string }[]): boolean {
 
 function statusLabel(status: Task["status"]) {
   return status === "done" ? "已完成" : status === "in_progress" ? "进行中" : status === "cancelled" ? "已放弃" : "待办";
+}
+
+/** T04：详情次级信息折叠区——默认收起，简单任务首屏只留标题/完成/日期/优先级/描述 */
+function DetailSection({
+  title,
+  count,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  count?: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="mt-4 rounded-lg border">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/40"
+      >
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        {title}
+        {count !== undefined && count > 0 && <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground">{count}</span>}
+      </button>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </section>
+  );
 }
 
 export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask, blockingPrerequisites = [] }: TaskInlineDetailProps) {
@@ -299,21 +330,40 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
           <TaskHierarchy task={task} onOpenTask={onOpenTask} />
         </div>
 
-        <div className="mt-8">
-          <TaskDependencies task={task} onOpenTask={onOpenTask} />
-        </div>
+        {/* T04：依赖、清单、提醒、附件收进折叠区——有内容才显示计数，简单任务首屏干净 */}
+        <div className="mt-4 space-y-2">
+          <DetailSection title="依赖关系">
+            <TaskDependencies task={task} onOpenTask={onOpenTask} />
+          </DetailSection>
 
-        {checklists.length > 0 && (
-          <div className="mt-8 space-y-1">
-            <h3 className="pb-1 text-sm font-medium">清单项（旧数据）</h3>
-            {checklists.map((item) => (
-              <button type="button" key={item.id} onClick={() => void toggleChecklist(item)} className="group flex w-full items-center gap-3 border-b py-3 text-left text-sm hover:bg-muted/40">
-                <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", item.is_completed ? "border-muted bg-muted text-muted-foreground" : "border-muted-foreground/30")}>{item.is_completed && <Check className="h-3.5 w-3.5" />}</span>
-                <span className={cn("min-w-0 flex-1", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
-              </button>
-            ))}
-          </div>
-        )}
+          {checklists.length > 0 && (
+            <DetailSection title="清单项" count={checklists.length}>
+              {checklists.map((item) => (
+                <button type="button" key={item.id} onClick={() => void toggleChecklist(item)} className="group flex w-full items-center gap-3 border-b py-3 text-left text-sm hover:bg-muted/40">
+                  <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", item.is_completed ? "border-muted bg-muted text-muted-foreground" : "border-muted-foreground/30")}>{item.is_completed && <Check className="h-3.5 w-3.5" />}</span>
+                  <span className={cn("min-w-0 flex-1", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
+                </button>
+              ))}
+            </DetailSection>
+          )}
+
+          <DetailSection title="提醒">
+            <TaskRemindersEditor task={task} />
+          </DetailSection>
+
+          <DetailSection title="附件" count={attachments.length}>
+            <div className="flex items-center justify-between pb-1">
+              <span className="text-xs text-muted-foreground">随任务保存的文件</span>
+              <button type="button" onClick={() => uploadRef.current?.click()} className="text-xs text-primary hover:underline">上传</button>
+            </div>
+            <TaskAttachmentList
+              attachments={attachments}
+              onDeleted={(attachmentId) =>
+                setAttachments((items) => items.filter((item) => item.id !== attachmentId))
+              }
+            />
+          </DetailSection>
+        </div>
 
         {showActivity && (
           <section className="mt-8 rounded-lg bg-muted/30 p-3">
@@ -323,22 +373,6 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
         )}
 
         {tags.length > 0 && <div className="mt-6 flex flex-wrap gap-1.5">{tags.map((item) => <span key={item.id} className="rounded-full bg-muted px-2 py-1 text-xs">#{item.name}</span>)}</div>}
-        <TaskRemindersEditor task={task} />
-        <section className="mt-6 space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-sm font-medium">
-              <Paperclip className="h-4 w-4" />
-              附件
-            </h2>
-            <button type="button" onClick={() => uploadRef.current?.click()} className="text-xs text-primary hover:underline">上传</button>
-          </div>
-          <TaskAttachmentList
-            attachments={attachments}
-            onDeleted={(attachmentId) =>
-              setAttachments((items) => items.filter((item) => item.id !== attachmentId))
-            }
-          />
-        </section>
       </div>
 
       <footer className="flex min-h-16 shrink-0 items-center gap-2 border-t px-5">

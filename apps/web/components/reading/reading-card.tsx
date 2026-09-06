@@ -159,7 +159,7 @@ export function ReadingCard({
                       stop(e);
                       onDelete(item.id);
                     }}
-                    className="h-7 w-7 p-0 rounded inline-flex items-center justify-center hover:bg-accent"
+                    className="hidden h-7 w-7 p-0 rounded md:inline-flex items-center justify-center hover:bg-accent"
                     title="删除"
                   >
                     <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />

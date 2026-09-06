@@ -604,6 +604,8 @@ export default function NotesPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* U03：移动端顶栏已显示分区名，内容区大标题隐藏 */}
+      <div className="hidden md:block">
       <PageHeader
         icon={FileText}
         title={
@@ -635,6 +637,7 @@ export default function NotesPage() {
           </>
         }
       />
+      </div>
 
       <JoyspaceImportDialog
         open={importOpen}

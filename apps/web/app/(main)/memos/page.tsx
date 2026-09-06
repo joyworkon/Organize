@@ -399,12 +399,16 @@ export default function MemosPage() {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <PageHeader
-        icon={Feather}
-        title="速记"
-        description={`随手捕捉碎片想法，#标签 组织，共 ${memos.length} 条`}
-      />
+    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6">
+      {/* U03：桌面内容列宽收敛到舒适阅读宽度（此前 1366 下 ~1088px）；
+          移动端固定顶栏已显示分区名，内容区大标题隐藏避免重复、让出首屏 */}
+      <div className="hidden md:block">
+        <PageHeader
+          icon={Feather}
+          title="速记"
+          description={`随手捕捉碎片想法，#标签 组织，共 ${memos.length} 条`}
+        />
+      </div>
 
       {/* 输入区：桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
       <div className="rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
