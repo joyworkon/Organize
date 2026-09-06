@@ -952,6 +952,32 @@
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */
 
+/* N01：Typography 变量跟随主题 token。
+   prose 默认变量是固定浅色灰（正文 #374151），在暗色纸面上对比度仅 1.69:1；
+   这里整体重映射到语义 token（hsl(var(--…)) 自带明暗两套值），
+   编辑器、历史预览（.organize-editor.prose）与分享页（.organize-editor .prose）统一生效。
+   unlayered 规则在层叠中优先于 utilities 层的 .prose / sm:prose / prose-zinc / prose-invert 默认值；
+   用户主动设置的文字/高亮颜色是行内样式，不受影响。 */
+.organize-editor.prose,
+.organize-editor .prose {
+  --tw-prose-body: hsl(var(--foreground));
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-lead: hsl(var(--muted-foreground));
+  --tw-prose-links: hsl(var(--foreground));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-counters: hsl(var(--muted-foreground));
+  --tw-prose-bullets: hsl(var(--muted-foreground));
+  --tw-prose-hr: hsl(var(--border));
+  --tw-prose-quotes: hsl(var(--foreground));
+  --tw-prose-quote-borders: hsl(var(--border));
+  --tw-prose-captions: hsl(var(--muted-foreground));
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-pre-code: hsl(var(--foreground));
+  --tw-prose-pre-bg: hsl(var(--muted));
+  --tw-prose-th-borders: hsl(var(--border));
+  --tw-prose-td-borders: hsl(var(--border));
+}
+
 /* 代码块 */
 .organize-editor pre {
   background: hsl(var(--muted));

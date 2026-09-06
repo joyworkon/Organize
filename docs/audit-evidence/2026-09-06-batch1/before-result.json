@@ -1,0 +1,153 @@
+{
+  "label": "before",
+  "hydrationPages": {
+    "/notes": [
+      {
+        "type": "pageerror",
+        "text": "Error: Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math"
+      }
+    ],
+    "/tasks": [
+      {
+        "type": "pageerror",
+        "text": "Error: Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math"
+      }
+    ]
+  },
+  "light": {
+    "paragraph": {
+      "selector": ".organize-editor.prose > p",
+      "color": [
+        55,
+        65,
+        81,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 9.537421603357224
+    },
+    "heading": {
+      "selector": ".organize-editor.prose > h1, .organize-editor.prose > h2",
+      "color": [
+        17,
+        24,
+        39,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 16.414603385084753
+    },
+    "listMarker": {
+      "selector": ".organize-editor.prose > ul > li",
+      "color": [
+        55,
+        65,
+        81,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 9.537421603357224
+    },
+    "inlineCode": null,
+    "blockquote": {
+      "selector": ".organize-editor.prose blockquote",
+      "color": [
+        97,
+        104,
+        94,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 5.323608790674027
+    },
+    "editorFontPx": "16px"
+  },
+  "dark": {
+    "paragraph": {
+      "selector": ".organize-editor.prose > p",
+      "color": [
+        55,
+        65,
+        81,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 1.6933998644340758
+    },
+    "heading": {
+      "selector": ".organize-editor.prose > h1, .organize-editor.prose > h2",
+      "color": [
+        17,
+        24,
+        39,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 1.0163420440289042
+    },
+    "listMarker": {
+      "selector": ".organize-editor.prose > ul > li",
+      "color": [
+        55,
+        65,
+        81,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 1.6933998644340758
+    },
+    "inlineCode": null,
+    "blockquote": {
+      "selector": ".organize-editor.prose blockquote",
+      "color": [
+        172,
+        172,
+        160,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 7.615764721337856
+    },
+    "editorFontPx": "16px"
+  }
+}

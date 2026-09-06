@@ -11,9 +11,15 @@
 
 import { useEffect, useState } from "react";
 
-/** 当前是否在线（SSR 环境按在线处理，避免水合不一致） */
+/**
+ * 当前是否在线。
+ * SSR 环境按在线处理；Node 22 存在全局 navigator 但 onLine 为 undefined，
+ * 因此必须显式校验布尔类型后返回，保证任何环境下都返回 boolean（F06）。
+ */
 export function isOnline(): boolean {
-  if (typeof navigator === "undefined") return true;
+  if (typeof navigator === "undefined" || typeof navigator.onLine !== "boolean") {
+    return true;
+  }
   return navigator.onLine;
 }
 
@@ -30,11 +36,14 @@ export function onNetworkChange(callback: (online: boolean) => void): () => void
   };
 }
 
-/** React hook：在线状态随 online/offline 事件实时更新 */
+/**
+ * React hook：在线状态随 online/offline 事件实时更新。
+ * 首帧固定与 SSR 快照（在线）一致，挂载后校正为真实状态并订阅事件，
+ * 避免客户端首帧读取 navigator.onLine 与服务端渲染不一致导致水合错误（F06）。
+ */
 export function useOnlineStatus(): boolean {
-  const [online, setOnline] = useState<boolean>(() => isOnline());
+  const [online, setOnline] = useState(true);
   useEffect(() => {
-    // 挂载时校正一次（SSR 快照可能过期）
     setOnline(isOnline());
     return onNetworkChange(setOnline);
   }, []);

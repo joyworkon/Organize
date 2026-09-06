@@ -1,0 +1,143 @@
+{
+  "label": "after",
+  "hydrationPages": {
+    "/notes": [],
+    "/tasks": []
+  },
+  "light": {
+    "paragraph": {
+      "selector": ".organize-editor.prose > p",
+      "color": [
+        40,
+        43,
+        39,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 13.263080954486854
+    },
+    "heading": {
+      "selector": ".organize-editor.prose > h1, .organize-editor.prose > h2",
+      "color": [
+        40,
+        43,
+        39,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 13.263080954486854
+    },
+    "listMarker": {
+      "selector": ".organize-editor.prose > ul > li",
+      "color": [
+        40,
+        43,
+        39,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 13.263080954486854
+    },
+    "inlineCode": null,
+    "blockquote": {
+      "selector": ".organize-editor.prose blockquote",
+      "color": [
+        97,
+        104,
+        94,
+        1
+      ],
+      "bg": [
+        247,
+        246,
+        243,
+        1
+      ],
+      "contrast": 5.323608790674027
+    },
+    "editorFontPx": "16px"
+  },
+  "dark": {
+    "paragraph": {
+      "selector": ".organize-editor.prose > p",
+      "color": [
+        233,
+        233,
+        226,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 14.31141492045223
+    },
+    "heading": {
+      "selector": ".organize-editor.prose > h1, .organize-editor.prose > h2",
+      "color": [
+        233,
+        233,
+        226,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 14.31141492045223
+    },
+    "listMarker": {
+      "selector": ".organize-editor.prose > ul > li",
+      "color": [
+        233,
+        233,
+        226,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 14.31141492045223
+    },
+    "inlineCode": null,
+    "blockquote": {
+      "selector": ".organize-editor.prose blockquote",
+      "color": [
+        172,
+        172,
+        160,
+        1
+      ],
+      "bg": [
+        25,
+        26,
+        25,
+        1
+      ],
+      "contrast": 7.615764721337856
+    },
+    "editorFontPx": "16px"
+  }
+}
