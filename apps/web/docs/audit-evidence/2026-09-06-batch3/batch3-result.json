@@ -1,0 +1,24 @@
+{
+  "t02": {
+    "before": {
+      "all": "全部3",
+      "done": "已完成2"
+    },
+    "afterCreate": {
+      "all": "全部4",
+      "done": "已完成2"
+    },
+    "afterDone": {
+      "all": "全部3",
+      "done": "已完成3"
+    },
+    "quickInputFound": true,
+    "checkboxFound": false
+  },
+  "t01_conflictToast": false,
+  "t03_chineseDate": true,
+  "t03_slashDate": false,
+  "f03_errorShown": true,
+  "f03_emptyMaskedAsError": false,
+  "consoleIssues": []
+}

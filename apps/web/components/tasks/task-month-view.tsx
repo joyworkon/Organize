@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
+import { isTaskOverdue } from "@/lib/tasks/workspace";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -1035,6 +1036,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                             {(onUpdateTaskSchedule || onRescheduleTask) && (
                               <TaskDatePopover
                                 value={schedule}
+                                overdue={task.status !== "done" && task.status !== "cancelled" && isTaskOverdue(task)}
                                 align="end"
                                 className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto"
                                 onChange={async (next) => {
@@ -1195,6 +1197,7 @@ function DayView({
                   {(onUpdateTaskSchedule || onRescheduleTask) && (
                     <TaskDatePopover
                       value={schedule}
+                      overdue={task.status !== "done" && task.status !== "cancelled" && isTaskOverdue(task)}
                       align="end"
                       className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto"
                       onChange={async (next) => {

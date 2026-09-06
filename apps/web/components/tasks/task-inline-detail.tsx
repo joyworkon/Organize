@@ -30,6 +30,7 @@ import { showPrompt } from "@/components/ui/prompt-dialog";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isImeComposing } from "@/lib/input/submit-guard";
+import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { enqueueTaskOp, makeChecklistUpdateOp } from "@/lib/offline/task-queue";
 import {
   DropdownMenu,
@@ -259,8 +260,9 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
         <span className="h-6 w-px bg-border" />
         <TaskDatePopover
           value={dateValue}
+          overdue={isTaskOverdue(task)}
           onChange={(value) => onUpdate(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
-          trigger={<button type="button" className="inline-flex items-center gap-2 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md px-2 py-1"><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
+          trigger={<button type="button" className={cn("inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent", isTaskOverdue(task) ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" : "text-muted-foreground hover:text-foreground")}><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
           align="start"
         />
         <Select value={task.priority} onValueChange={(value: TaskPriority) => void onUpdate(task.id, { priority: value })}>

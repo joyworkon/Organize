@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskList, TaskWithTags } from "@organize/shared";
-import { filterTasksByScope, isWithinNextSevenDays, quickAddDueDate, schedulableReminderTasks, searchTasks } from "./workspace";
+import { filterTasksByScope, isTaskOverdue, isWithinNextSevenDays, quickAddDueDate, schedulableReminderTasks, searchTasks } from "./workspace";
 
 const task = (overrides: Partial<TaskWithTags>): TaskWithTags => ({
   id: "task-1",
@@ -164,5 +164,41 @@ describe("isWithinNextSevenDays（自然日窗口）", () => {
   it("空值与非法值安全", () => {
     expect(isWithinNextSevenDays(null, now)).toBe(false);
     expect(isWithinNextSevenDays("bad-date", now)).toBe(false);
+  });
+});
+
+/** T03 回归：逾期只看「截止」语义，进行中跨天任务不因开始日已过而判逾期 */
+describe("isTaskOverdue（T03 日期语义）", () => {
+  const now = new Date(2026, 8, 6, 12, 0, 0, 0); // 2026-09-06 12:00 本地时间
+
+  const base = { status: "todo", all_day: false } as const;
+
+  it("带时刻截止：时刻已过即逾期（含今天稍早已截止）", () => {
+    expect(isTaskOverdue(task({ ...base, due_date: "2026-09-06T09:00:00" }), now)).toBe(true);
+    expect(isTaskOverdue(task({ ...base, due_date: "2026-09-05T18:00:00" }), now)).toBe(true);
+  });
+
+  it("未来截止与今天尚未到达的时刻不是逾期", () => {
+    expect(isTaskOverdue(task({ ...base, due_date: "2026-09-06T18:00:00" }), now)).toBe(false);
+    expect(isTaskOverdue(task({ ...base, due_date: "2026-09-07T09:00:00" }), now)).toBe(false);
+  });
+
+  it("全天截止：当天结束前不算逾期", () => {
+    expect(isTaskOverdue(task({ ...base, all_day: true, due_date: "2026-09-06T00:00:00" }), now)).toBe(false);
+    expect(isTaskOverdue(task({ ...base, all_day: true, due_date: "2026-09-05T00:00:00" }), now)).toBe(true);
+  });
+
+  it("已完成/已取消不显示逾期", () => {
+    expect(isTaskOverdue(task({ ...base, status: "done", due_date: "2026-09-01T09:00:00" }), now)).toBe(false);
+    expect(isTaskOverdue(task({ ...base, status: "cancelled", due_date: "2026-09-01T09:00:00" }), now)).toBe(false);
+  });
+
+  it("跨天进行中任务：只有开始时间已过、无截止 → 不逾期", () => {
+    expect(isTaskOverdue(task({ ...base, due_date: null }), now)).toBe(false);
+  });
+
+  it("空值/非法值安全", () => {
+    expect(isTaskOverdue(task({ ...base, due_date: null }), now)).toBe(false);
+    expect(isTaskOverdue(task({ ...base, due_date: "bad-date" }), now)).toBe(false);
   });
 });

@@ -14,6 +14,8 @@ interface TaskDatePopoverProps {
   align?: "start" | "center" | "end";
   side?: "top" | "right" | "bottom" | "left";
   className?: string;
+  /** T03：默认触发器仅在任务真正逾期时标红；未来日期/已完成不再无条件红色 */
+  overdue?: boolean;
 }
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -69,7 +71,14 @@ export function formatTaskDate(value: string | null | undefined) {
   if (!value) return "设置日期";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "设置日期";
-  return `${date.getMonth() + 1}/${date.getDate()}/${String(date.getFullYear()).slice(-2)}`;
+  // T03：统一中文短日期；跨年补年份，非零点补时间（全天/零点不显示冗余时间）
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  const datePart = sameYear
+    ? `${date.getMonth() + 1}月${date.getDate()}日`
+    : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+  if (!hasTime) return datePart;
+  return `${datePart} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 export function TaskDatePopover({
@@ -79,6 +88,7 @@ export function TaskDatePopover({
   align = "end",
   side,
   className,
+  overdue = false,
 }: TaskDatePopoverProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"single" | "range">("single");
@@ -143,7 +153,13 @@ export function TaskDatePopover({
   };
 
   const triggerNode = trigger || (
-    <button type="button" className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30">
+    <button
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground",
+        overdue ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" : "text-muted-foreground"
+      )}
+    >
       <CalendarDays className="h-4 w-4" />
       {formatTaskDate(value.schedule_start_at)}
     </button>
