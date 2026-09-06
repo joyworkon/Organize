@@ -179,7 +179,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
   // 草稿对象身份绑定：页面切换笔记会整体替换 draftRef.current（新对象），
   // 旧会话的排空循环此时必须立即失效——即使 destroy 尚未执行（兜底 flush 在途中）。
   // 页面内的就地修改（Object.assign / 属性赋值）保持同一对象身份，不受影响。
-  const boundDraft = draftRef.current;
+  let boundDraft = draftRef.current;
   const draftOwnershipLost = () => draftRef.current !== boundDraft;
   let dirty = false;
   let revision = 0;
@@ -396,6 +396,9 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     },
     hydrate(draft, baseRevision) {
       if (destroyed) return;
+      // 注水时重绑当前草稿对象：loadNote 在会话创建后整体替换 draftRef.current
+      //（异步时序），绑定必须跟随最终对象，否则 queueSave 永久失效（R07 复审补丁的竞态）。
+      boundDraft = draftRef.current;
       Object.assign(draftRef.current, draft);
       revision = baseRevision;
       dirty = false;
