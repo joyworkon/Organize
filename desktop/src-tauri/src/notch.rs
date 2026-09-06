@@ -36,6 +36,9 @@ const HIT_INSET: f64 = 2.0;
 const COLLAPSE_DELAY: Duration = Duration::from_millis(300);
 /// 「靠近」判定区：光标距胶囊边缘 ≤ 该值（逻辑像素）时触发副屏把手/主屏箭头提示
 const NEAR_INSET: f64 = 48.0;
+/// K01：web 面板上报活动（输入/组合中/保存中）后的忙碌保持时长。
+/// 每次上报顺延；超时无上报视为空闲，恢复光标离开自动收起。
+const ACTIVITY_TTL: Duration = Duration::from_millis(1500);
 
 /// trigger 窗口需额外容纳主屏刘海下方的靠近提示箭头；可见胶囊仍固定在顶部。
 const TRIGGER_SIZE: (f64, f64) = (180.0, 40.0);
@@ -54,6 +57,43 @@ const OPEN_PATH_WHITELIST: [&str; 6] = [
     "/settings",
     "/login",
 ];
+
+/// K04：uuid 形态深链校验（/notes/<uuid>、/tasks?task=<uuid>）——
+/// 只放行合法 uuid，与 web 侧 isNotchOpenPathAllowed 镜像
+fn is_uuid(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (index, ch) in bytes.iter().enumerate() {
+        match index {
+            8 | 13 | 18 | 23 => {
+                if *ch != b'-' {
+                    return false;
+                }
+            }
+            _ => {
+                if !(*ch as char).is_ascii_hexdigit() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn is_open_path_allowed(path: &str) -> bool {
+    if OPEN_PATH_WHITELIST.contains(&path) {
+        return true;
+    }
+    if let Some(id) = path.strip_prefix("/notes/") {
+        return is_uuid(id);
+    }
+    if let Some(rest) = path.strip_prefix("/tasks?task=") {
+        return is_uuid(rest);
+    }
+    false
+}
 
 #[derive(Default)]
 struct NotchState {
@@ -76,6 +116,15 @@ struct NotchState {
     away_since: Option<Instant>,
     /// 面板当前挂在哪块屏上（reposition 用；None = 主屏）
     panel_monitor: Option<usize>,
+    /// K01：面板忙碌截止时刻（web 输入/组合/保存中周期性上报 notch-activity）。
+    /// 忙碌期间光标离开不自动收起，键盘输入不被打断。
+    busy_until: Option<Instant>,
+    /// K01：本次展开是否由 ⌘⇧M 显式触发。sticky 期间不看光标离开，
+    /// 由 Esc/保存/再按 ⌘⇧M/失焦（blur 宽限）负责关闭。
+    sticky_open: bool,
+    /// K01：收起时光标仍压在热区上 → 需先离开一次才允许再次悬停展开
+    /// （防 Esc/保存收起后被持续悬停立即重开的「抢焦循环」）。
+    rearm_required: bool,
 }
 
 type SharedState = Mutex<NotchState>;
@@ -94,37 +143,14 @@ struct NotchInfoPayload {
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     app.manage(SharedState::default());
 
-    // 每块显示器顶部居中一个胶囊：主屏盖刘海，副屏做透明把手（v1.1）
+    // 每块显示器顶部居中一个胶囊：主屏盖刘海，副屏做透明把手（v1.1；K02 抽出 build_trigger_window 共用）
     let monitor_count = app
         .available_monitors()
         .map(|monitors| monitors.len())
         .unwrap_or(1);
     for index in 0..monitor_count.max(1) {
-        let trigger = WebviewWindowBuilder::new(
-            app,
-            trigger_label(index),
-            WebviewUrl::App("desktop/notch".into()),
-        )
-        .title("Organize 速记")
-        .inner_size(TRIGGER_SIZE.0, TRIGGER_SIZE.1)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .shadow(false)
-        .resizable(false)
-        // 纯视觉热区：鼠标事件穿透，hover 由 Rust 光标轮询判定（v1.1）。
-        // 穿透同时避免胶囊挡住菜单栏点击。
-        // 先隐藏：等 web 侧上报「隐藏激发器」设置（notch-trigger-visibility）后
-        // 再决定显隐，避免已隐藏设置下启动闪现胶囊；穿透同样在那之后才设置
-        .visible(false)
-        .build()?;
-
-        // 胶囊要盖在系统菜单栏/刘海区域上：always_on_top 只是 floating 级（3），
-        // 会被菜单栏压住，需要抬到 NSStatusWindowLevel（25，菜单栏同级）
-        if let Err(error) = raise_to_status_level(&trigger) {
-            eprintln!("[notch] 胶囊窗口({index})层级设置失败: {error}");
+        if let Err(error) = build_trigger_window(app, index) {
+            eprintln!("[notch] 胶囊窗口({index})创建失败: {error}");
         }
     }
 
@@ -159,6 +185,22 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     app.listen("notch-collapse", move |_| {
         eprintln!("[notch] collapse requested by web");
         collapse(&handle);
+    });
+
+    // K01：面板活动心跳——忙碌期 tick_expanded 不做「光标离开」自动收起
+    let handle = app.clone();
+    app.listen("notch-activity", move |_| {
+        let state = handle.state::<SharedState>();
+        let mut guard = state.lock().unwrap();
+        guard.busy_until = Some(Instant::now() + ACTIVITY_TTL);
+    });
+
+    // K03：数据变更桥——任一 webview 发 notch-data-changed，
+    // 广播 organize-data-changed 给全部窗口（panel ↔ 主窗口互相同步）
+    let handle = app.clone();
+    app.listen("notch-data-changed", move |event| {
+        eprintln!("[notch] data changed bridge");
+        let _ = handle.emit("organize-data-changed", event.payload());
     });
 
     let handle = app.clone();
@@ -206,7 +248,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             return;
         };
         eprintln!("[notch] open path {path}");
-        if !OPEN_PATH_WHITELIST.contains(&path.as_str()) {
+        if !is_open_path_allowed(&path) {
             return;
         }
         super::show_main_window(&handle);
@@ -223,6 +265,8 @@ pub fn toggle(app: &AppHandle) {
     if expanded {
         collapse(app);
     } else if claim_expand(app) {
+        // K01：显式入口展开 → sticky 模式，不因光标不在面板而进入收起倒计时
+        app.state::<SharedState>().lock().unwrap().sticky_open = true;
         show_panel(app);
     }
 }
@@ -306,13 +350,18 @@ fn tick_collapsed(
             guard.active_trigger = hit;
             guard.active_since = hit.map(|_| Instant::now());
         }
+        // K01：光标仍压在热区上时收起过的，必须先离开一次才允许重新悬停展开
+        let rearm_block = guard.rearm_required && hit.is_some();
+        if guard.rearm_required && hit.is_none() {
+            guard.rearm_required = false;
+        }
         let entered = hit.is_some();
         let _ = app.emit(
             "notch-hover-broadcast",
             serde_json::json!({ "entered": entered, "trigger": hit, "near": near }),
         );
         match (hit, guard.active_since) {
-            (Some(_), Some(since)) => since.elapsed() >= HOVER_DWELL,
+            (Some(_), Some(since)) => !rearm_block && since.elapsed() >= HOVER_DWELL,
             _ => false,
         }
     };
@@ -342,7 +391,12 @@ fn tick_expanded(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>, hit: Opt
         } else if guard.away_since.is_none() {
             guard.away_since = Some(Instant::now());
         }
-        let should_collapse = switch_to.is_none()
+        // K01：忙碌期按「光标仍在场」处理；sticky（⌘⇧M 显式展开）完全不看光标，
+        // 由 Esc/保存/⌘⇧M/失焦（blur 宽限）负责关闭
+        let busy = guard.busy_until.is_some_and(|until| Instant::now() < until);
+        let leave_based_collapse = !guard.sticky_open && !busy;
+        let should_collapse = leave_based_collapse
+            && switch_to.is_none()
             && guard
                 .away_since
                 .is_some_and(|since| since.elapsed() >= COLLAPSE_DELAY);
@@ -350,9 +404,17 @@ fn tick_expanded(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>, hit: Opt
     };
 
     if let Some(index) = switch_to {
-        eprintln!("[notch] cross-monitor hover, switching panel to trigger-{index}");
-        app.state::<SharedState>().lock().unwrap().panel_monitor = Some(index);
-        reposition(app);
+        // K01：sticky/忙碌时不因光标扫过副屏胶囊而切换面板位置
+        let sticky_or_busy = {
+            let state = app.state::<SharedState>();
+            let guard = state.lock().unwrap();
+            guard.sticky_open || guard.busy_until.is_some_and(|until| Instant::now() < until)
+        };
+        if !sticky_or_busy {
+            eprintln!("[notch] cross-monitor hover, switching panel to trigger-{index}");
+            app.state::<SharedState>().lock().unwrap().panel_monitor = Some(index);
+            reposition(app);
+        }
         return;
     }
     if should_collapse {
@@ -416,10 +478,30 @@ fn trigger_hit_with_inset(
     })
 }
 
-/// 光标所在屏的索引（0 = 主屏）；找不到时回退主屏
-fn monitor_index_at(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> Option<usize> {
+/// K02：统一的显示器排序（主屏恒为索引 0，其余按 x 坐标）。
+/// reposition 与 monitor_index_at 共用同一映射，插拔/切主屏后索引不漂移错位。
+fn ordered_monitors(app: &AppHandle) -> Option<Vec<tauri::Monitor>> {
     let monitors = app.available_monitors().ok()?;
-    let target = monitors
+    let primary = app.primary_monitor().ok().flatten();
+    let primary_id = primary.as_ref().and_then(|monitor| monitor.name());
+    let mut ordered: Vec<tauri::Monitor> = monitors;
+    ordered.sort_by_key(|monitor| {
+        let is_primary = primary_id
+            .as_deref()
+            .is_some_and(|id| monitor.name().as_deref() == Some(id));
+        match is_primary {
+            true => (0, monitor.position().x),
+            false => (1, monitor.position().x),
+        }
+    });
+    Some(ordered)
+}
+
+/// 光标所在屏的索引（0 = 主屏）；找不到时回退主屏。
+/// K02：使用与 reposition 相同的排序，索引含义始终一致。
+fn monitor_index_at(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) -> Option<usize> {
+    let ordered = ordered_monitors(app)?;
+    let target = ordered
         .iter()
         .position(|monitor| {
             let position = monitor.position();
@@ -461,6 +543,8 @@ fn show_panel(app: &AppHandle) {
 }
 
 fn collapse(app: &AppHandle) {
+    // 先取光标（系统调用不持有状态锁）
+    let cursor_now = app.cursor_position().ok();
     {
         let state = app.state::<SharedState>();
         let mut guard = state.lock().unwrap();
@@ -471,6 +555,12 @@ fn collapse(app: &AppHandle) {
         guard.active_trigger = None;
         guard.active_since = None;
         guard.away_since = None;
+        guard.sticky_open = false;
+        guard.busy_until = None;
+        // K01：光标仍压在热区上 → 封锁再次悬停展开直至先离开
+        if cursor_now.is_some_and(|cursor| hit_trigger(app, cursor).is_some()) {
+            guard.rearm_required = true;
+        }
     }
     eprintln!("[notch] panel collapsed");
     if let Some(panel) = app.get_webview_window("notch-panel") {
@@ -481,26 +571,36 @@ fn collapse(app: &AppHandle) {
 /// 多屏定位（v1.1）：每块屏顶部居中一个胶囊（主屏贴刘海，副屏透明把手），
 /// 面板吊在 panel_monitor 指定屏（None = 主屏）的胶囊下方。
 fn reposition(app: &AppHandle) {
-    let Ok(monitors) = app.available_monitors() else {
+    let Some(monitors) = ordered_monitors(app) else {
         return;
     };
     if monitors.is_empty() {
         return;
     }
-    // available_monitors 顺序不定，主屏排第 0：与 trigger_label 索引对齐
-    let primary = app.primary_monitor().ok().flatten();
-    let primary_id = primary.as_ref().and_then(|monitor| monitor.name());
-    let mut ordered: Vec<&tauri::Monitor> = monitors.iter().collect();
-    ordered.sort_by_key(|monitor| {
-        // 主屏恒为 0，其余按位置稳定排序（插拔后索引漂移可接受：胶囊均等价）
-        let is_primary = primary_id
-            .as_deref()
-            .is_some_and(|id| monitor.name().as_deref() == Some(id));
-        match is_primary {
-            true => (0, monitor.position().x),
-            false => (1, monitor.position().x),
-        }
-    });
+    // K02：窗口数与屏数对齐——新增屏补建胶囊，拔掉的屏回收多余胶囊。
+    // 窗口创建/销毁需主线程，从轮询线程转投
+    let desired = monitors.len();
+    let existing = trigger_count(app);
+    if desired > existing {
+        let app_main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            for index in existing..desired {
+                if let Err(error) = build_trigger_window(&app_main, index) {
+                    eprintln!("[notch] 胶囊窗口({index})补建失败: {error}");
+                }
+            }
+        });
+    } else if desired < existing {
+        let app_main = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            for index in desired..existing {
+                if let Some(extra) = app_main.get_webview_window(&trigger_label(index)) {
+                    eprintln!("[notch] 回收多余胶囊窗口 trigger-{index}");
+                    let _ = extra.close();
+                }
+            }
+        });
+    }
 
     // 用 setup 缓存的硬件结论，绝不在此重算 detect_notch()：本函数会在光标轮询 /
     // 显示器轮询的后台线程上被调用，那里取不到 MainThreadMarker，重算会把刘海判成 false
@@ -508,14 +608,14 @@ fn reposition(app: &AppHandle) {
         let state = app.state::<SharedState>();
         let mut guard = state.lock().unwrap();
         let has_hardware_notch = guard.has_hardware_notch;
-        guard.has_notch_by_trigger = (0..ordered.len())
+        guard.has_notch_by_trigger = (0..monitors.len())
             .map(|index| index == 0 && has_hardware_notch)
             .collect();
     }
 
-    for (index, monitor) in ordered.iter().enumerate() {
+    for (index, monitor) in monitors.iter().enumerate() {
         let Some(trigger) = app.get_webview_window(&trigger_label(index)) else {
-            break; // 窗口数是启动时按屏数建好的，超出即不再有
+            continue; // K02：屏被拔掉的瞬间窗口可能已不在——跳过而非中断后续屏
         };
         let scale = monitor.scale_factor();
         let size = monitor.size();
@@ -546,6 +646,7 @@ fn panel_monitor_index(app: &AppHandle) -> usize {
 fn spawn_monitor_poll(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last: Option<Vec<(i32, i32, u32, u32)>> = None;
+        let mut last_primary: Option<String> = None;
         loop {
             std::thread::sleep(MONITOR_POLL);
             if let Ok(monitors) = app.available_monitors() {
@@ -558,6 +659,21 @@ fn spawn_monitor_poll(app: AppHandle) {
                     })
                     .collect();
                 keys.sort();
+                // K02：主屏身份变化（内外屏切主屏/合盖）→ 刘海结论重算（需主线程）
+                let primary_name: Option<String> = app
+                    .primary_monitor()
+                    .ok()
+                    .flatten()
+                    .and_then(|monitor| monitor.name().cloned());
+                if last.is_some() && primary_name != last_primary {
+                    let app_main = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        app_main.state::<SharedState>().lock().unwrap().has_hardware_notch =
+                            detect_notch();
+                        eprintln!("[notch] primary monitor changed, re-detected notch");
+                    });
+                }
+                last_primary = primary_name;
                 if last != Some(keys.clone()) {
                     last = Some(keys);
                     reposition(&app);
@@ -565,6 +681,41 @@ fn spawn_monitor_poll(app: AppHandle) {
             }
         }
     });
+}
+
+/// 按索引构建一枚胶囊窗口（init 与 K02 热插拔补建共用）
+fn build_trigger_window(app: &AppHandle, index: usize) -> tauri::Result<WebviewWindow> {
+    let trigger = WebviewWindowBuilder::new(
+        app,
+        trigger_label(index),
+        WebviewUrl::App("desktop/notch".into()),
+    )
+    .title("Organize 速记")
+    .inner_size(TRIGGER_SIZE.0, TRIGGER_SIZE.1)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible_on_all_workspaces(true)
+    .shadow(false)
+    .resizable(false)
+    // 纯视觉热区：鼠标事件穿透，hover 由 Rust 光标轮询判定（v1.1）。
+    // 先隐藏：等 web 侧上报「隐藏激发器」设置后再决定显隐与穿透
+    .visible(false)
+    .build()?;
+
+    // 胶囊要盖在系统菜单栏/刘海区域上：always_on_top 只是 floating 级（3），
+    // 会被菜单栏压住，需要抬到 NSStatusWindowLevel（25，菜单栏同级）
+    if let Err(error) = raise_to_status_level(&trigger) {
+        eprintln!("[notch] 胶囊窗口({index})层级设置失败: {error}");
+    }
+    // 热插拔补建的窗口跟启动时已显示的胶囊保持同一可见状态
+    let visible = app.state::<SharedState>().lock().unwrap().trigger_visible;
+    if visible {
+        let _ = trigger.show();
+        let _ = trigger.set_ignore_cursor_events(true);
+    }
+    Ok(trigger)
 }
 
 /// 把胶囊窗口抬到 NSStatusWindowLevel（25），与系统菜单栏同层，

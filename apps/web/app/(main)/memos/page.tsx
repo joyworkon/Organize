@@ -23,6 +23,7 @@ import {
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isOnline, onNetworkChange } from "@/lib/offline/network";
+import { emitDataChanged, subscribeDataChanged } from "@/lib/desktop/notch";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Memo } from "@organize/shared";
@@ -197,6 +198,16 @@ export default function MemosPage() {
     return off;
   }, [replayOfflineCreates]);
 
+  // K03：刘海面板新增/编辑速记后，主窗口列表即时跟随（忽略自己发的广播）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void subscribeDataChanged((payload) => {
+      if (payload.origin !== "notch-panel") return;
+      if (payload.topic === "memos") void fetchMemosRef.current?.();
+    }).then((off) => { unlisten = off; });
+    return () => unlisten?.();
+  }, []);
+
   useEffect(() => {
     fetchMemos();
     void loadConversions();
@@ -290,6 +301,7 @@ export default function MemosPage() {
       const memo = (await res.json()) as Memo;
       setMemos((prev) => [memo, ...prev.filter((m) => m.id !== memoId)]);
       clearInputIfSame(rawInput);
+      void emitDataChanged({ topic: "memos", origin: "main" });
     } catch (error) {
       if (isNetworkSaveError(error)) {
         offlineCreate();
@@ -319,6 +331,7 @@ export default function MemosPage() {
         const updated = (await res.json()) as Memo;
         setMemos((prev) => prev.map((m) => (m.id === id ? updated : m)));
         setEditingId(null);
+        void emitDataChanged({ topic: "memos", origin: "main" });
       } else {
         const data = await res.json().catch(() => null);
         toast({
@@ -340,6 +353,7 @@ export default function MemosPage() {
       const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
       if (res.ok) {
         setMemos((prev) => prev.filter((m) => m.id !== id));
+        void emitDataChanged({ topic: "memos", origin: "main" });
         toast({ title: "已删除" });
       } else {
         toast({ title: "删除失败", variant: "destructive" });
