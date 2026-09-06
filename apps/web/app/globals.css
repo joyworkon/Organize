@@ -5040,3 +5040,11 @@ body.organize-notch-body {
   to { opacity: 0; transform: translateY(-8px) scale(0.98); }
 }
 .notch-panel-out { animation: notch-panel-out 120ms ease-in forwards; }
+
+/* Native panel consumes the actual safe window size, including small displays. */
+body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
+.organize-capture-panel[data-reduce-transparency] { background: #1d1d1f !important; backdrop-filter: none; }
+.organize-capture-panel[data-reduce-motion] *, .organize-capture-panel[data-reduce-motion] { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .notch-panel-in, .notch-panel-out, .organize-capture-panel * { animation: none !important; transition: none !important; }
+}

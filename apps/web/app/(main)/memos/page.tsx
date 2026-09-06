@@ -19,11 +19,10 @@ import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft"
 import {
   enqueueMemoCreate,
   makeMemoCreateOp,
-  replayMemoCreates,
 } from "@/lib/offline/memo-queue";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
-import { isOnline, onNetworkChange } from "@/lib/offline/network";
+import { isOnline } from "@/lib/offline/network";
 import { emitDataChanged, subscribeDataChanged } from "@/lib/desktop/notch";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -198,34 +197,11 @@ function MemosPageInner() {
   const fetchMemosRef = useRef<(() => void) | null>(null);
   fetchMemosRef.current = fetchMemos;
 
-  // F02：联网时回放离线创建队列（挂载 + 恢复在线时）
-  const replayOfflineCreates = useCallback(async () => {
-    if (!userId || !isOnline()) return;
-    const result = await replayMemoCreates(
-      {
-        createMemo: async (memo) => {
-          const res = await fetch("/api/memos", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(memo),
-          });
-          // 5xx 保留重试；4xx 业务拒绝丢弃
-          return { ok: res.ok, retryable: res.status >= 500 };
-        },
-      },
-      userId,
-      localStorage
-    );
-    if (result.applied > 0) void fetchMemosRef.current?.();
-  }, [userId]);
-
   useEffect(() => {
-    const off = onNetworkChange((online) => {
-      if (online) void replayOfflineCreates();
-    });
-    void replayOfflineCreates();
-    return off;
-  }, [replayOfflineCreates]);
+    const synced = () => void fetchMemosRef.current?.();
+    window.addEventListener("organize:memos-synced", synced);
+    return () => window.removeEventListener("organize:memos-synced", synced);
+  }, []);
 
   // K03：刘海面板新增/编辑速记后，主窗口列表即时跟随（忽略自己发的广播）
   useEffect(() => {

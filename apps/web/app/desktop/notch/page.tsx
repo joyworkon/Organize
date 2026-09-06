@@ -58,7 +58,7 @@ function NotchDemo() {
       <div className="rounded-full bg-black px-8 py-2 opacity-40">
         <span className="text-xs text-white">⚡</span>
       </div>
-      <div className="pointer-events-none scale-95 opacity-90">
+      <div className="h-[520px] w-[380px] max-w-full scale-95 opacity-90">
         <NotchPanel />
       </div>
     </div>

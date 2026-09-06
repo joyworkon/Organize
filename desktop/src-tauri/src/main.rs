@@ -3,11 +3,15 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager,
+    Emitter, Listener, Manager,
 };
 
 #[cfg(target_os = "macos")]
 mod notch;
+#[cfg(any(target_os = "macos", test))]
+mod notch_geometry;
+#[cfg(any(target_os = "macos", test))]
+mod notch_session;
 
 /// 显示并聚焦主窗口（托盘「显示主窗口」「打开速记」、⌘⇧S 与 macOS Dock 图标点击共用）。
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
@@ -56,29 +60,29 @@ fn deep_link_path(raw: &str) -> Option<String> {
     }
 }
 
-/// 冷启动专用：webview 尚未加载、前端 NavigateBridge 未开始监听时直接 emit
-/// 会丢失事件。分段重试（2s/5s/10s）覆盖远程页面慢加载；Next 路由对相同
-/// 路径的重复 push 是 no-op，多次投递无害。热启动（应用已在跑）不走这里，
-/// single-instance 回调直接单次 emit。
-fn emit_navigate_cold_start<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path: String) {
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        for delay_ms in [2000, 5000, 10000] {
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            let _ = handle.emit("navigate", &path);
-        }
-    });
+#[derive(Default)]
+struct Navigation {
+    pending: Option<String>,
+}
+
+fn navigate<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path: String) {
+    app.state::<std::sync::Mutex<Navigation>>()
+        .lock()
+        .unwrap()
+        .pending = Some(path.clone());
+    let _ = app.emit("navigate", path);
 }
 
 fn main() {
     tauri::Builder::default()
+        .manage(std::sync::Mutex::new(Navigation::default()))
         // single-instance 必须最先注册（官方要求）：二次启动时把携带的
         // organize:// URL 转发给首实例并唤起主窗（Windows 任务栏/开始菜单
         // 再次点击、其他应用调起 deep link 都走这里）
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             show_main_window(app);
             if let Some(path) = args.iter().rev().find_map(|arg| deep_link_path(arg)) {
-                let _ = app.emit("navigate", path);
+                navigate(app, path);
             }
         }))
         .plugin(tauri_plugin_notification::init())
@@ -91,9 +95,8 @@ fn main() {
             // 全局快捷键只注册一次（Builder 上不再挂 global-shortcut 插件，重复注册会 panic）：
             // with_shortcuts 在插件 setup 时完成系统级注册（此前只挂 handler、
             // 未注册快捷键，事件永远不会触发）。
-            app.handle().plugin(
+            let shortcut_plugin = app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_shortcuts(global_shortcuts())?
                     .with_handler(|app, shortcut, event| {
                         if event.state != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                             return;
@@ -101,9 +104,9 @@ fn main() {
                         // ⌘⇧M：toggle 刘海速记面板（notch-trigger-plan 决策 4）
                         #[cfg(target_os = "macos")]
                         {
-                            if let Ok(panel_toggle) =
-                                "CmdOrCtrl+Shift+M".parse::<tauri_plugin_global_shortcut::Shortcut>()
-                            {
+                            if let Ok(panel_toggle) = "CmdOrCtrl+Shift+M"
+                                .parse::<tauri_plugin_global_shortcut::Shortcut>(
+                            ) {
                                 if shortcut == &panel_toggle {
                                     notch::toggle(app);
                                     return;
@@ -117,13 +120,50 @@ fn main() {
                         let _ = app.emit("quick-save", ());
                     })
                     .build(),
-            )?;
+            );
+            if let Err(error) = shortcut_plugin {
+                eprintln!("[shortcuts] unavailable, tray remains usable: {error}");
+            } else {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                for key in global_shortcuts() {
+                    if let Err(error) = app.global_shortcut().register(key) {
+                        eprintln!("[shortcuts] {key} unavailable: {error}");
+                    }
+                }
+            }
+            let a = app.handle().clone();
+            app.listen("desktop-navigate-ready", move |_| {
+                let pending = a
+                    .state::<std::sync::Mutex<Navigation>>()
+                    .lock()
+                    .unwrap()
+                    .pending
+                    .clone();
+                if let Some(path) = pending {
+                    let _ = a.emit("navigate", path);
+                }
+            });
+            let a = app.handle().clone();
+            app.listen("desktop-navigate-ack", move |event| {
+                if let Ok(path) = serde_json::from_str::<String>(event.payload()) {
+                    let state = a.state::<std::sync::Mutex<Navigation>>();
+                    let mut guard = state.lock().unwrap();
+                    if guard.pending.as_ref() == Some(&path) {
+                        guard.pending = None;
+                    }
+                }
+            });
 
             // 托盘常驻：点红色关闭只是隐藏窗口（见 on_window_event），
             // 应用驻留菜单栏，托盘「退出」才真正退出。
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let memos = MenuItem::with_id(app, "memos", "打开速记", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 Organize", true, None::<&str>)?;
+            #[cfg(target_os = "macos")]
+            let capture = MenuItem::with_id(app, "capture", "快速记录", true, None::<&str>)?;
+            #[cfg(target_os = "macos")]
+            let menu = Menu::with_items(app, &[&capture, &show, &memos, &quit])?;
+            #[cfg(not(target_os = "macos"))]
             let menu = Menu::with_items(app, &[&show, &memos, &quit])?;
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("app icon missing").clone())
@@ -131,10 +171,12 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {
+                    #[cfg(target_os = "macos")]
+                    "capture" => notch::toggle(app),
                     "show" => show_main_window(app),
                     "memos" => {
                         show_main_window(app);
-                        let _ = app.emit("navigate", "/memos");
+                        navigate(app, "/memos".into());
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -153,7 +195,7 @@ fn main() {
             use tauri_plugin_deep_link::DeepLinkExt;
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 if let Some(path) = urls.iter().find_map(|url| deep_link_path(url.as_str())) {
-                    emit_navigate_cold_start(app.handle(), path);
+                    navigate(app.handle(), path);
                 }
             }
 
@@ -168,8 +210,15 @@ fn main() {
         .on_window_event(|window, event| {
             // 关窗驻留：拦下所有窗口的关闭请求改为隐藏，配合托盘形成常驻体验。
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+                #[cfg(target_os = "macos")]
+                if window.label() == "notch-panel" {
+                    notch::close(window.app_handle());
+                    api.prevent_close();
+                }
                 return;
             }
             // 面板失焦 → 120ms 宽限后收起（误点外部瞬间点回不收起）
@@ -186,10 +235,8 @@ fn main() {
         .run(|app, event| {
             // macOS：应用无可视窗口时点击 Dock 图标 → 重新显示主窗口。
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
-                if !has_visible_windows {
-                    show_main_window(app);
-                }
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_main_window(app);
             }
         });
 }

@@ -45,7 +45,7 @@ export interface CollectResult {
   message?: string;
 }
 
-export async function collectReadingItem(rawInput: string): Promise<CollectResult> {
+export async function collectReadingItem(rawInput: string, options: { expectedUserId?: string } = {}): Promise<CollectResult> {
   const normalizedUrl = extractFirstUrl(rawInput ?? "");
   if (!normalizedUrl) {
     return {
@@ -62,7 +62,7 @@ export async function collectReadingItem(rawInput: string): Promise<CollectResul
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
+  if (!user || (options.expectedUserId && options.expectedUserId !== user.id)) {
     return {
       status: "error",
       itemId: null,
