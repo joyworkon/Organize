@@ -180,13 +180,28 @@ export async function fetchTaskWorkspace(
   // F03：主查询（tasks）失败抛错，由调用方保留旧数据并提供重试；
   // 辅助查询失败收集为 warnings 单独说明，不吞掉也不阻塞主数据
   const results = await Promise.allSettled([
-    supabase
-      .from("tasks")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("is_pinned", { ascending: false })
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false }),
+    (async () => {
+      // F04：数据库单请求默认 1000 行上限——分块循环拉全量，
+      // 保证侧栏计数/提醒汇总/搜索不吃静默截断
+      const PAGE = 1000;
+      const SAFETY_MAX = 10000;
+      const rows: Task[] = [];
+      for (let from = 0; from < SAFETY_MAX; from += PAGE) {
+        const { data, error } = await supabase
+          .from("tasks")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("is_pinned", { ascending: false })
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        rows.push(...((data || []) as Task[]));
+        if (!data || data.length < PAGE) break;
+      }
+      return { data: rows, error: null };
+    })(),
     supabase
       .from("task_lists")
       .select("*")

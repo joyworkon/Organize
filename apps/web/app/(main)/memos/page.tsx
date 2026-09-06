@@ -7,7 +7,8 @@
 //      触屏设备 Enter 换行，保存走明确按钮。F02：输入即存本机草稿（按用户+入口），
 //      保存成功只清空被确认的那个版本（提交期间续写不丢）；离线创建走
 //      memo-queue（客户端稳定 id，服务端幂等合同）联网后自动回放。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -60,11 +61,19 @@ function renderContent(content: string, onTagClick: (tag: string) => void) {
 }
 
 export default function MemosPage() {
+  return <Suspense fallback={<div className="grid h-screen place-items-center text-muted-foreground">加载中…</div>}><MemosPageInner /></Suspense>;
+}
+
+function MemosPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [memos, setMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  // F04：服务端全量总数与游标加载
+  const [total, setTotal] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -157,6 +166,7 @@ export default function MemosPage() {
       const res = await fetch("/api/memos", { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
       setMemos((await res.json()) as Memo[]);
+      setTotal(Number(res.headers.get("X-Total-Count") || "0"));
       setLoadError(false);
     } catch {
       // F03：失败保留旧列表并显式报错，不把失败渲染成「还没有速记」
@@ -165,6 +175,25 @@ export default function MemosPage() {
       setLoading(false);
     }
   }, []);
+
+  /** F04：游标分页加载更早一页（不重复不遗漏：created_at+id 稳定排序） */
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    const last = memos[memos.length - 1];
+    if (!last) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/memos?before=${encodeURIComponent(last.created_at)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      const older = (await res.json()) as Memo[];
+      const seen = new Set(memos.map((m) => m.id));
+      setMemos((prev) => [...prev, ...older.filter((m) => !seen.has(m.id))]);
+    } catch {
+      toast({ title: "加载更多失败", variant: "destructive" });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [memos, loadingMore]);
 
   const fetchMemosRef = useRef<(() => void) | null>(null);
   fetchMemosRef.current = fetchMemos;
@@ -213,13 +242,60 @@ export default function MemosPage() {
     void loadConversions();
   }, [fetchMemos, loadConversions]);
 
-  const tagCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const memo of memos) {
-      for (const tag of memo.tags || []) map.set(tag, (map.get(tag) || 0) + 1);
+  // F05：?memo=<id> 深链定位——列表内滚动高亮；不在列表（分页外/已删）时按 ID 补取
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    const memoParam = searchParams.get("memo");
+    if (!memoParam || loading) return;
+    const inList = memos.some((m) => m.id === memoParam);
+    if (inList) {
+      setHighlightId(memoParam);
+      document.getElementById(`memo-${memoParam}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const timer = setTimeout(() => setHighlightId(null), 3000);
+      return () => clearTimeout(timer);
     }
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [memos]);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/memos/${memoParam}`, { cache: "no-store" });
+        if (res.status === 404) {
+          toast({ title: "该速记已删除或不存在", description: "可从列表继续浏览其他速记" });
+          return;
+        }
+        if (!res.ok) return;
+        const memo = (await res.json()) as Memo;
+        setMemos((prev) => (prev.some((m) => m.id === memo.id) ? prev : [memo, ...prev]));
+        setHighlightId(memoParam);
+        requestAnimationFrame(() =>
+          document.getElementById(`memo-${memoParam}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+        );
+        setTimeout(() => setHighlightId(null), 3000);
+      } catch {
+        // 网络失败静默：列表仍是完整可用状态
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, memos, loading]);
+
+  // F04：标签计数来自服务端全量聚合（此前由前 500 条本地统计，大数量下失真）
+  const [tagCounts, setTagCounts] = useState<Array<[string, number]>>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/memos/tags", { cache: "no-store" });
+        if (!res.ok) return;
+        const rows = (await res.json()) as Array<{ tag: string; count: number }>;
+        setTagCounts(rows.map((r) => [r.tag, r.count]));
+      } catch {
+        // 聚合失败时退回本地统计（旧逻辑），保底可用
+        const map = new Map<string, number>();
+        for (const memo of memos) {
+          for (const tag of memo.tags || []) map.set(tag, (map.get(tag) || 0) + 1);
+        }
+        setTagCounts(Array.from(map.entries()).sort((a, b) => b[1] - a[1]));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const visible = useMemo(
     () => (filterTag ? memos.filter((m) => m.tags?.includes(filterTag)) : memos),
@@ -406,7 +482,7 @@ export default function MemosPage() {
         <PageHeader
           icon={Feather}
           title="速记"
-          description={`随手捕捉碎片想法，#标签 组织，共 ${memos.length} 条`}
+          description={`随手捕捉碎片想法，#标签 组织${total !== null ? `，共 ${total} 条` : ""}`}
         />
       </div>
 
@@ -495,6 +571,20 @@ export default function MemosPage() {
         </div>
       )}
 
+      {/* F04：游标分页加载更早的速记（列表底部分批追加，不再一次拉全量） */}
+      {total !== null && memos.length < total && !loading && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+          >
+            {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : "加载更早的速记"}
+          </Button>
+        </div>
+      )}
+
       {loadError && memos.length > 0 && (
         <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
           <span className="text-xs text-destructive">刷新失败，当前显示的是上次内容</span>
@@ -538,7 +628,14 @@ export default function MemosPage() {
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">{group.label}</div>
               <div className="space-y-2">
                 {group.items.map((memo) => (
-                  <div key={memo.id} className="group rounded-lg border bg-card p-3 shadow-sm">
+                  <div
+                    key={memo.id}
+                    id={`memo-${memo.id}`}
+                    className={cn(
+                      "group rounded-lg border bg-card p-3 shadow-sm transition-shadow",
+                      highlightId === memo.id && "ring-2 ring-primary border-primary"
+                    )}
+                  >
                     {editingId === memo.id ? (
                       <div>
                         <textarea

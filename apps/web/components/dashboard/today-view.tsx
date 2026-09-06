@@ -532,7 +532,8 @@ export default function TodayView() {
                   {recentMemos.map((memo) => (
                     <Link
                       key={memo.id}
-                      href="/memos"
+                      // F05：沿用 ?memo= 深链合同，搜索/工作台/外链定位同一目标
+                      href={`/memos?memo=${memo.id}`}
                       className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
                     >
                       <p className="text-sm line-clamp-2">{memo.content}</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,6 +39,16 @@ import type { NoteSearchMatch } from "@/lib/notes/search-match";
 export type NoteViewMode = "card" | "list";
 
 type DialogKind = "export" | "autotag" | "history" | "share" | null;
+
+/**
+ * N04：批量收藏上下文——列表页一次 in(id) 查询全部收藏状态，卡片经 Context 共享，
+ * 避免 100 张卡片打 100 次收藏查询。未提供 Context 的调用方回退为卡片各自查询。
+ */
+export interface NoteFavoritesContextValue {
+  favoritedIds: Set<string>;
+  toggleFavorite: (id: string) => Promise<void>;
+}
+export const NoteFavoritesContext = createContext<NoteFavoritesContextValue | null>(null);
 
 interface NoteCardProps {
   note: NoteWithTags;
@@ -99,7 +109,13 @@ export function NoteCard({
     excerpt
   );
 
+  const favoritesBatch = useContext(NoteFavoritesContext);
   useEffect(() => {
+    // N04：列表页提供批量状态时直接采用，不再逐卡查询
+    if (favoritesBatch) {
+      setIsFavorited(favoritesBatch.favoritedIds.has(note.id));
+      return;
+    }
     let mounted = true;
     async function checkFavorite() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -117,7 +133,7 @@ export function NoteCard({
     }
     checkFavorite();
     return () => { mounted = false; };
-  }, [supabase, note.id]);
+  }, [supabase, note.id, favoritesBatch]);
 
   const handleToggleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -125,6 +141,10 @@ export function NoteCard({
     if (isTogglingFavorite) return;
     setIsTogglingFavorite(true);
     try {
+      if (favoritesBatch) {
+        await favoritesBatch.toggleFavorite(note.id);
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast({ title: "请先登录", variant: "destructive" });

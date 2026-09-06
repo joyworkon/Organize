@@ -7,7 +7,7 @@
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
 
-type MockHandlerResult = { status?: number; body: unknown };
+type MockHandlerResult = { status?: number; body: unknown; headers?: Record<string, string> };
 type MockHandler = (ctx: {
   body: any;
   params: Record<string, string>;
@@ -283,11 +283,46 @@ const listMemos: MockHandler = ({ url }) => {
   const limitParam = Number(url.searchParams.get("limit"));
   const limit =
     Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 500) : 500;
-  const rows = mockDb.memos
+  // F04：稳定排序（created_at 倒序 + id 倒序）+ ?before= 游标；X-Total-Count 全量计数
+  const before = url.searchParams.get("before");
+  const all = mockDb.memos
     .filter((m) => !m.deleted_at && (!tag || (m.tags as string[]).includes(tag)))
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-    .slice(0, limit);
-  return { body: rows };
+    .sort((a, b) => {
+      if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+      return a.id < b.id ? 1 : -1;
+    });
+  const filtered = before
+    ? all.filter((m) => m.created_at < before)
+    : all;
+  const rows = filtered.slice(0, limit);
+  return {
+    status: 200,
+    body: rows,
+    headers: { "X-Total-Count": String(all.length), "Content-Type": "application/json" },
+  };
+};
+
+// F04：标签聚合（mock 与真实路由一致，基于全量未删速记）
+const listMemoTags: MockHandler = () => {
+  const counts = new Map<string, number>();
+  for (const m of mockDb.memos) {
+    if (m.deleted_at) continue;
+    for (const tag of m.tags as string[]) {
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+  }
+  return {
+    body: Array.from(counts.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag)),
+  };
+};
+
+// F05：按 id 补取单条（深链定位）
+const getMemo: MockHandler = ({ params }) => {
+  const row = mockDb.memos.find((m) => m.id === params.id && !m.deleted_at);
+  if (!row) return { status: 404, body: { error: "速记不存在或已删除" } };
+  return { body: row };
 };
 
 const createMemo: MockHandler = ({ body }) => {
@@ -448,6 +483,8 @@ const ROUTES: MockRoute[] = [
   { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/move-block$/, handler: moveBlock },
   { method: "GET", pattern: /^\/api\/memos$/, handler: listMemos },
   { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
+  { method: "GET", pattern: /^\/api\/memos\/tags$/, handler: listMemoTags },
+  { method: "GET", pattern: /^\/api\/memos\/([^/]+)$/, handler: getMemo },
   { method: "PATCH", pattern: /^\/api\/memos\/([^/]+)$/, handler: patchMemo },
   { method: "DELETE", pattern: /^\/api\/memos\/([^/]+)$/, handler: deleteMemo },
   { method: "GET", pattern: /^\/api\/tasks\/due-soon$/, handler: listDueSoonTasks },
@@ -458,10 +495,10 @@ const ROUTES: MockRoute[] = [
   { method: "DELETE", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: deleteSyncedBlock },
 ];
 
-const jsonResponse = (body: unknown, status: number) =>
+const jsonResponse = (body: unknown, status: number, headers?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(headers || {}) },
   });
 
 /**
@@ -504,7 +541,7 @@ export function installMockApiShim() {
       const values = pathname.match(route.pattern)!.slice(1);
       const params: Record<string, string> = { id: values[0], versionId: values[1] };
       const result = route.handler({ body, params, url: new URL(rawUrl, window.location.origin) });
-      return jsonResponse(result.body, result.status ?? 200);
+      return jsonResponse(result.body, result.status ?? 200, result.headers);
     } catch (error) {
       return jsonResponse(
         { error: error instanceof Error ? error.message : "mock 处理失败" },

@@ -141,13 +141,15 @@ function getItemPath(type: SearchResult["type"], id: string) {
     case "note":
       return `/notes/${id}`;
     case "task":
-      return `/tasks`;
+      // F05：带 task 参数直达详情（/tasks?task= 已有打开详情语义）
+      return `/tasks?task=${id}`;
     case "lesson":
       return `/lessons/${id}`;
     case "tag":
       return `/tags`;
     case "memo":
-      return `/memos`;
+      // F05：?memo= 定位 + 按 ID 补取 + 滚动高亮
+      return `/memos?memo=${id}`;
   }
 }
 
