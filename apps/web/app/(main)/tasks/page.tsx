@@ -71,6 +71,7 @@ import {
   fetchTaskWorkspace,
   filterTasksByScope,
   isOverdue,
+  isTaskOverdue,
   quickAddDueDate,
   schedulableReminderTasks,
   taskDate,
@@ -220,10 +221,10 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           value={schedule}
           onChange={onDateChange}
           align="end"
-          trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
+          trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isTaskOverdue(task) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
         />
       ) : (
-        <span className={cn("shrink-0 px-1.5 py-1 text-xs text-muted-foreground", isOverdue(taskDate(task)) && "text-red-500")}>{formatTaskDate(taskDate(task))}</span>
+        <span className={cn("shrink-0 px-1.5 py-1 text-xs text-muted-foreground", isTaskOverdue(task) && "text-red-500")}>{formatTaskDate(taskDate(task))}</span>
       )}
       {onMoveRow && (
         <DropdownMenu open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -259,6 +260,9 @@ function TasksPageInner() {
   const searchParams = useSearchParams();
   const { permission, requestPermission, scheduleDueDateReminders, notifyOverdueSummary } = useNotifications();
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
+  // T01：顺序化同任务更新时读取最新列表（避免闭包旧状态）
+  const tasksRef = useRef<TaskWithTags[]>([]);
+  tasksRef.current = tasks;
   const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
@@ -293,19 +297,34 @@ function TasksPageInner() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
 
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
+  const fetchTasks = useCallback(async (opts?: { silent?: boolean }) => {
+    // F03/T02：事件驱动的刷新静默进行（不整页转圈），只有首屏/手动重试才显示加载
+    if (!opts?.silent) setLoading(true);
     try {
       const workspace = await fetchTaskWorkspace(supabase);
       setTags(workspace.tags);
       setLists(workspace.lists);
       setTasks(workspace.tasks);
       setDependencies(workspace.dependencies);
+      setLoadError(null);
+      // 服务端状态已是权威版本，清空本地版本跟踪
+      taskVersionRef.current.clear();
+      // F03：辅助数据失败单独说明（不冒充整个工作台故障）
+      if (workspace.warnings.length > 0) {
+        toast({
+          title: "部分任务数据加载失败",
+          description: `${workspace.warnings[0]}${workspace.warnings.length > 1 ? ` 等 ${workspace.warnings.length} 项` : ""}`,
+          variant: "destructive",
+        });
+      }
       // 提醒/逾期汇总只吃可见集：已软删、或父链上有软删（幽灵子任务）的不提醒，
       // 否则任务在任何视图里都看不到却到期弹通知，用户找不到来源
       const schedulable = schedulableReminderTasks(workspace.tasks);
       scheduleDueDateReminders(schedulable);
       notifyOverdueSummary(schedulable);
+    } catch (error) {
+      // F03：主查询失败保留旧数据并给出重试入口，不把失败渲染成空列表
+      setLoadError(error instanceof Error ? error.message : "任务数据加载失败");
     } finally {
       setLoading(false);
     }
@@ -314,7 +333,7 @@ function TasksPageInner() {
   useEffect(() => { void fetchTasks(); }, [fetchTasks]);
 
   useEffect(() => {
-    const reloadTasks = () => void fetchTasks();
+    const reloadTasks = () => void fetchTasks({ silent: true });
     window.addEventListener("organize:tasks-changed", reloadTasks);
     return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
   }, [fetchTasks]);
@@ -322,6 +341,8 @@ function TasksPageInner() {
   // X1 离线同步：网络状态 + 待回放操作数 + 失败待处理（dead-letter）
   const online = useOnlineStatus();
   const [pendingOps, setPendingOps] = useState(0);
+  // F03：主查询失败时保留旧数据，仅在页面顶部给出错误与重试入口
+  const [loadError, setLoadError] = useState<string | null>(null);
   // 队列/dead-letter 都按 userId 隔离（P1-03）：退出后另一账号登录读到的是自己的空队列
   const [userId, setUserId] = useState<string | null>(null);
   const [deadLetterEntries, setDeadLetterEntries] = useState<TaskDeadLetterEntry[]>([]);
@@ -424,17 +445,29 @@ function TasksPageInner() {
     return persisted;
   }, [userId]);
 
-  const updateTask = useCallback(async (taskId: string, patch: Partial<Task>) => {
-    const previous = tasks;
+  // T01：同一任务的更新按序执行（后一次等待前一次完成再读版本），跨任务互不阻塞
+  const taskMutationQueueRef = useRef(new Map<string, Promise<void>>());
+  // T01：本地跟踪 sync_version，快速连续更新不再拿着旧版本自冲突
+  const taskVersionRef = useRef(new Map<string, number | null>());
+
+  const updateTaskInner = useCallback(async (taskId: string, patch: Partial<Task>) => {
+    // T01：回滚只恢复「这一个任务」的更新前状态，不回滚整个数组
+    // （此前整组回滚会把并发期间其他任务已成功的显示一起撤销）
+    const previousTask = tasksRef.current.find((task) => task.id === taskId);
+    const rollbackTask = () => {
+      if (!previousTask) return;
+      setTasks((current) => current.map((task) => (task.id === taskId ? previousTask : task)));
+    };
     const normalized = { ...patch } as Partial<Task>;
     if ("schedule_start_at" in normalized || "schedule_end_at" in normalized) normalized.due_date = normalized.schedule_end_at || normalized.schedule_start_at || null;
     setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...normalized } : task));
-    const currentTask = tasks.find((task) => task.id === taskId);
-    const expectedVersion = currentTask?.sync_version ?? null;
+    const expectedVersion = taskVersionRef.current.has(taskId)
+      ? taskVersionRef.current.get(taskId) ?? null
+      : previousTask?.sync_version ?? null;
     // X1：离线时直接入队（避免必然失败的请求），乐观状态保留
     if (!isOnline()) {
       if (!userId) {
-        setTasks(previous);
+        rollbackTask();
         toast({ title: "登录状态未知，离线更改暂未保存", variant: "destructive" });
         return;
       }
@@ -443,31 +476,37 @@ function TasksPageInner() {
       setPendingOps(taskOpsCount(localStorage, userId));
       if (!persisted) toast({ title: "本地存储不可用，离线更改可能丢失", variant: "destructive" });
       else toast({ title: "已离线保存，联网后自动同步" });
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
       return;
     }
     // 在线更新与离线回放共用原子协议：携带 expected sync_version 与 mutation id
     const result = await applyTaskUpdate(supabase, taskId, normalized as Record<string, unknown>, expectedVersion, crypto.randomUUID());
     if (result.status === "applied") {
+      taskVersionRef.current.set(taskId, result.syncVersion);
       setTasks((current) => current.map((task) => task.id === taskId ? { ...task, sync_version: result.syncVersion } : task));
+      // T02：所有成功的任务变更都通知领域事件（侧栏计数跟随；本列表走静默刷新不闪加载）
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
     } else if (result.status === "already_applied") {
       // nothing to do
     } else if (result.status === "conflict") {
       // 双设备冲突：绝不静默覆盖——刷新服务端状态，本次更改进 dead-letter 由用户处理
-      setTasks(previous);
-      await fetchTasks();
+      rollbackTask();
+      taskVersionRef.current.delete(taskId);
+      await fetchTasks({ silent: true });
       const op = makeTaskUpdateOp(taskId, normalized as Record<string, unknown>, expectedVersion);
       pushDeadLetter(op, { code: "TASK_SYNC_CONFLICT", message: `任务已在其他设备被修改（当前版本 ${result.currentSyncVersion ?? "未知"}）` });
       toast({ title: "任务已在其他设备被修改，本次更改已存入待处理列表", variant: "destructive" });
       return;
     } else if (result.status === "not_found") {
-      setTasks(previous);
-      await fetchTasks();
+      rollbackTask();
+      taskVersionRef.current.delete(taskId);
+      await fetchTasks({ silent: true });
       toast({ title: "任务不存在或已被删除", variant: "destructive" });
       return;
     } else if (isNetworkSaveError(result.error)) {
       // 网络错误按离线处理——入队待回放，不回滚乐观状态
       if (!userId) {
-        setTasks(previous);
+        rollbackTask();
         toast({ title: "网络异常且登录状态未知，请稍后重试", variant: "destructive" });
         return;
       }
@@ -476,9 +515,10 @@ function TasksPageInner() {
       setPendingOps(taskOpsCount(localStorage, userId));
       if (!persisted) toast({ title: "网络异常且本地存储不可用，本次更改可能丢失", variant: "destructive" });
       else toast({ title: "网络异常，已离线保存，联网后自动同步" });
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
       return;
     } else {
-      setTasks(previous);
+      rollbackTask();
       toast({ title: "保存失败，已回滚", variant: "destructive" });
       return;
     }
@@ -486,7 +526,7 @@ function TasksPageInner() {
     if (normalized.status === "done") {
       appEvents.emit("task:completed", {
         taskId,
-        title: tasks.find((task) => task.id === taskId)?.title ?? "",
+        title: tasksRef.current.find((task) => task.id === taskId)?.title ?? "",
       });
       const newId = await generateNextRecurringTask(supabase, taskId);
       if (newId) {
@@ -494,7 +534,17 @@ function TasksPageInner() {
         window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
       }
     }
-  }, [supabase, tasks, userId, fetchTasks, pushDeadLetter]);
+  }, [supabase, userId, fetchTasks, pushDeadLetter]);
+
+  const updateTask = useCallback((taskId: string, patch: Partial<Task>) => {
+    const previous = taskMutationQueueRef.current.get(taskId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(() => updateTaskInner(taskId, patch))
+      .then(() => {});
+    taskMutationQueueRef.current.set(taskId, next);
+    return next;
+  }, [updateTaskInner]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (!window.confirm("将这个任务移入垃圾箱？")) return;
@@ -535,7 +585,9 @@ function TasksPageInner() {
       return;
     }
     updateUrl({ task: null });
-    await fetchTasks();
+    await fetchTasks({ silent: true });
+    // T02：删除成功后侧栏计数跟随更新
+    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
     toast({ title: "任务已移入垃圾箱" });
   }, [fetchTasks, supabase, updateUrl, tasks, userId]);
 
@@ -1025,7 +1077,25 @@ function TasksPageInner() {
               </div>
             )}
 
-            {loading ? <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div> : filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "使用上方输入框，回车即可添加任务"} /> : (
+            {loading && tasks.length === 0 ? (
+              <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            ) : loadError && tasks.length === 0 ? (
+              <div className="flex flex-col items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-destructive">任务数据加载失败</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{loadError}</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => void fetchTasks()}>重试</Button>
+              </div>
+            ) : (
+              <>
+                {loadError && tasks.length > 0 && (
+                  <div className="mb-3 flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+                    <span className="text-xs text-destructive">刷新失败，当前显示的是上次内容</span>
+                    <Button size="sm" variant="ghost" onClick={() => void fetchTasks()}>重试</Button>
+                  </div>
+                )}
+                {filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "使用上方输入框，回车即可添加任务"} /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeSections ? (
                   activeSections.map((section) => (
@@ -1062,6 +1132,8 @@ function TasksPageInner() {
                 {completedTasks.length > 0 && sectionHeader("已完成", completedTasks.length)}
                 {completedTasks.map((task) => <TaskRow key={task.id} {...commonRowProps(task)} />)}
               </div>
+            )}
+              </>
             )}
           </div>
         </div>

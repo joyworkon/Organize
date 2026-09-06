@@ -19,6 +19,8 @@ export interface TaskWorkspaceData {
   lists: TaskList[];
   tags: TagWithCount[];
   dependencies: TaskDependency[];
+  /** 辅助查询（清单/标签/依赖/垃圾桶）失败说明；主查询失败直接抛错（F03） */
+  warnings: string[];
 }
 
 export function taskDate(task: Task): string | null {
@@ -27,6 +29,22 @@ export function taskDate(task: Task): string | null {
 
 export function isSameDay(a: Date, b: Date): boolean {
   return a.toDateString() === b.toDateString();
+}
+
+/**
+ * 任务级逾期（T03）：只看「截止」语义的 due_date，进行中跨天任务不因开始日已过而判逾期。
+ * - 未完成/未取消才有逾期
+ * - 带时刻的截止：时刻已过即逾期（含今天稍早已截止）
+ * - 全天截止：当天 23:59:59.999 前不算逾期
+ */
+export function isTaskOverdue(task: Task, now = new Date()): boolean {
+  if (!task.due_date || task.status === "done" || task.status === "cancelled") return false;
+  const due = new Date(task.due_date);
+  if (isNaN(due.getTime())) return false;
+  const limit = task.all_day
+    ? new Date(due.getFullYear(), due.getMonth(), due.getDate(), 23, 59, 59, 999)
+    : due;
+  return limit.getTime() < now.getTime();
 }
 
 export function isOverdue(value: string | null | undefined): boolean {
@@ -146,39 +164,63 @@ export function searchTasks(
   });
 }
 
+function describeReason(reason: unknown): string {
+  if (reason && typeof reason === "object" && "message" in reason) return String(reason.message);
+  return String(reason);
+}
+
 export async function fetchTaskWorkspace(
   supabase: SupabaseClient
 ): Promise<TaskWorkspaceData> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { tasks: [], lists: [], tags: [], dependencies: [] };
+  if (!user) return { tasks: [], lists: [], tags: [], dependencies: [], warnings: [] };
 
-  const [{ data: taskData }, { data: listData }, { data: tagLinks }, { data: tagData }, { data: dependencyData }, { data: trashedData }] =
-    await Promise.all([
-      supabase
-        .from("tasks")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("is_pinned", { ascending: false })
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("task_lists")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("sort_order", { ascending: true })
-        .is("deleted_at", null),
-      supabase.from("task_tags").select("task_id, tag_id"),
-      supabase.from("tags").select("id, name, color").eq("user_id", user.id),
-      supabase
-        .from("task_dependencies")
-        .select("*")
-        .eq("user_id", user.id),
-      // 已删任务走 security definer RPC（RLS 下普通查询不可见，migration 050），
-      // 供垃圾桶 scope 列表与侧栏计数使用
-      supabase.rpc("list_trashed_tasks"),
-    ]);
+  // F03：主查询（tasks）失败抛错，由调用方保留旧数据并提供重试；
+  // 辅助查询失败收集为 warnings 单独说明，不吞掉也不阻塞主数据
+  const results = await Promise.allSettled([
+    supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("is_pinned", { ascending: false })
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("task_lists")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("sort_order", { ascending: true })
+      .is("deleted_at", null),
+    supabase.from("task_tags").select("task_id, tag_id"),
+    supabase.from("tags").select("id, name, color").eq("user_id", user.id),
+    supabase
+      .from("task_dependencies")
+      .select("*")
+      .eq("user_id", user.id),
+    // 已删任务走 security definer RPC（RLS 下普通查询不可见，migration 050），
+    // 供垃圾桶 scope 列表与侧栏计数使用
+    supabase.rpc("list_trashed_tasks"),
+  ]);
+
+  const [taskResult, listResult, tagLinkResult, tagResult, dependencyResult, trashedResult] = results;
+  if (taskResult.status === "rejected") {
+    throw new Error(`任务数据加载失败：${describeReason(taskResult.reason)}`);
+  }
+  const warnings: string[] = [];
+  const auxLabels = ["清单列表", "标签关联", "标签", "任务依赖", "垃圾桶"];
+  results.slice(1).forEach((result, index) => {
+    if (result.status === "rejected") {
+      warnings.push(`${auxLabels[index]}加载失败：${describeReason(result.reason)}`);
+    }
+  });
+
+  const taskData = taskResult.status === "fulfilled" ? taskResult.value.data : null;
+  const listData = listResult.status === "fulfilled" ? listResult.value.data : null;
+  const tagLinks = tagLinkResult.status === "fulfilled" ? tagLinkResult.value.data : null;
+  const tagData = tagResult.status === "fulfilled" ? tagResult.value.data : null;
+  const dependencyData = dependencyResult.status === "fulfilled" ? dependencyResult.value.data : null;
 
   const lists = (listData || []) as TaskList[];
   const listByCategory = new Map<string, string>();
@@ -212,15 +254,16 @@ export async function fetchTaskWorkspace(
     ...(tag as Tag),
     task_count: tagCounts.get(tag.id) || 0,
   }));
-  // RPC 失败（如库未跑 migration 050）不阻塞工作台主数据，仅垃圾桶视图拿不到已删项
-  const trashedTasks = Array.isArray(trashedData)
-    ? (trashedData as unknown as TaskWithTags[])
+  // 垃圾桶 RPC 失败不阻塞工作台主数据，仅垃圾桶视图拿不到已删项（记入 warnings）
+  const trashedTasks = trashedResult.status === "fulfilled" && Array.isArray(trashedResult.value)
+    ? (trashedResult.value as unknown as TaskWithTags[])
     : [];
   return {
     tasks: [...tasks, ...trashedTasks],
     lists,
     tags,
     dependencies: (dependencyData || []) as TaskDependency[],
+    warnings,
   };
 }
 
@@ -231,12 +274,18 @@ export function useTaskWorkspaceData() {
     lists: [],
     tags: [],
     dependencies: [],
+    warnings: [],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const refetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setData(await fetchTaskWorkspace(supabase));
+    } catch (e) {
+      // F03：主查询失败保留旧数据，暴露错误给调用方展示重试
+      setError(e instanceof Error ? e.message : "任务数据加载失败");
     } finally {
       setLoading(false);
     }
@@ -249,5 +298,5 @@ export function useTaskWorkspaceData() {
     return () => window.removeEventListener("organize:tasks-changed", reload);
   }, [refetch]);
 
-  return { ...data, loading, refetch, supabase };
+  return { ...data, loading, error, refetch, supabase };
 }

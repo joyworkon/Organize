@@ -63,6 +63,7 @@ export default function MemosPage() {
   const supabase = useMemo(() => createClient(), []);
   const [memos, setMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -153,9 +154,12 @@ export default function MemosPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/memos", { cache: "no-store" });
-      if (res.ok) setMemos((await res.json()) as Memo[]);
+      if (!res.ok) throw new Error(String(res.status));
+      setMemos((await res.json()) as Memo[]);
+      setLoadError(false);
     } catch {
-      // 静默：失败保留旧列表
+      // F03：失败保留旧列表并显式报错，不把失败渲染成「还没有速记」
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -473,12 +477,29 @@ export default function MemosPage() {
         </div>
       )}
 
-      {loading ? (
+      {loadError && memos.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <span className="text-xs text-destructive">刷新失败，当前显示的是上次内容</span>
+          <Button size="sm" variant="ghost" onClick={() => void fetchMemos()}>重试</Button>
+        </div>
+      )}
+      {loading && memos.length === 0 ? (
         <div className="space-y-2" aria-busy="true" aria-label="速记加载中">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="h-16 animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError && memos.length === 0 ? (
+        <EmptyState
+          icon={Feather}
+          title="速记加载失败"
+          description="网络或服务暂时不可用，之前的列表不会因此清空"
+          action={
+            <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => void fetchMemos()}>
+              重试
+            </button>
+          }
+        />
       ) : visible.length === 0 ? (
         <EmptyState
           icon={Feather}

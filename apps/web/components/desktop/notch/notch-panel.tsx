@@ -66,10 +66,11 @@ export function NotchPanel() {
     }).catch(() => {});
     setLoadingTasks(true);
     try {
-      const { data } = await supabase.from("tasks").select("*").eq("user_id", user.id)
+      const { data, error } = await supabase.from("tasks").select("*").eq("user_id", user.id)
         .order("is_pinned", { ascending: false }).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
-      setTasks((data || []) as Task[]);
-    } finally { setLoadingTasks(false); }
+      // F03：查询失败显式提示，不渲染成空列表
+      if (error) { setTaskError("任务加载失败，请稍后重试"); } else { setTasks((data || []) as Task[]); setTaskError(null); }
+    } catch { setTaskError("任务加载失败，请稍后重试"); } finally { setLoadingTasks(false); }
   }, [supabase]);
 
   useEffect(() => { void refreshData(); }, [refreshData]);
