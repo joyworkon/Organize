@@ -338,6 +338,19 @@ function TasksPageInner() {
     return () => window.removeEventListener("organize:tasks-changed", reloadTasks);
   }, [fetchTasks]);
 
+  // K03：刘海面板勾选/新增待办后，主窗口列表与侧栏计数即时跟随（静默刷新不闪加载）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void import("@/lib/desktop/notch").then(({ subscribeDataChanged }) =>
+      subscribeDataChanged((payload) => {
+        if (payload.origin !== "notch-panel") return;
+        if (payload.topic === "tasks") void fetchTasks({ silent: true });
+      }),
+    ).then((off) => { if (cancelled) off?.(); else unlisten = off; });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [fetchTasks]);
+
   // X1 离线同步：网络状态 + 待回放操作数 + 失败待处理（dead-letter）
   const online = useOnlineStatus();
   const [pendingOps, setPendingOps] = useState(0);

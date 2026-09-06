@@ -64,6 +64,17 @@ describe("isNotchOpenPathAllowed", () => {
     expect(isNotchOpenPathAllowed(42)).toBe(false);
     expect(isNotchOpenPathAllowed(null)).toBe(false);
   });
+
+  it("K04：uuid 深链（笔记继续编辑/任务详情）放行，非法 id 拒绝", () => {
+    const id = "75a190cc-74fa-4305-b927-a5211e961ba0";
+    expect(isNotchOpenPathAllowed(`/notes/${id}`)).toBe(true);
+    expect(isNotchOpenPathAllowed(`/tasks?task=${id}`)).toBe(true);
+    // 非法 uuid / 注入形态一律拒绝
+    expect(isNotchOpenPathAllowed("/notes/not-a-uuid")).toBe(false);
+    expect(isNotchOpenPathAllowed(`/notes/${id}/../../settings`)).toBe(false);
+    expect(isNotchOpenPathAllowed("/tasks?task=abc123")).toBe(false);
+    expect(isNotchOpenPathAllowed(`/notes/${id}?x=1`)).toBe(false);
+  });
 });
 
 describe("selectPanelTasks", () => {
