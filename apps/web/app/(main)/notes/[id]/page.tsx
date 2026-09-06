@@ -27,6 +27,7 @@ import type { NoteFont, Tag } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
 import { NotePageVisuals } from "@/components/notes/note-page-visuals";
 import { NotePageComments } from "@/components/notes/note-page-comments";
+import { MobileNoteTabsButton } from "@/components/notes/note-tabs-bar";
 import { NoteHierarchyBar } from "@/components/notes/note-hierarchy-bar";
 import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
@@ -1284,6 +1285,10 @@ export default function NoteEditorPage() {
             />
           </div>
           <div className="note-topbar-group note-topbar-actions">
+            {/* M01：「已打开笔记」入口收进顶栏（仅移动端显示），不再 fixed 浮动互相遮挡 */}
+            <div className="md:hidden flex items-center">
+              <MobileNoteTabsButton />
+            </div>
             <NoteSaveStatus
               online={online}
               offlinePending={offlinePending}

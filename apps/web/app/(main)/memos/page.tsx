@@ -564,7 +564,7 @@ export default function MemosPage() {
                               minute: "2-digit",
                             })}
                           </span>
-                          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <div className="organize-touch-visible flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                             {(() => {
                               const conversion = conversions.get(memo.id);
                               // R11：已关联笔记软删除 → 显示状态（恢复走垃圾箱；不默默当没转换过）
@@ -620,6 +620,7 @@ export default function MemosPage() {
                                 setEditContent(memo.content);
                               }}
                               title="编辑"
+                              aria-label="编辑这条速记"
                             >
                               <Pencil className="h-3 w-3" />
                             </Button>
@@ -629,6 +630,7 @@ export default function MemosPage() {
                               className="h-7 w-7 text-muted-foreground hover:text-destructive"
                               onClick={() => void handleDelete(memo.id)}
                               title="删除"
+                              aria-label="删除这条速记"
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>

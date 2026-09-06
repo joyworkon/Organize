@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -113,19 +113,7 @@ export function NoteTabsBar() {
 
   return (
     <>
-    {/* 移动端：不显示整条 Chrome 式 tabs（§3），提供「已打开笔记 N」切换 sheet */}
-    {mounted && tabs.length > 0 && (
-      <div className="md:hidden">
-      <NoteTabsSheet
-        tabs={tabs}
-        activeId={activeId}
-        onSwitch={(id) => router.push(`/notes/${id}`)}
-        onClose={(id) => closeTab(id)}
-        onNew={() => void handleNewNote()}
-        creating={creating}
-      />
-      </div>
-    )}
+    {/* M01：移动端切换入口已收进笔记页顶栏（MobileNoteTabsButton），不再在此浮动 */}
     <div className="note-tabs-bar sticky top-0 z-50 hidden h-10 items-end gap-1 border-b bg-background px-2 md:flex">
       <div className="flex shrink-0 items-center gap-0.5 pb-1.5">
         <button
@@ -227,36 +215,55 @@ export function NoteTabsBar() {
 }
 
 /**
- * 移动端「已打开笔记 N」切换 sheet（D04 §3）：
- * 触发器固定在移动顶栏下方左侧；列出全部标签（当前高亮、可关闭），
+ * 移动端「已打开笔记 N」切换 sheet（D04 §3，M01 重构）：
+ * 触发按钮改为内联形态，由笔记页顶栏（note-topbar-actions）收纳——
+ * 不再 fixed 浮动与顶栏互相遮挡；列出全部标签（当前高亮、可关闭），
  * 保留与桌面一致的切换/关闭/新建；Radix Dialog 自带 Esc / 遮罩关闭。
  */
-function NoteTabsSheet({
-  tabs,
-  activeId,
-  onSwitch,
-  onClose,
-  onNew,
-  creating,
-}: {
-  tabs: Array<{ id: string; title: string; icon: string | null }>;
-  activeId: string | null;
-  onSwitch: (id: string) => void;
-  onClose: (id: string) => void;
-  onNew: () => void;
-  creating: boolean;
-}) {
+export function MobileNoteTabsButton({ className }: { className?: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
+  const [creating, setCreating] = useState(false);
+  const tabs = useOpenTabsStore((state) => state.tabs);
+  const removeTab = useOpenTabsStore((state) => state.removeTab);
+  const activeId = pathname?.match(NOTE_ID_RE)?.[1] ?? null;
   const [open, setOpen] = useState(false);
+
+  const handleNewNote = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const result = await createNewNote(supabase);
+      if (result.status === "unauthenticated" || result.status === "failed") {
+        toast({ title: describeCreateNoteResult(result), variant: "destructive" });
+        return;
+      }
+      if (result.status === "queued") {
+        toast({ title: describeCreateNoteResult(result) });
+      }
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      setOpen(false);
+      router.push(`/notes/${result.noteId}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (open === false && tabs.length === 0) return null;
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed left-3 top-16 z-40 flex h-8 items-center gap-1.5 rounded-full border bg-card px-3 text-xs text-muted-foreground shadow-sm"
+        className={cn(
+          "inline-flex h-8 items-center gap-1 rounded-full border bg-card px-2.5 text-xs text-muted-foreground shadow-sm",
+          className
+        )}
         aria-label={`已打开笔记 ${tabs.length}`}
       >
         <FileText className="h-3.5 w-3.5" />
-        已打开笔记 {tabs.length}
+        {tabs.length}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-sm" hideCloseButton>
@@ -276,7 +283,7 @@ function NoteTabsSheet({
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   onClick={() => {
-                    onSwitch(tab.id);
+                    router.push(`/notes/${tab.id}`);
                     setOpen(false);
                   }}
                 >
@@ -288,14 +295,14 @@ function NoteTabsSheet({
                   type="button"
                   aria-label={`关闭 ${tab.title || "无标题笔记"}`}
                   className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={() => onClose(tab.id)}
+                  onClick={() => removeTab(tab.id)}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             ))}
           </div>
-          <Button variant="outline" className="w-full" onClick={() => { setOpen(false); onNew(); }} disabled={creating}>
+          <Button variant="outline" className="w-full" onClick={() => { setOpen(false); void handleNewNote(); }} disabled={creating}>
             {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
             新建笔记
           </Button>
