@@ -21,7 +21,8 @@ interface NoteHierarchyBarProps {
   icon: string | null;
   parentNoteId: string | null;
   notes: NoteTreeItem[];
-  onParentChange: (parentId: string | null) => void;
+  /** N03：viewer 不可变更父页面（不传则入口整体隐藏） */
+  onParentChange?: (parentId: string | null) => void;
 }
 
 export function NoteHierarchyBar({
@@ -73,7 +74,7 @@ export function NoteHierarchyBar({
       ))}
 
       <Popover onOpenChange={(open) => !open && setQuery("")}>
-        <PopoverTrigger asChild>
+        <PopoverTrigger asChild disabled={!onParentChange}>
           <button
             type="button"
             className="note-hierarchy-move"
@@ -96,7 +97,7 @@ export function NoteHierarchyBar({
             <button
               type="button"
               className={cn(!parentNoteId && "is-active")}
-              onClick={() => onParentChange(null)}
+              onClick={() => onParentChange?.(null)}
             >
               <span>📄</span>
               <span>顶层笔记</span>
@@ -107,7 +108,7 @@ export function NoteHierarchyBar({
                 key={note.id}
                 type="button"
                 className={cn(parentNoteId === note.id && "is-active")}
-                onClick={() => onParentChange(note.id)}
+                onClick={() => onParentChange?.(note.id)}
               >
                 <span>{note.icon || "📄"}</span>
                 <span>{note.title || "无标题笔记"}</span>

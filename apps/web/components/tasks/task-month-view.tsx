@@ -838,6 +838,8 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
       setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
     } else if (mode === "week") {
       setCursor(new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + direction * 7));
+      // M06：手机周视图的议程页跟随翻页周（selectedDate 始终落在可见周内）
+      setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + direction * 7));
     } else if (mode === "month") {
       setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + direction, 1));
     } else {
@@ -895,21 +897,64 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
             ))}
           </div>
           <button type="button" aria-label="上一页" onClick={() => step(-1)} className="rounded-lg border p-2 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
-          <button type="button" onClick={goToday} className="rounded-lg border px-4 py-2 text-sm hover:bg-muted">今天</button>
+          <button type="button" onClick={goToday} className="shrink-0 whitespace-nowrap rounded-lg border px-3 py-2 text-sm hover:bg-muted md:px-4">今天</button>
           <button type="button" aria-label="下一页" onClick={() => step(1)} className="rounded-lg border p-2 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
         </div>
       </header>
 
       {mode === "week" && (
-        <WeekGridView
-          days={weekDays}
-          tasks={monthTasks}
-          countdowns={countdowns}
-          today={today}
-          onTaskClick={onTaskClick}
-          onUpdateTaskSchedule={onUpdateTaskSchedule}
-          onDateClick={onDateClick}
-        />
+        <>
+          {/* M06：手机上周历七列每列仅 ~44px，降级为「日期条 + 当日议程」；
+              桌面保持七列时间网格（拖拽排期）不变 */}
+          <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 md:hidden">
+            {weekDays.map((day) => {
+              const active = day.toDateString() === selectedDate.toDateString();
+              const dayTaskCount = monthTasks.filter((task) => {
+                const value = task.schedule_start_at || task.due_date;
+                if (!value) return false;
+                const d = new Date(value);
+                return !Number.isNaN(d.getTime()) && d.toDateString() === day.toDateString();
+              }).length;
+              return (
+                <button
+                  key={day.toISOString()}
+                  type="button"
+                  onClick={() => setSelectedDate(day)}
+                  className={cn(
+                    "flex min-w-[44px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs",
+                    active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  <span>{WEEK_DAY_LABELS[(day.getDay() + 6) % 7].replace("周", "")}</span>
+                  <span className={cn("text-sm font-medium", active && "font-semibold")}>{day.getDate()}</span>
+                  {dayTaskCount > 0 && <span className={cn("h-1 w-1 rounded-full", active ? "bg-primary-foreground" : "bg-primary")} />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
+            <DayView
+              date={selectedDate}
+              tasks={monthTasks}
+              countdowns={countdowns}
+              onTaskClick={onTaskClick}
+              onUpdateTaskSchedule={onUpdateTaskSchedule}
+              onRescheduleTask={onRescheduleTask}
+              onAdd={onDateClick ? () => onDateClick(selectedDate) : undefined}
+            />
+          </div>
+          <div className="hidden min-h-0 flex-1 md:block">
+            <WeekGridView
+              days={weekDays}
+              tasks={monthTasks}
+              countdowns={countdowns}
+              today={today}
+              onTaskClick={onTaskClick}
+              onUpdateTaskSchedule={onUpdateTaskSchedule}
+              onDateClick={onDateClick}
+            />
+          </div>
+        </>
       )}
 
       {mode === "month" && (

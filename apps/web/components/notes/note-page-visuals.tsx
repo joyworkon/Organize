@@ -28,6 +28,8 @@ const PAGE_EMOJIS = [
 interface NotePageVisualsProps {
   noteId: string;
   contentClassName: string;
+  /** N03：只读角色（viewer）隐藏图标/封面等会写库的变更入口；评论开关保留（可查看） */
+  readOnly?: boolean;
   icon: string | null;
   coverUrl: string | null;
   coverPosition: number;
@@ -42,6 +44,7 @@ interface NotePageVisualsProps {
 
 export function NotePageVisuals({
   noteId,
+  readOnly = false,
   contentClassName,
   icon,
   coverUrl,
@@ -124,7 +127,7 @@ export function NotePageVisuals({
           role="img"
           aria-label="笔记封面"
         >
-          <div className="note-page-cover-controls">
+          <div className={readOnly ? "hidden" : "note-page-cover-controls"}>
             <Button
               type="button"
               variant="secondary"
@@ -187,27 +190,33 @@ export function NotePageVisuals({
       >
         <div className={cn("note-page-icon-actions", !icon && "no-icon")}>
           {icon ? (
-            <EmojiPopover icon={icon} onSelect={onIconChange}>
-              <button
-                type="button"
-                className="note-page-icon"
-                aria-label="更改页面图标"
-                title="更改页面图标"
-              >
-                {icon}
-              </button>
-            </EmojiPopover>
+            readOnly ? (
+              <span className="note-page-icon" title="只读模式，无法更改图标">{icon}</span>
+            ) : (
+              <EmojiPopover icon={icon} onSelect={onIconChange}>
+                <button
+                  type="button"
+                  className="note-page-icon"
+                  aria-label="更改页面图标"
+                  title="更改页面图标"
+                >
+                  {icon}
+                </button>
+              </EmojiPopover>
+            )
           ) : (
-            <EmojiPopover icon={null} onSelect={onIconChange}>
-              <Button type="button" variant="ghost" size="sm" className="note-page-add-btn">
-                <SmilePlus className="h-4 w-4" />
-                添加图标
-              </Button>
-            </EmojiPopover>
+            !readOnly && (
+              <EmojiPopover icon={null} onSelect={onIconChange}>
+                <Button type="button" variant="ghost" size="sm" className="note-page-add-btn">
+                  <SmilePlus className="h-4 w-4" />
+                  添加图标
+                </Button>
+              </EmojiPopover>
+            )
           )}
 
           <div className={cn("note-page-add-actions", icon && "has-icon")}>
-            {!coverUrl && (
+            {!coverUrl && !readOnly && (
               <Button
                 type="button"
                 variant="ghost"

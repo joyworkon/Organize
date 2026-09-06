@@ -2,22 +2,32 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Link, FileText } from "lucide-react";
+import { Plus, Link, FileText, Feather, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
 import { createNewNote } from "@/lib/notes/create-note";
+import { createQuickTask } from "@/lib/tasks/quick-create";
+import { enqueueMemoCreate, makeMemoCreateOp } from "@/lib/offline/memo-queue";
+import { emitDataChanged } from "@/lib/desktop/notch";
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
+import { isImeComposing } from "@/lib/input/submit-guard";
+import { isOnline } from "@/lib/offline/network";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type QuickAddMode = "menu" | "url";
+type QuickAddMode = "menu" | "url" | "memo" | "task";
 
 export function QuickAdd() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<QuickAddMode>("menu");
   const [url, setUrl] = useState("");
+  const [quickText, setQuickText] = useState("");
+  const quickTextRef = useRef("");
+  useEffect(() => {
+    quickTextRef.current = quickText;
+  }, [quickText]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -33,6 +43,7 @@ export function QuickAdd() {
     setOpen(true);
     setMode("menu");
     setUrl("");
+    setQuickText("");
     requestAnimationFrame(() => {
       setIsVisible(true);
     });
@@ -44,6 +55,7 @@ export function QuickAdd() {
       setOpen(false);
       setMode("menu");
       setUrl("");
+      setQuickText("");
     }, 150);
   }, []);
 
@@ -62,6 +74,81 @@ export function QuickAdd() {
       setIsSubmitting(false);
     }
   }, [closePanel]);
+
+  /** U01：随手新建速记（稳定 id + 离线入队，与速记页同一幂等合同） */
+  const handleCreateMemo = useCallback(async () => {
+    const content = quickTextRef.current.trim();
+    if (!content || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      const memoId = crypto.randomUUID();
+      const queueOffline = () => {
+        const { persisted } = enqueueMemoCreate(
+          localStorage,
+          user.id,
+          { op_id: crypto.randomUUID(), memo: { id: memoId, content }, created_at: Date.now() },
+        );
+        toast(persisted
+          ? { title: "已离线保存，联网后自动同步" }
+          : { title: "本地存储不可用，离线创建可能丢失", variant: "destructive" });
+      };
+      if (!isOnline()) {
+        queueOffline();
+      } else {
+        const res = await fetch("/api/memos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content, id: memoId }),
+        });
+        if (!res.ok) {
+          if (res.status >= 500) {
+            queueOffline();
+          } else {
+            toast({ title: "创建失败", variant: "destructive" });
+            return;
+          }
+        } else {
+          void emitDataChanged({ topic: "memos", origin: "main" });
+        }
+      }
+      setQuickText("");
+      closePanel();
+      toast({ title: "速记已保存" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [supabase, isSubmitting, closePanel]);
+
+  /** U01：随手添加待办（createQuickTask：在线直写 / 离线入队同一稳定 id） */
+  const handleCreateTask = useCallback(async () => {
+    const title = quickTextRef.current.trim();
+    if (!title || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const result = await createQuickTask(supabase, { title });
+      if (result.status === "unauthenticated") {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      if (result.status === "failed") {
+        toast({ title: "创建失败", description: result.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: result.status === "queued" ? "已离线创建，联网后自动同步" : "已添加待办" });
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      void emitDataChanged({ topic: "tasks", origin: "main" });
+      setQuickText("");
+      closePanel();
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [supabase, isSubmitting, closePanel]);
 
   const handleCreateNote = useCallback(async () => {
     setIsSubmitting(true);
@@ -175,7 +262,7 @@ export function QuickAdd() {
   }, [open, closePanel]);
 
   useEffect(() => {
-    if (open && mode === "url" && urlInputRef.current) {
+    if (open && (mode === "url" || mode === "memo" || mode === "task")) {
       setTimeout(() => urlInputRef.current?.focus(), 50);
     }
   }, [open, mode]);
@@ -219,6 +306,20 @@ export function QuickAdd() {
               </button>
               <button
                 className="flex items-center gap-2 p-2 rounded hover:bg-accent w-full text-left text-sm transition-colors"
+                onClick={() => setMode("memo")}
+              >
+                <Feather className="h-4 w-4 text-muted-foreground" />
+                <span>🪶 新建速记</span>
+              </button>
+              <button
+                className="flex items-center gap-2 p-2 rounded hover:bg-accent w-full text-left text-sm transition-colors"
+                onClick={() => setMode("task")}
+              >
+                <ListTodo className="h-4 w-4 text-muted-foreground" />
+                <span>✅ 添加待办</span>
+              </button>
+              <button
+                className="flex items-center gap-2 p-2 rounded hover:bg-accent w-full text-left text-sm transition-colors"
                 onClick={handleCreateNote}
                 disabled={isSubmitting}
               >
@@ -229,6 +330,63 @@ export function QuickAdd() {
                 <p className="px-2 text-xs text-muted-foreground">
                   <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded border text-[10px]">⌘N</kbd> 快速打开
                 </p>
+              </div>
+            </div>
+          )}
+
+          {mode === "memo" && (
+            <div className="space-y-2">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setMode("menu")}
+              >
+                ← 返回
+              </button>
+              <textarea
+                ref={urlInputRef as unknown as React.RefObject<HTMLTextAreaElement>}
+                placeholder="记录此刻的想法…（#标签 可用）"
+                value={quickText}
+                onChange={(e) => setQuickText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (isImeComposing(e)) return;
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    void handleCreateMemo();
+                  }
+                }}
+                rows={3}
+                className="w-full resize-none rounded-md border bg-transparent p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+              />
+              <div className="flex justify-end">
+                <Button size="sm" onClick={handleCreateMemo} disabled={isSubmitting || !quickText.trim()}>
+                  保存速记
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {mode === "task" && (
+            <div className="space-y-2">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setMode("menu")}
+              >
+                ← 返回
+              </button>
+              <Input
+                ref={urlInputRef}
+                placeholder="待办内容，回车添加…"
+                value={quickText}
+                onChange={(e) => setQuickText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (isImeComposing(e)) return;
+                  if (e.key === "Enter") handleCreateTask();
+                }}
+              />
+              <div className="flex justify-end">
+                <Button size="sm" onClick={handleCreateTask} disabled={isSubmitting || !quickText.trim()}>
+                  添加待办
+                </Button>
               </div>
             </div>
           )}

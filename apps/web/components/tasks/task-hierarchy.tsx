@@ -197,9 +197,6 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
         )}
       </div>
 
-      {children.length === 0 && (
-        <p className="py-2 text-center text-sm text-muted-foreground">暂无子任务</p>
-      )}
       <div className="space-y-1">
         {children.map((child) => (
           <div
