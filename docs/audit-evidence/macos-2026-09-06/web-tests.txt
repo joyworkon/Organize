@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/k/Documents/ZCode/Organize/apps/web
+
+
+ Test Files  3 passed (3)
+      Tests  22 passed (22)
+   Start at  11:10:50
+   Duration  325ms (transform 98ms, setup 0ms, import 132ms, tests 23ms, environment 0ms)
+

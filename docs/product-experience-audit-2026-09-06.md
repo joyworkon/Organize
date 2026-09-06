@@ -437,6 +437,8 @@ V01 的测试随对应批次加入，而不是全部推迟到第 8 批；M05 的
 
 ### 批次 5：K01–K04 刘海生命周期（2026-09-06）
 
+> **后续复审：** 在合并至 `7b6d1db` 后，[MacBook 刘海与 macOS 专项复审](/Users/k/Documents/ZCode/Organize/docs/macos-notch-compatibility-review-2026-09-06.md)发现仍需修复的代码缺口，包括 K01 活动保护未覆盖完整会话、K02 关闭拦截使窗口无法回收及混合缩放坐标、K03 事件载荷被再次序列化；另有刘海草稿版本比较等问题。下方保留当时的实施记录，但 K01–K04 不应视为仅剩真机验收，后续按专项报告 MC01–MC12 推进。
+
 **K01 · 已实现（Rust cargo check 通过）· 待真机验收**
 - 修改（desktop/src-tauri/src/notch.rs）：① 新增 `notch-activity` 心跳桥——web 面板输入/输入法组合/保存中周期上报，Rust 记 `busy_until`（TTL 1.5s 顺延），忙碌期 `tick_expanded` 不做「光标离开」自动收起；② ⌘⇧M 等显式入口展开置 `sticky_open`，sticky 期间完全不看光标位置（由 Esc/保存/再按 ⌘⇧M/失焦宽限负责关闭）；③ `collapse` 时若光标仍压在热区上置 `rearm_required`，须先离开热区一次才允许再次悬停展开（防抢焦循环）；④ sticky/忙碌期间光标扫过副屏胶囊不再切屏抢焦点。
 - 待真机（批次 8）：⌘⇧M 打开后鼠标停屏中央持续输入；打字时移动鼠标不收起；候选词窗口/保存中/Esc/重悬停行为。
