@@ -9,6 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { isImeComposing } from "@/lib/input/submit-guard";
 import { enqueueTaskOp, makeTaskCreateOp, makeTaskUpdateOp } from "@/lib/offline/task-queue";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
@@ -92,7 +93,8 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       updated_at: now,
     };
     setChildren((current) => [...current, optimistic]);
-    setTitle("");
+    // F02：只清空被提交的版本（请求期间继续输入的内容保留）
+    setTitle((current) => (current === nextTitle ? "" : current));
     const rollback = () => {
       setChildren((current) => current.filter((item) => item.id !== insertPayload.id));
       setTitle(nextTitle);
@@ -240,6 +242,8 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
+            // F01：输入法组合态（中文选字）的 Enter 不创建
+            if (isImeComposing(event)) return;
             if (event.key === "Enter") void addSubtask();
           }}
           placeholder="添加子任务，回车创建"

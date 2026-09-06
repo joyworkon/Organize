@@ -29,6 +29,7 @@ import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { isImeComposing } from "@/lib/input/submit-guard";
 import { enqueueTaskOp, makeChecklistUpdateOp } from "@/lib/offline/task-queue";
 import {
   DropdownMenu,
@@ -281,7 +282,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
         <div className="flex items-start gap-3">
           {editingTitle ? (
-            <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => void saveTitle()} onKeyDown={(event) => { if (event.key === "Enter") void saveTitle(); if (event.key === "Escape") { setTitle(task.title); setEditingTitle(false); } }} className="min-w-0 flex-1 border-b bg-transparent text-2xl font-semibold outline-none" />
+            <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => void saveTitle()} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === "Enter") void saveTitle(); if (event.key === "Escape") { setTitle(task.title); setEditingTitle(false); } }} className="min-w-0 flex-1 border-b bg-transparent text-2xl font-semibold outline-none" />
           ) : (
             <h1 className="min-w-0 flex-1 cursor-text text-2xl font-semibold leading-tight" onClick={() => setEditingTitle(true)}>{task.title}</h1>
           )}

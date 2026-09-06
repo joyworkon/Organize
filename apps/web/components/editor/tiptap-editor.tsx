@@ -1440,14 +1440,16 @@ export function TipTapEditor({
     const blockId = String(node.attrs?.id || "");
     if (!blockId) return;
     const title = node.textContent.trim() || "无标题笔记";
-    const created = await createNewNote(supabase, {
+    // N02：统一创建服务；离线时 queued 也直接用客户端 id 建链（回放后即真实页面）
+    const result = await createNewNote(supabase, {
       title,
       parent_note_id: noteId ?? null,
     });
-    if (!created) {
-      toast({ title: "转换成页面失败，请重试", variant: "destructive" });
+    if (result.status === "unauthenticated" || result.status === "failed") {
+      toast({ title: "转换成页面失败，请重试", description: result.status === "failed" ? result.message : undefined, variant: "destructive" });
       return;
     }
+    const createdId = result.noteId;
     // 创建期间块可能已被删除/移动：校验同位置的块仍是原来那个（按 block id）
     const current = editor.state.doc.nodeAt(pos);
     if (!current || String(current.attrs?.id || "") !== blockId) return;
@@ -1457,7 +1459,7 @@ export function TipTapEditor({
         { type: "text", text: "📄 " },
         {
           type: "text",
-          marks: [{ type: "link", attrs: { href: `/notes/${created.id}` } }],
+          marks: [{ type: "link", attrs: { href: `/notes/${createdId}` } }],
           text: title,
         },
       ],

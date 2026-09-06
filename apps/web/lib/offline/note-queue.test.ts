@@ -59,16 +59,28 @@ describe("enqueue/find/remove：队列维护", () => {
   it("不同 note id 按序追加", () => {
     const storage = memoryStorage();
     enqueueNoteCreate(storage, createOp("a"));
-    const ops = enqueueNoteCreate(storage, createOp("b"));
+    const { ops } = enqueueNoteCreate(storage, createOp("b"));
     expect(ops.map((op) => op.note.id)).toEqual(["a", "b"]);
   });
 
   it("同 note id 重复入队以最新载荷为准（不重复插入）", () => {
     const storage = memoryStorage();
     enqueueNoteCreate(storage, createOp("a", { title: "旧" }));
-    const ops = enqueueNoteCreate(storage, createOp("a", { title: "新" }));
+    const { ops } = enqueueNoteCreate(storage, createOp("a", { title: "新" }));
     expect(ops).toHaveLength(1);
     expect(ops[0].note.title).toBe("新");
+  });
+
+  it("enqueue 返回 persisted（持久化失败调用方可知）", () => {
+    const okStorage = memoryStorage();
+    expect(enqueueNoteCreate(okStorage, createOp("a")).persisted).toBe(true);
+    const throwingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota");
+      },
+    };
+    expect(enqueueNoteCreate(throwingStorage, createOp("a")).persisted).toBe(false);
   });
 
   it("findNoteCreate 按 note id 定位", () => {

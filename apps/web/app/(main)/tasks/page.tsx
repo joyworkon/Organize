@@ -23,6 +23,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { appEvents } from "@/lib/plugin/events";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { isImeComposing } from "@/lib/input/submit-guard";
 import {
   enqueueTaskOp,
   makeTaskCreateOp,
@@ -761,11 +762,18 @@ function TasksPageInner() {
     },
   ]);
 
+  const quickAddBusyRef = useRef(false);
   const quickAdd = async (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // F01：输入法组合态（中文选字）的 Enter 不提交
+    if (isImeComposing(event)) return;
     if (event.key !== "Enter") return;
+    // F01：请求中的互斥锁——慢网络上连续 Enter / 快速双击不会重复创建
+    if (quickAddBusyRef.current) return;
     const input = event.currentTarget;
     const title = input.value.trim();
     if (!title) return;
+    quickAddBusyRef.current = true;
+    try {
     // X1：getSession 读本地会话（无网络请求），离线创建可用；getUser 离线返回 null 会静默吞掉创建
     const { data: { session } } = await supabase.auth.getSession();
     const user = session?.user;
@@ -808,7 +816,8 @@ function TasksPageInner() {
       setTasks((current) => [optimistic, ...current]);
       const { persisted } = enqueueTaskOp(localStorage, user.id, makeTaskCreateOp(insertPayload));
       setPendingOps(taskOpsCount(localStorage, user.id));
-      input.value = "";
+      // F02：只清空被提交的版本（请求期间继续输入的内容保留）
+      if (input.value === title) input.value = "";
       if (!persisted) toast({ title: "本地存储不可用，离线创建可能丢失", variant: "destructive" });
       else toast({ title: "已离线创建，联网后自动同步" });
     };
@@ -826,9 +835,13 @@ function TasksPageInner() {
       toast({ title: "创建任务失败", description: error.message, variant: "destructive" });
       return;
     }
-    input.value = "";
+    // F02：只清空被提交的版本（请求期间继续输入的内容保留）
+    if (input.value === title) input.value = "";
     await fetchTasks();
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+    } finally {
+      quickAddBusyRef.current = false;
+    }
   };
 
   /** 行公共 props：平铺（拖拽）与分组两种渲染分支共用；已完成任务不展示阻塞标识（保持旧行为）。

@@ -1,0 +1,28 @@
+{
+  "draftAfterNav": "未提交草稿XYZ",
+  "draftAfterReload": "未提交草稿XYZ",
+  "inputAfterLateResponse": "AAABBB",
+  "postsDuringRace": 1,
+  "mutexPostCount": 1,
+  "mutexInputAfter": "",
+  "imeText": "组合态",
+  "offlineVisible": true,
+  "onLineAtOffline": false,
+  "offlineMarker": "set-true",
+  "postCountAtOffline": 0,
+  "offlineQueue": [
+    "[{\"op_id\":\"8a1f3418-d9ed-4ecf-bd07-896e75a7202c\",\"memo\":{\"id\":\"88efd6e6-799e-4a78-a22d-d8bcb1a709b7\",\"content\":\"离线速记Q\"},\"created_at\":1788695265159}]"
+  ],
+  "queueAfterReplay": [
+    "[]"
+  ],
+  "noteOfflineToastVisible": true,
+  "noteUrlAfterClick": "http://localhost:3100/notes/75a190cc-74fa-4305-b927-a5211e961ba0",
+  "noteQueue": [
+    "[{\"op_id\":\"db335925-731e-4c95-97ec-89f68ca91bde\",\"note\":{\"id\":\"75a190cc-74fa-4305-b927-a5211e961ba0\",\"user_id\":\"mock-user-0001\",\"title\":\"\",\"content\":{\"type\":\"do"
+  ],
+  "noteQueueAfterReplay": [
+    "[]"
+  ],
+  "consoleIssues": []
+}

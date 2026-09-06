@@ -295,9 +295,15 @@ const createMemo: MockHandler = ({ body }) => {
   if (!content || content.length > 5000) {
     return { status: 400, body: { error: "内容无效（1-5000 字）" } };
   }
+  // 与真实路由一致的幂等合同：显式 id 冲突时返回既有行（离线队列回放/重复提交）
+  const explicitId = typeof body?.id === "string" && body.id.trim() ? body.id.trim() : null;
+  if (explicitId) {
+    const existing = mockDb.memos.find((m) => m.id === explicitId);
+    if (existing) return { body: existing };
+  }
   const now = nowIso();
   const row = {
-    id: genId("memos"),
+    id: explicitId ?? genId("memos"),
     user_id: MOCK_USER.id,
     content,
     tags: parseMemoTags(content),

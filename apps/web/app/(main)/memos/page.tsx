@@ -2,17 +2,33 @@
 
 // 速记（flomo 式碎片捕捉）：顶部大输入框 + 按日分组时间流 + #标签 筛选。
 // 与 notes（成品笔记）区分：这里是随手记，可一键转为正式笔记。
-import { useCallback, useEffect, useMemo, useState } from "react";
+//
+// F01：所有提交快捷键经 isImeComposing 守卫（中文选字 Enter 不误提交）；
+//      触屏设备 Enter 换行，保存走明确按钮。F02：输入即存本机草稿（按用户+入口），
+//      保存成功只清空被确认的那个版本（提交期间续写不丢）；离线创建走
+//      memo-queue（客户端稳定 id，服务端幂等合同）联网后自动回放。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
+import {
+  enqueueMemoCreate,
+  makeMemoCreateOp,
+  replayMemoCreates,
+} from "@/lib/offline/memo-queue";
+import { isImeComposing } from "@/lib/input/submit-guard";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { isOnline, onNetworkChange } from "@/lib/offline/network";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Memo } from "@organize/shared";
 import { Feather, Loader2, Pencil, FileText, Trash2 } from "lucide-react";
+
+const MEMO_MAX_LENGTH = 5000;
 
 function dateLabel(iso: string): string {
   const date = new Date(iso);
@@ -52,7 +68,50 @@ export default function MemosPage() {
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  // F02：草稿按 用户+入口 隔离；userId 到位后恢复一次
+  const [userId, setUserId] = useState<string | null>(null);
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  const inputRef = useRef("");
+  const draftRestoredRef = useRef(false);
+
+  inputRef.current = input;
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserId(session?.user?.id ?? null);
+    });
+    // F01：触屏设备 Enter 用于换行（保存按钮始终可见）；桌面 Enter 保存
+    setCoarsePointer(window.matchMedia("(pointer: coarse)").matches);
+  }, [supabase]);
+
+  // F02：恢复本机草稿（只恢复一次；用户已开始输入时不覆盖）
+  useEffect(() => {
+    if (!userId || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    const draft = loadMemoDraft(localStorage, userId, "main");
+    if (draft && !inputRef.current) setInput(draft);
+  }, [userId]);
+
+  const updateInput = useCallback(
+    (value: string) => {
+      setInput(value);
+      if (userId) saveMemoDraft(localStorage, userId, "main", value);
+    },
+    [userId]
+  );
+
+  /** 仅当当前输入仍是被确认保存的版本时才清空（保存期间续写的内容保留） */
+  const clearInputIfSame = useCallback(
+    (submitted: string) => {
+      if (inputRef.current !== submitted) return;
+      setInput("");
+      if (userId) clearMemoDraft(localStorage, userId, "main");
+    },
+    [userId]
+  );
+
   // R11：速记 → 关联笔记状态（memo_notes join notes 含软删，用于状态展示）
   const [conversions, setConversions] = useState<
     Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>
@@ -102,6 +161,38 @@ export default function MemosPage() {
     }
   }, []);
 
+  const fetchMemosRef = useRef<(() => void) | null>(null);
+  fetchMemosRef.current = fetchMemos;
+
+  // F02：联网时回放离线创建队列（挂载 + 恢复在线时）
+  const replayOfflineCreates = useCallback(async () => {
+    if (!userId || !isOnline()) return;
+    const result = await replayMemoCreates(
+      {
+        createMemo: async (memo) => {
+          const res = await fetch("/api/memos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(memo),
+          });
+          // 5xx 保留重试；4xx 业务拒绝丢弃
+          return { ok: res.ok, retryable: res.status >= 500 };
+        },
+      },
+      userId,
+      localStorage
+    );
+    if (result.applied > 0) void fetchMemosRef.current?.();
+  }, [userId]);
+
+  useEffect(() => {
+    const off = onNetworkChange((online) => {
+      if (online) void replayOfflineCreates();
+    });
+    void replayOfflineCreates();
+    return off;
+  }, [replayOfflineCreates]);
+
   useEffect(() => {
     fetchMemos();
     void loadConversions();
@@ -133,24 +224,73 @@ export default function MemosPage() {
 
   const inputTags = parseMemoTags(input);
 
+  /** F01/F02：统一提交入口——稳定 id、提交互斥、离线入队、版本化清空 */
   const handleSave = async () => {
-    const content = input.trim();
+    const rawInput = inputRef.current;
+    const content = rawInput.trim();
     if (!content || saving) return;
+    if (content.length > MEMO_MAX_LENGTH) {
+      toast({
+        title: "内容超出长度限制",
+        description: `速记最多 ${MEMO_MAX_LENGTH} 字，当前 ${content.length} 字`,
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
+    // 客户端生成稳定 id：重复提交/离线回放均由服务端主键幂等去重
+    const memoId = crypto.randomUUID();
+    const optimistic: Memo = {
+      id: memoId,
+      user_id: userId ?? "",
+      content,
+      tags: parseMemoTags(content),
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as Memo;
+    const offlineCreate = () => {
+      const { persisted: ok } = enqueueMemoCreate(
+        localStorage,
+        userId ?? "",
+        { op_id: crypto.randomUUID(), memo: { id: memoId, content }, created_at: Date.now() }
+      );
+      setMemos((prev) => [optimistic, ...prev]);
+      clearInputIfSame(rawInput);
+      toast(
+        ok
+          ? { title: "当前离线，已本地保存，联网后自动同步" }
+          : { title: "本地存储不可用，离线创建可能丢失", variant: "destructive" }
+      );
+    };
     try {
+      if (!isOnline()) {
+        offlineCreate();
+        return;
+      }
       const res = await fetch("/api/memos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, id: memoId }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "保存失败");
+        const error = new Error(data?.error || "保存失败");
+        // 网络类失败与断网同样入队回放；业务错误（如超长）保留输入现场
+        if (isNetworkSaveError(error) || res.status >= 500) {
+          offlineCreate();
+          return;
+        }
+        throw error;
       }
       const memo = (await res.json()) as Memo;
-      setMemos((prev) => [memo, ...prev]);
-      setInput("");
+      setMemos((prev) => [memo, ...prev.filter((m) => m.id !== memoId)]);
+      clearInputIfSame(rawInput);
     } catch (error) {
+      if (isNetworkSaveError(error)) {
+        offlineCreate();
+        return;
+      }
       toast({
         title: "保存失败",
         description: error instanceof Error ? error.message : undefined,
@@ -163,29 +303,45 @@ export default function MemosPage() {
 
   const handleEditSave = async (id: string) => {
     const content = editContent.trim();
-    if (!content) return;
-    const res = await fetch(`/api/memos/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-    if (res.ok) {
-      const updated = (await res.json()) as Memo;
-      setMemos((prev) => prev.map((m) => (m.id === id ? updated : m)));
-      setEditingId(null);
-    } else {
-      toast({ title: "编辑失败", variant: "destructive" });
+    if (!content || editSaving) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/memos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as Memo;
+        setMemos((prev) => prev.map((m) => (m.id === id ? updated : m)));
+        setEditingId(null);
+      } else {
+        const data = await res.json().catch(() => null);
+        toast({
+          title: "编辑失败",
+          description: data?.error || "请稍后重试，输入已保留",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "编辑失败", description: "网络异常，输入已保留", variant: "destructive" });
+    } finally {
+      setEditSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("删除这条速记？")) return;
-    const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setMemos((prev) => prev.filter((m) => m.id !== id));
-      toast({ title: "已删除" });
-    } else {
-      toast({ title: "删除失败", variant: "destructive" });
+    try {
+      const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setMemos((prev) => prev.filter((m) => m.id !== id));
+        toast({ title: "已删除" });
+      } else {
+        toast({ title: "删除失败", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "删除失败", description: "网络异常，请稍后重试", variant: "destructive" });
     }
   };
 
@@ -232,13 +388,17 @@ export default function MemosPage() {
         description={`随手捕捉碎片想法，#标签 组织，共 ${memos.length} 条`}
       />
 
-      {/* 输入区：默认聚焦，Enter 保存 / Shift+Enter 换行 */}
+      {/* 输入区：桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
       <div className="rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
         <textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => updateInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            // F01：输入法组合态（中文选字）的 Enter 不作提交
+            if (isImeComposing(e)) return;
+            if (e.key === "Enter") {
+              const submit = !e.shiftKey && (e.metaKey || e.ctrlKey || !coarsePointer);
+              if (!submit) return; // Shift+Enter / 触屏 Enter：换行
               e.preventDefault();
               void handleSave();
             }
@@ -256,9 +416,26 @@ export default function MemosPage() {
               </span>
             ))}
           </div>
-          <Button size="sm" onClick={() => void handleSave()} disabled={!input.trim() || saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* F03：服务端 5,000 字限制的前端计数提示 */}
+            {input.length > MEMO_MAX_LENGTH * 0.9 && (
+              <span
+                className={cn(
+                  "text-[11px]",
+                  input.length > MEMO_MAX_LENGTH ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {input.length}/{MEMO_MAX_LENGTH}
+              </span>
+            )}
+            <Button
+              size="sm"
+              onClick={() => void handleSave()}
+              disabled={!input.trim() || saving || input.length > MEMO_MAX_LENGTH}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -329,6 +506,8 @@ export default function MemosPage() {
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
                           onKeyDown={(e) => {
+                            // F01：组合态 Enter 不提交
+                            if (isImeComposing(e)) return;
                             if (e.key === "Enter" && !e.shiftKey) {
                               e.preventDefault();
                               void handleEditSave(memo.id);
@@ -343,8 +522,12 @@ export default function MemosPage() {
                           <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
                             取消
                           </Button>
-                          <Button size="sm" onClick={() => void handleEditSave(memo.id)}>
-                            保存
+                          <Button
+                            size="sm"
+                            onClick={() => void handleEditSave(memo.id)}
+                            disabled={editSaving}
+                          >
+                            {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
                           </Button>
                         </div>
                       </div>

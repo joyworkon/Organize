@@ -35,20 +35,27 @@ export function readNoteCreates(storage: StorageLike): PendingNoteCreate[] {
   }
 }
 
-export function writeNoteCreates(storage: StorageLike, ops: PendingNoteCreate[]): void {
+export function writeNoteCreates(storage: StorageLike, ops: PendingNoteCreate[]): boolean {
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(ops));
-  } catch { /* 存储满/不可用：放弃持久化，内存流程继续 */ }
+    return true;
+  } catch {
+    // 存储满/不可用：放弃持久化，内存流程继续；调用方经 persisted 感知
+    return false;
+  }
 }
 
-export function enqueueNoteCreate(storage: StorageLike, op: PendingNoteCreate): PendingNoteCreate[] {
+export function enqueueNoteCreate(
+  storage: StorageLike,
+  op: PendingNoteCreate
+): { ops: PendingNoteCreate[]; persisted: boolean } {
   const ops = readNoteCreates(storage);
   // 同 note id 只保留一条（重复入队以最新载荷为准）
   const index = ops.findIndex((item) => item.note.id === op.note.id);
   if (index >= 0) ops[index] = op;
   else ops.push(op);
-  writeNoteCreates(storage, ops);
-  return ops;
+  // 持久化失败必须让调用方可知（提示「离线创建可能丢失」）
+  return { ops, persisted: writeNoteCreates(storage, ops) };
 }
 
 export function findNoteCreate(storage: StorageLike, noteId: string): PendingNoteCreate | null {
