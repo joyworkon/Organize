@@ -24,6 +24,7 @@ const getCommandsSnapshot = () => commandRegistry.list();
 const getCommandsServerSnapshot = (): readonly CommandDefinition[] => EMPTY_SERVER_SNAPSHOT;
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { createClient } from "@/lib/supabase/client";
+import { createNewNote } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
 import {
   Home,
@@ -575,25 +576,20 @@ export function CommandPalette() {
   const handleCreateNote = async () => {
     setOpen(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      // N02：统一创建服务（离线入队返回 queued，客户端 id 即最终地址）
+      const result = await createNewNote(supabase);
+      if (result.status === "unauthenticated") {
         router.push("/login");
         return;
       }
-      const { data, error } = await supabase
-        .from("notes")
-        .insert({
-          user_id: user.id,
-          // 空标题：编辑页用浅灰占位符「无标题笔记」展示 + 自动聚焦
-          title: "",
-          content: { type: "doc", content: [{ type: "paragraph" }] },
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      if (data) {
-        router.push(`/notes/${data.id}`);
+      if (result.status === "failed") {
+        toast({ title: "创建笔记失败", description: result.message, variant: "destructive" });
+        return;
       }
+      if (result.status === "queued") {
+        toast({ title: result.persisted ? "已离线创建，联网后自动同步" : "本地存储不可用，离线创建可能丢失" });
+      }
+      router.push(`/notes/${result.noteId}`);
     } catch {
       toast({ title: "创建笔记失败", variant: "destructive" });
     }

@@ -14,7 +14,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { createNewNote } from "@/lib/notes/create-note";
+import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
+import { toast } from "@/hooks/use-toast";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
 import { cn } from "@/lib/utils";
 
@@ -91,11 +92,17 @@ export function NoteTabsBar() {
     if (creating) return;
     setCreating(true);
     try {
-      const note = await createNewNote(supabase);
-      if (note) {
-        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-        router.push(`/notes/${note.id}`);
+      // N02：统一创建服务（离线入队返回 queued，客户端 id 即最终地址）
+      const result = await createNewNote(supabase);
+      if (result.status === "unauthenticated" || result.status === "failed") {
+        toast({ title: describeCreateNoteResult(result), variant: "destructive" });
+        return;
       }
+      if (result.status === "queued") {
+        toast({ title: describeCreateNoteResult(result) });
+      }
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      router.push(`/notes/${result.noteId}`);
     } finally {
       setCreating(false);
     }

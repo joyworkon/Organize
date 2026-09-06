@@ -6,10 +6,18 @@ import { createClient } from "@/lib/supabase/client";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { createQuickTask } from "@/lib/tasks/quick-create";
-import { createNewNote } from "@/lib/notes/create-note";
+import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { collectReadingItem } from "@/lib/reading/collect";
 import { getPlatform } from "@/lib/platform/detect";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
+import {
+  enqueueMemoCreate,
+  makeMemoCreateOp,
+} from "@/lib/offline/memo-queue";
+import { isImeComposing } from "@/lib/input/submit-guard";
+import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { isOnline } from "@/lib/offline/network";
 import { insertMemoOptimistic, isNotchOpenPathAllowed, memoTimeLabel, NOTCH_QUICK_LINKS, readNotchTriggerHidden, selectPanelTasks } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";
 import type { Memo, Task } from "@organize/shared";
@@ -23,6 +31,9 @@ export function NotchPanel() {
   const [shownKey, setShownKey] = useState(0);
   const [exiting, setExiting] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
+  // F02：刘海速记草稿同样本机持久化（独立 WebView 的 localStorage，入口 = notch）
+  const [notchUserId, setNotchUserId] = useState<string | null>(null);
+  const notchDraftLoadedRef = useRef(false);
   const [memos, setMemos] = useState<Memo[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -48,6 +59,7 @@ export function NotchPanel() {
   const refreshData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     setLoggedIn(Boolean(user));
+    setNotchUserId(user?.id ?? null);
     if (!user) return;
     void fetch("/api/memos?limit=3", { cache: "no-store" }).then(async (res) => {
       if (res.ok) setMemos(((await res.json()) as Memo[]).slice(0, 3));
@@ -61,6 +73,13 @@ export function NotchPanel() {
   }, [supabase]);
 
   useEffect(() => { void refreshData(); }, [refreshData]);
+  // F02：草稿恢复（仅一次，用户已开始输入时不覆盖）
+  useEffect(() => {
+    if (!notchUserId || notchDraftLoadedRef.current) return;
+    notchDraftLoadedRef.current = true;
+    const draft = loadMemoDraft(localStorage, notchUserId, "notch");
+    setInput((current) => (draft && !current ? draft : current));
+  }, [notchUserId]);
   useEffect(() => {
     setTriggerHidden(readNotchTriggerHidden());
     if (getPlatform() !== "tauri") return;
@@ -82,16 +101,50 @@ export function NotchPanel() {
   const openPath = useCallback((path: string) => { if (isNotchOpenPathAllowed(path)) void import("@tauri-apps/api/event").then(({ emit }) => emit("notch-open-path", path)); }, []);
 
   const save = useCallback(async () => {
-    const content = input.trim(); if (!content || saving) return;
+    const rawInput = input; const content = input.trim();
+    if (!content || saving) return;
     setSaving(true); setSaveError(null);
-    try {
-      const res = await fetch("/api/memos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
-      if (!res.ok) throw new Error();
-      const memo = await res.json() as Memo;
-      setMemos((list) => insertMemoOptimistic(list, memo)); setInput(""); setSavedFlash(true);
+    const memoId = crypto.randomUUID();
+    const offlineCreate = () => {
+      const { persisted } = enqueueMemoCreate(
+        localStorage,
+        notchUserId ?? "",
+        { op_id: crypto.randomUUID(), memo: { id: memoId, content }, created_at: Date.now() }
+      );
+      setMemos((list) => insertMemoOptimistic(list, {
+        id: memoId,
+        user_id: notchUserId ?? "",
+        content,
+        tags: parseMemoTags(content),
+        deleted_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Memo));
+      if (rawInput === input) { setInput(""); if (notchUserId) clearMemoDraft(localStorage, notchUserId, "notch"); }
+      setSavedFlash(true);
       setTimeout(() => { setSavedFlash(false); requestCollapse(); }, 500);
-    } catch { setSaveError("保存失败，请检查网络后重试"); } finally { setSaving(false); }
-  }, [input, saving, requestCollapse]);
+      if (!persisted) setSaveError("本地存储不可用，草稿可能丢失");
+    };
+    try {
+      if (!isOnline()) { offlineCreate(); return; }
+      const res = await fetch("/api/memos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content, id: memoId }) });
+      if (!res.ok) {
+        // 网络类失败按离线入队；其余保留输入并报错
+        if (res.status >= 500) { offlineCreate(); return; }
+        setSaveError("保存失败，请检查网络后重试");
+        return;
+      }
+      const memo = await res.json() as Memo;
+      setMemos((list) => insertMemoOptimistic(list, memo));
+      // F02：只清空被确认保存的版本；保存期间继续输入不会被迟到响应清掉
+      if (rawInput === input) { setInput(""); if (notchUserId) clearMemoDraft(localStorage, notchUserId, "notch"); }
+      setSavedFlash(true);
+      setTimeout(() => { setSavedFlash(false); requestCollapse(); }, 500);
+    } catch (error) {
+      if (isNetworkSaveError(error)) { offlineCreate(); return; }
+      setSaveError("保存失败，请检查网络后重试");
+    } finally { setSaving(false); }
+  }, [input, saving, requestCollapse, notchUserId]);
 
   const saveEditedMemo = useCallback(async () => {
     const id = editingMemoId; const content = editingMemoContent.trim();
@@ -121,8 +174,14 @@ export function NotchPanel() {
         const result = await collectReadingItem(value); setQuickMessage(result.status === "error" ? result.message || "添加失败" : result.status === "duplicate" ? "该链接已在稍后读中" : "已保存到稍后读");
         if (result.status !== "error") { setQuickValue(""); setQuickAction(null); }
       } else if (quickAction === "note") {
-        const note = await createNewNote(supabase, { title: value }); setQuickMessage(note ? "已新建笔记" : "新建笔记失败");
-        if (note) { setQuickValue(""); setQuickAction(null); }
+        // N02：统一创建服务；created/queued 都算成功（客户端 id 即最终地址）
+        const result = await createNewNote(supabase, { title: value });
+        if (result.status === "created" || result.status === "queued") {
+          setQuickMessage(result.status === "queued" ? "已离线创建，联网后同步" : "已新建笔记");
+          setQuickValue(""); setQuickAction(null);
+        } else {
+          setQuickMessage(describeCreateNoteResult(result));
+        }
       } else {
         const today = new Date(); today.setHours(23, 59, 59, 999);
         const result = await createQuickTask(supabase, { title: value, dueDate: today.toISOString() });
@@ -147,9 +206,9 @@ export function NotchPanel() {
   const panelTasks = useMemo(() => selectPanelTasks(tasks), [tasks]);
 
   return <div key={shownKey} className={cn("notch-panel-in relative flex h-[520px] w-[380px] flex-col overflow-hidden rounded-2xl border border-black/60 bg-[#1d1d1f]/95 text-neutral-100 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl", exiting && "notch-panel-out")}>
-    <div className="border-b border-white/5 p-3.5"><div className="relative"><textarea ref={textareaRef} value={input} onChange={(event) => { setInput(event.target.value); setSaveError(null); }} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Escape") { event.preventDefault(); requestCollapse(); } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void save(); } }} autoFocus rows={3} placeholder="记点什么… Enter 保存，Shift+Enter 换行" className="h-[96px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-500 focus:border-white/25 focus:outline-none" />{savedFlash && <span className="absolute right-2.5 top-2.5 rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-300">已保存 ✓</span>}</div><div className="mt-1.5 flex h-4 items-center justify-between px-1"><span className="text-[11px] text-neutral-500">#标签 会自动归档</span>{saveError ? <span className="text-[11px] text-red-400">{saveError}</span> : <button type="button" onClick={() => void save()} disabled={!input.trim() || saving} className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-100 disabled:opacity-40">{saving && <Loader2 className="h-3 w-3 animate-spin" />}保存</button>}</div></div>
+    <div className="border-b border-white/5 p-3.5"><div className="relative"><textarea ref={textareaRef} value={input} onChange={(event) => { setInput(event.target.value); setSaveError(null); if (notchUserId) saveMemoDraft(localStorage, notchUserId, "notch", event.target.value); }} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Escape") { event.preventDefault(); requestCollapse(); } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void save(); } }} autoFocus rows={3} placeholder="记点什么… Enter 保存，Shift+Enter 换行" className="h-[96px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-500 focus:border-white/25 focus:outline-none" />{savedFlash && <span className="absolute right-2.5 top-2.5 rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-300">已保存 ✓</span>}</div><div className="mt-1.5 flex h-4 items-center justify-between px-1"><span className="text-[11px] text-neutral-500">#标签 会自动归档</span>{saveError ? <span className="text-[11px] text-red-400">{saveError}</span> : <button type="button" onClick={() => void save()} disabled={!input.trim() || saving} className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-100 disabled:opacity-40">{saving && <Loader2 className="h-3 w-3 animate-spin" />}保存</button>}</div></div>
     {loggedIn === false ? <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"><Zap className="h-6 w-6 text-neutral-500" /><p className="text-sm text-neutral-300">登录后可用</p><button type="button" onClick={() => openPath("/login")} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs">去登录</button></div> : <>
-      {quickAction && <div className="border-b border-white/5 bg-white/[0.03] px-3.5 py-2.5"><div className="mb-1.5 flex items-center justify-between text-xs text-neutral-300"><span>{quickAction === "reading" ? "添加稍后读链接" : quickAction === "note" ? "新建笔记（标题可选）" : "添加今天待办"}</span><button type="button" onClick={() => setQuickAction(null)}><X className="h-3.5 w-3.5" /></button></div><div className="flex gap-2"><input ref={quickInputRef} value={quickValue} onChange={(e) => setQuickValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQuickAction(null); if (e.key === "Enter") void submitQuickAction(); }} placeholder={quickAction === "reading" ? "粘贴链接" : quickAction === "note" ? "无标题笔记" : "待办内容"} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs outline-none focus:border-white/30" /><button type="button" onClick={() => void submitQuickAction()} disabled={quickSubmitting || (quickAction !== "note" && !quickValue.trim())} className="rounded-lg bg-white/10 px-2.5 text-xs disabled:opacity-40">{quickSubmitting ? "…" : "添加"}</button></div></div>}
+      {quickAction && <div className="border-b border-white/5 bg-white/[0.03] px-3.5 py-2.5"><div className="mb-1.5 flex items-center justify-between text-xs text-neutral-300"><span>{quickAction === "reading" ? "添加稍后读链接" : quickAction === "note" ? "新建笔记（标题可选）" : "添加今天待办"}</span><button type="button" onClick={() => setQuickAction(null)}><X className="h-3.5 w-3.5" /></button></div><div className="flex gap-2"><input ref={quickInputRef} value={quickValue} onChange={(e) => setQuickValue(e.target.value)} onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Escape") setQuickAction(null); if (e.key === "Enter") void submitQuickAction(); }} placeholder={quickAction === "reading" ? "粘贴链接" : quickAction === "note" ? "无标题笔记" : "待办内容"} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs outline-none focus:border-white/30" /><button type="button" onClick={() => void submitQuickAction()} disabled={quickSubmitting || (quickAction !== "note" && !quickValue.trim())} className="rounded-lg bg-white/10 px-2.5 text-xs disabled:opacity-40">{quickSubmitting ? "…" : "添加"}</button></div></div>}
       {quickMessage && <p className="px-3.5 pt-2 text-[11px] text-neutral-400">{quickMessage}</p>}
       <div className="flex h-[128px] flex-col border-b border-white/5 px-3.5 py-2.5"><div className="mb-1.5 flex items-center justify-between"><h3 className="text-xs font-medium text-neutral-400">今日待办</h3>{taskError && <span className="text-[11px] text-red-400">{taskError}</span>}</div><div className="flex-1 space-y-1 overflow-hidden">{panelTasks.length === 0 ? <p className="pt-3 text-center text-xs text-neutral-500">{loadingTasks ? "加载中…" : "今天没有待办 ✨"}</p> : panelTasks.map((task) => <button key={task.id} type="button" onClick={() => void toggleTask(task)} title={task.title} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-white/5"><span className="flex h-4 w-4 flex-none items-center justify-center rounded-[5px] border border-white/25"><Check className="h-3 w-3 text-transparent" /></span><span className="truncate text-[13px] text-neutral-200">{task.title}</span></button>)}</div></div>
       <div className="flex flex-1 flex-col overflow-hidden px-3.5 py-2.5"><h3 className="mb-1.5 text-xs font-medium text-neutral-400">最近速记</h3><div className="flex-1 space-y-1.5 overflow-y-auto">{memos.length === 0 ? <p className="pt-3 text-center text-xs text-neutral-500">还没有速记</p> : memos.map((memo) => editingMemoId === memo.id ? <div key={memo.id} className="rounded-lg bg-white/5 p-1.5"><textarea autoFocus value={editingMemoContent} onChange={(e) => { setEditingMemoContent(e.target.value); setMemoEditError(null); }} onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Escape") { e.preventDefault(); setEditingMemoId(null); } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEditedMemo(); } }} rows={3} className="w-full resize-none bg-transparent text-[12px] text-neutral-200 outline-none" /><div className="flex items-center justify-between"><span className="text-[10px] text-red-400">{memoEditError}</span><span className="flex gap-2"><button type="button" onClick={() => setEditingMemoId(null)} className="text-[11px] text-neutral-400">取消</button><button type="button" onClick={() => void saveEditedMemo()} disabled={savingMemo || !editingMemoContent.trim()} className="text-[11px] text-sky-300 disabled:opacity-40">{savingMemo ? "保存中" : "保存"}</button></span></div></div> : <button key={memo.id} type="button" onClick={() => { setEditingMemoId(memo.id); setEditingMemoContent(memo.content); setMemoEditError(null); }} className="flex w-full gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] leading-relaxed hover:bg-white/5"><span className="flex-none pt-px text-[10px] text-neutral-500">{memoTimeLabel(memo.created_at)}</span><span className="line-clamp-2 text-neutral-300">{renderMemoContent(memo.content)}</span></button>)}</div></div>

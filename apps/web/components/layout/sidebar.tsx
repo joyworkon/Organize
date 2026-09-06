@@ -34,7 +34,8 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
-import { createNewNote } from "@/lib/notes/create-note";
+import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
+import { toast } from "@/hooks/use-toast";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
 import { TaskSidebar, type SidebarSelection } from "@/components/tasks/task-sidebar";
 import type { TaskList } from "@organize/shared";
@@ -284,13 +285,20 @@ const visibleNavItems = useMemo(() => {
     if (creatingNote) return;
     setCreatingNote(true);
     try {
-      const note = await createNewNote(supabase);
-      if (!note) return;
+      // N02：统一创建服务（离线入队返回 queued，客户端 id 即最终地址）
+      const result = await createNewNote(supabase);
+      if (result.status === "unauthenticated" || result.status === "failed") {
+        toast({ title: describeCreateNoteResult(result), variant: "destructive" });
+        return;
+      }
+      if (result.status === "queued") {
+        toast({ title: describeCreateNoteResult(result) });
+      }
       setNotesExpanded(true);
       localStorage.setItem("organize-sidebar-notes-expanded", "true");
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       setMobileOpen(false);
-      router.push(`/notes/${note.id}`);
+      router.push(`/notes/${result.noteId}`);
     } finally {
       setCreatingNote(false);
     }
