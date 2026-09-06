@@ -46,19 +46,21 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { useHasSharedNotes } from "@/hooks/use-shared-notes";
 import { useHasTeamWorkspaces } from "@/hooks/use-workspaces";
 
-// 侧边栏可见的一级导航。「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
+// 侧边栏可见的一级导航（D06 迁移表落地）：图谱收进笔记页工具行、插件收进设置页
+// 「插件管理」入口——原一级入口移除，旧 URL 保留可达。
+// 「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
   { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   { href: "/tasks", label: "待办", icon: ListChecks },
   { href: "/memos", label: "速记", icon: Feather },
-  { href: "/graph", label: "图谱", icon: Network },
-  { href: "/favorites", label: "收藏夹", icon: Star },
-  { href: "/plugins", label: "插件", icon: Puzzle },
   { href: "/trash", label: "垃圾箱", icon: Trash2 },
   { href: "/settings", label: "设置", icon: Settings },
 ];
+
+// 辅助组（D06）：收藏夹移入此处，与「与我共享 / 协作空间」同组，插在「速记」之后。
+const favoritesNavItem = { href: "/favorites", label: "收藏夹", icon: Star };
 
 // 移动端顶栏位置名仍需识别已降级的一级页面（列表里没有，单独补齐）
 const MOBILE_LABEL_EXTRA_ITEMS = [
@@ -108,7 +110,9 @@ export function Sidebar() {
 // 两个条件入口各自探测，mock 后端恒隐藏）
 const visibleNavItems = useMemo(() => {
   const items = [...navItems];
-  let insertAt = 3;
+  let insertAt = 5; // 速记（index 4）之后 = 辅助组起点
+  items.splice(insertAt, 0, favoritesNavItem);
+  insertAt += 1;
   if (hasSharedNotes) {
     items.splice(insertAt, 0, sharedNavItem);
     insertAt += 1;
@@ -679,7 +683,7 @@ const visibleNavItems = useMemo(() => {
   return (
     <>
       {/* 桌面端侧边栏 */}
-      <aside className="organize-sidebar-desktop hidden transition-[width] duration-200 md:fixed md:inset-y-0 md:flex md:flex-col md:border-r md:bg-card">
+      <aside className="organize-sidebar-desktop hidden transition-[width] duration-200 md:fixed md:inset-y-0 md:flex md:flex-col md:border-r md:bg-sidebar md:text-sidebar-foreground">
         <NavContent compact={collapsed} collapsible />
       </aside>
 
