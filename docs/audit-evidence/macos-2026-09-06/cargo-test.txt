@@ -1,0 +1,10 @@
+   Compiling organize v0.1.0 (/Users/k/Documents/ZCode/Organize/desktop/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.86s
+     Running unittests src/main.rs (target/debug/deps/organize-d61b9bec8eb66725)
+
+running 2 tests
+test tests::parses_note_and_task_to_app_paths ... ok
+test tests::rejects_schemes_hosts_and_unsafe_ids ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,42 @@
+{
+  "capturedAtUTC" : "2026-09-06T15:33:59Z",
+  "coordinates" : "AppKit global points; origin at primary display bottom-left",
+  "operatingSystem" : "Version 26.6.2 (Build 25G83)",
+  "schemaVersion" : 1,
+  "screens" : [
+    {
+      "auxiliaryTopLeftPoints" : {
+
+      },
+      "auxiliaryTopRightPoints" : {
+
+      },
+      "backingScale" : 2,
+      "builtIn" : false,
+      "framePoints" : {
+        "height" : 1080,
+        "width" : 1920,
+        "x" : 0,
+        "y" : 0
+      },
+      "index" : 0,
+      "isKeyboardFocusScreen" : true,
+      "isPrimary" : true,
+      "runtimeDisplayID" : 3,
+      "safeAreaAPIAvailable" : true,
+      "safeAreaInsetsPoints" : {
+        "bottom" : 0,
+        "left" : 0,
+        "right" : 0,
+        "top" : 0
+      },
+      "visibleFramePoints" : {
+        "height" : 972,
+        "width" : 1920,
+        "x" : 0,
+        "y" : 78
+      }
+    }
+  ],
+  "separateSpaces" : true
+}
