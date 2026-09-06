@@ -86,6 +86,9 @@ interface MenuSection {
   items: MenuItem[];
 }
 
+/** N03：会变更持久内容的条目——只读角色在更多菜单中隐藏 */
+const MUTATING_ITEM_IDS = new Set(["full-width", "small-font", "move", "duplicate", "delete"]);
+
 const FONT_OPTIONS: { value: NoteFont; label: string }[] = [
   { value: "default", label: "默认" },
   { value: "serif", label: "衬线体" },
@@ -130,7 +133,6 @@ export function NotePageMenu({
   const executingRef = useRef(false);
 
   /** 构建菜单项数据（每次渲染从 props 派生，确保回调和 checked 状态是最新的） */
-  const MUTATING_ITEM_IDS = new Set(["full-width", "small-font", "move", "duplicate", "delete"]);
   const sections: MenuSection[] = useMemo(() => [
     {
       label: "页面显示",
