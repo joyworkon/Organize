@@ -171,12 +171,17 @@ export function TaskDatePopover({
       <PopoverContent
         align={align}
         side={side}
-        className={cn("w-[360px] p-0 overflow-hidden", className)}
+        className={cn(
+          // M03：窄屏不超出视口（320px 也可完整显示），高度受视口约束
+          "w-[min(360px,calc(100vw-1.5rem))] p-0 overflow-hidden flex flex-col max-h-[min(640px,calc(100dvh-1.5rem))]",
+          className
+        )}
         // Radix Portal 挂在 body 下，但 React 合成事件仍沿组件树冒泡：
         // 不拦截的话弹窗里的每次点击都会触发任务行的 onClick 打开详情
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
+        <div className="overflow-y-auto flex-1 min-h-0">
         <div className="flex rounded-xl bg-muted p-1 m-3 mb-2">
           <button type="button" onClick={() => setMode("single")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "single" ? "bg-background shadow-sm" : "text-muted-foreground")}>日期</button>
           <button type="button" onClick={() => setMode("range")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "range" ? "bg-background shadow-sm" : "text-muted-foreground")}>时间段</button>
@@ -241,7 +246,8 @@ export function TaskDatePopover({
           </div>
         </div>
 
-        <div className="flex gap-2 border-t p-3">
+        </div>
+        <div className="flex gap-2 border-t p-3 shrink-0">
           <button type="button" onClick={clear} className="flex-1 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted"><X className="inline h-4 w-4 mr-1" />清除</button>
           <button type="button" onClick={apply} className="flex-1 rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600"><Check className="inline h-4 w-4 mr-1" />确定</button>
         </div>

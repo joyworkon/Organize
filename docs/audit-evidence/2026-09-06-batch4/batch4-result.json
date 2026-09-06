@@ -1,0 +1,64 @@
+{
+  "m01": {
+    "triggerInTopbarBand": true,
+    "triggerBox": {
+      "x": 259.109375,
+      "y": 78,
+      "width": 44.890625,
+      "height": 32
+    },
+    "topbar": {
+      "top": 72,
+      "bottom": 117
+    },
+    "stickyTopBelowMobileBar": true,
+    "scrolledTop": 56
+  },
+  "m04": {
+    "memoActionsOpacityNoHover": "1",
+    "noteAddButtons": [
+      {
+        "text": "添加图标",
+        "display": "flex"
+      },
+      {
+        "text": "添加封面",
+        "display": "flex"
+      },
+      {
+        "text": "添加评论",
+        "display": "flex"
+      }
+    ]
+  },
+  "u02_hamburgerNamed": true,
+  "u02_drawerRole": true,
+  "u02_focusMovesIntoDrawer": true,
+  "u02_focusTrapped": true,
+  "u02_escCloses": true,
+  "u02_focusRestoredToHamburger": true,
+  "m03": {
+    "popover": {
+      "left": 0,
+      "right": 296,
+      "top": -24,
+      "bottom": 570,
+      "vw": 320,
+      "vh": 744
+    },
+    "fitsViewport": true,
+    "confirmInViewport": true,
+    "confirmVisible": true
+  },
+  "m02_tablet": {
+    "listPaneBefore": 486,
+    "listWidth": null,
+    "listVisible": false,
+    "detailWidth": null
+  },
+  "m02_desktop_1366": {
+    "listWidth": 1084,
+    "detailWidth": null
+  },
+  "consoleIssues": []
+}

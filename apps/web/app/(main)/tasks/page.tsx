@@ -933,7 +933,7 @@ function TasksPageInner() {
 
   return (
     <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
-      <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden md:flex")}>
+      <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden lg:flex")}>
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-5 md:px-8">
           <span className="text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-xl font-semibold">{listTitle}</h1>

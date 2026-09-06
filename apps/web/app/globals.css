@@ -184,11 +184,16 @@
   }
 }
 
-/* 移动端不展示桌面端标题上方的三个「添加」功能（添加图标/封面/评论）：
-   仅保留已设置的页面图标本身，行高压紧贴近 Notion 移动端新页面观感 */
+/* 移动端「添加图标/封面/评论」按钮：触屏没有悬停，display:none 会让
+   空白新笔记无法添加图标/封面、无法打开页面评论（M04）。
+   改为常驻可见的小号弱化按钮，保持紧凑观感同时保证触屏可达。 */
 @media (max-width: 767px) {
   .note-page-icon-actions .note-page-add-btn {
-    display: none;
+    display: inline-flex;
+    height: 2rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+    opacity: 0.75;
   }
   .note-page-icon-actions {
     min-height: 56px;
@@ -345,7 +350,8 @@
 /* === Notion 风格顶栏 === */
 .note-topbar {
   position: sticky;
-  top: 0;
+  /* M01：移动端固定顶栏 h-14（56px），吸顶贴其下方，不再滑入其背后 */
+  top: 3.5rem;
   z-index: 40;
   background: hsl(var(--background) / 0.85);
   backdrop-filter: saturate(180%) blur(12px);
@@ -948,6 +954,24 @@
 .note-page .mt-8.pt-6.border-t {
   padding-left: var(--organize-content-lane-inset);
   padding-right: 0;
+}
+
+/* U02：触屏命中区扩展——视觉尺寸不变，命中区向外扩 8px（≈36px 触达直径） */
+@media (pointer: coarse) {
+  .organize-touch-target::before {
+    content: "";
+    position: absolute;
+    inset: -8px;
+    border-radius: 9999px;
+  }
+}
+
+/* M04：触屏（无悬停能力）设备上，悬停才显现的操作改为常驻可见。
+   用 !important 覆盖 opacity-0 / group-hover 组合，桌面行为不变。 */
+@media (hover: none) {
+  .organize-touch-visible {
+    opacity: 1 !important;
+  }
 }
 
 /* ------------------------- 编辑器 Notion 风格 ------------------------- */

@@ -248,7 +248,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
   };
 
   return (
-    <aside className="organize-task-detail flex min-w-0 flex-1 flex-col bg-background md:max-w-[560px] lg:w-[34.5vw] lg:min-w-[420px] lg:max-w-[640px] lg:flex-none">
+    <aside className="organize-task-detail flex min-w-0 flex-1 flex-col bg-background lg:w-[34.5vw] lg:min-w-[420px] lg:max-w-[640px] lg:flex-none">
       <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
         <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={() => {
           const toDone = task.status !== "done";

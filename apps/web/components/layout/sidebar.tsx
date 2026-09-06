@@ -29,7 +29,7 @@ import {
   Users,
   UsersRound,
 } from "lucide-react";
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
@@ -90,6 +90,43 @@ export function Sidebar() {
     pathname === "/tasks/lessons";
   const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
+  // U02：抽屉焦点管理——打开聚焦关闭按钮，Tab 在面板内循环，关闭后焦点回到汉堡按钮
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const drawerPanelRef = useRef<HTMLDivElement | null>(null);
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
+  const mobileOpenPrevRef = useRef(false);
+  useEffect(() => {
+    if (mobileOpen && !mobileOpenPrevRef.current) {
+      // 打开：等面板挂载后把焦点移入
+      requestAnimationFrame(() => drawerCloseRef.current?.focus());
+    }
+    if (!mobileOpen && mobileOpenPrevRef.current) {
+      menuButtonRef.current?.focus?.();
+    }
+    mobileOpenPrevRef.current = mobileOpen;
+  }, [mobileOpen]);
+  const handleDrawerKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Tab") return;
+    const panel = drawerPanelRef.current;
+    if (!panel) return;
+    const focusables = Array.from(
+      panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])')
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === panel)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || active === panel)) {
+      event.preventDefault();
+      first.focus();
+    } else if (active !== panel && !panel.contains(active)) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
@@ -698,8 +735,11 @@ const visibleNavItems = useMemo(() => {
       {/* 移动端顶栏 */}
       <header className="fixed top-0 left-0 right-0 z-50 flex h-14 items-center border-b bg-sidebar text-sidebar-foreground px-4 md:hidden pt-safe">
         <Button
+          ref={menuButtonRef}
           variant="ghost"
           size="icon"
+          aria-label="打开导航菜单"
+          aria-expanded={mobileOpen}
           onClick={() => setMobileOpen(true)}
         >
           <Menu className="h-5 w-5" />
@@ -717,7 +757,26 @@ const visibleNavItems = useMemo(() => {
             className="fixed inset-0 bg-black/50 animate-in fade-in duration-200"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground shadow-lg animate-in slide-in-from-left duration-200 flex flex-col">
+          <div
+            ref={drawerPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="导航菜单"
+            onKeyDown={handleDrawerKeyDown}
+            className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground shadow-lg animate-in slide-in-from-left duration-200 flex flex-col"
+          >
+            <div className="flex items-center justify-between border-b px-2 py-1.5">
+              <span className="px-2 text-sm font-semibold">{mobileSectionLabel}</span>
+              <Button
+                ref={drawerCloseRef}
+                variant="ghost"
+                size="icon"
+                aria-label="关闭导航菜单"
+                onClick={() => setMobileOpen(false)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
             <NavContent onClose={() => setMobileOpen(false)} />
           </div>
         </div>
