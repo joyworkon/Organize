@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import type { NoteWithTags } from "@organize/shared";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
-import { NoteCard, type NoteViewMode } from "@/components/notes/note-card";
+import { NoteCard, NoteFavoritesContext, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
@@ -119,6 +119,24 @@ export default function NotesPage() {
       }));
   }, [search, selectedTagIds]);
 
+  // N04：列表层一次查询全部收藏状态，卡片经 Context 共享（不再逐卡查询）
+  const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
+  const loadFavorites = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) {
+      setFavoritedIds(new Set());
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("favorites")
+      .select("target_id")
+      .eq("user_id", user.id)
+      .eq("target_type", "note")
+      .in("target_id", ids);
+    setFavoritedIds(new Set((data || []).map((row) => row.target_id)));
+  }, [supabase]);
+
   const fetchNotes = useCallback(async () => {
     const myReqId = ++reqIdRef.current;
     setLoading(true);
@@ -162,9 +180,23 @@ export default function NotesPage() {
 
     query = query
       .order("is_pinned", { ascending: false })
-      .order(sortBy, { ascending: sortOrder === "asc" });
+      .order(sortBy, { ascending: sortOrder === "asc" })
+      .order("id", { ascending: false }); // F04：末位稳定 tiebreak，分块拉取不重不漏
 
-    const { data, error } = await query;
+    // F04：数据库单请求默认 1000 行上限——分块循环拉全量，
+    // 避免第 1001 条之后的笔记无声消失（列表/搜索/计数完整性）
+    let data: NoteWithTags[] = [];
+    let error: { message: string } | null = null;
+    {
+      const PAGE = 1000;
+      const SAFETY_MAX = 10000;
+      for (let from = 0; from < SAFETY_MAX; from += PAGE) {
+        const { data: pageData, error: pageError } = await query.range(from, from + PAGE - 1);
+        if (pageError) { error = pageError; break; }
+        data = data.concat((pageData || []) as NoteWithTags[]);
+        if (!pageData || pageData.length < PAGE) break;
+      }
+    }
 
     if (reqIdRef.current !== myReqId) return;
 
@@ -173,13 +205,15 @@ export default function NotesPage() {
       const serverIds = new Set((data as NoteWithTags[]).map((note) => note.id));
       const pending = pendingCreatesAsNotes().filter((note) => !serverIds.has(note.id));
       setNotes([...pending, ...(data as NoteWithTags[])]);
+      // N04：一次 in(id) 批量查询收藏状态
+      void loadFavorites((data as NoteWithTags[]).map((note) => note.id));
     } else if (error && isOnline()) {
       // 失败不能静默：否则列表停在旧数据上，用户无从得知已经看不到最新内容。
       // 离线时的查询失败是预期行为，由顶栏离线角标表达，不另弹 toast。
       toast({ title: "加载笔记列表失败", description: error.message, variant: "destructive" });
     }
     setLoading(false);
-  }, [search, sortBy, sortOrder, selectedTagIds, supabase, pendingCreatesAsNotes]);
+  }, [search, sortBy, sortOrder, selectedTagIds, supabase, pendingCreatesAsNotes, loadFavorites]);
 
   /** 回放离线队列（创建 + 删除）：联网后按序推送，应用成功的触发一次列表刷新 */
   const replayPendingOps = useCallback(async () => {
@@ -535,6 +569,32 @@ export default function NotesPage() {
       : groups;
   }, [notes, view, sortBy, sortOrder, search]);
 
+  const toggleFavoriteById = useCallback(async (id: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast({ title: "请先登录", variant: "destructive" });
+      return;
+    }
+    if (favoritedIds.has(id)) {
+      const { error } = await supabase
+        .from("favorites")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("target_type", "note")
+        .eq("target_id", id);
+      if (error) throw new Error(error.message);
+      setFavoritedIds((current) => { const next = new Set(current); next.delete(id); return next; });
+      toast({ title: "已取消收藏" });
+    } else {
+      const { error } = await supabase
+        .from("favorites")
+        .insert({ user_id: user.id, target_type: "note", target_id: id });
+      if (error) throw new Error(error.message);
+      setFavoritedIds((current) => new Set(current).add(id));
+      toast({ title: "已收藏" });
+    }
+  }, [supabase, favoritedIds]);
+
   const noteCardProps = (note: NoteWithTags) => ({
     note,
     view,
@@ -802,27 +862,33 @@ export default function NotesPage() {
                   {section.label}
                   <span className="ml-1.5">{section.items.length}</span>
                 </h2>
-                <div className="grid gap-2 sm:gap-3">
-                  {section.items.map((note) => (
-                    <NoteCard key={note.id} {...noteCardProps(note)} />
-                  ))}
-                </div>
+                <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
+                  <div className="grid gap-2 sm:gap-3">
+                    {section.items.map((note) => (
+                      <NoteCard key={note.id} {...noteCardProps(note)} />
+                    ))}
+                  </div>
+                </NoteFavoritesContext.Provider>
               </section>
             ))}
           </div>
         ) : (
-          <div className="grid gap-2 sm:gap-3">
+          <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
+            <div className="grid gap-2 sm:gap-3">
+              {notes.map((note) => (
+                <NoteCard key={note.id} {...noteCardProps(note)} />
+              ))}
+            </div>
+          </NoteFavoritesContext.Provider>
+        )
+      ) : (
+        <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
+          <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {notes.map((note) => (
               <NoteCard key={note.id} {...noteCardProps(note)} />
             ))}
           </div>
-        )
-      ) : (
-        <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {notes.map((note) => (
-            <NoteCard key={note.id} {...noteCardProps(note)} />
-          ))}
-        </div>
+        </NoteFavoritesContext.Provider>
       )}
 
       {moveTargetNote && (
