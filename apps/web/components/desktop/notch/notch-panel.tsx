@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, FileText, ListTodo, Loader2, LogIn, Settings, X, Zap } from "lucide-react";
+import { BookOpen, Check, FileText, ListTodo, Loader2, Settings, X, Zap } from "lucide-react";
+import type { Memo, Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
@@ -11,278 +12,265 @@ import { collectReadingItem } from "@/lib/reading/collect";
 import { getPlatform } from "@/lib/platform/detect";
 import { parseMemoTags } from "@/lib/memos/tags";
 import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
-import {
-  enqueueMemoCreate,
-  makeMemoCreateOp,
-} from "@/lib/offline/memo-queue";
+import { enqueueMemoCreate, readMemoCreates } from "@/lib/offline/memo-queue";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isOnline } from "@/lib/offline/network";
-import {
-  emitDataChanged,
-  emitNotchActivity,
-  insertMemoOptimistic,
-  isNotchOpenPathAllowed,
-  memoTimeLabel,
-  NOTCH_QUICK_LINKS,
-  readNotchTriggerHidden,
-  selectPanelTasks,
-} from "@/lib/desktop/notch";
+import { CaptureDraft } from "@/lib/desktop/capture-draft";
+import { emitDataChanged, insertMemoOptimistic, isNotchOpenPathAllowed, memoTimeLabel,
+  NOTCH_QUICK_LINKS, NOTCH_TRIGGER_HIDDEN_KEY, NOTCH_PLAIN_DISPLAYS_KEY, readNotchTriggerHidden,
+  selectPanelTasks, subscribeDataChanged } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";
-import type { Memo, Task } from "@organize/shared";
 
-const QUICK_ICONS = { zap: Zap, book: BookOpen, note: FileText, todo: ListTodo, settings: Settings } as const;
-const EXIT_ANIMATION_MS = 120;
-type QuickAction = "reading" | "note" | "task" | null;
+const ICONS = { zap: Zap, book: BookOpen, note: FileText, todo: ListTodo, settings: Settings };
+type QuickAction = "reading" | "note" | "task";
+interface PanelInfo { session: number; mode: "hidden" | "preview" | "editing"; reduce_motion?: boolean; reduce_transparency?: boolean }
+async function native(event: string, payload?: unknown) {
+  if (getPlatform() !== "tauri") return;
+  const { emit } = await import("@tauri-apps/api/event"); await emit(event, payload);
+}
 
 export function NotchPanel() {
   const supabase = useMemo(() => createClient(), []);
-  const [shownKey, setShownKey] = useState(0);
-  const [exiting, setExiting] = useState(false);
-  const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
-  // F02：刘海速记草稿同样本机持久化（独立 WebView 的 localStorage，入口 = notch）
-  const [notchUserId, setNotchUserId] = useState<string | null>(null);
-  const notchDraftLoadedRef = useRef(false);
+  const draft = useRef(new CaptureDraft());
+  const account = useRef<string | null>(null);
+  const epoch = useRef(0);
+  const operation = useRef(0);
+  const locked = useRef(false);
+  const session = useRef(0);
+  const [info, setInfo] = useState<PanelInfo>({ session: 0, mode: getPlatform() === "tauri" ? "hidden" : "editing" });
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [memos, setMemos] = useState<Memo[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [input, setInput] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [taskError, setTaskError] = useState<string | null>(null);
-  const [editingMemoId, setEditingMemoId] = useState<string | null>(null);
-  const [editingMemoContent, setEditingMemoContent] = useState("");
-  const [savingMemo, setSavingMemo] = useState(false);
-  const [memoEditError, setMemoEditError] = useState<string | null>(null);
-  const [quickAction, setQuickAction] = useState<QuickAction>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [plain, setPlain] = useState(false);
+  const [quick, setQuick] = useState<QuickAction | null>(null);
   const [quickValue, setQuickValue] = useState("");
-  const [quickSubmitting, setQuickSubmitting] = useState(false);
-  const [quickMessage, setQuickMessage] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  // K04：完成后提供短时撤销；新建笔记提供「继续编辑」直达
-  const [lastCompleted, setLastCompleted] = useState<{ id: string; title: string } | null>(null);
-  const [lastCreatedNote, setLastCreatedNote] = useState<{ id: string } | null>(null);
-  // K04：设置弹层焦点管理
-  const settingsCloseRef = useRef<HTMLButtonElement | null>(null);
-  const settingsOpenPrevRef = useRef(false);
-  const [triggerHidden, setTriggerHidden] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const quickInputRef = useRef<HTMLInputElement>(null);
-  const exitingRef = useRef(false);
+  const [editing, setEditing] = useState<Memo | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [createdNote, setCreatedNote] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ task: Task; version: number } | null>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const backButton = useRef<HTMLButtonElement>(null);
+  const requestNumber = useRef(0);
 
-  const refreshData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setLoggedIn(Boolean(user));
-    setNotchUserId(user?.id ?? null);
-    if (!user) return;
-    void fetch("/api/memos?limit=3", { cache: "no-store" }).then(async (res) => {
-      if (res.ok) setMemos(((await res.json()) as Memo[]).slice(0, 3));
-    }).catch(() => {});
-    setLoadingTasks(true);
+  const refresh = useCallback(async () => {
+    const id = account.current; if (!id) return;
+    const ticket = ++requestNumber.current; const generation = epoch.current;
+    setLoading(true); setLoadError(null);
+    const end = new Date(); end.setHours(24, 0, 0, 0);
     try {
-      const { data, error } = await supabase.from("tasks").select("*").eq("user_id", user.id)
-        .order("is_pinned", { ascending: false }).order("sort_order", { ascending: true }).order("created_at", { ascending: false });
-      // F03：查询失败显式提示，不渲染成空列表
-      if (error) { setTaskError("任务加载失败，请稍后重试"); } else { setTasks((data || []) as Task[]); setTaskError(null); }
-    } catch { setTaskError("任务加载失败，请稍后重试"); } finally { setLoadingTasks(false); }
+      // Filter first on the server; never fetch every task just to display three.
+      const [memoResult, taskResult] = await Promise.allSettled([
+        fetch("/api/memos?limit=3", { cache: "no-store" }).then(async (res) => { if (!res.ok) throw new Error(); return await res.json() as Memo[]; }),
+        supabase.from("tasks").select("*").eq("user_id", id).is("deleted_at", null).is("parent_task_id", null)
+          .in("status", ["todo", "in_progress"])
+          .or(`and(schedule_start_at.not.is.null,schedule_start_at.lt.${end.toISOString()}),and(schedule_start_at.is.null,due_date.lt.${end.toISOString()})`)
+          .order("is_pinned", { ascending: false }).order("schedule_start_at", { ascending: true, nullsFirst: false })
+          .order("due_date", { ascending: true, nullsFirst: false }).limit(30),
+      ]);
+      if (generation !== epoch.current || ticket !== requestNumber.current) return;
+      if (memoResult.status === "fulfilled") {
+        const pending = readMemoCreates(localStorage, id).map((op) => ({ ...op.memo, user_id: id, tags: parseMemoTags(op.memo.content), created_at: new Date(op.created_at).toISOString(), updated_at: new Date(op.created_at).toISOString() } as Memo));
+        setMemos([...pending, ...memoResult.value.filter((m) => !pending.some((p) => p.id === m.id))].slice(0, 3));
+      }
+      if (taskResult.status === "fulfilled" && !taskResult.value.error) setTasks((taskResult.value.data ?? []) as Task[]);
+      if (memoResult.status === "rejected" || taskResult.status === "rejected" || taskResult.value.error) setLoadError("部分内容加载失败，已保留上次结果");
+    } catch { if (generation === epoch.current) setLoadError("加载失败，请重试"); }
+    finally { if (generation === epoch.current && ticket === requestNumber.current) setLoading(false); }
   }, [supabase]);
 
-  useEffect(() => { void refreshData(); }, [refreshData]);
-  // F02：草稿恢复（仅一次，用户已开始输入时不覆盖）
   useEffect(() => {
-    if (!notchUserId || notchDraftLoadedRef.current) return;
-    notchDraftLoadedRef.current = true;
-    const draft = loadMemoDraft(localStorage, notchUserId, "notch");
-    setInput((current) => (draft && !current ? draft : current));
-  }, [notchUserId]);
-  useEffect(() => {
-    setTriggerHidden(readNotchTriggerHidden());
-    if (getPlatform() !== "tauri") return;
-    let cancelled = false; let unlisten: (() => void) | undefined;
-    void import("@tauri-apps/api/event").then(({ listen }) => listen("notch-panel-shown", () => {
-      if (exitingRef.current) return;
-      setExiting(false); setShownKey((key) => key + 1); void refreshData();
-      requestAnimationFrame(() => textareaRef.current?.focus());
-    })).then((fn) => { if (cancelled) fn?.(); else unlisten = fn; });
-    return () => { cancelled = true; unlisten?.(); };
-  }, [refreshData]);
-  useEffect(() => { if (quickAction) requestAnimationFrame(() => quickInputRef.current?.focus()); }, [quickAction]);
-  // K04：设置弹层打开时把焦点移入（关闭按钮），形成完整键盘路径
-  useEffect(() => {
-    if (settingsOpen && !settingsOpenPrevRef.current) {
-      requestAnimationFrame(() => settingsCloseRef.current?.focus());
-    }
-    settingsOpenPrevRef.current = settingsOpen;
-  }, [settingsOpen]);
-
-  const requestCollapse = useCallback(() => {
-    if (exitingRef.current) return;
-    exitingRef.current = true; setExiting(true);
-    setTimeout(() => { void import("@tauri-apps/api/event").then(({ emit }) => emit("notch-collapse")); exitingRef.current = false; }, EXIT_ANIMATION_MS);
-  }, []);
-  const openPath = useCallback((path: string) => { if (isNotchOpenPathAllowed(path)) void import("@tauri-apps/api/event").then(({ emit }) => emit("notch-open-path", path)); }, []);
-
-  const save = useCallback(async () => {
-    const rawInput = input; const content = input.trim();
-    if (!content || saving) return;
-    setSaving(true); setSaveError(null);
-    void emitNotchActivity();
-    const memoId = crypto.randomUUID();
-    const offlineCreate = () => {
-      const { persisted } = enqueueMemoCreate(
-        localStorage,
-        notchUserId ?? "",
-        { op_id: crypto.randomUUID(), memo: { id: memoId, content }, created_at: Date.now() }
-      );
-      setMemos((list) => insertMemoOptimistic(list, {
-        id: memoId,
-        user_id: notchUserId ?? "",
-        content,
-        tags: parseMemoTags(content),
-        deleted_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as Memo));
-      if (rawInput === input) { setInput(""); if (notchUserId) clearMemoDraft(localStorage, notchUserId, "notch"); }
-      setSavedFlash(true);
-      setTimeout(() => { setSavedFlash(false); requestCollapse(); }, 500);
-      if (!persisted) setSaveError("本地存储不可用，草稿可能丢失");
+    let disposed = false; let authRevision = 0;
+    const invalidate = () => { epoch.current += 1; };
+    const changeUser = (id: string | null) => {
+      if (disposed) return;
+      setAuthReady(true);
+      if (account.current === id && draft.current.userId === id) return;
+      epoch.current++; operation.current++; locked.current = false; setBusy(false);
+      account.current = id; setUserId(id);
+      draft.current.reset(id, id ? loadMemoDraft(localStorage, id, "notch") : "");
+      setInput(draft.current.content); setMemos([]); setTasks([]); setError(null); setMessage(""); setLoadError(null);
+      setQuick(null); setQuickValue(""); setEditing(null); setEditValue(""); setCreatedNote(null); setUndo(null);
+      void refresh();
     };
+    const revision = authRevision;
+    void supabase.auth.getSession().then(({ data: { session: auth } }) => { if (revision === authRevision) changeUser(auth?.user.id ?? null); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, auth) => {
+      authRevision++; queueMicrotask(() => changeUser(auth?.user.id ?? null));
+    });
+    return () => { disposed = true; invalidate(); subscription.unsubscribe(); };
+  }, [supabase, refresh]);
+
+  useEffect(() => {
+    let cancelled = false; const cleanups: (() => void)[] = [];
+    setHidden(readNotchTriggerHidden());
+    let showPlain = false; try { showPlain = localStorage.getItem(NOTCH_PLAIN_DISPLAYS_KEY) === "1"; } catch {}
+    setPlain(showPlain);
+    void subscribeDataChanged((payload) => {
+      if ((!payload.user_id || payload.user_id === account.current) && payload.origin !== "notch-panel") void refresh();
+    }).then((off) => { if (cancelled) off(); else cleanups.push(off); });
+    if (getPlatform() === "tauri") void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const off = await listen<PanelInfo>("notch-panel-shown", ({ payload }) => {
+        if (cancelled || !payload || !["hidden", "preview", "editing"].includes(payload.mode)) return;
+        const changed = session.current !== payload.session;
+        session.current = payload.session; setInfo(payload);
+        if (payload.mode !== "hidden") void refresh();
+        if (changed) { setSettings(false); setMessage(""); }
+        if (payload.mode === "editing" && changed) requestAnimationFrame(() => textarea.current?.focus());
+      });
+      if (cancelled) { off(); return; } cleanups.push(off);
+      await native("notch-trigger-visibility", { visible: !readNotchTriggerHidden(), plain_displays: showPlain });
+      await native("notch-panel-ready");
+    })();
+    const synced = () => void refresh(); window.addEventListener("organize:memos-synced", synced);
+    return () => { cancelled = true; cleanups.forEach((off) => off()); window.removeEventListener("organize:memos-synced", synced); };
+  }, [refresh]);
+  useEffect(() => { void native("notch-state", { session: info.session, busy }); }, [busy, info.session]);
+  useEffect(() => { if (settings) backButton.current?.focus(); }, [settings]);
+  const close = () => { void native("notch-collapse", { session: session.current }); };
+  const openPath = (path: string) => { if (isNotchOpenPathAllowed(path)) void native("notch-open-path", path); };
+  const activate = () => { void native("notch-edit", { session: session.current }); requestAnimationFrame(() => textarea.current?.focus()); };
+  const setText = (value: string) => {
+    draft.current.edit(value); setInput(value); setError(null); setMessage("");
+    if (account.current && !saveMemoDraft(localStorage, account.current, "notch", value)) setError("本机草稿保存失败，请保持窗口打开并联网保存");
+  };
+  const start = () => {
+    if (locked.current || !account.current) return null;
+    locked.current = true; setBusy(true); setError(null); setMessage("");
+    void native("notch-state", { session: session.current, busy: true });
+    return { operation: ++operation.current, epoch: epoch.current, userId: account.current };
+  };
+  const finish = (op: { operation: number }) => { if (operation.current === op.operation) { locked.current = false; setBusy(false); } };
+  const notify = (topic: "memos" | "tasks" | "notes", id: string) => void emitDataChanged({ topic, origin: "notch-panel", user_id: id });
+
+  const save = async () => {
+    const submission = draft.current.begin(); if (!submission || submission.content.length > 5000) return;
+    const op = start(); if (!op) return;
     try {
-      if (!isOnline()) { offlineCreate(); return; }
-      const res = await fetch("/api/memos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content, id: memoId }) });
-      if (!res.ok) {
-        // 网络类失败按离线入队；其余保留输入并报错
-        if (res.status >= 500) { offlineCreate(); return; }
-        setSaveError("保存失败，请检查网络后重试");
-        return;
+      let saved: Memo | null = null; let queued = false;
+      try {
+        if (!isOnline()) throw new TypeError("Failed to fetch");
+        const res = await fetch("/api/memos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: submission.content, id: submission.id, expected_user_id: submission.userId }) });
+        if (res.status >= 500) throw new TypeError("Failed to fetch");
+        if (!res.ok) throw new Error("保存被拒绝，草稿已保留，请确认登录账号后重试");
+        saved = await res.json() as Memo;
+      } catch (e) {
+        if (!isNetworkSaveError(e)) throw e;
+        if (!enqueueMemoCreate(localStorage, submission.userId, { op_id: submission.id, memo: { id: submission.id, content: submission.content }, created_at: Date.now() }).persisted) throw new Error("本地存储不可用，内容尚未保存，请联网重试");
+        queued = true;
       }
-      const memo = await res.json() as Memo;
-      setMemos((list) => insertMemoOptimistic(list, memo));
-      // K03：广播给主窗口（Rust 桥），主窗口速记列表即时跟随
-      void emitDataChanged({ topic: "memos", origin: "notch-panel" });
-      // F02：只清空被确认保存的版本；保存期间继续输入不会被迟到响应清掉
-      if (rawInput === input) { setInput(""); if (notchUserId) clearMemoDraft(localStorage, notchUserId, "notch"); }
-      setSavedFlash(true);
-      setTimeout(() => { setSavedFlash(false); requestCollapse(); }, 500);
-    } catch (error) {
-      if (isNetworkSaveError(error)) { offlineCreate(); return; }
-      setSaveError("保存失败，请检查网络后重试");
-    } finally { setSaving(false); }
-  }, [input, saving, requestCollapse, notchUserId]);
-
-  const saveEditedMemo = useCallback(async () => {
-    const id = editingMemoId; const content = editingMemoContent.trim();
-    if (!id || !content || savingMemo) return;
-    setSavingMemo(true); setMemoEditError(null);
+      if (!draft.current.belongsToCurrentUser(submission)) return;
+      if (draft.current.acknowledge(submission)) { setInput(""); clearMemoDraft(localStorage, submission.userId, "notch"); }
+      if (saved) { setMemos((list) => insertMemoOptimistic(list, saved!)); notify("memos", op.userId); }
+      setMessage(queued ? "已保存在本机，联网后同步" : "已保存");
+      window.dispatchEvent(new Event("organize:memos-queued"));
+    } catch (e) { if (op.epoch === epoch.current) setError(e instanceof Error ? e.message : "保存失败，草稿已保留"); }
+    finally { finish(op); }
+  };
+  const complete = async (task: Task) => {
+    const op = start(); if (!op) return;
     try {
-      const res = await fetch(`/api/memos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
-      if (!res.ok) throw new Error();
-      const updated = await res.json() as Memo;
-      setMemos((list) => list.map((memo) => memo.id === updated.id ? updated : memo));
-      void emitDataChanged({ topic: "memos", origin: "notch-panel" });
-      setEditingMemoId(null); setEditingMemoContent("");
-    } catch { setMemoEditError("修改失败，请稍后重试"); } finally { setSavingMemo(false); }
-  }, [editingMemoId, editingMemoContent, savingMemo]);
-
-  /** K04：勾选框负责完成/撤销完成；整行点击不再误完成 */
-  const completeTask = useCallback(async (task: Task) => {
-    setTasks((cur) => cur.filter((item) => item.id !== task.id));
-    setTaskError(null);
-    void emitNotchActivity();
-    const result = await applyTaskUpdate(supabase, task.id, { status: "done", completed_at: new Date().toISOString() }, task.sync_version ?? null, crypto.randomUUID());
-    if (result.status === "applied" || result.status === "already_applied") {
-      void emitDataChanged({ topic: "tasks", origin: "notch-panel" });
-      // K04：完成后短时可撤销
-      setLastCompleted({ id: task.id, title: task.title });
-      setTimeout(() => setLastCompleted((current) => (current?.id === task.id ? null : current)), 6000);
-      if (await generateNextRecurringTask(supabase, task.id)) void refreshData();
-    } else { setTaskError("勾选失败，请稍后重试"); void refreshData(); }
-  }, [supabase, refreshData]);
-
-  /** K04：撤销刚完成的任务（回到待办） */
-  const undoComplete = useCallback(async (taskId: string) => {
-    setLastCompleted(null);
-    setTaskError(null);
-    void emitNotchActivity();
-    const result = await applyTaskUpdate(supabase, taskId, { status: "todo", completed_at: null }, null, crypto.randomUUID());
-    if (result.status === "applied" || result.status === "already_applied") {
-      void emitDataChanged({ topic: "tasks", origin: "notch-panel" });
-      void refreshData();
-    } else { setTaskError("撤销失败，请稍后重试"); }
-  }, [supabase, refreshData]);
-
-  const submitQuickAction = useCallback(async () => {
-    const value = quickValue.trim(); if (!quickAction || quickSubmitting) return;
-    setQuickSubmitting(true); setQuickMessage(null);
+      const result = await applyTaskUpdate(supabase, task.id, { status: "done", completed_at: new Date().toISOString() }, task.sync_version ?? null, crypto.randomUUID());
+      if (op.epoch !== epoch.current) return;
+      if (result.status !== "applied" && result.status !== "already_applied") throw new Error("完成失败，任务可能已被其他窗口修改");
+      setTasks((list) => list.filter((t) => t.id !== task.id)); notify("tasks", op.userId);
+      if (task.recurrence_rule) { await generateNextRecurringTask(supabase, task.id); setMessage("已完成；重复任务请在主窗口管理"); }
+      else if (result.status === "applied") setUndo({ task, version: result.syncVersion });
+    } catch (e) { if (op.epoch === epoch.current) setError(e instanceof Error ? e.message : "操作失败"); }
+    finally { finish(op); }
+  };
+  const undoComplete = async () => {
+    const previous = undo; if (!previous) return; const op = start(); if (!op) return;
     try {
-      if (quickAction === "reading") {
-        const result = await collectReadingItem(value); setQuickMessage(result.status === "error" ? result.message || "添加失败" : result.status === "duplicate" ? "该链接已在稍后读中" : "已保存到稍后读");
-        if (result.status !== "error") { setQuickValue(""); setQuickAction(null); }
-      } else if (quickAction === "note") {
-        // N02：统一创建服务；created/queued 都算成功（客户端 id 即最终地址）
-        const result = await createNewNote(supabase, { title: value });
-        if (result.status === "created" || result.status === "queued") {
-          setQuickMessage(result.status === "queued" ? "已离线创建，联网后同步" : "已新建笔记");
-          setLastCreatedNote({ id: result.noteId });
-          setQuickValue(""); setQuickAction(null);
-        } else {
-          setQuickMessage(describeCreateNoteResult(result));
-        }
+      const result = await applyTaskUpdate(supabase, previous.task.id, { status: previous.task.status, completed_at: previous.task.completed_at }, previous.version, crypto.randomUUID());
+      if (op.epoch !== epoch.current) return;
+      if (result.status !== "applied" && result.status !== "already_applied") throw new Error("任务已变化，请在主窗口确认，未覆盖较新的修改");
+      setUndo(null); notify("tasks", op.userId); void refresh();
+    } catch (e) { if (op.epoch === epoch.current) setError(e instanceof Error ? e.message : "撤销失败"); }
+    finally { finish(op); }
+  };
+  const saveEdit = async () => {
+    const target = editing; if (!target || !editValue.trim()) return; const op = start(); if (!op) return;
+    try {
+      const res = await fetch(`/api/memos/${target.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: editValue }) });
+      if (op.epoch !== epoch.current) return;
+      if (!res.ok) throw new Error("修改失败，草稿已保留");
+      clearMemoDraft(localStorage, op.userId, `notch-edit:${target.id}`); setEditing(null); notify("memos", op.userId); void refresh();
+    } catch { if (op.epoch === epoch.current) setError("修改失败，草稿已保留"); }
+    finally { finish(op); }
+  };
+  const submitQuick = async () => {
+    if (!quick || (quick !== "note" && !quickValue.trim())) return; const op = start(); if (!op) return;
+    const action = quick; const value = quickValue;
+    try {
+      if (action === "note") {
+        const result = await createNewNote(supabase, { title: value, expectedUserId: op.userId });
+        if (op.epoch !== epoch.current) return;
+        if (result.status !== "created" && result.status !== "queued") throw new Error(describeCreateNoteResult(result));
+        if (result.status === "queued" && !result.persisted) throw new Error("本机存储失败，标题已保留");
+        setCreatedNote(result.noteId); setMessage(describeCreateNoteResult(result)); notify("notes", op.userId);
+      } else if (action === "task") {
+        const due = new Date(); due.setHours(23,59,59,999);
+        const result = await createQuickTask(supabase, { title: value, dueDate: due.toISOString(), expectedUserId: op.userId });
+        if (op.epoch !== epoch.current) return;
+        if (result.status !== "created" && result.status !== "queued") throw new Error(result.status === "failed" ? result.message : "请先登录");
+        if (result.status === "queued" && result.persisted === false) throw new Error("本机存储失败，输入已保留");
+        setTasks((items) => [result.task, ...items]); setMessage(result.status === "queued" ? "待办已保存在本机，联网后同步" : "已添加待办"); notify("tasks", op.userId);
       } else {
-        const today = new Date(); today.setHours(23, 59, 59, 999);
-        const result = await createQuickTask(supabase, { title: value, dueDate: today.toISOString() });
-        if (result.status === "created" || result.status === "queued") { setTasks((current) => [result.task, ...current]); setQuickMessage(result.status === "queued" ? "已离线创建，联网后同步" : "已添加待办"); setQuickValue(""); setQuickAction(null); void emitDataChanged({ topic: "tasks", origin: "notch-panel" }); }
-        else if (result.status === "unauthenticated") setQuickMessage("请先登录");
-        else if (result.status === "failed") setQuickMessage(result.message);
+        const result = await collectReadingItem(value, { expectedUserId: op.userId });
+        if (op.epoch !== epoch.current) return;
+        if (result.status === "error") throw new Error(result.message || "保存失败");
+        setMessage(result.status === "duplicate" ? "该链接已在稍后读中" : result.status === "saved-link-only" ? "已保存链接，正文暂不可用" : "已保存到稍后读");
       }
-    } finally { setQuickSubmitting(false); }
-  }, [quickAction, quickSubmitting, quickValue, supabase]);
-
-  const handleQuickAction = (action: (typeof NOTCH_QUICK_LINKS)[number]["action"]) => {
-    setQuickMessage(null);
-    if (action === "focus-memo") { setQuickAction(null); textareaRef.current?.focus(); }
-    else if (action === "open-settings-modal") setSettingsOpen(true);
-    else { setQuickValue(""); setQuickAction(action === "add-reading" ? "reading" : action === "add-note" ? "note" : "task"); }
+      clearMemoDraft(localStorage, op.userId, `notch-quick:${action}`); setQuick(null); setQuickValue("");
+    } catch (e) { if (op.epoch === epoch.current) setError(e instanceof Error ? e.message : "创建失败，输入已保留"); }
+    finally { finish(op); }
   };
-  const setHidden = (hidden: boolean) => {
-    try { localStorage.setItem("organize.notch-trigger-hidden", hidden ? "1" : "0"); } catch {}
-    setTriggerHidden(hidden);
-    void import("@tauri-apps/api/event").then(({ emit }) => emit("notch-trigger-visibility", { visible: !hidden }));
+  const visibility = (nextHidden: boolean, nextPlain: boolean) => {
+    setHidden(nextHidden); setPlain(nextPlain);
+    try { localStorage.setItem(NOTCH_TRIGGER_HIDDEN_KEY, nextHidden ? "1" : "0"); localStorage.setItem(NOTCH_PLAIN_DISPLAYS_KEY, nextPlain ? "1" : "0"); } catch { setError("设置未能保存，重启后可能恢复默认"); }
+    void native("notch-trigger-visibility", { visible: !nextHidden, plain_displays: nextPlain });
   };
-  const panelTasks = useMemo(() => selectPanelTasks(tasks), [tasks]);
-
-  return <div key={shownKey} className={cn("notch-panel-in relative flex h-[520px] w-[380px] flex-col overflow-hidden rounded-2xl border border-black/60 bg-[#1d1d1f]/95 text-neutral-100 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl", exiting && "notch-panel-out")}>
-    <div className="border-b border-white/5 p-3.5"><div className="relative"><textarea ref={textareaRef} value={input} onChange={(event) => { setInput(event.target.value); setSaveError(null); if (notchUserId) saveMemoDraft(localStorage, notchUserId, "notch", event.target.value); void emitNotchActivity(); }} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === "Escape") { event.preventDefault(); requestCollapse(); } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void save(); } }} autoFocus rows={3} placeholder="记点什么… Enter 保存，Shift+Enter 换行" className="h-[96px] w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-500 focus:border-white/25 focus:outline-none" />{savedFlash && <span className="absolute right-2.5 top-2.5 rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-300">已保存 ✓</span>}</div><div className="mt-1.5 flex h-4 items-center justify-between px-1"><span className="text-[11px] text-neutral-500">#标签 会自动归档</span>{saveError ? <span className="text-[11px] text-red-400">{saveError}</span> : <button type="button" onClick={() => void save()} disabled={!input.trim() || saving} className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-100 disabled:opacity-40">{saving && <Loader2 className="h-3 w-3 animate-spin" />}保存</button>}</div></div>
-    {loggedIn === false ? <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center"><Zap className="h-6 w-6 text-neutral-500" /><p className="text-sm text-neutral-300">登录后可用</p><button type="button" onClick={() => openPath("/login")} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs">去登录</button></div> : <>
-      {quickAction && <div className="border-b border-white/5 bg-white/[0.03] px-3.5 py-2.5"><div className="mb-1.5 flex items-center justify-between text-xs text-neutral-300"><span>{quickAction === "reading" ? "添加稍后读链接" : quickAction === "note" ? "新建笔记（标题可选）" : "添加今天待办"}</span><button type="button" onClick={() => setQuickAction(null)}><X className="h-3.5 w-3.5" /></button></div><div className="flex gap-2"><input ref={quickInputRef} value={quickValue} onChange={(e) => setQuickValue(e.target.value)} onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Escape") setQuickAction(null); if (e.key === "Enter") void submitQuickAction(); }} placeholder={quickAction === "reading" ? "粘贴链接" : quickAction === "note" ? "无标题笔记" : "待办内容"} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-xs outline-none focus:border-white/30" /><button type="button" onClick={() => void submitQuickAction()} disabled={quickSubmitting || (quickAction !== "note" && !quickValue.trim())} className="rounded-lg bg-white/10 px-2.5 text-xs disabled:opacity-40">{quickSubmitting ? "…" : "添加"}</button></div></div>}
-      {quickMessage && <p className="px-3.5 pt-2 text-[11px] text-neutral-400">{quickMessage}</p>}
-      {/* K04：新建笔记后可直接在主窗口继续编辑，而不是只提示创建成功 */}
-      {lastCreatedNote && <div className="px-3.5 pt-1.5"><button type="button" onClick={() => { setLastCreatedNote(null); openPath(`/notes/${lastCreatedNote.id}`); }} className="flex w-full items-center justify-between rounded-lg bg-white/10 px-2.5 py-1.5 text-[11px] text-sky-300 hover:bg-white/15">继续编辑这篇笔记<FileText className="h-3 w-3" /></button></div>}
-      <div className="flex h-[128px] flex-col border-b border-white/5 px-3.5 py-2.5"><div className="mb-1.5 flex items-center justify-between"><h3 className="text-xs font-medium text-neutral-400">今天与逾期</h3>{taskError && <span className="text-[11px] text-red-400">{taskError}</span>}<button type="button" onClick={() => openPath("/tasks")} title="在主窗口查看全部待办" className="text-[11px] text-neutral-400 hover:text-neutral-100">查看全部</button></div><div className="flex-1 space-y-1 overflow-y-auto">{panelTasks.length === 0 ? <p className="pt-3 text-center text-xs text-neutral-500">{loadingTasks ? "加载中…" : "今天没有待办 ✨"}</p> : panelTasks.map((task) => <div key={task.id} className="flex w-full items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-white/5"><button type="button" aria-label={`完成 ${task.title}`} onClick={() => void completeTask(task)} className="flex h-5 w-5 flex-none items-center justify-center rounded-[5px] border border-white/25 hover:border-white/60"><Check className="h-3 w-3 text-transparent" /></button><button type="button" onClick={() => openPath(`/tasks?task=${task.id}`)} title={`${task.title}（在主窗口打开）`} className="min-w-0 flex-1 truncate text-left text-[13px] text-neutral-200">{task.title}</button></div>)}</div>{lastCompleted && <button type="button" onClick={() => void undoComplete(lastCompleted.id)} className="mt-1 w-full rounded-lg bg-emerald-500/15 px-2 py-1 text-left text-[11px] text-emerald-300 hover:bg-emerald-500/25">已完成「{lastCompleted.title.slice(0, 12)}{lastCompleted.title.length > 12 ? "…" : ""}」· 撤销</button>}</div>
-      <div className="flex flex-1 flex-col overflow-hidden px-3.5 py-2.5"><h3 className="mb-1.5 text-xs font-medium text-neutral-400">最近速记</h3><div className="flex-1 space-y-1.5 overflow-y-auto">{memos.length === 0 ? <p className="pt-3 text-center text-xs text-neutral-500">还没有速记</p> : memos.map((memo) => editingMemoId === memo.id ? <div key={memo.id} className="rounded-lg bg-white/5 p-1.5"><textarea autoFocus value={editingMemoContent} onChange={(e) => { setEditingMemoContent(e.target.value); setMemoEditError(null); }} onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Escape") { e.preventDefault(); setEditingMemoId(null); } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void saveEditedMemo(); } }} rows={3} className="w-full resize-none bg-transparent text-[12px] text-neutral-200 outline-none" /><div className="flex items-center justify-between"><span className="text-[10px] text-red-400">{memoEditError}</span><span className="flex gap-2"><button type="button" onClick={() => setEditingMemoId(null)} className="text-[11px] text-neutral-400">取消</button><button type="button" onClick={() => void saveEditedMemo()} disabled={savingMemo || !editingMemoContent.trim()} className="text-[11px] text-sky-300 disabled:opacity-40">{savingMemo ? "保存中" : "保存"}</button></span></div></div> : <button key={memo.id} type="button" onClick={() => { setEditingMemoId(memo.id); setEditingMemoContent(memo.content); setMemoEditError(null); }} className="flex w-full gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] leading-relaxed hover:bg-white/5"><span className="flex-none pt-px text-[10px] text-neutral-500">{memoTimeLabel(memo.created_at)}</span><span className="line-clamp-2 text-neutral-300">{renderMemoContent(memo.content)}</span></button>)}</div></div>
-      <div className="grid grid-cols-5 gap-1 border-t border-white/5 p-2.5">{NOTCH_QUICK_LINKS.map((link) => { const Icon = QUICK_ICONS[link.icon]; return <button key={link.action} type="button" onClick={() => handleQuickAction(link.action)} className="flex flex-col items-center gap-1 rounded-lg py-1.5 text-neutral-400 hover:bg-white/5 hover:text-neutral-100"><Icon className="h-4 w-4" /><span className="text-[11px]">{link.label}</span></button>; })}</div>
+  const preview = info.mode === "preview";
+  const panelTasks = selectPanelTasks(tasks);
+  const enabled = Boolean(userId) && !preview;
+  const buttonClass = "rounded-lg px-2 py-1.5 text-xs hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:opacity-40";
+  return <section aria-label="快速记录" data-reduce-motion={info.reduce_motion || undefined} data-reduce-transparency={info.reduce_transparency || undefined}
+    className={cn("organize-capture-panel relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#1d1d1f]/95 text-neutral-100 shadow-xl", info.reduce_transparency && "!bg-[#1d1d1f]")}
+    onKeyDown={(e) => { if (isImeComposing(e) || e.key !== "Escape") return; e.preventDefault(); e.stopPropagation(); if (settings) { setSettings(false); requestAnimationFrame(() => settingsButton.current?.focus()); } else if (editing) setEditing(null); else if (quick) setQuick(null); else close(); }}>
+    <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2"><span className="text-xs font-medium">快速记录</span><div className="flex items-center gap-1"><button ref={settingsButton} aria-label="快速记录设置" className={buttonClass} onClick={() => setSettings(true)}><Settings size={15}/></button><button aria-label="关闭快速记录" className={buttonClass} onClick={close}><X size={15}/></button></div></header>
+    {settings ? <div className="flex-1 space-y-5 overflow-y-auto p-4"><button ref={backButton} className={buttonClass} onClick={() => { setSettings(false); requestAnimationFrame(() => settingsButton.current?.focus()); }}>返回快速记录</button><h2 className="text-sm font-medium">顶部入口</h2><label className="flex justify-between gap-3 text-sm"><span>显示顶部快捷入口</span><input type="checkbox" checked={!hidden} onChange={(e) => visibility(!e.target.checked, plain)}/></label><label className="flex justify-between gap-3 text-sm"><span>在无刘海屏幕也显示把手</span><input type="checkbox" checked={plain} onChange={(e) => visibility(hidden, e.target.checked)}/></label><p className="text-xs leading-relaxed text-neutral-400">悬停只预览，点击后开始编辑。隐藏入口后仍可从菜单栏“快速记录”或 ⌘⇧M 打开。</p><button className={buttonClass} onClick={() => openPath("/settings")}>打开完整设置</button></div> : <>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        <textarea ref={textarea} aria-label="速记内容" disabled={!enabled} value={input} maxLength={5000} rows={3} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void save(); } }}
+          placeholder={authReady && !userId ? "登录后开始记录" : "记点什么…"} className="min-h-[96px] w-full resize-y rounded-xl border border-white/15 bg-white/5 p-3 text-sm leading-relaxed outline-none focus:border-sky-300"/>
+        <div className="flex items-center justify-between text-[11px] text-neutral-400"><span>Enter 保存 · Shift+Enter 换行 · {input.length}/5000</span><button disabled={!enabled || busy || !input.trim()} className={buttonClass} onClick={() => void save()}>{busy ? <Loader2 aria-label="保存中" size={14} className="animate-spin"/> : "保存"}</button></div>
+        {error && <p role="alert" className="text-xs text-red-300">{error}</p>}{message && <p role="status" className="text-xs text-emerald-300">{message}</p>}
+        {!authReady ? <p className="text-xs text-neutral-400">正在确认登录状态…</p> : !userId ? <button className={buttonClass} onClick={() => openPath("/login")}>去登录</button> : <>
+          {quick && <div className="space-y-2 rounded-lg border border-white/10 p-2"><div className="flex items-center justify-between text-xs"><span>{quick === "reading" ? "添加链接" : quick === "note" ? "新建笔记" : "添加今天待办"}</span><button aria-label="关闭快捷输入" className={buttonClass} onClick={() => setQuick(null)}><X size={14}/></button></div><input aria-label="快捷输入内容" autoFocus disabled={busy} value={quickValue} onChange={(e) => { setQuickValue(e.target.value); saveMemoDraft(localStorage,userId,`notch-quick:${quick}`,e.target.value); }} onKeyDown={(e) => {if (!isImeComposing(e) && e.key === "Enter") {e.preventDefault(); void submitQuick();}}} className="w-full rounded border border-white/15 bg-white/5 p-2 text-sm"/><button disabled={busy} className={buttonClass} onClick={() => void submitQuick()}>添加</button></div>}
+          {createdNote && <button className={buttonClass} onClick={() => openPath(`/notes/${createdNote}`)}>继续编辑这篇笔记</button>}
+          {loadError && <div role="alert" className="text-xs text-red-300">{loadError}<button className={buttonClass} onClick={() => void refresh()}>重试</button></div>}
+          <div className="border-t border-white/10 pt-3"><div className="mb-2 flex justify-between text-xs text-neutral-400"><h2>今天与逾期</h2><button className={buttonClass} onClick={() => openPath("/tasks")}>查看全部</button></div>{panelTasks.length === 0 ? <p className="text-xs text-neutral-400">{loading ? "加载中…" : loadError ? "暂无法确认任务" : "今天没有待办"}</p> : panelTasks.map((task) => <div key={task.id} className="flex items-center gap-2"><button aria-label={`完成 ${task.title}`} disabled={busy} className={buttonClass} onClick={() => void complete(task)}><Check size={16}/></button><button className="min-w-0 flex-1 truncate py-2 text-left text-sm" onClick={() => openPath(`/tasks?task=${task.id}`)}>{task.title}</button></div>)}{undo && <button className={buttonClass} disabled={busy} onClick={() => void undoComplete()}>撤销完成「{undo.task.title.slice(0,16)}」</button>}</div>
+          <div className="border-t border-white/10 pt-3"><h2 className="mb-2 text-xs text-neutral-400">最近速记</h2>{memos.length === 0 && <p className="text-xs text-neutral-400">{loading ? "加载中…" : loadError ? "暂无法确认速记" : "还没有速记"}</p>}{memos.map((memo) => editing?.id === memo.id ? <div key={memo.id} className="space-y-2"><textarea aria-label="编辑速记" autoFocus maxLength={5000} disabled={busy} value={editValue} onChange={(e) => {setEditValue(e.target.value);saveMemoDraft(localStorage,userId,`notch-edit:${memo.id}`,e.target.value);}} className="w-full rounded bg-white/5 p-2 text-sm"/><button disabled={busy} className={buttonClass} onClick={() => void saveEdit()}>保存修改</button><button className={buttonClass} onClick={() => setEditing(null)}>返回</button></div> : <button key={memo.id} className="flex w-full gap-2 rounded-lg py-2 text-left text-xs hover:bg-white/5" onClick={() => {setEditing(memo);setEditValue(loadMemoDraft(localStorage,userId,`notch-edit:${memo.id}`) || memo.content);}}><span className="shrink-0 text-neutral-400">{memoTimeLabel(memo.created_at)}</span><span className="line-clamp-2 leading-relaxed">{memo.content}</span></button>)}</div>
+        </>}
+      </div>
+      <nav aria-label="快速创建" className="grid shrink-0 grid-cols-5 border-t border-white/10 p-2">{NOTCH_QUICK_LINKS.map((link) => {const Icon = ICONS[link.icon];return <button key={link.action} disabled={busy || (!userId && link.action !== "open-settings-modal")} className={buttonClass} onClick={() => {
+        if (link.action === "open-settings-modal") setSettings(true);
+        else if (link.action === "focus-memo") {setQuick(null);textarea.current?.focus();}
+        else {const action = link.action === "add-note" ? "note" : link.action === "add-task" ? "task" : "reading";setQuick(action);setQuickValue(userId ? loadMemoDraft(localStorage,userId,`notch-quick:${action}`) : "");}
+      }}><Icon size={16} className="mx-auto mb-1"/>{link.label}</button>;})}</nav>
     </>}
-    {/* K04：设置是有焦点约束的弹层——dialog 语义、打开聚焦、Tab 圈内循环、
-        Esc 逐层关闭（先设置后输入框的收起）、关闭后焦点交还触发按钮 */}
-    {settingsOpen && <div
-      className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-6"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSettingsOpen(false); return; }
-        if (e.key !== "Tab") return;
-        const panel = e.currentTarget;
-        const focusables = Array.from(panel.querySelectorAll<HTMLElement>('button:not([disabled]), input, [tabindex]:not([tabindex="-1"])'));
-        if (focusables.length === 0) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        const active = document.activeElement;
-        if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
-        else if (!panel.contains(active)) { e.preventDefault(); first.focus(); }
-      }}
-    ><div role="dialog" aria-modal="true" aria-label="刘海激发器设置" className="w-full rounded-xl border border-white/10 bg-[#27272a] p-4 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h2 className="text-sm font-medium">刘海激发器设置</h2><button ref={settingsCloseRef} type="button" aria-label="关闭设置" onClick={() => setSettingsOpen(false)}><X className="h-4 w-4" /></button></div><label className="flex cursor-pointer items-center justify-between gap-4 text-xs text-neutral-300"><span>隐藏顶部激发器</span><input type="checkbox" checked={triggerHidden} onChange={(e) => setHidden(e.target.checked)} /></label><button type="button" onClick={() => openPath("/settings")} className="mt-4 text-xs text-sky-300">打开完整设置</button></div></div>}
-  </div>;
+    {preview && <button aria-label="开始快速记录" onClick={activate} className="absolute inset-0 flex items-end justify-center rounded-2xl bg-black/15 pb-4"><span className="rounded-full bg-sky-700 px-4 py-2 text-sm text-white shadow-lg">点击开始记录 · ⌘⇧M</span></button>}
+  </section>;
 }
-
-function renderMemoContent(content: string) { return content.split(/(#[^\s#]+)/g).map((part, index) => !part.startsWith("#") || !parseMemoTags(part)[0] ? <span key={index}>{part}</span> : <span key={index} className="text-sky-300">{part}</span>); }

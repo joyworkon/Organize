@@ -72,6 +72,9 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
   const body = await request.json();
+  if (body?.expected_user_id && body.expected_user_id !== user.id) {
+    return NextResponse.json({ error: "登录账号已变化，草稿未提交" }, { status: 409 });
+  }
   const content = String(body?.content || "").trim();
   if (!content || content.length > 5000) {
     return NextResponse.json({ error: "内容无效（1-5000 字）" }, { status: 400 });

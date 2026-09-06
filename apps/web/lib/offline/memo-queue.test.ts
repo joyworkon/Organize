@@ -85,7 +85,7 @@ describe("速记离线队列（F02）", () => {
     expect(result.remaining).toBe(1);
   });
 
-  it("回放：4xx 业务拒绝丢弃该条并继续后续", async () => {
+  it("回放：4xx 业务拒绝保留内容并继续后续", async () => {
     const storage = memoryStorage();
     enqueueMemoCreate(storage, USER, makeMemoCreateOp("bad"));
     enqueueMemoCreate(storage, USER, makeMemoCreateOp("good"));
@@ -100,6 +100,8 @@ describe("速记离线队列（F02）", () => {
       USER,
       storage
     );
-    expect(result).toEqual({ applied: 1, rejected: 1, remaining: 0 });
+    expect(result).toEqual({ applied: 1, rejected: 1, remaining: 1 });
+    expect(readMemoCreates(storage, USER)[0].memo.content).toBe("bad");
+    expect(readMemoCreates(storage, USER)[0].error).toBeTruthy();
   });
 });

@@ -23,6 +23,7 @@ export interface PendingMemoCreate {
   /** 完整创建载荷：{ id, content }（user_id 由服务端会话决定，不入载荷） */
   memo: { id: string; content: string };
   created_at: number;
+  error?: string;
 }
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
@@ -99,14 +100,14 @@ export interface MemoCreateSubmitter {
 export interface MemoReplayResult {
   /** 成功应用的操作数（含幂等命中的创建） */
   applied: number;
-  /** 因业务错误（4xx / 无 code 服务端错）被丢弃的操作数 */
+  /** 因业务错误（4xx / 无 code 服务端错）保留为待处理的操作数 */
   rejected: number;
   /** 剩余（网络错误或 5xx 中止） */
   remaining: number;
 }
 
 /**
- * 按序回放；网络错误或 5xx 中止（等下次 online），业务拒绝丢弃该条并继续
+ * 按序回放；网络错误或 5xx 中止（等下次 online），业务拒绝保留为待处理并继续
  * （与 note-queue / task-queue 的失败分类一致）。
  */
 export async function replayMemoCreates(
@@ -126,14 +127,14 @@ export async function replayMemoCreates(
         break;
       } else {
         rejected += 1;
-        removeMemoCreate(storage, userId, op.memo.id);
+        enqueueMemoCreate(storage, userId, { ...op, error: "服务器拒绝同步，内容已保留，请确认账号或修改后重新保存" });
       }
     } catch (error) {
       if (isNetworkSaveError(error)) {
         break;
       }
       rejected += 1;
-      removeMemoCreate(storage, userId, op.memo.id);
+      enqueueMemoCreate(storage, userId, { ...op, error: "同步失败，内容已保留" });
     }
   }
   return { applied, rejected, remaining: readMemoCreates(storage, userId).length };

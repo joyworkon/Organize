@@ -18,12 +18,16 @@ export function NavigateBridge() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        listen("navigate", (event) => {
+      .then(async ({ listen, emit }) => {
+        const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        if (getCurrentWebviewWindow().label !== "main") return () => {};
+        const off = await listen("navigate", (event) => {
           const path = sanitizeNavigatePath(event.payload);
-          if (path) router.push(path);
-        }),
-      )
+          if (path) { router.push(path); void emit("desktop-navigate-ack", path); }
+        });
+        if (!cancelled) await emit("desktop-navigate-ready");
+        return off;
+      })
       .then((fn) => {
         if (cancelled) fn?.();
         else unlisten = fn;

@@ -31,15 +31,17 @@ export function saveMemoDraft(
   userId: string,
   entry: string,
   content: string
-): void {
+): boolean {
   try {
     if (content) storage.setItem(memoDraftKey(userId, entry), content);
     else storage.removeItem(memoDraftKey(userId, entry));
+    return true;
   } catch {
-    // 存储满/不可用：草稿降级为仅内存，不打断输入
+    // 存储满/不可用：调用方保留内存草稿并提示
+    return false;
   }
 }
 
-export function clearMemoDraft(storage: StorageLike, userId: string, entry: string): void {
-  saveMemoDraft(storage, userId, entry, "");
+export function clearMemoDraft(storage: StorageLike, userId: string, entry: string): boolean {
+  return saveMemoDraft(storage, userId, entry, "");
 }

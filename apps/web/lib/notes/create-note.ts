@@ -15,6 +15,7 @@ export type CreateNoteResult =
   | { status: "failed"; message: string };
 
 export interface NewNoteOverrides {
+  expectedUserId?: string;
   title?: string;
   parent_note_id?: string | null;
   icon?: string | null;
@@ -50,7 +51,7 @@ export async function createNewNote(
     data: { session },
   } = await supabase.auth.getSession();
   const user = session?.user;
-  if (!user) return { status: "unauthenticated" };
+  if (!user || (overrides.expectedUserId && overrides.expectedUserId !== user.id)) return { status: "unauthenticated" };
 
   const noteId = crypto.randomUUID();
   const payload = {

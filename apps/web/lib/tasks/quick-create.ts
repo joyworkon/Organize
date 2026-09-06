@@ -12,6 +12,7 @@ export type QuickTaskCreateResult =
   | { status: "failed"; message: string };
 
 export interface QuickTaskCreateOptions {
+  expectedUserId?: string;
   title: string;
   dueDate?: string | null;
   listId?: string | null;
@@ -23,7 +24,7 @@ export interface QuickTaskCreateOptions {
  */
 export async function createQuickTask(
   supabase: SupabaseClient,
-  { title, dueDate = null, listId = null }: QuickTaskCreateOptions,
+  { title, dueDate = null, listId = null, expectedUserId }: QuickTaskCreateOptions,
 ): Promise<QuickTaskCreateResult> {
   const normalizedTitle = title.trim();
   if (!normalizedTitle) return { status: "failed", message: "请输入待办内容" };
@@ -32,7 +33,7 @@ export async function createQuickTask(
     data: { session },
   } = await supabase.auth.getSession();
   const user = session?.user;
-  if (!user) return { status: "unauthenticated" };
+  if (!user || (expectedUserId && expectedUserId !== user.id)) return { status: "unauthenticated" };
 
   const now = new Date().toISOString();
   const task: Task = {

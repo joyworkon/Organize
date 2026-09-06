@@ -1,5 +1,7 @@
 import type { Memo, Task } from "@organize/shared";
 
+export const NOTCH_PLAIN_DISPLAYS_KEY = "organize.notch-plain-displays";
+
 export const NOTCH_TRIGGER_HIDDEN_KEY = "organize.notch-trigger-hidden";
 
 export function readNotchTriggerHidden(): boolean {
@@ -65,6 +67,7 @@ export type NotchDataTopic = "memos" | "tasks" | "notes";
 export interface NotchDataChangedPayload {
   topic: NotchDataTopic;
   origin: "notch-panel" | "main";
+  user_id?: string;
 }
 
 export async function emitDataChanged(payload: NotchDataChangedPayload): Promise<void> {
@@ -82,6 +85,14 @@ export async function emitDataChanged(payload: NotchDataChangedPayload): Promise
   window.dispatchEvent(new CustomEvent("organize-data-changed", { detail: payload }));
 }
 
+export function isDataChangedPayload(value: unknown): value is NotchDataChangedPayload {
+  if (!value || typeof value !== "object") return false;
+  const p = value as Record<string, unknown>;
+  return ["memos", "tasks", "notes"].includes(String(p.topic))
+    && ["main", "notch-panel"].includes(String(p.origin))
+    && (p.user_id === undefined || typeof p.user_id === "string");
+}
+
 export async function subscribeDataChanged(
   handler: (payload: NotchDataChangedPayload) => void
 ): Promise<() => void> {
@@ -90,7 +101,7 @@ export async function subscribeDataChanged(
     try {
       const { listen } = await import("@tauri-apps/api/event");
       const unlisten = await listen<NotchDataChangedPayload>("organize-data-changed", (event) => {
-        handler(event.payload);
+        if (isDataChangedPayload(event.payload)) handler(event.payload);
       });
       return unlisten;
     } catch {
@@ -99,7 +110,7 @@ export async function subscribeDataChanged(
   }
   const windowHandler = (event: Event) => {
     const detail = (event as CustomEvent<NotchDataChangedPayload>).detail;
-    if (detail) handler(detail);
+    if (isDataChangedPayload(detail)) handler(detail);
   };
   window.addEventListener("organize-data-changed", windowHandler);
   return () => window.removeEventListener("organize-data-changed", windowHandler);

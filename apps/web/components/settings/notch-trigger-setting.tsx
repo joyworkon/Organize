@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Monitor } from "lucide-react";
 import { getPlatform } from "@/lib/platform/detect";
-import { NOTCH_TRIGGER_HIDDEN_KEY } from "@/lib/desktop/notch";
+import { NOTCH_TRIGGER_HIDDEN_KEY, NOTCH_PLAIN_DISPLAYS_KEY } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,7 +34,7 @@ export function NotchTriggerSetting() {
       // 存不进去也照样通知 Rust 显隐，只是重启后回落默认（显示）
     }
     void import("@tauri-apps/api/event").then(({ emit }) =>
-      emit("notch-trigger-visibility", { visible: next }),
+      emit("notch-trigger-visibility", { visible: next, plain_displays: localStorage.getItem(NOTCH_PLAIN_DISPLAYS_KEY) === "1" }),
     );
   }
 
@@ -46,14 +46,15 @@ export function NotchTriggerSetting() {
       </div>
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-medium">显示刘海激发器</p>
+          <p className="text-sm font-medium">显示顶部快捷入口</p>
           <p className="text-sm text-muted-foreground">
-            顶部刘海处的速记胶囊。隐藏后仍可用 ⌘⇧M 唤出速记面板。
+            有刘海时在安全下缘显示入口。无刘海屏幕默认使用菜单栏“快速记录”或 ⌘⇧M。
           </p>
         </div>
         <button
           type="button"
           role="switch"
+          aria-label="显示顶部快捷入口"
           aria-checked={visible}
           onClick={toggle}
           className={cn(
