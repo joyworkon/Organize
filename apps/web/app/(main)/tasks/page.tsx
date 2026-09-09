@@ -57,6 +57,7 @@ import { groupTasksByDate } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { TagFilter } from "@/components/tags/tag-filter";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
+import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import { TaskTemplatesDialog } from "@/components/tasks/task-templates-dialog";
 import { TaskAttachmentsDialog } from "@/components/tasks/task-attachments-dialog";
@@ -958,6 +959,9 @@ function TasksPageInner() {
         <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 md:h-16 md:gap-4 md:px-8">
           <span className="text-xl md:text-2xl">{currentList?.icon || "📋"}</span>
           <h1 className="truncate text-base font-semibold md:text-xl">{listTitle}</h1>
+          <div className="mobile-task-scope min-w-0 flex-1 md:hidden">
+            <TaskNavigationMenu trigger={<button type="button" aria-label={`选择任务范围：${listTitle}`} className="flex max-w-full items-center gap-2 text-base font-semibold"><span className="truncate">{listTitle}</span><ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /></button>} />
+          </div>
           {!online && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
               <WifiOff className="h-3.5 w-3.5" />
@@ -989,7 +993,7 @@ function TasksPageInner() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="w-full px-4 pb-12 pt-5 md:px-8">
             {sidebarSelection.scope !== "trash" && (
-              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加任务至“${listTitle}”，回车即可创建`} className="mb-4 h-12 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20 md:mb-6 md:h-14" />
+              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加到${listTitle}`} enterKeyHint="done" className="mb-4 h-12 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20 md:mb-6 md:h-14" />
             )}
             {sidebarSelection.scope === "trash" && (
               <p className="mb-6 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
@@ -1153,7 +1157,7 @@ function TasksPageInner() {
                     <Button size="sm" variant="ghost" onClick={() => void fetchTasks()}>重试</Button>
                   </div>
                 )}
-                {filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "使用上方输入框，回车即可添加任务"} /> : (
+                {filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "写下下一步，或点右上角添加待办"} /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeSections ? (
                   activeSections.map((section) => (

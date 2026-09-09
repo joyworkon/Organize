@@ -24,11 +24,11 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between",
+        "organize-page-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between",
         className
       )}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="organize-page-heading flex min-w-0 items-center gap-3">
         {Icon && (
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[--radius-lg] bg-primary/10 text-primary">
             <Icon className="h-5 w-5" />

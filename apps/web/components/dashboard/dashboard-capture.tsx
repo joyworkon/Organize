@@ -53,7 +53,7 @@ export function DashboardCapture({ onAdded }: { onAdded: () => void }) {
   };
 
   return (
-    <div className="flex gap-2 items-center">
+    <div className="dashboard-capture flex gap-2 items-center">
       <div className="relative flex-1">
         <PenLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -72,7 +72,7 @@ export function DashboardCapture({ onAdded }: { onAdded: () => void }) {
       </Button>
       <Button type="button" onClick={() => void handleSubmit()} disabled={submitting || !text.trim()}>
         {submitting && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-        创建
+        保存
       </Button>
     </div>
   );

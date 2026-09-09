@@ -3,6 +3,7 @@ import { MemoSyncBridge } from "@/components/desktop/memo-sync-bridge";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "./mobile.css";
 import { ServiceWorkerRegistrar } from "@/components/layout/sw-registrar";
 import { WebViewCompat } from "@/components/platform/webview-compat";
 

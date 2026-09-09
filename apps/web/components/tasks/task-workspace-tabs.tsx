@@ -13,15 +13,16 @@ const tabs = [
   { key: "search", label: "搜索", icon: Search },
 ] as const;
 
-function queryFor(pathname: string, params: URLSearchParams, key: (typeof tabs)[number]["key"]): string {
+export function taskWorkspaceQuery(pathname: string, params: URLSearchParams, key: (typeof tabs)[number]["key"]): string {
   const next = new URLSearchParams();
   const scope = params.get("scope");
   const list = params.get("list");
-  if ((key === "tasks" || key === "calendar") && scope) {
+  if (scope) {
     next.set("scope", scope);
     if (scope === "list" && list) next.set("list", list);
   }
   if (key === "search" && params.get("q")) next.set("q", params.get("q") || "");
+  if (key === "tasks" && !scope) next.set("scope", "all");
   const value = next.toString();
   return value ? `?${value}` : "";
 }
@@ -42,14 +43,14 @@ export function TaskWorkspaceTabs() {
     <nav
       aria-label="待办工作区"
       role="tablist"
-      className="flex shrink-0 gap-1 overflow-x-auto border-b bg-background px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="task-workspace-tabs flex shrink-0 gap-1 overflow-x-auto border-b bg-background px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {tabs.map(({ key, label, icon: Icon }) => {
         const selected = active === key;
         return (
           <Link
             key={key}
-            href={`/tasks${key === "tasks" ? "" : `/${key}`}${queryFor(pathname, params, key)}`}
+            href={`/tasks${key === "tasks" ? "" : `/${key}`}${taskWorkspaceQuery(pathname, params, key)}`}
             role="tab"
             aria-selected={selected}
             className={cn(

@@ -28,6 +28,7 @@ import {
   Pin,
   Sparkles,
   Library,
+  Layers,
 } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
@@ -134,7 +135,9 @@ function LibraryPageInner() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
 
-  const [filter, setFilter] = useState<FilterStatus>("all");
+  const searchParams = useSearchParams();
+  const requestedStatus = searchParams.get("status");
+  const filter: FilterStatus = requestedStatus === "unread" || requestedStatus === "reading" || requestedStatus === "read" ? requestedStatus : "all";
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [smartSort, setSmartSort] = useState<SmartSortOption>("smart");
@@ -144,9 +147,13 @@ function LibraryPageInner() {
   // 标签筛选与 ?tags= 双向同步：URL 是入口（侧边栏标签快捷列表带参进入），
   // 手动改筛选 chip 时也回写 URL（router.replace 不产生历史记录），
   // 保证侧边栏高亮与地址栏分享出去的筛选状态始终一致
-  const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const setFilter = (next: FilterStatus) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "all") params.delete("status"); else params.set("status", next);
+    router.replace(`${pathname}${params.size ? `?${params}` : ""}`, { scroll: false });
+  };
   const urlTagIds = searchParams.get("tags");
   useEffect(() => {
     setSelectedTagIds(urlTagIds ? urlTagIds.split(",").filter(Boolean) : []);
@@ -544,22 +551,23 @@ function LibraryPageInner() {
         }}
       />
 
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="mobile-toolbar mobile-collection-toolbar flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             ref={searchInputRef}
-            placeholder="搜索标题...（按 / 聚焦）"
+            placeholder="搜索阅读内容"
+            aria-label="搜索阅读内容"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="mobile-toolbar-actions flex w-full items-center justify-between gap-2 sm:w-auto">
           <Select value={smartSort} onValueChange={handleSortChange}>
             <SelectTrigger className="w-auto sm:w-[140px] h-9 gap-1.5 sm:gap-1.5">
               <Sparkles className="h-3.5 w-3.5 shrink-0" />
-              <SelectValue className="hidden sm:inline-flex" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {sortOptions.map((opt) => (
@@ -582,7 +590,11 @@ function LibraryPageInner() {
             }}
           >
             <ListChecks className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">多选</span>
+            <span>多选</span>
+          </Button>
+          <Button variant="ghost" size="sm" className="gap-1.5 md:hidden" onClick={() => window.dispatchEvent(new CustomEvent("organize:reading-import"))}>
+            <Layers className="h-3.5 w-3.5" />
+            <span>导入</span>
           </Button>
         </div>
       </div>
@@ -595,11 +607,12 @@ function LibraryPageInner() {
         />
       )}
 
-      <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+      <div className="reading-status-tabs flex gap-1 rounded-lg bg-muted p-1 w-fit">
         {filterTabs.map((tab) => (
           <button
             key={tab.value}
             onClick={() => setFilter(tab.value)}
+            aria-pressed={filter === tab.value}
             className={cn(
               "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
               filter === tab.value
@@ -673,7 +686,8 @@ function LibraryPageInner() {
             <EmptyState
               icon={BookOpen}
               title={hasFilter ? "没有找到匹配的内容" : "还没有保存的内容"}
-              description={hasFilter ? "试试调整筛选条件" : "把链接粘贴到上方输入框，回车即可保存"}
+              description={hasFilter ? "试试调整筛选条件" : "保存感兴趣的文章，留一点时间慢慢读"}
+              action={!hasFilter ? <Button className="md:hidden" onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: "url" } }))}>保存第一篇文章</Button> : undefined}
             />
           );
         })()

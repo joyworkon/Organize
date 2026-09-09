@@ -17,6 +17,8 @@ import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
 import { NoteCard, NoteFavoritesContext, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -699,6 +701,19 @@ export default function NotesPage() {
       />
       </div>
 
+      <div className="flex items-center justify-between gap-2 md:hidden">
+        <p className="text-sm text-muted-foreground">{loading ? "整理中…" : `${notes.length} 篇笔记`}{!online ? " · 离线中" : ""}</p>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="笔记列表更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => setMdImportOpen(true)}>导入 Markdown</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setImportOpen(true)}>从 JoySpace 导入</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push("/graph")}>查看知识图谱</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => window.dispatchEvent(new CustomEvent("organize:navigation"))}>查看页面目录</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <JoyspaceImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
@@ -716,18 +731,19 @@ export default function NotesPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="mobile-collection-toolbar flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             ref={searchInputRef}
-            placeholder="搜索...（按 / 聚焦）"
+            placeholder="搜索笔记"
+            aria-label="搜索笔记"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
-        <div className="flex items-center gap-1 flex-wrap">
+        <div className="mobile-note-tools flex items-center gap-1 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -735,13 +751,13 @@ export default function NotesPage() {
             onClick={() => setSortBy(nextSortField(sortBy))}
           >
             <ArrowUpDown className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
+            <span className="mobile-tool-label hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-            className="hidden sm:flex"
+            className="mobile-note-sort-order hidden sm:flex"
           >
             {sortOrder === "desc" ? "降序" : "升序"}
           </Button>
@@ -750,15 +766,16 @@ export default function NotesPage() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className="mobile-note-graph gap-1.5"
             onClick={() => router.push("/graph")}
             title="图谱视图"
+            aria-label="图谱视图"
           >
             <Network className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">图谱</span>
           </Button>
 
-          <div className="hidden sm:flex items-center rounded-md border overflow-hidden">
+          <div className="mobile-note-view hidden sm:flex items-center rounded-md border overflow-hidden">
             <button
               onClick={() => setView("card")}
               className={cn(
@@ -794,7 +811,7 @@ export default function NotesPage() {
             }}
           >
             <ListChecks className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">多选</span>
+            <span>多选</span>
           </Button>
         </div>
       </div>

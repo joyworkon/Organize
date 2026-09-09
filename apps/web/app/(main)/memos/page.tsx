@@ -463,7 +463,7 @@ function MemosPageInner() {
       </div>
 
       {/* 输入区：桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
-      <div className="rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
+      <div className="memo-composer rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
         <textarea
           value={input}
           onChange={(e) => updateInput(e.target.value)}
@@ -477,9 +477,9 @@ function MemosPageInner() {
               void handleSave();
             }
           }}
-          placeholder="记录此刻的想法…（#标签 标记主题，Enter 保存，Shift+Enter 换行）"
+          placeholder="此刻有什么想法？用 #标签 标记主题"
+          aria-label="速记内容"
           rows={3}
-          autoFocus
           className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
         />
         <div className="mt-1 flex items-center justify-between">
@@ -515,7 +515,7 @@ function MemosPageInner() {
 
       {/* 标签筛选 */}
       {tagCounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="mobile-filter-strip flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => setFilterTag(null)}
@@ -627,8 +627,7 @@ function MemosPageInner() {
                             if (e.key === "Escape") setEditingId(null);
                           }}
                           rows={3}
-                          autoFocus
-                          className="w-full resize-none bg-transparent text-sm outline-none"
+                                          className="w-full resize-none bg-transparent text-sm outline-none"
                         />
                         <div className="mt-1 flex justify-end gap-1.5">
                           <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
