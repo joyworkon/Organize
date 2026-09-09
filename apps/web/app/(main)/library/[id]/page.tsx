@@ -26,6 +26,9 @@ import { cn } from "@/lib/utils";
 import { htmlToTextParagraphs } from "@/lib/tiptap-utils";
 import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
+import { CollectionBackLink } from "@/components/layout/mobile-navigation";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
@@ -856,15 +859,14 @@ export default function ReadingDetailPage() {
 
       {/* 顶栏：全宽吸顶（负 margin 抵消主布局 p-4/md:p-6）。
           左侧返回+面包屑，右侧操作；进度条贴顶栏下沿 */}
-      <div className="sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 bg-background/95 backdrop-blur border-b">
+      <div className="reading-topbar sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 bg-background/95 backdrop-blur border-b">
         <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Link href="/library">
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Breadcrumb className="min-w-0">
+            <CollectionBackLink section="library" aria-label="返回阅读列表" className="grid h-11 w-11 shrink-0 place-items-center rounded-md hover:bg-accent md:h-8 md:w-8">
+              <ArrowLeft className="h-5 w-5" />
+            </CollectionBackLink>
+            <span className="truncate text-sm font-medium md:hidden">{item.title || "稍后读"}</span>
+            <Breadcrumb className="hidden min-w-0 md:block">
               <BreadcrumbList>
                 <BreadcrumbItem className="hidden sm:inline-flex">
                   <BreadcrumbLink href="/">首页</BreadcrumbLink>
@@ -885,7 +887,7 @@ export default function ReadingDetailPage() {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-          <div className="flex items-center gap-1 sm:gap-1.5">
+          <div className="hidden items-center gap-1 sm:gap-1.5 md:flex">
             <Button
               variant="ghost"
               size="sm"
@@ -969,6 +971,23 @@ export default function ReadingDetailPage() {
                 <ExternalLink className="h-4 w-4" />
               </Button>
             </a>
+          </div>
+          <div className="mobile-reading-actions hidden">
+            <FavoriteButton targetType="reading" targetId={itemId} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="阅读工具"><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="mobile-reading-menu w-60">
+                <DropdownMenuItem onSelect={() => setShowHighlightsPanel(true)}><Highlighter className="mr-2 h-4 w-4" />高亮与摘记{highlights.length ? ` · ${highlights.length}` : ""}</DropdownMenuItem>
+                <DropdownMenuItem disabled={isConvertingToNote} onSelect={() => void handleConvertToNote()}><FileText className="mr-2 h-4 w-4" />转为笔记</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShareDialogOpen(true)}><Share2 className="mr-2 h-4 w-4" />分享文章</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setBionicMode(!bionicMode)}><Zap className="mr-2 h-4 w-4" />{bionicMode ? "关闭速读" : "开启速读"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setFocusMode(!focusMode)}><Maximize2 className="mr-2 h-4 w-4" />{focusMode ? "退出专注阅读" : "专注阅读"}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={toggleFullWidth}><StretchHorizontal className="mr-2 h-4 w-4" />{fullWidth ? "恢复默认宽度" : "全宽阅读"}</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开原文</a></DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         {/* 进度条：贴顶栏下沿，全宽一条（不再重复渲染页面顶部 fixed 进度条） */}

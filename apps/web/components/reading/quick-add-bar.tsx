@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,6 +29,11 @@ export function QuickAddBar({ onAdded }: QuickAddBarProps) {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  useEffect(() => {
+    const openImport = () => setBatchOpen(true);
+    window.addEventListener("organize:reading-import", openImport);
+    return () => window.removeEventListener("organize:reading-import", openImport);
+  }, []);
 
   const handleAdd = async () => {
     setAdding(true);
@@ -57,7 +62,7 @@ export function QuickAddBar({ onAdded }: QuickAddBarProps) {
 
   return (
     <>
-      <div className="flex gap-2">
+      <div className="reading-quick-add flex gap-2">
         <div className="relative flex-1">
           <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

@@ -13,7 +13,9 @@ import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
 import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { cycleStatus, getHostname } from "./reading-card-utils";
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { MoreHorizontal, Check, Share2, Sparkles } from "lucide-react";
 import { FavoriteButton } from "@/components/favorite-button";
 
 interface ReadingCardProps {
@@ -38,6 +40,7 @@ export function ReadingCard({
   onTagsApplied,
 }: ReadingCardProps) {
   const showCheckbox = Boolean(onSelectChange);
+  const [mobileDialog, setMobileDialog] = useState<"share" | "tags" | null>(null);
   const tags: Tag[] = item.tags || [];
   const hostname = getHostname(item.url);
   const readingMinutes = item.content ? estimateReadingTime(item.content) : null;
@@ -106,7 +109,7 @@ export function ReadingCard({
               </h3>
               <div
                 className={cn(
-                  "flex items-center gap-0.5 shrink-0 transition-opacity",
+                  "hidden md:flex items-center gap-0.5 shrink-0 transition-opacity",
                   selectionMode
                     ? "opacity-100"
                     : item.is_pinned
@@ -146,12 +149,16 @@ export function ReadingCard({
                   resourceType="reading_item"
                   resourceId={item.id}
                   triggerSize="icon"
+                  open={mobileDialog === "tags"}
+                  onOpenChange={(open) => setMobileDialog(open ? "tags" : null)}
                   onApplied={(names) => onTagsApplied?.(item.id, names)}
                 />
                 <ShareDialog
                   resourceType="reading_item"
                   resourceId={item.id}
                   triggerSize="icon"
+                  open={mobileDialog === "share"}
+                  onOpenChange={(open) => setMobileDialog(open ? "share" : null)}
                 />
                 {onDelete && (
                   <button
@@ -165,6 +172,19 @@ export function ReadingCard({
                     <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                   </button>
                 )}
+              </div>
+              <div className="shrink-0 md:hidden" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild><button type="button" className="grid h-11 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-accent" aria-label={`文章操作：${item.title || "无标题"}`}><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="mobile-reading-menu w-52" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
+                    {onStatusChange && <DropdownMenuItem onSelect={() => onStatusChange(item.id, item.reading_status === "read" ? "unread" : "read")}><Check className="mr-2 h-4 w-4" />{item.reading_status === "read" ? "标为未读" : "标为已读"}</DropdownMenuItem>}
+                    {onTogglePin && <DropdownMenuItem onSelect={handleTogglePin}><Pin className="mr-2 h-4 w-4" />{item.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>}
+                    <DropdownMenuItem onSelect={() => setMobileDialog("tags")}><Sparkles className="mr-2 h-4 w-4" />自动打标签</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setMobileDialog("share")}><Share2 className="mr-2 h-4 w-4" />分享</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => window.open(item.url, "_blank", "noopener,noreferrer")}><ExternalLink className="mr-2 h-4 w-4" />打开原文</DropdownMenuItem>
+                    {onDelete && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={handleDelete} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />移到垃圾箱</DropdownMenuItem></>}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 

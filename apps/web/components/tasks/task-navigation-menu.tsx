@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Calendar,
   CalendarDays,
@@ -14,6 +14,8 @@ import {
   Trash2,
 } from "lucide-react";
 import type { TaskList, TaskWithTags } from "@organize/shared";
+import { showPrompt } from "@/components/ui/prompt-dialog";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useTaskRepository } from "@/lib/tasks/repository";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
@@ -69,7 +71,8 @@ export function TaskNavigationMenu({
   className,
 }: TaskNavigationMenuProps) {
   const router = useRouter();
-  const { tasks, lists, loading, refetch } = useTaskRepository();
+  const searchParams = useSearchParams();
+  const { tasks, lists, loading, refetch, createList } = useTaskRepository();
   const [open, setOpen] = useState(false);
   const allCount = useMemo(() => activeTaskCount(tasks), [tasks]);
   const completedCount = useMemo(() => completedTaskCount(tasks), [tasks]);
@@ -95,9 +98,9 @@ export function TaskNavigationMenu({
           className
         )}
       >
-        <div className="border-b px-5 py-5">
+        <div className="border-b px-4 py-3">
           <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#e7316d] text-xl font-bold text-white shadow-sm">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-xl font-bold text-white shadow-sm">
               O
             </span>
             <div className="min-w-0">
@@ -107,7 +110,7 @@ export function TaskNavigationMenu({
           </div>
         </div>
 
-        <div className="max-h-[min(70vh,34rem)] overflow-y-auto px-2 py-3">
+        <div className="max-h-[min(60dvh,34rem)] overflow-y-auto px-2 py-3">
           <div className="space-y-1">
             <TaskMenuItem
               icon={ListChecks}
@@ -135,7 +138,14 @@ export function TaskNavigationMenu({
               onClick={() => {
                 setOpen(false);
                 if (onCreateList) void onCreateList();
-                else router.push("/tasks");
+                else void (async () => {
+                  const name = (await showPrompt({ title: "新建清单", placeholder: "清单名称" }))?.trim();
+                  if (!name) return;
+                  try {
+                    const list = await createList(name);
+                    if (list) select({ scope: "list", listId: list.id });
+                  } catch { toast({ title: "创建清单失败", variant: "destructive" }); }
+                })();
               }}
               className="grid h-7 w-7 place-items-center rounded-md text-foreground transition-colors hover:bg-muted"
             >
@@ -154,6 +164,7 @@ export function TaskNavigationMenu({
                   key={list.id}
                   list={list}
                   count={listTaskCount(tasks, list.id)}
+                  active={searchParams.get("scope") === "list" && searchParams.get("list") === list.id}
                   onClick={() => select({ scope: "list", listId: list.id })}
                 />
               ))
@@ -196,7 +207,7 @@ function TaskMenuItem({
       onClick={onClick}
       className="group flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-base text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
-      <Icon className="h-5 w-5 shrink-0 text-[#8a7d73] transition-colors group-hover:text-primary" />
+      <Icon className="h-5 w-5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {count !== undefined && count > 0 && (
         <span className="tabular-nums text-sm text-muted-foreground">{count}</span>
@@ -208,17 +219,20 @@ function TaskMenuItem({
 function TaskListMenuItem({
   list,
   count,
+  active,
   onClick,
 }: {
   list: TaskList;
   count: number;
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-base text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      aria-current={active ? "page" : undefined}
+      className="group flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-base text-muted-foreground transition-colors hover:bg-muted hover:text-foreground aria-[current=page]:bg-accent aria-[current=page]:text-foreground"
     >
       <List className="h-5 w-5 shrink-0" style={{ color: list.color || undefined }} />
       <span className="min-w-0 flex-1 truncate">{list.name}</span>

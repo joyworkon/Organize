@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
-import { MobileBottomBar } from "@/components/layout/mobile-bottom-bar";
+import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import { GlobalHotkeys } from "@/components/layout/global-hotkeys";
 import { PluginBootstrap } from "@/components/plugin/plugin-bootstrap";
 import { CommandPalette } from "@/components/command-palette";
@@ -21,20 +21,20 @@ export default function MainLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background">
+    <Suspense fallback={null}>
+    <MobileNavigation>
       <BodyPointerEventsGuard />
       <PluginBootstrap />
       <Suspense fallback={null}>
         <Sidebar />
       </Suspense>
-      <MobileBottomBar />
       <GlobalHotkeys />
       <CommandPalette />
       <Toaster />
-      <main className="organize-sidebar-offset pt-14 transition-[padding] duration-200 md:pt-0 pb-16 md:pb-0">
+      <main className="organize-main organize-sidebar-offset transition-[padding] duration-200">
         {/* 桌面端 Chrome 式笔记标签页条：吸顶，笔记页顶栏在其下方吸顶（见 globals.css 偏移） */}
         <NoteTabsBar />
-        <div className="p-4 md:p-6">{children}</div>
+        <div className="organize-main-content p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
       <ShareBridge />
@@ -43,6 +43,7 @@ export default function MainLayout({
       <ReminderPoller />
       <Onboarding />
       <PromptHost />
-    </div>
+    </MobileNavigation>
+    </Suspense>
   );
 }

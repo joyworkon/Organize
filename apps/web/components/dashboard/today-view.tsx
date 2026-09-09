@@ -219,6 +219,15 @@ export default function TodayView() {
 
   useEffect(() => {
     loadData();
+    const reload = () => void loadData();
+    window.addEventListener("organize:memos-synced", reload);
+    window.addEventListener("organize:tasks-changed", reload);
+    window.addEventListener("reading:item-created", reload);
+    return () => {
+      window.removeEventListener("organize:memos-synced", reload);
+      window.removeEventListener("organize:tasks-changed", reload);
+      window.removeEventListener("reading:item-created", reload);
+    };
   }, [loadData]);
 
   const handleToggleTaskStatus = async (taskId: string, status: Task["status"]) => {
@@ -316,7 +325,7 @@ export default function TodayView() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="dashboard-today space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">
@@ -326,7 +335,7 @@ export default function TodayView() {
             {formatDate(today)}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="dashboard-quick-links flex items-center gap-2 flex-wrap">
           <TaskNavigationMenu
             onCreateList={handleCreateTaskList}
             trigger={(

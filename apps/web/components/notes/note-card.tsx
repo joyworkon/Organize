@@ -262,9 +262,9 @@ export function NoteCard({
           onClick={stop}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") stop(e); }}
           className={cn(
-            "p-1 rounded hover:bg-accent text-muted-foreground shrink-0 transition-opacity duration-150",
+            "p-1 max-md:min-h-11 max-md:min-w-9 rounded hover:bg-accent text-muted-foreground shrink-0 transition-opacity duration-150",
             !selectionMode && !showCheckbox &&
-              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+              "md:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
           )}
           title="更多操作"
         >

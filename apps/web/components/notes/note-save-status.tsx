@@ -25,7 +25,7 @@ export function NoteSaveStatus({
   isViewer: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="note-save-status flex items-center gap-2 text-xs text-muted-foreground">
       {!online && (
         <span className="flex items-center gap-1" role="status">
           <WifiOff className="h-3 w-3" />
@@ -56,10 +56,11 @@ export function NoteSaveStatus({
           ) : null}
         </span>
       )}
+      {!saveError && online && !isViewer && <span className="whitespace-nowrap md:hidden" role="status">{saving ? "保存中" : lastSaved ? "已保存" : ""}</span>}
       {/* 协作 viewer：显式只读角标，解释为何没有保存状态 */}
       {isViewer && (
         <span
-          className="hidden rounded border px-1.5 py-0.5 text-xs text-muted-foreground md:inline-block"
+          className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground"
           title="这篇笔记以仅查看身份共享给你"
         >
           仅查看

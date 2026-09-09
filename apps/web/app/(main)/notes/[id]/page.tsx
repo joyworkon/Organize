@@ -37,6 +37,7 @@ import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "lucide-react";
 import Link from "next/link";
+import { CollectionBackLink } from "@/components/layout/mobile-navigation";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
@@ -1269,10 +1270,10 @@ export default function NoteEditorPage() {
       <div className="note-topbar">
         <div className="note-topbar-inner">
           <div className="note-topbar-group note-topbar-nav">
-            <Link href="/notes" className="note-topbar-back" title="返回笔记列表">
+            <CollectionBackLink section="notes" className="note-topbar-back" title="返回笔记列表" aria-label="返回笔记列表">
               <ArrowLeft className="h-4 w-4" />
               <span className="hidden sm:inline">返回</span>
-            </Link>
+            </CollectionBackLink>
             <NoteHierarchyBar
               noteId={noteId}
               title={title}

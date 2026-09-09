@@ -11,7 +11,6 @@ import {
   Puzzle,
   Tag as TagIcon,
   LogOut,
-  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -31,6 +30,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
@@ -63,12 +63,6 @@ const navItems = [
 // 辅助组（D06）：收藏夹移入此处，与「与我共享 / 协作空间」同组，插在「速记」之后。
 const favoritesNavItem = { href: "/favorites", label: "收藏夹", icon: Star };
 
-// 移动端顶栏位置名仍需识别已降级的一级页面（列表里没有，单独补齐）
-const MOBILE_LABEL_EXTRA_ITEMS = [
-  { href: "/lessons", label: "经验" },
-  { href: "/tags", label: "标签" },
-];
-
 // 「与我共享」条件入口：有共享笔记才出现在「笔记」之后（useHasSharedNotes，mock 恒隐藏）
 const sharedNavItem = { href: "/shared", label: "与我共享", icon: Users };
 
@@ -90,43 +84,16 @@ export function Sidebar() {
     pathname === "/tasks/lessons";
   const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
-  // U02：抽屉焦点管理——打开聚焦关闭按钮，Tab 在面板内循环，关闭后焦点回到汉堡按钮
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const drawerPanelRef = useRef<HTMLDivElement | null>(null);
-  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
-  const mobileOpenPrevRef = useRef(false);
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (mobileOpen && !mobileOpenPrevRef.current) {
-      // 打开：等面板挂载后把焦点移入
-      requestAnimationFrame(() => drawerCloseRef.current?.focus());
-    }
-    if (!mobileOpen && mobileOpenPrevRef.current) {
-      menuButtonRef.current?.focus?.();
-    }
-    mobileOpenPrevRef.current = mobileOpen;
-  }, [mobileOpen]);
-  const handleDrawerKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (event.key !== "Tab") return;
-    const panel = drawerPanelRef.current;
-    if (!panel) return;
-    const focusables = Array.from(
-      panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])')
-    );
-    if (focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === panel)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || active === panel)) {
-      event.preventDefault();
-      first.focus();
-    } else if (active !== panel && !panel.contains(active)) {
-      event.preventDefault();
-      first.focus();
-    }
+    const openNavigation = () => {
+      menuTriggerRef.current = document.activeElement as HTMLElement | null;
+      setMobileOpen(true);
+    };
+    window.addEventListener("organize:navigation", openNavigation);
+    return () => window.removeEventListener("organize:navigation", openNavigation);
   }, []);
+  useEffect(() => { setMobileOpen(false); }, [pathname, searchParams]);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
@@ -282,14 +249,6 @@ const visibleNavItems = useMemo(() => {
     };
   }, [searchParams]);
 
-  // 移动端顶栏展示当前所在分区（Notion 移动端模式：汉堡 + 位置名），根路径回退到产品名
-  const mobileSectionLabel = useMemo(() => {
-    const match = [...navItems, sharedNavItem, spacesNavItem, ...MOBILE_LABEL_EXTRA_ITEMS]
-      .sort((a, b) => b.href.length - a.href.length)
-      .find((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)));
-    return match?.label ?? "Organize";
-  }, [pathname]);
-
   const navigateToTasks = (selection: SidebarSelection) => {
     const params = new URLSearchParams();
     params.set("scope", selection.scope);
@@ -358,12 +317,11 @@ const visibleNavItems = useMemo(() => {
   }) => (
     <div className="flex h-full flex-col">
       {/* 展开态：顶部搜索入口（打开全局命令面板）+ 品牌行，参考 Capacities 侧边栏 */}
-      {!compact && (
+      {!compact && !onClose && (
         <div className="border-b px-3 pb-2.5 pt-3">
           <button
             type="button"
             onClick={() => {
-              onClose?.();
               window.dispatchEvent(new CustomEvent("organize:command-palette"));
             }}
             title="搜索或访问（⌘K）"
@@ -379,6 +337,7 @@ const visibleNavItems = useMemo(() => {
       <div
         className={cn(
           "flex h-12 items-center border-b",
+          onClose && "hidden",
           compact ? "justify-center gap-0 px-0.5" : "justify-between px-4"
         )}
       >
@@ -428,7 +387,7 @@ const visibleNavItems = useMemo(() => {
 
       <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
         {/* 最近打开的笔记（来自标签页 store 的访问记录）：折叠显示 6 条，展开 12 条 */}
-        {!compact && recentNotes.length > 0 && (
+        {!compact && !onClose && recentNotes.length > 0 && (
           <div className="pb-2">
             <button
               type="button"
@@ -732,55 +691,15 @@ const visibleNavItems = useMemo(() => {
         <NavContent compact={collapsed} collapsible />
       </aside>
 
-      {/* 移动端顶栏 */}
-      <header className="fixed top-0 left-0 right-0 z-50 flex h-14 items-center border-b bg-sidebar text-sidebar-foreground px-4 md:hidden pt-safe">
-        <Button
-          ref={menuButtonRef}
-          variant="ghost"
-          size="icon"
-          aria-label="打开导航菜单"
-          aria-expanded={mobileOpen}
-          onClick={() => setMobileOpen(true)}
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-        <span className="ml-3 truncate font-bold text-lg">{mobileSectionLabel}</span>
-      </header>
-
-      {/* 移动端抽屉 */}
-      {mobileOpen && (
-        <DrawerEscapeHandler onClose={() => setMobileOpen(false)} />
-      )}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="fixed inset-0 bg-black/50 animate-in fade-in duration-200"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div
-            ref={drawerPanelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="导航菜单"
-            onKeyDown={handleDrawerKeyDown}
-            className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground shadow-lg animate-in slide-in-from-left duration-200 flex flex-col"
-          >
-            <div className="flex items-center justify-between border-b px-2 py-1.5">
-              <span className="px-2 text-sm font-semibold">{mobileSectionLabel}</span>
-              <Button
-                ref={drawerCloseRef}
-                variant="ghost"
-                size="icon"
-                aria-label="关闭导航菜单"
-                onClick={() => setMobileOpen(false)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-            <NavContent onClose={() => setMobileOpen(false)} />
-          </div>
-        </div>
-      )}
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <DialogContent className="mobile-navigation-sheet" onCloseAutoFocus={(event) => { event.preventDefault(); menuTriggerRef.current?.focus(); }}>
+          <DialogHeader>
+            <DialogTitle>更多</DialogTitle>
+            <DialogDescription>页面目录、任务清单与应用设置</DialogDescription>
+          </DialogHeader>
+          <NavContent onClose={() => setMobileOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -860,16 +779,4 @@ function SidebarNoteTree({
     return <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有笔记</p>;
   }
   return <>{renderNodes(nodes, 0)}</>;
-}
-
-/** 抽屉打开期间按 Esc 关闭（D05 无障碍验收项；挂载在组件内以共享 mobileOpen 状态语义） */
-function DrawerEscapeHandler({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-  return null;
 }
