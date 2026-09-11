@@ -57,12 +57,25 @@ function build(version: string, outDir: string) {
     env: { ...process.env, ...BUILD_ENV, SW_BUILD_VERSION: version },
   });
   execFileSync("npx", ["next", "build"], {
-    env: { ...process.env, ...BUILD_ENV },
+    // CI runner 内存有限，限制构建堆大小防 OOM
+    env: { ...process.env, ...BUILD_ENV, NODE_OPTIONS: "--max-old-space-size=3072" },
   });
   rmSync(outDir, { recursive: true, force: true });
   cpSync(".next", outDir, { recursive: true });
   // next start 实时读 public/ 目录：把带版本的 sw.js 一并快照，serve 时还原
   cpSync("public/sw.js", join(workDir, `sw-${version}.js`));
+}
+
+/** CI 预构建复用（SW_E2E_PREBUILT_DIR 指向含 next-<v>/ 与 sw-<v>.js 的目录）：
+ *  构建不放进 Playwright 进程族，避免 runner 上 OOM（SIGKILL） */
+function ensureBuild(version: string, outDir: string) {
+  const prebuiltDir = process.env.SW_E2E_PREBUILT_DIR;
+  if (prebuiltDir) {
+    cpSync(join(prebuiltDir, `next-${version}`), outDir, { recursive: true });
+    cpSync(join(prebuiltDir, `sw-${version}.js`), join(workDir, `sw-${version}.js`));
+    return;
+  }
+  build(version, outDir);
 }
 
 async function serve(outDir: string, version: string) {
@@ -113,8 +126,9 @@ const triggerUpdateCheck = (p: Page) =>
   });
 
 test.beforeAll(async () => {  // 双构建：源码不变，仅 SW_BUILD_VERSION 不同 → sw.js 字节不同 → 浏览器可检测到更新
-  build(VERSION_A, nextA);
-  build(VERSION_B, nextB);
+  // （版本常量须与 ci.yml sw-e2e job 的预构建版本一致）
+  ensureBuild(VERSION_A, nextA);
+  ensureBuild(VERSION_B, nextB);
 
   browser = await chromium.launch();
   context = await browser.newContext();

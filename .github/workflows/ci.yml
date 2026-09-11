@@ -124,10 +124,30 @@ jobs:
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
 
-      - name: Run SW update E2E
+      # 双构建在独立步骤完成（不放进 Playwright 进程族，避免 runner OOM 被 SIGKILL）；
+      # 版本号与 e2e/sw-update.spec.ts 的 VERSION_A/VERSION_B 保持一致
+      - name: Prebuild version N and N+1 (mock backend)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_MOCK_BACKEND: 'true'
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJyb2xlIjoiYW5vbiIsImV4cCI6MTk4MzgxMjk5Nn0.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+        run: |
+          mkdir -p /tmp/sw-prebuilt
+          SW_BUILD_VERSION=1110000000000 node scripts/gen-sw.mjs
+          npx next build
+          cp -R .next /tmp/sw-prebuilt/next-1110000000000
+          cp public/sw.js /tmp/sw-prebuilt/sw-1110000000000.js
+          SW_BUILD_VERSION=2220000000000 node scripts/gen-sw.mjs
+          npx next build
+          cp -R .next /tmp/sw-prebuilt/next-2220000000000
+          cp public/sw.js /tmp/sw-prebuilt/sw-2220000000000.js
+
+      - name: Run SW update E2E (reuses prebuilt builds)
         working-directory: apps/web
         env:
           SW_E2E: "1"
+          SW_E2E_PREBUILT_DIR: /tmp/sw-prebuilt
         run: npx playwright test -c playwright.sw.config.ts
 
       - uses: actions/upload-artifact@v4
