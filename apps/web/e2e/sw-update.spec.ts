@@ -1,9 +1,14 @@
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import fsp from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { chromium, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+
+const execFileAsync = promisify(execFileCb);
 
 /**
  * A02：Service Worker 跨版本更新与离线边界（真实双构建行为验证）。
@@ -52,37 +57,41 @@ let page: Page | null = null;
 
 test.skip(!process.env.SW_E2E, "SW_E2E=1 时运行（双构建，约 5 分钟）");
 
-function build(version: string, outDir: string) {
-  execFileSync("node", ["scripts/gen-sw.mjs"], {
-    env: { ...process.env, ...BUILD_ENV, SW_BUILD_VERSION: version },
-  });
-  execFileSync("npx", ["next", "build"], {
+async function build(version: string, outDir: string) {
+  // 重活全部走异步 fs / 子进程：CI runner 磁盘慢，同步复制数百 MB 会长时间阻塞
+  // Playwright worker 事件循环，driver 会把无响应的 worker SIGKILL 掉
+  await fsp.rm(outDir, { recursive: true, force: true });
+  const buildEnv = {
+    ...process.env,
+    ...BUILD_ENV,
+    SW_BUILD_VERSION: version,
     // CI runner 内存有限，限制构建堆大小防 OOM
-    env: { ...process.env, ...BUILD_ENV, NODE_OPTIONS: "--max-old-space-size=3072" },
-  });
-  rmSync(outDir, { recursive: true, force: true });
-  cpSync(".next", outDir, { recursive: true });
+    NODE_OPTIONS: "--max-old-space-size=3072",
+  };
+  await execFileAsync("node", ["scripts/gen-sw.mjs"], { env: buildEnv });
+  await execFileAsync("npx", ["next", "build"], { env: buildEnv });
+  await fsp.cp(".next", outDir, { recursive: true });
   // next start 实时读 public/ 目录：把带版本的 sw.js 一并快照，serve 时还原
-  cpSync("public/sw.js", join(workDir, `sw-${version}.js`));
+  await fsp.cp("public/sw.js", join(workDir, `sw-${version}.js`));
 }
 
 /** CI 预构建复用（SW_E2E_PREBUILT_DIR 指向含 next-<v>/ 与 sw-<v>.js 的目录）：
  *  构建不放进 Playwright 进程族，避免 runner 上 OOM（SIGKILL） */
-function ensureBuild(version: string, outDir: string) {
+async function ensureBuild(version: string, outDir: string) {
   const prebuiltDir = process.env.SW_E2E_PREBUILT_DIR;
   if (prebuiltDir) {
-    cpSync(join(prebuiltDir, `next-${version}`), outDir, { recursive: true });
-    cpSync(join(prebuiltDir, `sw-${version}.js`), join(workDir, `sw-${version}.js`));
+    await fsp.cp(join(prebuiltDir, `next-${version}`), outDir, { recursive: true });
+    await fsp.cp(join(prebuiltDir, `sw-${version}.js`), join(workDir, `sw-${version}.js`));
     return;
   }
-  build(version, outDir);
+  await build(version, outDir);
 }
 
 async function serve(outDir: string, version: string) {
   await stopServer();
-  rmSync(".next", { recursive: true, force: true });
-  cpSync(outDir, ".next", { recursive: true });
-  cpSync(join(workDir, `sw-${version}.js`), "public/sw.js");
+  await fsp.rm(".next", { recursive: true, force: true });
+  await fsp.cp(outDir, ".next", { recursive: true });
+  await fsp.cp(join(workDir, `sw-${version}.js`), "public/sw.js");
   const logFd = openSync(join(workDir, `server-${Date.now()}.log`), "a");
   serverHandle = spawn("npx", ["next", "start", "-p", `${PORT}`], {
     stdio: ["ignore", logFd, logFd],
@@ -100,9 +109,10 @@ async function serve(outDir: string, version: string) {
 }
 
 async function stopServer() {
-  // next start 会 spawn 改名后的 next-server 子进程，按端口杀才干净
+  // next start 会 spawn 改名后的 next-server 子进程；只杀端口 LISTENER，
+  // 不带 -sTCP:LISTEN 会把持有 3101 客户端连接的浏览器/worker 一并误杀
   try {
-    execSync(`lsof -ti:${PORT} | xargs kill -9`, { stdio: "ignore" });
+    execSync(`lsof -ti:${PORT} -sTCP:LISTEN | xargs kill -9`, { stdio: "ignore" });
   } catch {}
   serverHandle?.kill("SIGKILL");
   serverHandle = null;
@@ -127,8 +137,8 @@ const triggerUpdateCheck = (p: Page) =>
 
 test.beforeAll(async () => {  // 双构建：源码不变，仅 SW_BUILD_VERSION 不同 → sw.js 字节不同 → 浏览器可检测到更新
   // （版本常量须与 ci.yml sw-e2e job 的预构建版本一致）
-  ensureBuild(VERSION_A, nextA);
-  ensureBuild(VERSION_B, nextB);
+  await ensureBuild(VERSION_A, nextA);
+  await ensureBuild(VERSION_B, nextB);
 
   browser = await chromium.launch();
   context = await browser.newContext();
@@ -141,7 +151,7 @@ test.afterAll(async () => {
   await stopServer();
   await context?.close();
   await browser?.close();
-  rmSync(workDir, { recursive: true, force: true });
+  await fsp.rm(workDir, { recursive: true, force: true });
 });
 
 test.describe.serial("SW 跨版本更新与离线边界", () => {

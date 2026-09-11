@@ -16,7 +16,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: process.env.CI ? "line" : "list",
+  reporter: [
+    ["line"],
+    // 失败工件（ci.yml sw-e2e job 上传 playwright-report/）
+    ["html", { output: "playwright-report", open: "never" }],
+  ],
   use: {
     baseURL: "http://127.0.0.1:3101",
     trace: "retain-on-failure",
