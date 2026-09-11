@@ -95,6 +95,9 @@ async function serve(outDir: string, version: string) {
   const serverLogPath = join(workDir, `server-${Date.now()}.log`);
   const logFd = openSync(serverLogPath, "a");
   serverHandle = spawn("npx", ["next", "start", "-p", `${PORT}`], {
+    // MOCK_ENV 必须带上：instrumentation 的 env 校验在缺 Supabase 变量时拒绝启动
+    // （本地有 .env.local 会掩盖这个问题，CI 没有）
+    env: { ...process.env, ...BUILD_ENV },
     stdio: ["ignore", logFd, logFd],
   });
   serverHandle.unref();
