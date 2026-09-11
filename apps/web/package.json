@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/gen-sw.mjs && next build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "next start",
     "lint": "next lint",
     "e2e": "playwright test",
+    "e2e:sw": "playwright test -c playwright.sw.config.ts",
     "clean": "rm -rf .next node_modules"
   },
   "dependencies": {

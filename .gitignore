@@ -49,6 +49,9 @@ desktop/src-tauri/gen/
 # mobile/ios/.gitignore 各自排除：build、Pods、DerivedData、local.properties、
 # 同步生成的 capacitor.config.json / public 资产）
 
+# A02：public/sw.js 由构建期 scripts/gen-sw.mjs 从 sw.template.js 生成（版本随构建变化）
+apps/web/public/sw.js
+
 # supabase
 supabase/.branches
 supabase/.temp

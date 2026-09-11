@@ -8,7 +8,7 @@
 ## 全局基线（2026-09-11）
 
 - master = `f0aabc4`（PR #259 路线图文档合并后）；迁移 `001–075`；备份 `BACKUP_VERSION = 5`（`apps/web/lib/backup/schema.ts:2`）。
-- Vitest 基线：147 文件 / 1,095 用例（计划编制时实测于 `84a6239`，见计划 §2；此后仅合并 docs-only PR，以各 PR CI 复核为准）。
+- Vitest 基线：计划编制时 147 文件 / 1,095 用例（`84a6239`）；A02 后 148 文件 / 1,099 用例（+4 gen-sw 合同测试，本地实跑全绿）。以各 PR CI 复核为准。
 - 验证门禁：web typecheck / Vitest / 零警告 lint / build；UI 改动跑相关 E2E；数据库改动跑隔离 pgTAP（含越权负例）；协作改动跑 collab-server build/test + 真实协作 E2E。纯文档卡只做链接/内容检查。
 - 遗留开放 PR：#210（Chrome 扩展）、#212（plugin 包类型检查修复）——均早于本计划（2026-09-01/02 创建），是否收编或关闭**待用户决定**，接力 Agent 不得擅自合并或关闭。
 
@@ -19,7 +19,7 @@
 | ID | 卡 | 规模 | 状态 | 依赖 | 执行者 | PR/commit | 关键证据 | 未验证项 |
 |---|---|---|---|---|---|---|---|---|
 | A01 | 唯一状态账本 | S | 完成 | — | engineering-agent | #260 | 本文件；旧文档顶部链接已加 | — |
-| A02 | Service Worker 跨版本更新与离线边界 | M | 就绪 | A01 | — | — | 问题证据：`apps/web/public/sw.js:3` 固定 `organize-v3`，无构建版本注入与安全激活流程 | 换版旧 chunk、账号切换缓存边界未复现 |
+| A02 | Service Worker 跨版本更新与离线边界 | M | 完成 | A01 | engineering-agent | 本 PR | 复现证据（2026-09-11，/tmp/sw-repro）：未缓存脚本离线收到 `200 text/html`（sw.js 旧实现回退 `/`）；断网刷新 hydration 失败；sw.js 字节不变致 `update()` 无 waiting；旧构建 chunk 在新构建服务 404。修复：版本化缓存（gen-sw 构建注入时间戳）、类型分流回退（仅导航可回退 HTML，最终到零依赖 `public/offline.html`）、用户确认式安全激活（SKIP_WAITING 消息 + 非阻塞「新版本已就绪」提示，不强制刷新）、保留上一版缓存供旧标签页、`app/error.tsx` 旧 chunk 失败兜底文案。行为证据：`e2e/sw-update.spec.ts` 双构建 6 条全过（本地 SW_E2E=1 实跑）；CI 新增 sw-e2e job 常跑 | 真实生产灰度观察；真实后端双账号切换实机验证（mock 单用户世界，缓存 HTML 无私密数据由架构 + E2E 扫描覆盖） |
 | A03 | 真实后端和协作 CI | M | 就绪 | A01 | — | — | 问题证据：`.github/workflows/ci.yml` 仅 verify+db-test 两 job，CLI `version: latest`（ci.yml:107），无 collab build/test，协作 E2E 依赖 `COLLAB_E2E=1` 未在 CI 显式开启 | 真实协作场景从未进普通 CI |
 | A04 | 同步块双浏览器可靠性验收 | M | 候选 | A03 | — | — | 073 协议 + `synced-block.tsx` 已存在；R05 设计文档在 `docs/handoff/r05-synced-block-design.md` | 双浏览器完整验收缺口（计划 §2） |
 | A05 | 协作会话刷新与撤权（先设计） | L | 候选 | A03 | — | — | 上游限制：`@hocuspocus/provider` 4.6 无 `setToken`（BLOCKED.md P5-03 评估，2026-08-31）；需核实现装版本 | 存量连接撤权窗口未定义未测 |

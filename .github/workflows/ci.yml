@@ -80,8 +80,11 @@ jobs:
           # NEXT_PUBLIC_* 在构建期内联进客户端 bundle，mock 开关必须在 build 时存在
           NEXT_PUBLIC_MOCK_BACKEND: 'true'
           NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-        run: npx next build
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iZXhwIjoxOTgzODEyOTk2fQ.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+        # gen-sw 先生成带版本号的 public/sw.js（A02），next start 才能注册到版本化 SW
+        run: |
+          node scripts/gen-sw.mjs
+          npx next build
 
       - name: Run Playwright smoke
         working-directory: apps/web
@@ -93,6 +96,44 @@ jobs:
         if: failure()
         with:
           name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+  # A02：Service Worker 跨版本更新与离线边界（真实双构建 N→N+1 行为验证）
+  # 用例内部自行构建两个版本并中途换服务（SW_BUILD_VERSION 不同 → sw.js 字节不同），
+  # 覆盖：等待版本非阻塞提示、旧标签页继续导航、未缓存旧路由错误边界、
+  # 断网回退边界（脚本绝不回退 HTML）、上一版缓存保留、缓存 HTML 无账号数据。
+  sw-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run SW update E2E
+        working-directory: apps/web
+        env:
+          SW_E2E: "1"
+        run: npx playwright test -c playwright.sw.config.ts
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: sw-playwright-report
           path: apps/web/playwright-report/
           retention-days: 7
 
