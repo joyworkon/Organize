@@ -73,13 +73,17 @@ test("双浏览器并发编辑不丢字，重连后内容合并，快照落库�
   await login(pageB, seed.userB.email, seed.userB.password);
   await openNote(pageB);
 
-  // 2. 并发输入：A 在第一个段落、B 在第二个段落（不同位置，模拟飞书式并行编辑）
-  await pageA.locator(".ProseMirror > *").first().click();
-  await pageA.keyboard.type("甲的并发输入A1");
-  await pageB.locator(".ProseMirror > *").nth(1).click();
-  await pageB.keyboard.type("乙的并发输入B1");
-  await pageA.locator(".ProseMirror > *").first().click();
-  await pageA.keyboard.type("A2");
+    // 2. 并发输入：A 在第一个段落、B 在第二个段落（不同位置，模拟飞书式并行编辑）
+    //    A2 前显式按 End 定位到行尾：慢机器上 click 段落的默认落点不稳定
+    //    （CI 实测曾落到段首，把 A2 插到 A1 前面），这里让输入位置确定
+    await pageA.locator(".ProseMirror > *").first().click();
+    await pageA.keyboard.press("End");
+    await pageA.keyboard.type("甲的并发输入A1");
+    await pageB.locator(".ProseMirror > *").nth(1).click();
+    await pageB.keyboard.type("乙的并发输入B1");
+    await pageA.locator(".ProseMirror > *").first().click();
+    await pageA.keyboard.press("End");
+    await pageA.keyboard.type("A2");
 
   // 3. 双向可见：A 能看到乙的输入，B 能看到甲的输入（CRDT 合并，无冲突弹窗）
   await expect(pageA.locator(".ProseMirror")).toContainText("乙的并发输入B1", { timeout: 15_000 });
