@@ -18,7 +18,7 @@
 
 | ID | 卡 | 规模 | 状态 | 依赖 | 执行者 | PR/commit | 关键证据 | 未验证项 |
 |---|---|---|---|---|---|---|---|---|
-| A01 | 唯一状态账本 | S | 完成 | — | engineering-agent | 本 PR | 本文件；旧文档顶部链接已加 | — |
+| A01 | 唯一状态账本 | S | 完成 | — | engineering-agent | #260 | 本文件；旧文档顶部链接已加 | — |
 | A02 | Service Worker 跨版本更新与离线边界 | M | 就绪 | A01 | — | — | 问题证据：`apps/web/public/sw.js:3` 固定 `organize-v3`，无构建版本注入与安全激活流程 | 换版旧 chunk、账号切换缓存边界未复现 |
 | A03 | 真实后端和协作 CI | M | 就绪 | A01 | — | — | 问题证据：`.github/workflows/ci.yml` 仅 verify+db-test 两 job，CLI `version: latest`（ci.yml:107），无 collab build/test，协作 E2E 依赖 `COLLAB_E2E=1` 未在 CI 显式开启 | 真实协作场景从未进普通 CI |
 | A04 | 同步块双浏览器可靠性验收 | M | 候选 | A03 | — | — | 073 协议 + `synced-block.tsx` 已存在；R05 设计文档在 `docs/handoff/r05-synced-block-design.md` | 双浏览器完整验收缺口（计划 §2） |
