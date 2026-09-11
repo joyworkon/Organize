@@ -42,6 +42,13 @@ jobs:
         working-directory: apps/web
         run: npx vitest run
 
+      # A03：collab-server 的类型检查与单测进入常规门禁（不依赖真实后端）
+      - name: Build/typecheck (collab-server)
+        run: corepack pnpm --filter @organize/collab-server build
+
+      - name: Test (collab-server)
+        run: corepack pnpm --filter @organize/collab-server test
+
       - name: Build (apps/web)
         working-directory: apps/web
         # build 时 prerender 静态页要创建 Supabase client，需要这两个 PUBLIC env 存在
@@ -157,6 +164,125 @@ jobs:
           path: apps/web/playwright-report/
           retention-days: 7
 
+  # A03：真实后端 + 真实 WebSocket 的协作 E2E（登录双账号、匿名协作、刷新持久化）。
+  # 此前两个协作 spec 仅在 COLLAB_E2E=1 下本地运行、CI 恒跳过——不能把默认跳过
+  # 当成通过。本 job 在 runner 上拉起完整本地 Supabase（Auth/PostgREST/Storage）+
+  # collab-server(1420) + 生产构建 web(3100, 真实后端 + WS 地址)，显式 COLLAB_E2E=1。
+  collab-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          # 与 db-test 相同的固定版本（A03）
+          version: 2.116.0
+
+      # 完整本地栈：Auth（登录双账号）+ PostgREST（RPC/RLS）+ Storage；
+      # 排除 studio/analytics 加速启动（日志面板与本验证无关）
+      - name: Start local Supabase
+        run: supabase start --exclude studio,analytics
+
+      - name: Export stack env (no keys echoed)
+        run: |
+          STATUS=$(supabase status -o json)
+          echo "SUPABASE_URL=$(echo "$STATUS" | jq -r '.API_URL')" >> "$GITHUB_ENV"
+          echo "SUPABASE_ANON_KEY=$(echo "$STATUS" | jq -r '.ANON_KEY')" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS" | jq -r '.SERVICE_ROLE_KEY')" >> "$GITHUB_ENV"
+
+      # 服务没起来就让步骤失败——不允许带病继续（A03 验收：启动失败即失败）
+      - name: Wait for Auth API
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:54321/auth/v1/health && break
+            sleep 2
+          done || { echo "auth api not healthy"; exit 1; }
+
+      - name: Seed collab and anon e2e data
+        working-directory: apps/web
+        run: |
+          node scripts/seed-collab-e2e.mjs
+          node scripts/seed-anon-e2e.mjs
+
+      - name: Start collab-server (ws://127.0.0.1:1420)
+        working-directory: apps/collab-server
+        run: |
+          nohup npx tsx src/server.ts > /tmp/collab-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/1420' 2>/dev/null && break
+            sleep 1
+          done || { echo "collab-server failed to start"; cat /tmp/collab-server.log; exit 1; }
+
+      - name: Build web (real backend + collab WS URL)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_MOCK_BACKEND: 'false'
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          # 真实本地栈的 anon key（构建期内联进客户端 bundle）
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_COLLAB_WS_URL: ws://127.0.0.1:1420
+          ORGANIZE_E2E: 'true'
+        run: |
+          node scripts/gen-sw.mjs
+          npx next build
+
+      - name: Start web (port 3100)
+        working-directory: apps/web
+        env:
+          # 运行时 instrumentation env 校验同样需要这些变量（无 .env.local 兜底）
+          NEXT_PUBLIC_MOCK_BACKEND: 'false'
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_COLLAB_WS_URL: ws://127.0.0.1:1420
+          ORGANIZE_E2E: 'true'
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          nohup npx next start -p 3100 > /tmp/web-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3100/api/health && break
+            sleep 2
+          done || { echo "web server failed to start"; cat /tmp/web-server.log; exit 1; }
+
+      - name: Run collab E2E (COLLAB_E2E=1)
+        working-directory: apps/web
+        env:
+          COLLAB_E2E: '1'
+        run: npx playwright test -c playwright.collab.config.ts
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collab-e2e-diagnostics
+          path: |
+            apps/web/playwright-report/
+            apps/web/.tmp-e2e/
+            /tmp/collab-server.log
+            /tmp/web-server.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
+
   db-test:
     runs-on: ubuntu-latest
     steps:
@@ -165,7 +291,9 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # A03：固定实测可用版本（2.116.0 与迁移 001–075 本地全量验证过），
+          # 不用 latest——CLI 大版本变化曾使 db start 行为漂移（计划 §2-9）
+          version: 2.116.0
 
       # 启动本地 Postgres 并应用所有迁移（pgTAP 测试只依赖 DB，不需要 auth/realtime）
       - name: Start local database
