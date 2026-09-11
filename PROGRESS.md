@@ -1,5 +1,7 @@
 # PROGRESS
 
+> **⚠ 历史交付日志（2026-09-11 起停更）**：当前任务状态的唯一真相源是 [`docs/agent-workboard.md`](docs/agent-workboard.md)。新卡不再登记到本文件，正文保留为历史记录（截至 2026-09-02 P5 匿名分享）。
+
 ## P5 匿名分享：邮箱邀请未注册用户 + 可编辑公开链接（2026-09-02，071/072）
 
 - 任务书：`docs/anon-share-collab-plan.md`（冷启动自包含，三卡三 PR：#214 Track A → #215 Track B 后端 → #216 Track B 前端 + 文档收尾）

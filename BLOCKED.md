@@ -1,5 +1,7 @@
 # BLOCKED
 
+> **⚠ 分流说明（2026-09-11）**：本文件各条的「有效阻塞 / 已解除 / 合同说明」分流感见由 [`docs/agent-workboard.md`](docs/agent-workboard.md) 的「历史 BLOCKED 三分类」维护；正文声明保留原样，仍是改动相关域前必读的合同。
+
 ## 匿名分享 Track A/B（071/072，已完成，2026-09-02）
 无阻塞。声明归档（违反会重新打开本卡的坑）：
 1. **匿名无归属是合同不是缺口**：`save_public_note` 以属主 scope 写、`last_edit_by=null`；
