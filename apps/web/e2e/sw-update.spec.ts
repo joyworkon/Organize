@@ -92,7 +92,8 @@ async function serve(outDir: string, version: string) {
   await fsp.rm(".next", { recursive: true, force: true });
   await fsp.cp(outDir, ".next", { recursive: true });
   await fsp.cp(join(workDir, `sw-${version}.js`), "public/sw.js");
-  const logFd = openSync(join(workDir, `server-${Date.now()}.log`), "a");
+  const serverLogPath = join(workDir, `server-${Date.now()}.log`);
+  const logFd = openSync(serverLogPath, "a");
   serverHandle = spawn("npx", ["next", "start", "-p", `${PORT}`], {
     stdio: ["ignore", logFd, logFd],
   });
@@ -105,7 +106,14 @@ async function serve(outDir: string, version: string) {
       if (r.ok) return;
     } catch {}
   }
-  throw new Error(`server for ${outDir} failed to start (logs in ${workDir})`);
+  // 失败时把服务日志尾部带进错误信息（workDir 会随 afterAll 清理）
+  let logTail = "";
+  try {
+    logTail = (await fsp.readFile(serverLogPath, "utf8")).slice(-1500);
+  } catch {}
+  throw new Error(
+    `server for ${outDir} failed to start; log tail:\n${logTail}`
+  );
 }
 
 async function stopServer() {
