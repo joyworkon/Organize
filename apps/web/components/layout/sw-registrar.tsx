@@ -33,35 +33,49 @@ export function ServiceWorkerRegistrar() {
 
     let cancelled = false;
     let updateTimer = 0;
+    // 失败重试（A04）：注册可能在首访网络抖动/瞬时 5xx 时失败；SPA 会话内
+    // registrar 不会重新挂载，不重试就整个会话失去 SW。有界退避，3 次为止。
+    let attempts = 0;
+    let retryTimer = 0;
 
     const promoteWaiting = (sw: ServiceWorker | null) => {
       // 已有 controller（非首次安装）才提示：首次安装无需用户动作
       if (sw && navigator.serviceWorker.controller) setWaitingWorker(sw);
     };
 
-    navigator.serviceWorker
-      .register("/sw.js")
-      .then((reg) => {
-        if (cancelled) return;
-        // 上次会话遗留的等待版本（上次提示被忽略/页面被关）
-        promoteWaiting(reg.waiting);
-        reg.addEventListener("updatefound", () => {
-          const installing = reg.installing;
-          if (!installing) return;
-          installing.addEventListener("statechange", () => {
-            if (installing.state === "installed") promoteWaiting(installing);
+    const tryRegister = () => {
+      if (cancelled) return;
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          if (cancelled) return;
+          // 上次会话遗留的等待版本（上次提示被忽略/页面被关）
+          promoteWaiting(reg.waiting);
+          reg.addEventListener("updatefound", () => {
+            const installing = reg.installing;
+            if (!installing) return;
+            installing.addEventListener("statechange", () => {
+              if (installing.state === "installed") promoteWaiting(installing);
+            });
           });
+          // 浏览器只在导航时自动检查 SW 更新；长驻标签页每小时补一次机会
+          updateTimer = window.setInterval(() => {
+            reg.update().catch(() => {});
+          }, 60 * 60 * 1000);
+        })
+        .catch((err) => {
+          console.warn("SW registration failed:", err);
+          if (cancelled || attempts >= 3) return;
+          attempts += 1;
+          retryTimer = window.setTimeout(tryRegister, 5000 * attempts);
         });
-        // 浏览器只在导航时自动检查 SW 更新；长驻标签页每小时补一次机会
-        updateTimer = window.setInterval(() => {
-          reg.update().catch(() => {});
-        }, 60 * 60 * 1000);
-      })
-      .catch((err) => console.warn("SW registration failed:", err));
+    };
+    tryRegister();
 
     return () => {
       cancelled = true;
       window.clearInterval(updateTimer);
+      window.clearTimeout(retryTimer);
     };
   }, []);
 

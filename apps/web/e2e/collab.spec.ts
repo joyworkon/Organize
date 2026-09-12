@@ -59,6 +59,12 @@ async function login(page: Page, email: string, password: string) {
 async function openNote(page: Page) {
   await page.goto(noteUrl());
   await page.locator(".ProseMirror").waitFor();
+  // 等协作播种完成再返回：编辑器先以非协作实例挂载（collab 会话异步建立后重建），
+  // 种子笔记正文两段——不足两段说明还在等播种，此刻输入会打进即将被销毁的
+  // 实例（A04 实测的丢字窗口，已记 workboard 作 A05 输入）
+  await expect
+    .poll(() => page.locator(".ProseMirror > *").count(), { timeout: 20_000 })
+    .toBeGreaterThanOrEqual(2);
 }
 
 test("双浏览器并发编辑不丢字，重连后内容合并，快照落库可刷新恢复", async ({ browser }) => {

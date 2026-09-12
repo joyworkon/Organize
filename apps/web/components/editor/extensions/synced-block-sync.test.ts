@@ -179,6 +179,33 @@ describe("R05 冲突决策与 pending 持久化", () => {
     expect(classifyConflict(null, pending)).toBe("conflict");
   });
 
+  it("classifyConflict：jsonb 键序重排（服务端往返）不降级成冲突（A04）", () => {
+    // 客户端 TipTap 插入序 {type, marks, text}；Postgres jsonb 规范化为键长序
+    //（{text, type, marks} 之类）——语义相同必须命中幂等，否则重试永远冲突
+    const pending = [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [{ type: "text", marks: [{ type: "bold" }], text: "本地" }],
+      },
+    ];
+    const serverRoundTrip = [
+      {
+        attrs: { id: "p1" },
+        content: [{ marks: [{ type: "bold" }], text: "本地", type: "text" }],
+        type: "paragraph",
+      },
+    ];
+    expect(classifyConflict(serverRoundTrip, pending)).toBe("idempotent-hit");
+    // 键序无关 ≠ 内容无关：值不同仍是真冲突
+    expect(
+      classifyConflict(
+        [{ attrs: { id: "p1" }, type: "paragraph" }],
+        [{ type: "paragraph", attrs: { id: "p1" }, content: [{ type: "text", text: "x" }] }]
+      )
+    ).toBe("conflict");
+  });
+
   it("pending 持久化按 userId+syncedId 键隔离，换账号读不到", () => {
     const storage = new MemoryStorage();
     const pending: StoredSyncedPending = {

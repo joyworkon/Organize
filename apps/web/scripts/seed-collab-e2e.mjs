@@ -80,6 +80,12 @@ const { error: noteErr } = await db.from("notes").upsert(
 );
 if (noteErr) throw new Error(`note: ${noteErr.message}`);
 
+// 重跑清理：删固定 UUID 笔记的协作 ydoc 残留（067）。上轮运行落下的 blob 比
+// 本次种子的 notes.updated_at 新时会先回放旧内容而非重新播种，破坏
+// 「每次重跑同一起点」（A04：真实后端 E2E 必须可重复运行）
+const { error: ydocErr } = await db.from("note_ydocs").delete().eq("note_id", NOTE_ID);
+if (ydocErr) throw new Error(`note_ydocs cleanup: ${ydocErr.message}`);
+
 const { error: aclErr } = await db.from("resource_acl").upsert(
   {
     workspace_id: WORKSPACE_ID,

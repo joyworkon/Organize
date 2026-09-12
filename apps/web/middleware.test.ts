@@ -19,6 +19,14 @@ describe("isAuthExemptPath", () => {
     expect(isAuthExemptPath("/s/abc123")).toBe(true);
   });
 
+  it("放行 SW 脚本与离线回退页（SW 脚本请求不允许重定向，A04）", () => {
+    expect(isAuthExemptPath("/sw.js")).toBe(true);
+    expect(isAuthExemptPath("/offline.html")).toBe(true);
+    // 精确匹配：同前缀的其它路径不豁免
+    expect(isAuthExemptPath("/sw.js/extra")).toBe(false);
+    expect(isAuthExemptPath("/offline.htmlx")).toBe(false);
+  });
+
   it("不放行同前缀的其它路径（health 精确匹配）", () => {
     expect(isAuthExemptPath("/api/healthz")).toBe(false);
     expect(isAuthExemptPath("/api/health/detail")).toBe(false);

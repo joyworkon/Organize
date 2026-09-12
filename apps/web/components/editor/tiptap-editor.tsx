@@ -1353,15 +1353,22 @@ export function TipTapEditor({
     let seedWaitTimer: ReturnType<typeof setTimeout> | null = null;
     const runBackfill = () => {
       if (editor.isDestroyed) return;
-      // 协作模式下文档为空但播种源非空：先等播种租约流程把 DB 内容写入房间
-      // （setContent 整体替换文档，先补 id 是给空文档发更新，白白广播空状态，
-      // 还会让服务端 onChange 把播种阶段标记结束 → 租约 deny → 永远无法播种）。
-      // 等待封顶后仍为空（真空笔记 / 播种失败），按空文档补 id，行为同旧版。
-      if (collab && editor.isEmpty && collab.seedContent && seedWaitRetries < 8) {
+      // 协作模式下文档为空：先等播种租约流程把 DB 内容写入房间（setContent
+      // 整体替换文档，先补 id 是给空文档发更新，白白广播空状态，还会让服务端
+      // onChange 把播种阶段标记结束 → 租约 deny → 真内容永远无法播种，空 ydoc
+      // 落库还会借新鲜度规则遮蔽 notes.content）。seedContent 是页面异步 DB 加载
+      // 的产物，可能晚于 WS synced 就绪：null 只说明「还没加载完」，不代表不会
+      // 播种——同样必须等待，不能落到空文档回填。
+      if (collab && editor.isEmpty && seedWaitRetries < 8) {
         seedWaitRetries += 1;
         seedWaitTimer = setTimeout(runBackfill, 1000);
         return;
       }
+      // 协作等待封顶后仍为空 = 播种失败/被拒：空文档既不能写进房间（更新会
+      // 把播种阶段标记结束），更不能上抛 hydrate 保存——保存链会把空文档写回
+      // notes.content，反向覆盖真实内容（A04 实测的丢数据路径）。用户开始输入
+      // 后新块由 appendTransaction 自动补 id，无需在此兜底；非协作维持旧行为。
+      if (collab && editor.isEmpty) return;
       let transaction = editor.state.tr;
       editor.state.doc.descendants((node, pos) => {
         if (BLOCK_ID_TYPES.includes(node.type.name) && !node.attrs.id) {
