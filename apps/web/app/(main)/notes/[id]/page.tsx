@@ -173,6 +173,10 @@ export default function NoteEditorPage() {
   useEffect(() => {
     collabConnectedRef.current = collab.connected && collab.synced;
   }, [collab.connected, collab.synced]);
+  // 会话定形门控（A05 设计 §3.4 D4/D6）：协作配置时，首次同步未完成（或已降级）
+  // 前不得放行编辑与草稿恢复——此窗口输入会随编辑器实例重建丢失，恢复草稿会把
+  // 本地内容插进未同步的空 ydoc 造成翻倍。降级后单向回本地乐观锁链。
+  const collabResolved = !collabConfigured || collab.resolved;
   // 会话建立条件：ws 地址已配置 + 自己的出席身份已解析（档案名查不到回退邮箱前缀）
   useEffect(() => {
     if (!collabConfigured || collabUser) return;
@@ -262,6 +266,14 @@ export default function NoteEditorPage() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(""), 2000);
   }, []);
+
+  // 协作降级提示（A05）：会话转入 error（鉴权重试耗尽/门控超时/退出账号）时告知
+  // 一次，页面继续走乐观锁主链。status 只单向进入 error，不会重复触发。
+  useEffect(() => {
+    if (collabConfigured && collab.status === "error") {
+      showToast("实时协作不可用，已切换为本地保存");
+    }
+  }, [collabConfigured, collab.status, showToast]);
 
   const loadNoteTree = useCallback(async () => {
     const {
@@ -1481,7 +1493,7 @@ export default function NoteEditorPage() {
             noteId={noteId}
             noteTitle={title}
             content={content}
-            editable={capabilities.canEdit}
+            editable={capabilities.canEdit && collabResolved}
             collab={editorCollab}
             onUpdate={handleContentUpdate}
             noteTree={allNotes}
@@ -1512,10 +1524,12 @@ export default function NoteEditorPage() {
         </div>
       )}
 
+      {/* 协作未定形时不弹（A05 D6）：此刻恢复会把草稿插进未同步的空 ydoc，随后房间内容合并导致整篇翻倍 */}
       <NoteRecoveryDialog
-        recoveryDraft={recoveryDraft}
+        recoveryDraft={collabResolved ? recoveryDraft : null}
         onRestore={restoreLocalDraft}
         onDiscard={discardLocalDraft}
+        collabActive={collabConfigured && !!collab.provider}
       />
 
       <NoteConflictDialog

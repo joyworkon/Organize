@@ -60,8 +60,11 @@ const blockContent = (page: Page) =>
 
 /** 在块内末尾输入：点最后一段的右下角定位到段尾再输入。
  *  不能点中心 + End：块内容跨用例累积变长后折行，End 只到「可视行尾」，
- *  输入会落到段落中间（A04 实测：文字插进上一用例文本的内里） */
+ *  输入会落到段落中间（A04 实测：文字插进上一用例文本的内里）。
+ *  先等编辑器可编辑：协作模式下播种定形前编辑器锁定（A05 D4 收尾），
+ *  非协作实例的临时代替者虽已渲染内容，此刻输入会被拒收 */
 async function typeInBlock(page: Page, text: string) {
+  await expect(page.locator(".ProseMirror")).toBeEditable({ timeout: 20_000 });
   const para = blockContent(page).locator("p").last();
   const box = await para.boundingBox();
   if (!box) throw new Error("block last paragraph not visible");
@@ -216,14 +219,15 @@ test.describe.serial("同步块双浏览器可靠性（真实后端）", () => {
 
     // 回网重开：远端内容渲染；本地草稿与远端不同 → 恢复对话框弹出（模态）。
     // 选「使用服务器版本」关闭它：本卡验证的是块 pending 的独立收敛（块同步
-    // 与笔记草稿是两套机制）。「恢复本地草稿」在 CI（慢机）实测会撞上
-    // ydoc 未同步完成的时间窗——setContent 先插入、房间内容后合并 → 整篇
-    // 内容 CRDT 翻倍；「同步完成前禁用恢复动作」的产品修复归 A05（已记账本）
+    // 与笔记草稿是两套机制）。「恢复本地草稿」的 CRDT 翻倍窗口已由 A05 修复
+    // （对话框等协作首次同步完成才弹），代价是弹出时机晚于 openNote 返回——
+    // 有界等它现身再决定关闭，避免后续工具栏交互被模态遮挡
     await context.setOffline(false);
     await page2.waitForTimeout(1000);
     const page3 = await context.newPage();
     await openNote(page3, seed.note2Id);
     const useServer = page3.getByRole("button", { name: "使用服务器版本" });
+    await expect(useServer).toBeVisible({ timeout: 8_000 }).catch(() => {});
     if (await useServer.isVisible().catch(() => false)) {
       await useServer.click();
     }
