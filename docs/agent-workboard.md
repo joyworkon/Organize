@@ -107,3 +107,7 @@ E01 导入迁移工作台、E02 阅读→行动闭环、E03 每日回顾、E04 A
 3. 完成定义与验证层次见计划 §6；不得靠 skip、删测试、放宽断言、空实现或假成功交付。
 4. 同一 checkout 同一时间只有一个写入 Agent；只读审查/设计/验收 Agent 的产出放仓库外（`/tmp/...`），由工程 Agent 核实后收编进本表。
 5. 全局基线数字只在实测后更新（注明命令与 commit），不照抄历史。
+
+## 运维注记：分支保护 required checks 的写法（2026-09-12，A04 合并时实测）
+
+master 分支保护的 required status checks 必须写 **check run 裸名**（`verify` / `e2e-test` / `sw-e2e` / `collab-e2e` / `db-test`），不要写 `CI / verify` 这类「工作流 / 任务」串：经 API 写入的带前缀串不会绑定到 Actions check run（`app_id: null`），五个检查全绿也永远报 `5 of 5 required status checks are expected`、合并被 405 拒绝（A03 写入的配置即此坑，PR #263 首次触发；改裸名后立即绑定 `app_id: 15368` 并放行）。改保护配置：`gh api -X PUT repos/joyworkon/Organize/branches/master/protection --input -`，body 为 `{"required_status_checks":{"strict":false,"contexts":["verify","e2e-test","sw-e2e","collab-e2e","db-test"]},"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null}`。
