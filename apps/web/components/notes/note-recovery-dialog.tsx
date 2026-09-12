@@ -19,10 +19,13 @@ export function NoteRecoveryDialog({
   recoveryDraft,
   onRestore,
   onDiscard,
+  collabActive = false,
 }: {
   recoveryDraft: StoredNoteDraft | null;
   onRestore: () => void;
   onDiscard: () => void;
+  /** 实时协作中（A05）：恢复草稿会整体替换房间内容，远端协作者同步看到替换 */
+  collabActive?: boolean;
 }) {
   return (
     <Dialog open={recoveryDraft !== null} onOpenChange={() => {}}>
@@ -31,6 +34,7 @@ export function NoteRecoveryDialog({
           <DialogTitle>发现未保存的本地草稿</DialogTitle>
           <DialogDescription>
             上次编辑可能因断网或页面意外关闭而未保存。请选择恢复草稿或使用服务器版本。
+            {collabActive && " 当前处于实时协作中：恢复草稿会以本地版本覆盖协作内容。"}
           </DialogDescription>
         </DialogHeader>
         {recoveryDraft && (

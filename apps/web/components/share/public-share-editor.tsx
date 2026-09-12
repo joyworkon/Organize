@@ -173,10 +173,16 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
           text="分享者已关闭可编辑权限，当前为只读视图。"
         />
       ) : null}
-      {!collab.synced && (
+      {!collab.synced && collab.status !== "error" && (
         <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           正在进入实时会话…
+        </div>
+      )}
+      {collab.status === "error" && (
+        <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          实时协作暂不可用，以下为只读快照；刷新页面可重试。
         </div>
       )}
       <div className="relative">

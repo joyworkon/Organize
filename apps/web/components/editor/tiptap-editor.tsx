@@ -1258,11 +1258,16 @@ export function TipTapEditor({
     editor.view.dispatch(editor.state.tr.setMeta(internalLinkStateKey, true));
   }, [editor, internalLinkStates]);
 
-  // 协作 viewer 只读：角色变化（含挂载时序）都同步到编辑器实例
+  // 协作 viewer 只读：角色变化（含挂载时序）都同步到编辑器实例；
+  // 协作播种未定形时同样锁编辑（A05 D4 收尾）：房间为空且 DB 有内容时，
+  // 在播种租约落定前放行输入，首个按键就会把服务端 markSeeded → 租约 deny
+  // → DB 内容进不了房间，本端碎片再经保存链反写 notes.content（A04 实测路径）
+  const [collabSeedBlocked, setCollabSeedBlocked] = useState(false);
   useEffect(() => {
     if (!editor) return;
-    if (editor.isEditable !== editable) editor.setEditable(editable);
-  }, [editor, editable]);
+    const want = editable && !collabSeedBlocked;
+    if (editor.isEditable !== want) editor.setEditable(want);
+  }, [editor, editable, collabSeedBlocked]);
 
   // 协作模式：房间为空时向服务端申请播种租约，获准后才用 DB 原始内容播种一次。
   // setContent 第二参 false = 不产生 onUpdate（不标脏、不触发保存）。
@@ -1277,6 +1282,14 @@ export function TipTapEditor({
     const provider = collab.provider;
     let waits = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // A05 D5：deny 后房间持续为空 → 12s 后告知用户（覆盖 3×wait 重试与租约封顶），
+    // 不自动播种不写房间（deny = 播种阶段结束，强行写只会制造重复内容）
+    let denyWatchTimer: ReturnType<typeof setTimeout> | null = null;
+    // A05 D4 收尾：DB 有内容 + 房间还空 = 播种未定形，锁编辑直到 grant/deny/内容到达
+    const syncSeedBlock = () => {
+      setCollabSeedBlocked(editor.isEmpty && !!collab.seedContent);
+    };
+    syncSeedBlock();
 
     const requestSeed = () => {
       if (editor.isDestroyed || !editor.isEmpty || !collab.seedContent) return;
@@ -1290,6 +1303,10 @@ export function TipTapEditor({
       }
     };
 
+    const onDocUpdate = () => {
+      if (!editor.isDestroyed && !editor.isEmpty) setCollabSeedBlocked(false);
+    };
+
     const onStateless = ({ payload }: { payload: string }) => {
       let msg: { t?: string };
       try {
@@ -1301,19 +1318,38 @@ export function TipTapEditor({
         if (!editor.isDestroyed && editor.isEmpty && collab.seedContent) {
           editor.commands.setContent(collab.seedContent as never, false);
         }
+        setCollabSeedBlocked(false);
       } else if (msg.t === "seed-wait" && waits < 3) {
         waits += 1;
         retryTimer = setTimeout(requestSeed, 2500);
+      } else if (msg.t === "seed-deny") {
+        // 播种阶段结束：内容要么即将随同步到达（onDocUpdate 解锁），要么封顶卡死
+        setCollabSeedBlocked(false);
+        if (!denyWatchTimer) {
+          denyWatchTimer = setTimeout(() => {
+            denyWatchTimer = null;
+            if (!editor.isDestroyed && editor.isEmpty) {
+              toast({
+                title: "协作内容加载受阻",
+                description: "未能从服务器同步到笔记内容，请刷新页面重试；笔记内容没有丢失。",
+              });
+            }
+          }, 12_000);
+        }
       }
     };
 
     if (provider.isSynced) onSynced();
     provider.on("synced", onSynced);
     provider.on("stateless", onStateless);
+    editor.on("update", onDocUpdate);
     return () => {
       provider.off("synced", onSynced);
       provider.off("stateless", onStateless);
+      editor.off("update", onDocUpdate);
       if (retryTimer) clearTimeout(retryTimer);
+      if (denyWatchTimer) clearTimeout(denyWatchTimer);
+      setCollabSeedBlocked(false);
     };
   }, [collab, editor]);
 
