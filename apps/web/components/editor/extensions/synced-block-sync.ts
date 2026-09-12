@@ -173,12 +173,29 @@ export async function fetchSyncedBlock(syncedId: string): Promise<SyncFetchResul
   }
 }
 
+/**
+ * 键序无关的稳定序列化（A04）：服务端把 content 存为 jsonb，Postgres 按
+ * 「键长 + 字节序」规范化键序，与客户端（TipTap getJSON 的插入序）不同——
+ * 直接 JSON.stringify 比较会让本应幂等命中的重试一律降级成真实冲突。
+ * 两侧都递归排序键后再比较，与键序、与存储端规范化方式无关。
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
 /** 409 决策：服务端内容与本地待写一致 → 幂等命中（重试场景）；否则为真实冲突。 */
 export function classifyConflict(
   currentContent: JSONContent[] | null,
   pendingContent: JSONContent[]
 ): "idempotent-hit" | "conflict" {
-  if (currentContent && JSON.stringify(currentContent) === JSON.stringify(pendingContent)) {
+  if (currentContent && stableStringify(currentContent) === stableStringify(pendingContent)) {
     return "idempotent-hit";
   }
   return "conflict";

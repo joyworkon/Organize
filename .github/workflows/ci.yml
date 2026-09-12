@@ -220,6 +220,8 @@ jobs:
         run: |
           node scripts/seed-collab-e2e.mjs
           node scripts/seed-anon-e2e.mjs
+          # A04 同步块种子依赖 collab 种子的账号与空间（顺序执行）
+          node scripts/seed-synced-block-e2e.mjs
 
       - name: Start collab-server (ws://127.0.0.1:1420)
         working-directory: apps/collab-server
@@ -260,10 +262,11 @@ jobs:
             sleep 2
           done || { echo "web server failed to start"; cat /tmp/web-server.log; exit 1; }
 
-      - name: Run collab E2E (COLLAB_E2E=1)
+      - name: Run collab E2E (COLLAB_E2E=1, REAL_DB_E2E=1)
         working-directory: apps/web
         env:
           COLLAB_E2E: '1'
+          REAL_DB_E2E: '1'
         run: npx playwright test -c playwright.collab.config.ts
 
       - name: Upload diagnostics on failure

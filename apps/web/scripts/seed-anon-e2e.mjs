@@ -57,6 +57,11 @@ const { error: noteErr } = await db.from("notes").upsert({
 });
 if (noteErr) throw new Error(`upsert note: ${noteErr.message}`);
 
+// 重跑清理：删固定 UUID 笔记的协作 ydoc 残留（067），保证每次重跑同一起点
+// （A04：真实后端 E2E 必须可重复运行；service_role 经 067 grant all 可直删）
+const { error: ydocErr } = await db.from("note_ydocs").delete().eq("note_id", NOTE_ID);
+if (ydocErr) throw new Error(`note_ydocs cleanup: ${ydocErr.message}`);
+
 // 两条分享：可编辑 / 只读（幂等）
 for (const [token, mode] of [
   [EDIT_TOKEN, "public_edit"],

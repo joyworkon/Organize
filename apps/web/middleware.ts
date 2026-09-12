@@ -18,6 +18,11 @@ export function isAuthExemptPath(pathname: string): boolean {
     // 桌面壳刘海激发器小窗（/desktop/notch）：未登录也要能渲染「登录后可用」
     // 提示（数据接口自行 401）；middleware 重定向会把小窗变成登录页
     pathname.startsWith("/desktop") ||
+    // SW 脚本与离线回退页是公开静态资产（A02/A04）：SW 脚本请求不允许 307
+    // （浏览器直接 SecurityError），登录页等未认证页面挂载时注册会永久失败，
+    // 且登录是 SPA 导航、registrar 不会重试——整个会话失去离线能力
+    pathname === "/sw.js" ||
+    pathname === "/offline.html" ||
     pathname === "/api/health" ||
     pathname.startsWith("/api/cron/")
   );

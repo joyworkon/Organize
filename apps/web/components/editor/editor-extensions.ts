@@ -69,6 +69,18 @@ export function buildEditorExtensions(options: {
   getInternalLinkStates: () => Record<string, InternalLinkStateRow>;
 }) {
   const { collab, disableTaskItemToggle, getInternalLinkStates } = options;
+  // UniqueID：非协作保持上游默认；协作用扩展变体抑制上游 onCreate——
+  // 上游（v2.27.2）在协作下把初始补 id 推迟到 provider 'synced'，但不感知播种
+  // 租约协议（067）：synced 时房间通常仍在等 seed-grant，此刻给空文档 dispatch
+  // 会先于 seed-req 到达服务端，把播种阶段标记结束 → deny → 编辑器停在空文档。
+  // 协作模式的初始 id 回填由 tiptap-editor 的手动 effect 接管（等播种完成或
+  // 确认失败后才动文档）；新节点的自动补 id（appendTransaction）不受影响。
+  const uniqueId = collab
+    ? UniqueID.extend({ onCreate() {} }).configure({
+        types: BLOCK_ID_TYPES,
+        filterTransaction: (transaction: Transaction) => !transaction.getMeta("y-sync$"),
+      })
+    : UniqueID.configure({ types: BLOCK_ID_TYPES });
   return [
     // 协作模式下 History 由 Collaboration 的 Yjs UndoManager 接管（TipTap 合同）
     StarterKit.configure({
@@ -153,13 +165,7 @@ export function buildEditorExtensions(options: {
     BlockMultiSelect,
     BlockStyle,
     ListBackspaceFix,
-    UniqueID.configure({
-      types: BLOCK_ID_TYPES,
-      // 协作：只给本地事务补 id（远端节点自带 id，否则两端各自生成会冲突）
-      ...(collab
-        ? { filterTransaction: (transaction: Transaction) => !transaction.getMeta("y-sync$") }
-        : {}),
-    }),
+    uniqueId,
     ...(collab
       ? [
           Collaboration.configure({ document: collab.provider.document }),

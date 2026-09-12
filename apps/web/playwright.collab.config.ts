@@ -10,7 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(collab|anon-collab)\.spec\.ts/,
+  testMatch: /(collab|anon-collab|synced-block)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
