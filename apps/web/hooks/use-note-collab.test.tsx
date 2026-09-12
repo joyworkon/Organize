@@ -30,9 +30,11 @@ const { instances, providerCtor, MockProvider } = vi.hoisted(() => {
     destroyed: boolean;
     connectCount: number;
     disconnectCount: number;
+    emit: (event: string) => void;
     simulateStatus: (s: string) => void;
     simulateAuthFailed: (r?: string) => void;
     simulateSynced: () => void;
+    simulateAuthenticated: () => void;
   }[] = [];
   const providerCtor = vi.fn();
 
@@ -75,6 +77,9 @@ const { instances, providerCtor, MockProvider } = vi.hoisted(() => {
     simulateSynced() {
       this.isSynced = true;
       this.emit("synced");
+    }
+    simulateAuthenticated() {
+      this.emit("authenticated");
     }
   }
   return { instances, providerCtor, MockProvider };
@@ -317,6 +322,31 @@ describe("useNoteCollab 会话与 token（072 + A05）", () => {
     await settle();
     expect(instances.length).toBe(2);
     expect(out.current?.provider).toBe(instances[1]);
+    unmount();
+  });
+
+  it("服务端主动 close（撤权重验路径）：主动退避重握手，synced 后预算复位", async () => {
+    const { out, unmount } = renderHook({
+      noteId: NOTE_ID,
+      enabled: true,
+      displayName: "甲",
+    });
+    await settle();
+    const p = instances[0];
+    act(() => p.simulateStatus("connected"));
+    act(() => p.simulateSynced());
+    // 已同步会话被服务端关闭文档连接（A05-3 撤权 close）：文档级 CLOSE 不关
+    // socket、provider 不会自动重新鉴权——hook 必须主动重握手
+    act(() => p.emit("close"));
+    await act(async () => vi.advanceTimersByTimeAsync(1_100));
+    expect(p.disconnectCount).toBe(1);
+    expect(p.connectCount).toBe(1);
+    expect(out.current?.status).not.toBe("error"); // 重握手不算降级
+    // 重连成功（再次 synced）后退避预算复位
+    act(() => p.simulateSynced());
+    act(() => p.emit("close"));
+    await act(async () => vi.advanceTimersByTimeAsync(1_100));
+    expect(p.connectCount).toBe(2);
     unmount();
   });
 
