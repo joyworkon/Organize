@@ -16,6 +16,10 @@
 //        失败只记日志不炸房间（可读内容仍由客户端 v2 节流快照兜底）
 //   5. 播种租约（seed-lease.ts）：房间为空时只允许一个客户端播种，
 //      根除「两客户端并发进入空房间各自播种出重复段落」的竞态
+//   6. 存量连接周期重验（A05-3，reauth.ts）：每 REAUTH_INTERVAL_MS 对已建立
+//      连接 requestToken → onTokenSync 重跑同一判定链——撤权/降级/链接关闭
+//      在窗口内生效（close 或 readOnly 每消息检查），并就地刷新 context.token
+//      （长会话 JWT 1h 过期不再让 blob 持久化静默失败）
 //
 // 客户端快照与 blob 的分工：notes.content（可读事实源）由客户端经
 // save_note_with_tasks_v2(expected_revision = null) 节流落库；本进程只维护
@@ -24,10 +28,13 @@ import { Server } from "@hocuspocus/server";
 import { createClient } from "@supabase/supabase-js";
 import * as Y from "yjs";
 import { SeedLease } from "./seed-lease";
+import { decideReauth, parseReauthIntervalMs, type ReauthIdentity } from "./reauth";
 
 const PORT = Number(process.env.PORT ?? 1420);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+// 重验间隔（A05-3）：默认 5 分钟；COLLAB_REAUTH_INTERVAL_MS 可覆盖（E2E 用秒级）
+const REAUTH_INTERVAL_MS = parseReauthIntervalMs(process.env.COLLAB_REAUTH_INTERVAL_MS);
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error("[collab] 缺少 SUPABASE_URL / SUPABASE_ANON_KEY 环境变量");
@@ -116,6 +123,54 @@ function anonAuthAllowed(shareToken: string, ip: string | null): boolean {
   return anonAuthHitsAllowed(`ti:${shareToken}:${ip}`, ANON_AUTH_LIMIT_PER_KEY);
 }
 
+/**
+ * 共享判定链（A05-3）：token → 身份结论。onAuthenticate（握手）与 onTokenSync
+ * （存量连接周期重验）走同一条链——resolve_share_access / getUser+resource_role，
+ * 不新增第二套权限逻辑。null = 无权/验不过（不区分「不存在」与「无权限」，对齐 065）。
+ */
+async function validateAccess(
+  documentName: string,
+  token: string
+): Promise<ReauthIdentity | null> {
+  const parsed = parseDocumentName(documentName);
+  if (!parsed) return null;
+
+  if (token.startsWith("share:")) {
+    const shareToken = token.slice("share:".length);
+    if (!shareToken) return null;
+    const { data: role, error: roleError } = await authClient.rpc("resolve_share_access", {
+      p_token: shareToken,
+      p_resource_id: parsed.noteId,
+    });
+    if (roleError) {
+      console.log("[validate] share role rpc failed:", roleError.message);
+      return null;
+    }
+    if (role !== "editor" && role !== "viewer") return null;
+    return { userId: "anon", role, anonymous: true };
+  }
+
+  const { data: userData, error: userError } = await authClient.auth.getUser(token);
+  if (userError || !userData?.user) {
+    console.log("[validate] getUser failed:", userError?.message ?? "no user");
+    return null;
+  }
+  const { data: role, error: roleError } = await asUserClient(token).rpc("resource_role", {
+    p_resource_type: "note",
+    p_resource_id: parsed.noteId,
+  });
+  if (roleError) {
+    console.log("[validate] role rpc failed:", roleError.message);
+    return null;
+  }
+  if (role !== "owner" && role !== "editor" && role !== "viewer") return null;
+  return { userId: userData.user.id, role, anonymous: false };
+}
+
+// 周期重验定时器（A05-3）：per 连接，key 为该连接的 context 对象
+//（onDisconnect 载荷没有 connection，context 是唯一稳定的每连接键）
+const reauthTimers = new Map<unknown, ReturnType<typeof setInterval>>();
+
 const server = new Server<CollabContext>({
   port: PORT,
 
@@ -125,8 +180,7 @@ const server = new Server<CollabContext>({
     if (!parsed) { console.log("[auth] bad name"); throw new Error("bad document name"); }
 
     // 匿名分支（Track B 072）：token 以 "share:" 前缀携带公开分享令牌。
-    // 授权经 072 的 resolve_share_access 实时判权（属主改回只读/关闭即刻断权）；
-    // 角色映射 editor→可写、viewer→readOnly，与登录用户同一房间。
+    // 握手限流只在建立时执行（服务端主动发起的重验不是攻击面）。
     if (token.startsWith("share:")) {
       const shareToken = token.slice("share:".length);
       const ip = requestHeaders?.get?.("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
@@ -134,53 +188,24 @@ const server = new Server<CollabContext>({
         console.log("[auth] anonymous rate limited or empty token");
         throw new Error("unauthorized");
       }
-      const { data: role, error: roleError } = await authClient.rpc("resolve_share_access", {
-        p_token: shareToken,
-        p_resource_id: parsed.noteId,
-      });
-      if (roleError) {
-        console.log("[auth] share role rpc failed:", roleError.message);
-        throw new Error("forbidden");
-      }
-      console.log("[auth] anonymous role:", role);
-      if (role !== "editor" && role !== "viewer") {
-        throw new Error("forbidden");
-      }
-      connectionConfig.isAuthenticated = true;
-      connectionConfig.readOnly = role === "viewer";
-      return { userId: "anon", role, token: shareToken, anonymous: true };
     }
 
-    // 1. 验 token：拿不到用户即拒（getUser 会向 Supabase Auth 验签）
-    const { data: userData, error: userError } = await authClient.auth.getUser(token);
-    if (userError || !userData?.user) {
-      console.log("[auth] getUser failed:", userError?.message);
-      throw new Error("unauthorized");
-    }
-    console.log("[auth] user ok", userData.user.id);
-    const userId = userData.user.id;
-
-    // 2. 以用户自己的 JWT 查 063 的唯一判定链
-    const { data: role, error: roleError } = await asUserClient(token).rpc(
-      "resource_role",
-      { p_resource_type: "note", p_resource_id: parsed.noteId }
-    );
-    if (roleError) {
-      console.log("[auth] role rpc failed:", roleError.message);
-      throw new Error("forbidden");
-    }
-    console.log("[auth] role:", role);
-    if (role !== "owner" && role !== "editor" && role !== "viewer") {
-      // 无任何授权：不区分「不存在」与「无权限」（对齐 065 的口径）
-      throw new Error("forbidden");
-    }
+    const identity = await validateAccess(documentName, token);
+    if (!identity) throw new Error("forbidden");
+    console.log("[auth] ok", identity.anonymous ? "anonymous" : identity.userId, "role:", identity.role);
 
     // 3. viewer 只读：服务端丢弃该连接的更新（客户端编辑器本身也是不可编辑态）
     connectionConfig.isAuthenticated = true;
-    connectionConfig.readOnly = role === "viewer";
-    console.log("[auth] done, readOnly =", role === "viewer");
+    connectionConfig.readOnly = identity.role === "viewer";
+    console.log("[auth] done, readOnly =", identity.role === "viewer");
 
-    return { userId, role, token };
+    // token 落 context 时匿名剥前缀（onStoreDocument 的 *_by_token RPC 要裸令牌）
+    return {
+      userId: identity.userId,
+      role: identity.role,
+      anonymous: identity.anonymous,
+      token: identity.anonymous ? token.slice("share:".length) : token,
+    };
   },
 
   // 回放 blob（067 / 072）。null = 无 blob / 过期 / 无权——都走客户端播种路径
@@ -268,6 +293,55 @@ const server = new Server<CollabContext>({
     const decision = roomState(documentName).lease.request();
     console.log("[seed]", documentName, decision);
     connection.sendStateless(JSON.stringify({ t: `seed-${decision}` }));
+  },
+
+  // 存量连接周期重验（A05-3）：客户端回 Auth(Token)（token 函数现取——登录用户
+  // 是刷新后的 JWT）。决策纯函数见 reauth.ts；抛错 = 上游关闭该连接。
+  async onTokenSync({ context, token, connection, documentName }) {
+    if (!context) return;
+    const identity = await validateAccess(documentName, token ?? "");
+    const decision = decideReauth(
+      { userId: context.userId, role: context.role, anonymous: !!context.anonymous },
+      identity
+    );
+    if (decision.action === "close") {
+      console.log("[reauth] close", documentName, context.anonymous ? "anonymous" : context.userId);
+      throw new Error("unauthorized");
+    }
+    // 就地更新（不返回新对象）：connection.context 与 hookPayload.context 同引用，
+    // 返回新对象会让 hookPayload.context 换引用而 connection.context 留旧值——
+    // onChange/onStoreDocument 的最后写者凭证就断了
+    const prevRole = context.role;
+    context.userId = decision.identity.userId;
+    context.role = decision.identity.role;
+    context.anonymous = decision.identity.anonymous;
+    context.token = decision.identity.anonymous ? (token ?? "").replace(/^share:/, "") : token ?? "";
+    connection.readOnly = decision.readOnly;
+    if (prevRole !== decision.identity.role) {
+      console.log("[reauth] role change", documentName, `${prevRole} -> ${decision.identity.role}`);
+    }
+  },
+
+  // 连接建立后启动周期重验；断开即回收定时器（撤权生效窗口 ≤ REAUTH_INTERVAL）
+  async connected({ connection, documentName, context }) {
+    if (!context) return;
+    const timer = setInterval(() => {
+      try {
+        connection.requestToken();
+      } catch {
+        // 连接可能已关闭（onDisconnect 清理有竞态窗口），忽略
+      }
+    }, REAUTH_INTERVAL_MS);
+    reauthTimers.set(context, timer);
+    console.log("[reauth] scheduled", documentName, `every ${REAUTH_INTERVAL_MS}ms`);
+  },
+
+  async onDisconnect({ context }) {
+    const timer = reauthTimers.get(context);
+    if (timer) {
+      clearInterval(timer);
+      reauthTimers.delete(context);
+    }
   },
 
   // 房间卸载即回收租约；重开时 blob/播种状态重新协商，无跨会话状态
