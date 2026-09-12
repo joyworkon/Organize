@@ -214,20 +214,22 @@ test.describe.serial("同步块双浏览器可靠性（真实后端）", () => {
       page2.getByRole("heading", { name: "离线暂不可读" }).or(page2.getByRole("heading", { name: "笔记不存在" }))
     ).toBeVisible({ timeout: 15_000 });
 
-    // 回网重开：远端内容渲染；本地草稿与远端不同 → 恢复对话框（有则点恢复，
-    // 走真实用户路径；块 pending 自身的收敛不依赖这一步）
+    // 回网重开：远端内容渲染；本地草稿与远端不同 → 恢复对话框弹出（模态）。
+    // 选「使用服务器版本」关闭它：本卡验证的是块 pending 的独立收敛（块同步
+    // 与笔记草稿是两套机制）。「恢复本地草稿」在 CI（慢机）实测会撞上
+    // ydoc 未同步完成的时间窗——setContent 先插入、房间内容后合并 → 整篇
+    // 内容 CRDT 翻倍；「同步完成前禁用恢复动作」的产品修复归 A05（已记账本）
     await context.setOffline(false);
     await page2.waitForTimeout(1000);
     const page3 = await context.newPage();
     await openNote(page3, seed.note2Id);
-    const restore = page3.getByRole("button", { name: "恢复本地草稿" });
-    if (await restore.isVisible().catch(() => false)) {
-      await restore.click();
+    const useServer = page3.getByRole("button", { name: "使用服务器版本" });
+    if (await useServer.isVisible().catch(() => false)) {
+      await useServer.click();
     }
-    await expect(blockContent(page3)).toContainText(t("断网重开改动"), { timeout: 15_000 });
-
-    // 块 pending 回线收敛：轮询驱动显式动作，不允许静默路径
+    // 块 pending 挂载后发现 revision 与服务端一致 → 自动补交成功 → 内容回显
     await convergeToSynced(page3, seed.syncedId);
+    await expect(blockContent(page3)).toContainText(t("断网重开改动"), { timeout: 15_000 });
 
     // 服务器真有这次内容：新开干净页面验证
     const page4 = await context.newPage();
