@@ -20,6 +20,9 @@ export type CollabStatus = "off" | "connecting" | "connected" | "error";
  * 的自愈窗口；3 次仍失败视为确定性拒绝（撤权/分享关闭），降级 error。
  */
 const AUTH_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+/** 最后一次鉴权重试后的看门狗余量：WS 层退避挂起重握手时按此兜底降级
+ *  （须 < E2E 断言窗口 − 退避链总时长，撤权场景全链 ≈ 3+1+2+5+10+此值） */
+const AUTH_WATCHDOG_MARGIN_MS = 10_000;
 /** 连接门控超时（A05-2 D4）：首个会话这么久仍未完成首次同步 → 降级本地保存 */
 const GATE_TIMEOUT_MS = 10_000;
 
@@ -142,17 +145,33 @@ export function useNoteCollab({
     let authRetries = 0;
     let settled = false; // 首次同步完成或降级：门控定时器终结（一次性）
     let dead = false; // 降级/卸载：此后不再任何重试（单向）
+    let closeRetries = 0; // 服务端主动 close 后的重握手次数（synced 复位）
     let gateTimer: ReturnType<typeof setTimeout> | null = null;
-    let authRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let authWatchdog: ReturnType<typeof setTimeout> | null = null;
     const clearTimers = () => {
       if (gateTimer) {
         clearTimeout(gateTimer);
         gateTimer = null;
       }
-      if (authRetryTimer) {
-        clearTimeout(authRetryTimer);
-        authRetryTimer = null;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
       }
+      if (authWatchdog) {
+        clearTimeout(authWatchdog);
+        authWatchdog = null;
+      }
+    };
+    /** 退避重握手：disconnect+connect 触发完整 onOpen → sendToken → token 函数现取会话 */
+    const rehandshake = (delay: number) => {
+      if (retryTimer) return; // 在途重握手去重
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (cancelled || dead || !active) return;
+        active.disconnect();
+        void active.connect();
+      }, delay);
     };
     const degrade = () => {
       if (cancelled || dead) return;
@@ -235,13 +254,17 @@ export function useNoteCollab({
           const delay = AUTH_RETRY_DELAYS_MS[authRetries];
           authRetries += 1;
           console.warn("[collab] 鉴权失败，退避重握手", { reason, attempt: authRetries });
-          authRetryTimer = setTimeout(() => {
-            if (cancelled || dead || !active) return;
-            // disconnect+connect 触发完整重握手：onOpen → sendToken → token 函数
-            // 重新取会话（不重建 provider 对象，监听器与 ydoc 原地保留）
-            active.disconnect();
-            void active.connect();
-          }, delay);
+          rehandshake(delay);
+          // 看门狗（实测教训）：最后一次重试发出后，WS 层退避可能把重握手挂起，
+          // 服务端的「第 4 次失败回报」永远不来——依赖它降级会卡死在已连接假象。
+          // 最后一次退避 + 20s 内未重新通过鉴权即降级（authenticated 会解除）
+          if (authRetries === AUTH_RETRY_DELAYS_MS.length) {
+            if (authWatchdog) clearTimeout(authWatchdog);
+            authWatchdog = setTimeout(() => {
+              authWatchdog = null;
+              if (!cancelled && !dead) degrade();
+            }, delay + AUTH_WATCHDOG_MARGIN_MS);
+          }
         },
       });
       if (cancelled) {
@@ -249,6 +272,26 @@ export function useNoteCollab({
         return;
       }
       active = p;
+
+      // 重新通过鉴权：清空失败计数与看门狗（瞬时过期自愈后不再带着历史包袱）
+      p.on("authenticated", () => {
+        authRetries = 0;
+        if (authWatchdog) {
+          clearTimeout(authWatchdog);
+          authWatchdog = null;
+        }
+      });
+
+      // 服务端主动关闭文档连接（A05-3 撤权重验的 close 路径）：文档级 CLOSE
+      // 消息不关 socket，provider 只清状态不会自动重新鉴权——必须主动重握手。
+      // 重连后若已撤权，onAuthenticate 拒绝 → onAuthenticationFailed 退避链接管。
+      // 独立于鉴权退避的简单指数预算（1s 起、上限 10s），synced 后复位。
+      p.on("close", () => {
+        if (cancelled || dead) return;
+        const delay = Math.min(10_000, 1_000 * 2 ** Math.min(closeRetries, 4));
+        closeRetries += 1;
+        rehandshake(delay);
+      });
 
       // CollaborationCursor 扩展会把 user 写进 awareness；这里先补一次，
       // 让出席栏在编辑器扩展就绪前也能显示自己
@@ -268,6 +311,7 @@ export function useNoteCollab({
       updatePeers();
 
       p.on("synced", () => {
+        closeRetries = 0;
         if (settled) return;
         settled = true;
         // 首次同步完成：解除门控（effect 起点的计时器在此回收）

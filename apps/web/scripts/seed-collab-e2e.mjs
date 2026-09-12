@@ -106,6 +106,11 @@ writeFileSync(
       noteId: NOTE_ID,
       userA: { email: USERS[0].email, password: PASSWORD },
       userB: { email: USERS[1].email, password: PASSWORD },
+      // A05-4：撤权 E2E 直删 workspace_members 需要 userB 的 auth uid。
+      // 不能用 admin API 的 ?email= 过滤现查——该过滤在本地 GoTrue 实测
+      // 不生效（返回整表首个用户，曾导致撤错人），种子即事实源
+      userAId: userA,
+      userBId: userB,
     },
     null,
     2

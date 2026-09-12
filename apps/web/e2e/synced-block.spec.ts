@@ -69,13 +69,24 @@ async function typeInBlock(page: Page, text: string) {
   // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
   // 可见后仍可能被服务端内容刷新替换（locator 重解析新节点），有界重试
   await expect(para).toBeVisible({ timeout: 15_000 });
-  let box = await para.boundingBox();
-  for (let i = 0; i < 3 && !box; i++) {
-    await page.waitForTimeout(500);
-    box = await para.boundingBox();
+  // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
+  // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转（实测：
+  // Date.now().toString(36) 偶含 gr → 导航去 /?view=review → 工具栏消失）
+  for (let i = 0; i < 5; i++) {
+    let box = await para.boundingBox();
+    for (let j = 0; j < 3 && !box; j++) {
+      await page.waitForTimeout(500);
+      box = await para.boundingBox();
+    }
+    if (!box) throw new Error("block last paragraph not visible");
+    await page.mouse.click(box.x + box.width - 8, box.y + box.height - 4);
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+    });
+    if (focused) break;
+    await page.waitForTimeout(400);
   }
-  if (!box) throw new Error("block last paragraph not visible");
-  await page.mouse.click(box.x + box.width - 8, box.y + box.height - 4);
   await page.keyboard.type(text);
 }
 

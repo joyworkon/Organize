@@ -226,6 +226,8 @@ jobs:
       - name: Start collab-server (ws://127.0.0.1:1420)
         working-directory: apps/collab-server
         run: |
+          # A05-4：3s 重验间隔让撤权/降级 E2E 在测试时限内走完重验周期
+          COLLAB_REAUTH_INTERVAL_MS=3000 \
           nohup npx tsx src/server.ts > /tmp/collab-server.log 2>&1 &
           for i in $(seq 1 30); do
             timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/1420' 2>/dev/null && break

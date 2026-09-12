@@ -10,7 +10,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(collab|anon-collab|synced-block)\.spec\.ts/,
+  // A05-4 新增 collab-revocation（撤权/降级场景，需 service_role 撤权 + 短重验间隔）
+  testMatch: /(collab|anon-collab|collab-revocation|synced-block)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
