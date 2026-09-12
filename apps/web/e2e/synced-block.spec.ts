@@ -66,7 +66,14 @@ const blockContent = (page: Page) =>
 async function typeInBlock(page: Page, text: string) {
   await expect(page.locator(".ProseMirror")).toBeEditable({ timeout: 20_000 });
   const para = blockContent(page).locator("p").last();
-  const box = await para.boundingBox();
+  // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
+  // 可见后仍可能被服务端内容刷新替换（locator 重解析新节点），有界重试
+  await expect(para).toBeVisible({ timeout: 15_000 });
+  let box = await para.boundingBox();
+  for (let i = 0; i < 3 && !box; i++) {
+    await page.waitForTimeout(500);
+    box = await para.boundingBox();
+  }
   if (!box) throw new Error("block last paragraph not visible");
   await page.mouse.click(box.x + box.width - 8, box.y + box.height - 4);
   await page.keyboard.type(text);
