@@ -13,7 +13,9 @@ export interface RestorePayload {
 
 type UuidFactory = () => string;
 
-const ID_TABLES = [
+// 有 id 列的表（按 prepareRestorePayload 的消费顺序导出，供演练脚本
+// 复现「同序 uuid 队列」拿到完整 旧ID→新ID 映射）
+export const ID_TABLES = [
   "reading_items",
   "notes",
   "tags",
