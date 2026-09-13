@@ -13,7 +13,9 @@ export interface RestorePayload {
 
 type UuidFactory = () => string;
 
-const ID_TABLES = [
+// 有 id 列的表（按 prepareRestorePayload 的消费顺序导出，供演练脚本
+// 复现「同序 uuid 队列」拿到完整 旧ID→新ID 映射）
+export const ID_TABLES = [
   "reading_items",
   "notes",
   "tags",
@@ -297,34 +299,32 @@ function rewriteInternalLinks(
     if (key === "href" && typeof entry === "string") {
       rewritten[key] = entry.replace(
         /\/(notes|library)\/([0-9a-f-]{36})(?=[/?#]|$)/gi,
-        (_match, kind: "notes" | "library", oldId: string) => {
+        (match, kind: "notes" | "library", oldId: string) => {
           const mapped =
             kind === "notes" ? noteIds.get(oldId) : readingIds.get(oldId);
-          if (!mapped) throw new Error(`Unknown internal link target ${oldId}`);
-          return `/${kind}/${mapped}`;
+          // 悬空内链是合法产品态（目标在回收站/已删除，043 以「链接失效」装饰
+          // 呈现）——原样保留，不阻断恢复
+          return mapped ? `/${kind}/${mapped}` : match;
         }
       );
     } else if (key === "syncedId" && typeof entry === "string" && entry.length > 0 && syncedBlockIds) {
-      // 同步区块引用：syncedId 直接引用 synced_blocks 表的主键，需要重映射；
-      // 空字符串（未绑定的占位块）原样保留
+      // 同步区块引用：syncedId 直接引用 synced_blocks 表的主键；空字符串
+      // （未绑定的占位块）原样保留；目标不在映射中（源块已删）同样原样保留
       const mapped = syncedBlockIds.get(entry);
-      if (!mapped) throw new Error(`Unknown synced block reference ${entry}`);
-      rewritten[key] = mapped;
+      rewritten[key] = mapped ?? entry;
     } else if (key === "databaseId" && typeof entry === "string" && entry.length > 0 && databaseIds) {
-      // 数据库块引用：attrs.databaseId 指向 db_databases.id，需要重映射；
-      // 空字符串（未绑定的占位块）原样保留
+      // 数据库块引用：attrs.databaseId 指向 db_databases.id；空字符串与悬空
+      // 引用原样保留
       const mapped = databaseIds.get(entry);
-      if (!mapped) throw new Error(`Unknown database reference ${entry}`);
-      rewritten[key] = mapped;
+      rewritten[key] = mapped ?? entry;
     } else if (key === "taskId" && taskIds) {
-      // 任务绑定块（P0-04）：taskItem.attrs.taskId 指向 tasks.id，需要重映射；
-      // null/空字符串（未绑定的清单项）原样保留
+      // 任务绑定块（P0-04）：taskItem.attrs.taskId 指向 tasks.id；
+      // null/空字符串（未绑定的清单项）与悬空引用原样保留
       if (entry == null || entry === "") {
         rewritten[key] = entry;
       } else if (typeof entry === "string") {
         const mapped = taskIds.get(entry);
-        if (!mapped) throw new Error(`Unknown task binding reference ${entry}`);
-        rewritten[key] = mapped;
+        rewritten[key] = mapped ?? entry;
       } else {
         rewritten[key] = rewriteInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, taskIds);
       }

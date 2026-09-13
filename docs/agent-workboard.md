@@ -7,8 +7,8 @@
 
 ## 全局基线（2026-09-11）
 
-- master = `d81833c`（A05 合并后，A06 PR 前）；迁移 `001–076`；备份 `BACKUP_VERSION = 5`（`apps/web/lib/backup/schema.ts:2`）。
-- Vitest 基线：A03 后 148 文件 / 1,099 用例；A04 后 148 / 1,101；A05 后 148 / 1,108；A06 后 web 148 / 1,114（+6，本地实跑全绿）+ collab-server 24（+10）；pgTAP A06 后 30 文件 / 839 断言（+43）。以各 PR CI 复核为准。
+- master = `9845e0e`（A06 合并后，B01 PR 前）；迁移 `001–077`；备份 `BACKUP_VERSION = 5`（`apps/web/lib/backup/schema.ts:2`）。
+- Vitest 基线：A03 后 148 文件 / 1,099 用例；A04 后 148 / 1,101；A05 后 148 / 1,108；A06 后 web 148 / 1,114 + collab-server 24；B01 后 web 149 / 1,128（+14，本地实跑全绿）；pgTAP B01 后 31 文件 / 848 断言（+9，077）。以各 PR CI 复核为准。
 - 验证门禁：web typecheck / Vitest / 零警告 lint / build；UI 改动跑相关 E2E；数据库改动跑隔离 pgTAP（含越权负例）；协作改动跑 collab-server build/test + 真实协作 E2E。纯文档卡只做链接/内容检查。
 - 遗留开放 PR：#210（Chrome 扩展）、#212（plugin 包类型检查修复）——均早于本计划（2026-09-01/02 创建），是否收编或关闭**待用户决定**，接力 Agent 不得擅自合并或关闭。
 
@@ -29,7 +29,7 @@
 
 | ID | 卡 | 规模 | 状态 | 依赖 | 执行者 | PR/commit | 关键证据 | 未验证项 |
 |---|---|---|---|---|---|---|---|---|
-| B01 | 备份 v5 完整恢复演练 | M | 就绪 | A01 | — | — | `BACKUP_VERSION=5`；075 后含速记关联；Storage 排除声明在 manifest | A/B 账号逐项往返从未完整执行；旧 v2/v3/v4 文件、损坏/超限文件未测 |
+| B01 | 备份 v5 完整恢复演练 | M | 完成 | A01 | engineering-agent | 本 PR | **真实后端全链路演练**：`apps/web/scripts/backup-restore-drill.mts`（tsx 直跑）——admin 建每轮专用 A/B 账号 → service_role 播种 57 行（29 表全覆盖：复杂正文含内链/taskItem 绑定/同步块/数据库块、任务层级+依赖+清单+提醒+附件+活动、task_item_refs 双链、memo_notes、高亮三类引用、三态阅读、页面设置、软删速记）→ **A 会话走生产导出代码**（fetchBackupData+createBackupV2，RLS 真实可见性）→ **B 空账号走生产恢复代码**（inspect→prepareRestorePayload 同序 uuid 队列捕获映射→restore RPC）→ 读回 B 逐表逐行比对（70 断言，三轮全绿）；负例：非空账号 not_empty、截断/非法 JSON、>10MiB 拒绝；软删除语义：回收站行不进导出、回收站速记带 deleted_at 无损往返、last_edit_by 不搬运。**演练修出五缺陷（RED ba58cd8→GREEN 全有证据）**：① 回收站行子行（note_versions/note_tags/task_checklists/dependencies/reminders/attachments/activities/task_item_refs——RLS 不过滤父行软删）泄漏→BROKEN_REFERENCE→**有回收站内容即整份导出失败**（pruneExportData 剪枝：孤儿行剔除+悬空可选引用置 null+父缺席子任务升级根任务）；② 内容级悬空内链（指向回收站笔记）炸 inspect/restore（放宽为合法产品态：inspect 删内容级检查、restore 悬空 href/syncedId/databaseId/taskId 原样保留由 043 失效装饰呈现，表级仍严格）；③ **tasks.list_id 从未进恢复链+导出缺列→往返后全部任务脱列**（导出列+schema 模板+迁移 077 后置 UPDATE 补写，悬空 list_id FK 整体失败）；④ task_lists 软删行导出后复活为活跃列表（导出 activeOnly 过滤）；⑤ **真实 v2/v3/v4 文件不可导入**（075 只补 v4 counts 兼容漏 data 补空、v2/v3 两处清单漏 memo_notes→INVALID_TABLE；v2/v3 补全部新表、v4 补 memo_notes）。settings 页导出接入共享模块（与演练同源）。**验证**：pgTAP 31 文件/848 断言（077 九断言：list_id 落库/旧文件 null/FK fail-closed 无部分写入/040 预检不变）；Vitest 149 文件/1,128 用例（export-drill.test.ts 14 条：剪枝/悬空/list_id/v2/v4/损坏/超限）；typecheck/lint 零警告 | 真机 UI 上传路径（restore-section→/api/backup/restore）未真机点按：route 层为薄壳（inspect/prepare/RPC 与演练同一代码），mock 冒烟覆盖入口；Storage 附件文件本体排除如实可见沿用 P0-04 声明 |
 | B02 | 完整性能测量 | M | 就绪 | A01 | — | — | R12 报告 `docs/handoff/r12-measurement.md`：savePosts/draftSize 两项仪表未捕获、0/10/30 图片样本与移动 Safari 未测 | 全部缺口即本卡范围 |
 | B03 | 精确关系索引 R10b | L | 候选 | B01/B02 | — | — | R10a 已完成（074 RPC 文本 LIKE + 客户端聚合 ≤5,000）；R10b 未开工 | — |
 | B04 | 编辑器块交互拆分 | M | 候选 | A03 | — | — | R09 已拆装配与上传；块交互/协作适配遗留（计划 §2-6） | — |
