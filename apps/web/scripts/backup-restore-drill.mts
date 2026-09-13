@@ -22,7 +22,7 @@ import {
   createBackupV2,
   inspectBackupV2,
 } from "../lib/backup/schema";
-import { fetchBackupData } from "../lib/backup/export-data";
+import { fetchBackupData, pruneExportData } from "../lib/backup/export-data";
 import { prepareRestorePayload, ID_TABLES } from "../lib/backup/restore";
 
 const RUN = Date.now().toString(36);
@@ -74,10 +74,14 @@ const TS_FIELDS = new Set([
   "created_at", "updated_at", "started_reading_at", "completed_reading_at",
   "due_date", "completed_at", "notified_at", "resolved_at", "deleted_at",
 ]);
+// updated_at 在恢复插入时被触发器覆盖为恢复时刻（新鲜度元数据不回溯，
+// 067 blob 新鲜度规则依赖 notes.updated_at）——不参与逐行比对
+const SKIP_FIELDS = new Set(["updated_at"]);
 
 /** 恢复载荷行 vs DB 实际行：时间戳按时刻比较，其余按稳定 JSON 比较 */
 function rowMatches(expected: Record<string, unknown>, actual: Record<string, unknown>): boolean {
   for (const [key, value] of Object.entries(expected)) {
+    if (SKIP_FIELDS.has(key)) continue;
     if (TS_FIELDS.has(key)) {
       if (value == null) {
         if (actual[key] != null) return false;
@@ -246,7 +250,7 @@ for (const [index, { table, row }] of seed.entries()) {
 console.log(`seeded ${seed.length} rows for A`);
 
 // ============ 3. 以 A 的会话导出（生产代码路径） ============
-const exportA = await fetchBackupData(A.client, A.id);
+const exportA = pruneExportData(await fetchBackupData(A.client, A.id));
 let backupJson: string;
 try {
   backupJson = JSON.stringify(createBackupV2(exportA));
@@ -283,7 +287,6 @@ check("活跃任务的 list_id 保留", backup.data.tasks.some((r) => r.id === i
 // ============ 4. 以 B 的会话恢复（生产代码路径：inspect → prepare → RPC） ============
 // 预生成 ID 队列：与 prepareRestorePayload 的消费顺序一致（ID_TABLES × 行序），
 // 从而在客户端侧拿到完整 旧ID→新ID 映射供逐项比对。
-const { ID_TABLES_ORDER } = await import("../lib/backup/restore-tables");
 const idMaps = new Map<string, string>();
 const queue: string[] = [];
 for (const table of ID_TABLES) {
@@ -338,11 +341,17 @@ for (const table of BACKUP_TABLES) {
 console.log(`compared ${comparedRows} rows across ${BACKUP_TABLES.length} tables`);
 
 // 无 id 的纯关系表按元组集合比对
-for (const table of ["item_tags", "note_tags", "task_tags", "lesson_tags", "task_dependencies"] as const) {
-  const expectedSet = new Set((payload.data[table] as unknown as Array<Record<string, unknown>>).map(j));
-  const actualSet = new Set((restoredB[table] as unknown as Array<Record<string, unknown>>).map((r) => j({
-    ...(table === "task_dependencies" ? { task_id: r.task_id, depends_on_task_id: r.depends_on_task_id } : r),
-  })));
+const TUPLE_KEYS: Record<string, string[]> = {
+  item_tags: ["item_id", "tag_id"],
+  note_tags: ["note_id", "tag_id"],
+  task_tags: ["task_id", "tag_id"],
+  lesson_tags: ["lesson_id", "tag_id"],
+  task_dependencies: ["task_id", "depends_on_task_id"],
+};
+for (const [table, keys] of Object.entries(TUPLE_KEYS)) {
+  const project = (r: Record<string, unknown>) => j(Object.fromEntries(keys.map((k) => [k, r[k]])));
+  const expectedSet = new Set((payload.data[table as keyof typeof payload.data] as unknown as Array<Record<string, unknown>>).map(project));
+  const actualSet = new Set((restoredB[table as keyof typeof restoredB] as unknown as Array<Record<string, unknown>>).map(project));
   let ok = expectedSet.size === actualSet.size;
   if (ok) for (const entry of expectedSet) if (!actualSet.has(entry)) { ok = false; break; }
   check(`${table}: 元组集合一致`, ok, { expected: [...expectedSet], actual: [...actualSet] });

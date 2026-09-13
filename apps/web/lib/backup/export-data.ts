@@ -18,6 +18,8 @@ interface TableQueryConfig {
   columns: string;
   userOwned?: boolean;
   order: string[];
+  /** RLS 不滤软删行时（task_lists）显式只取活跃行——回收站行不进备份（manifest excluded: soft_deleted） */
+  activeOnly?: boolean;
 }
 
 export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
@@ -54,7 +56,7 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
   {
     table: "tasks",
     columns:
-      "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, parent_task_id, is_pinned, sort_order, completed_at, created_at, updated_at",
+      "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, parent_task_id, list_id, is_pinned, sort_order, completed_at, created_at, updated_at",
     userOwned: true,
     order: ["id"],
   },
@@ -144,6 +146,7 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     table: "task_lists",
     columns: "id, name, icon, color, sort_order, is_default, created_at, updated_at",
     userOwned: true,
+    activeOnly: true,
     order: ["id"],
   },
   {
@@ -213,6 +216,9 @@ export async function fetchBackupData(
         if ("userOwned" in config && config.userOwned) {
           query = query.eq("user_id", userId);
         }
+        if (config.activeOnly) {
+          query = query.is("deleted_at", null);
+        }
         for (const field of config.order) {
           query = query.order(field, { ascending: true });
         }
@@ -245,4 +251,155 @@ export async function fetchBackupData(
   return Object.fromEntries(
     BACKUP_TABLES.map((table, index) => [table, results[index]])
   ) as unknown as BackupData;
+}
+
+const idSetOf = (rows: BackupRow[]): Set<string> =>
+  new Set(rows.map((row) => String(row.id)));
+
+/**
+ * 导出剪枝（B01 实测缺陷修复）：RLS 只挡「有 deleted_at 过滤策略」的表，
+ * 回收站行的子行（note_versions / note_tags / task_checklists / task_dependencies /
+ * task_item_refs / task_tags / task_reminders / task_attachments / task_activities——
+ * 这些表的 SELECT 策略按属主 join 或仅 user_id，不过滤父行软删）会泄漏进导出，
+ * 而父行不在 → 校验 BROKEN_REFERENCE → 整份导出失败。
+ *
+ * 两步处理（均在导出侧完成，保持 inspect/restore 的严格校验不变）：
+ *   1. 孤儿子行剔除——引用的父行不在导出集则丢行（纯关系行，无独立内容）；
+ *   2. 悬空可选引用置 null——业务行本身活跃但引用了被排除的回收站行
+ *      （notes.reading_item_id / tasks.list_id / highlights.note_id 等），
+ *      丢引用不丢行；任务层级同理（父任务被删 → 子任务升级为根任务）。
+ * 内容级悬空引用（href/syncedId/databaseId/taskId）不在此处理——内容 JSON
+ * 如实保留，由 schema/restore 按「悬空为合法产品态」放宽（043 链接失效装饰）。
+ */
+export function pruneExportData(data: BackupData): BackupData {
+  const readingIds = idSetOf(data.reading_items);
+  const noteIds = idSetOf(data.notes);
+  const tagIds = idSetOf(data.tags);
+  const taskIds = idSetOf(data.tasks);
+  const lessonIds = idSetOf(data.lessons);
+  const threadIds = idSetOf(data.note_comment_threads);
+  const databaseIds = idSetOf(data.db_databases);
+  const memoIds = idSetOf(data.memos);
+  const listIds = idSetOf(data.task_lists);
+
+  const kept = { ...data };
+
+  // 1) 行级悬空可选引用 → null
+  kept.notes = data.notes.map((row) => ({
+    ...row,
+    reading_item_id:
+      row.reading_item_id == null || readingIds.has(String(row.reading_item_id))
+        ? row.reading_item_id
+        : null,
+    parent_note_id:
+      row.parent_note_id == null || noteIds.has(String(row.parent_note_id))
+        ? row.parent_note_id
+        : null,
+  }));
+  kept.tasks = data.tasks.map((row) => ({
+    ...row,
+    reading_item_id:
+      row.reading_item_id == null || readingIds.has(String(row.reading_item_id))
+        ? row.reading_item_id
+        : null,
+    note_id:
+      row.note_id == null || noteIds.has(String(row.note_id)) ? row.note_id : null,
+    parent_task_id:
+      row.parent_task_id == null || taskIds.has(String(row.parent_task_id))
+        ? row.parent_task_id
+        : null,
+    list_id:
+      row.list_id == null || listIds.has(String(row.list_id)) ? row.list_id : null,
+  }));
+  kept.lessons = data.lessons.map((row) => ({
+    ...row,
+    task_id:
+      row.task_id == null || taskIds.has(String(row.task_id)) ? row.task_id : null,
+    reading_item_id:
+      row.reading_item_id == null || readingIds.has(String(row.reading_item_id))
+        ? row.reading_item_id
+        : null,
+    note_id:
+      row.note_id == null || noteIds.has(String(row.note_id)) ? row.note_id : null,
+  }));
+  kept.highlights = data.highlights
+    // reading_item_id 是必填引用：父文章不在导出集（RLS 挡回收站行，正常不发生；
+    // 防御性丢行）则高亮行整体剔除
+    .filter((row) => readingIds.has(String(row.reading_item_id)))
+    .map((row) => ({
+      ...row,
+      note_id:
+        row.note_id == null || noteIds.has(String(row.note_id)) ? row.note_id : null,
+      task_id:
+        row.task_id == null || taskIds.has(String(row.task_id)) ? row.task_id : null,
+    }));
+  kept.favorites = data.favorites.filter((row) => {
+    const targets =
+      row.target_type === "reading"
+        ? readingIds
+        : row.target_type === "note"
+          ? noteIds
+          : taskIds;
+    return targets.has(String(row.target_id));
+  });
+  kept.db_databases = data.db_databases.map((row) => ({
+    ...row,
+    parent_note_id:
+      row.parent_note_id == null || noteIds.has(String(row.parent_note_id))
+        ? row.parent_note_id
+        : null,
+  }));
+
+  // 2) 孤儿子行剔除
+  kept.item_tags = data.item_tags.filter(
+    (row) => readingIds.has(String(row.item_id)) && tagIds.has(String(row.tag_id))
+  );
+  kept.note_tags = data.note_tags.filter(
+    (row) => noteIds.has(String(row.note_id)) && tagIds.has(String(row.tag_id))
+  );
+  kept.note_versions = data.note_versions.filter((row) =>
+    noteIds.has(String(row.note_id))
+  );
+  kept.note_comment_threads = data.note_comment_threads.filter((row) =>
+    noteIds.has(String(row.note_id))
+  );
+  kept.note_comments = data.note_comments.filter((row) =>
+    threadIds.has(String(row.thread_id))
+  );
+  kept.note_suggestions = data.note_suggestions.filter((row) =>
+    noteIds.has(String(row.note_id))
+  );
+  kept.task_checklists = data.task_checklists.filter((row) =>
+    taskIds.has(String(row.task_id))
+  );
+  kept.task_dependencies = data.task_dependencies.filter(
+    (row) =>
+      taskIds.has(String(row.task_id)) && taskIds.has(String(row.depends_on_task_id))
+  );
+  kept.task_tags = data.task_tags.filter(
+    (row) => taskIds.has(String(row.task_id)) && tagIds.has(String(row.tag_id))
+  );
+  kept.task_reminders = data.task_reminders.filter((row) =>
+    taskIds.has(String(row.task_id))
+  );
+  kept.task_attachments = data.task_attachments.filter((row) =>
+    taskIds.has(String(row.task_id))
+  );
+  kept.task_activities = data.task_activities.filter((row) =>
+    taskIds.has(String(row.task_id))
+  );
+  kept.task_item_refs = data.task_item_refs.filter(
+    (row) => taskIds.has(String(row.task_id)) && noteIds.has(String(row.note_id))
+  );
+  kept.memo_notes = data.memo_notes.filter(
+    (row) => memoIds.has(String(row.memo_id)) && noteIds.has(String(row.note_id))
+  );
+  kept.db_rows = data.db_rows.filter((row) =>
+    databaseIds.has(String(row.database_id))
+  );
+  kept.lesson_tags = data.lesson_tags.filter(
+    (row) => lessonIds.has(String(row.lesson_id)) && tagIds.has(String(row.tag_id))
+  );
+
+  return kept;
 }

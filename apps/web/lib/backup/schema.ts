@@ -202,6 +202,8 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       reading_item_id: isNullableUuid,
       note_id: isNullableUuid,
       parent_task_id: optional(isNullableUuid),
+      // 033 任务工作台：任务所属列表（v4 及更早备份无此字段，optional 兼容）
+      list_id: optional(isNullableUuid),
       is_pinned: isBoolean,
       sort_order: isInteger,
       completed_at: isNullableTimestamp,
@@ -512,11 +514,14 @@ export function inspectBackupV2(input: unknown): BackupInspection {
       issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3/v4")
     );
   }
-  // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs），统一补空数组。
-  if ((value.version === 2 || value.version === 3) && value.data && typeof value.data === "object") {
+  // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs）；
+  // v4 备份没有 075 的 memo_notes——各自缺键补空数组（B01 实测：075 只补了
+  // counts 兼容漏了 data 补空，真实 v4 文件导入即 INVALID_TABLE）。
+  if ((value.version === 2 || value.version === 3 || value.version === 4) && value.data && typeof value.data === "object") {
     const data = value.data as Record<string, unknown>;
-    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs"];
-    for (const t of v3NewTables) {
+    const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs", "memo_notes"];
+    const fillTables = value.version === 4 ? ["memo_notes"] : v3NewTables;
+    for (const t of fillTables) {
       if (data[t] === undefined) {
         data[t] = [];
       }
@@ -671,8 +676,8 @@ function validateManifest(
   rejectUnknownKeys(value.counts, [...BACKUP_TABLES], "$.manifest.counts", issues);
 
   // P0-04：v2/v3 老备份的 manifest 没有新表键（当时尚不存在），缺键按 0 记；
-  // v4 起严格要求数据与 counts 都齐全
-  const v3CompatTables = new Set(["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs"]);
+  // v4 起严格要求数据与 counts 都齐全（memo_notes 是 075 的新键，v4 缺键按 0 记）
+  const v3CompatTables = new Set(["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs", "memo_notes"]);
   // v4 备份没有 075 的 memo_notes，缺键按 0 记
   const v4CompatTables = new Set(["memo_notes"]);
   for (const table of BACKUP_TABLES) {
@@ -785,66 +790,9 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     );
   });
 
-  const jsonFields: Array<[BackupRow[], string, string]> = [
-    [data.notes, "content", "notes"],
-    [data.lessons, "content", "lessons"],
-    [data.note_versions, "content", "note_versions"],
-    [data.note_suggestions, "original_block", "note_suggestions"],
-    [data.note_suggestions, "proposed_block", "note_suggestions"],
-    [data.synced_blocks, "content", "synced_blocks"],
-    [data.db_rows, "values", "db_rows"],
-  ];
-  for (const [rows, field, table] of jsonFields) {
-    rows.forEach((row, index) => {
-      inspectInternalLinks(
-        row[field],
-        ids.notes,
-        ids.reading,
-        idSet(data.synced_blocks),
-        ids.databases,
-        `$.data.${table}[${index}].${field}`,
-        issues
-      );
-    });
-  }
-}
-
-function inspectInternalLinks(
-  value: unknown,
-  noteIds: Set<string>,
-  readingIds: Set<string>,
-  syncedBlockIds: Set<string>,
-  databaseIds: Set<string>,
-  path: string,
-  issues: BackupIssue[]
-) {
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) =>
-      inspectInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, `${path}[${index}]`, issues)
-    );
-    return;
-  }
-  if (!isRecord(value)) return;
-
-  if (typeof value.href === "string") {
-    const matches = Array.from(
-      value.href.matchAll(/\/(notes|library)\/([0-9a-f-]{36})(?=[/?#]|$)/gi)
-    );
-    for (const match of matches) {
-      const targetSet = match[1] === "notes" ? noteIds : readingIds;
-      checkReference(match[2], targetSet, `${path}.href`, issues);
-    }
-  }
-  // syncedId/databaseId 是直接 UUID 引用（非 URL），非空时必须在对应表中存在
-  if (typeof value.syncedId === "string" && value.syncedId.length > 0) {
-    checkReference(value.syncedId, syncedBlockIds, `${path}.syncedId`, issues);
-  }
-  if (typeof value.databaseId === "string" && value.databaseId.length > 0) {
-    checkReference(value.databaseId, databaseIds, `${path}.databaseId`, issues);
-  }
-  for (const [key, entry] of Object.entries(value)) {
-    inspectInternalLinks(entry, noteIds, readingIds, syncedBlockIds, databaseIds, `${path}.${key}`, issues);
-  }
+  // 内容级内部引用（href 指向 notes/library、syncedId、databaseId、taskItem 的
+  // taskId）刻意不校验：悬空是合法产品态——回收站/删除使目标缺席，产品以
+  // 「链接失效」装饰与占位块呈现（043）。表级行引用仍严格校验（上方各 checkRefs）。
 }
 
 function idSet(rows: BackupRow[]): Set<string> {
