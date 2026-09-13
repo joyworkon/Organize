@@ -14,7 +14,12 @@
 4. **启动校验**：部署后 `GET /api/health` 应返回 `{"status":"ok"}` 且 `mock:false`；`envWarnings` 逐项处理。
    - 若返回 307 → `/login`：跑的是未把 `/api/health` 列入鉴权豁免的旧构建（豁免判定见 `middleware.ts` 的 `isAuthExemptPath`）。
    - 若返回 302 → `vercel.com/sso-api`：Vercel 部署保护（见第 2 步），与代码无关。
-5. **Cron**：配置 repo variable `TASK_REMINDER_BASE_URL` 与 secret `CRON_SECRET`；手动触发「Task reminder cron」工作流，应 HTTP 200。
+5. **多实例限流（A06，扩大公开部署前必读）**：匿名保存/WS 握手限流默认进程内
+   （单实例语义）。**一旦 web 或 collab-server 以多实例运行（Vercel 多 region /
+   多 pod、collab 多节点），必须给所有实例配 `RATE_LIMIT_BACKEND=postgres`**
+   （web 与 collab-server 同名变量，076 的 `consume_rate_limit` RPC 共享计数），
+   否则限额按实例数放大。故障策略与设计见 `docs/anon-rate-limit-design.md`。
+6. **Cron**：配置 repo variable `TASK_REMINDER_BASE_URL` 与 secret `CRON_SECRET`；手动触发「Task reminder cron」工作流，应 HTTP 200。
    - 307 = `/api/cron/` 未豁免鉴权重定向；401 = `CRON_SECRET` 两边不一致；503 = VAPID 或 service role key 未配（`/api/health` 的 `envWarnings` 不会提示 VAPID，只在此处暴露）；500 = 数据库侧领取 RPC 报错（看 Vercel function logs 的 `Reminder claim failed:`；真实案例：061 修复的 PL/pgSQL 变量歧义 42702）。
 6. **验收**：真实后端下按人工清单过一遍——注册/登录（含邮件确认与找回密码）、粘贴 URL 保存并核对抓取正文、笔记编辑后整页刷新回读、完成任务、备份导出→空账号恢复并逐表核对。
    - CI 的 Playwright smoke（`apps/web/e2e/smoke.spec.ts`）是 **mock 专属**：硬编码种子账号、断言 mock 抓取器从 URL slug 生成的标题、依赖内存库整页 reload 即重置的语义，仅改 `playwright.config.ts` 的 env 无法指向真实后端。需要自动化覆盖真实后端时，另写一个用 Supabase admin API 建测试用户的 spec。
