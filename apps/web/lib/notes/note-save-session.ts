@@ -6,6 +6,7 @@ import {
   type DraftWriteResult,
 } from "@/lib/notes/local-draft";
 import { isNetworkSaveError, planSaveFailure } from "@/lib/offline/note-sync";
+import { getPerfProbe } from "@/lib/perf/probe";
 import { findNoteCreate, removeNoteCreate, type PendingNoteCreate } from "@/lib/offline/note-queue";
 import type { TransactionSource } from "@/lib/collab/transaction-source";
 import { extractTaskMutations } from "@/lib/task-link";
@@ -225,6 +226,22 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     const result = writeLocalNoteDraft(localStorage, accountId, noteId, baseRevision, {
       ...draftRef.current,
     });
+    // B02 仪表：draftSize / 草稿序列化+存储耗时（应用层直报，修 R12 捕获缺口）
+    if (result.status === "ok" && result.bytes !== undefined) {
+      getPerfProbe()?.recordDraft({
+        bytes: result.bytes,
+        durationMs: result.durationMs ?? 0,
+        status: "ok",
+        at: new Date().toISOString(),
+      });
+    } else if (result.status !== "ok") {
+      getPerfProbe()?.recordDraft({
+        bytes: 0,
+        durationMs: 0,
+        status: result.status,
+        at: new Date().toISOString(),
+      });
+    }
     localPersistence = result.status === "ok" ? "ok" : "failed";
     notifyUi();
     return result;
@@ -268,6 +285,11 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     const collabActive = deps.isCollabActive();
     const role = deps.getRole() ?? "owner";
     const rpcName = collabActive ? "save_note_with_tasks_v2" : saveRpcNameForRole(role);
+    // B02 仪表：savePosts 计数与保存耗时（应用层直报，修 R12 fetch 包装失效缺口）。
+    // 仅在仪表存在时才额外 stringify 内容测字节，避免无谓开销。
+    const probe = getPerfProbe();
+    const contentBytes = probe ? JSON.stringify(snapshot.content ?? {}).length : 0;
+    const saveStartedAt = Date.now();
     const { data: result, error: rpcErr } = await transport.save({
       rpcName,
       pNoteId: noteId,
@@ -278,6 +300,16 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       pMutationId: mutationId,
       pNoteSnapshot: snapshot,
     });
+    if (probe) {
+      const saveOk = !rpcErr && result?.status === "ok";
+      probe.recordSave({
+        rpcName,
+        durationMs: Date.now() - saveStartedAt,
+        contentBytes,
+        ok: saveOk,
+        at: new Date().toISOString(),
+      });
+    }
     // RPC 期间切换了会话：任何补救/回写都不得发生
     if (destroyed || draftOwnershipLost()) return { kind: "superseded" };
     const status = result?.status;
