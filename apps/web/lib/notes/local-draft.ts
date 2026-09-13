@@ -82,6 +82,10 @@ export interface DraftWriteResult {
   status: DraftWriteStatus;
   /** status === "ok" 时为写入的完整记录，其余为 null */
   stored: StoredNoteDraft | null;
+  /** status === "ok" 时为写入字节数（B02 仪表：draftSize 数据源） */
+  bytes?: number;
+  /** status === "ok" 时为 stringify+setItem 耗时（B02 仪表：序列化+存储耗时） */
+  durationMs?: number;
 }
 
 /** 保守分类：能确认配额才算 quota，其余一律 unavailable（UI 统一按“本机草稿未能保存”呈现）。 */
@@ -121,6 +125,7 @@ export function writeLocalNoteDraft(
     draft,
   };
   let body: string;
+  const startedAt = Date.now();
   try {
     body = JSON.stringify(stored);
   } catch {
@@ -129,7 +134,12 @@ export function writeLocalNoteDraft(
   }
   try {
     storage.setItem(noteDraftStorageKey(userId, noteId), body);
-    return { status: "ok", stored };
+    return {
+      status: "ok",
+      stored,
+      bytes: body.length,
+      durationMs: Date.now() - startedAt,
+    };
   } catch (error) {
     return { status: classifyStorageError(error), stored: null };
   }
