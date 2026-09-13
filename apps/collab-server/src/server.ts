@@ -20,6 +20,8 @@
 //      连接 requestToken → onTokenSync 重跑同一判定链——撤权/降级/链接关闭
 //      在窗口内生效（close 或 readOnly 每消息检查），并就地刷新 context.token
 //      （长会话 JWT 1h 过期不再让 blob 持久化静默失败）
+//   7. 匿名握手限流（A06，anon-auth-limiter.ts）：两级键 30/min + 120/min，
+//      默认进程内；RATE_LIMIT_BACKEND=postgres 时多实例共享计数（076 RPC）
 //
 // 客户端快照与 blob 的分工：notes.content（可读事实源）由客户端经
 // save_note_with_tasks_v2(expected_revision = null) 节流落库；本进程只维护
@@ -29,6 +31,11 @@ import { createClient } from "@supabase/supabase-js";
 import * as Y from "yjs";
 import { SeedLease } from "./seed-lease";
 import { decideReauth, parseReauthIntervalMs, type ReauthIdentity } from "./reauth";
+import {
+  AnonAuthLimiter,
+  parseBackend,
+  type SharedConsume,
+} from "./anon-auth-limiter";
 
 const PORT = Number(process.env.PORT ?? 1420);
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -89,39 +96,29 @@ function roomState(documentName: string) {
   return state;
 }
 
-// 匿名鉴权限流（§6 非协商项）：滑动窗口，防拿公开 token 刷握手。
-// 两级键：token+IP 每档 30/min（单攻击者封不住整条链接）、单 token 总量
-// 120/min（教室级同时进入不被误伤，同时仍有界）。进程内实现，多实例部署时
-// 各节点独立计数；XFF 需由边缘代理覆写，否则按「无 IP」退化为单 token 总量档。
-const ANON_AUTH_LIMIT_PER_KEY = 30;
-const ANON_AUTH_LIMIT_PER_TOKEN = 120;
-const ANON_AUTH_WINDOW_MS = 60_000;
-const anonAuthHits = new Map<string, number[]>();
-
-function anonAuthHitsAllowed(key: string, limit: number): boolean {
-  const now = Date.now();
-  const hits = (anonAuthHits.get(key) ?? []).filter((t) => now - t < ANON_AUTH_WINDOW_MS);
-  if (hits.length >= limit) {
-    anonAuthHits.set(key, hits);
-    return false;
-  }
-  hits.push(now);
-  anonAuthHits.set(key, hits);
-  if (anonAuthHits.size > 10000) {
-    for (const [k, v] of anonAuthHits) {
-      if (v.every((t) => now - t >= ANON_AUTH_WINDOW_MS)) anonAuthHits.delete(k);
-    }
-  }
-  return true;
-}
-
-function anonAuthAllowed(shareToken: string, ip: string | null): boolean {
-  // 单 token 总量档永远计入
-  if (!anonAuthHitsAllowed(`t:${shareToken}`, ANON_AUTH_LIMIT_PER_TOKEN)) return false;
-  // 有可信边缘代理给到的 XFF 才按 token+IP 细分
-  if (!ip) return true;
-  return anonAuthHitsAllowed(`ti:${shareToken}:${ip}`, ANON_AUTH_LIMIT_PER_KEY);
-}
+// 匿名鉴权限流（§6 非协商项；A06 双 backend 见 anon-auth-limiter.ts 文件头）：
+// 两级键 token+IP 30/min、单 token 总量 120/min 语义不变；多实例部署时
+// RATE_LIMIT_BACKEND=postgres 切共享计数（076 RPC）。XFF 需由边缘代理覆写，
+// 否则按「无 IP」退化为单 token 总量档。
+const sharedConsume: SharedConsume | undefined =
+  parseBackend(process.env.RATE_LIMIT_BACKEND) === "postgres"
+    ? async (key, limit, windowMs) => {
+        const { data, error } = await authClient.rpc("consume_rate_limit", {
+          p_key: key,
+          p_limit: limit,
+          p_window_ms: windowMs,
+        });
+        if (error) throw new Error(error.message);
+        if (typeof data !== "boolean") {
+          throw new Error(`unexpected consume_rate_limit result: ${typeof data}`);
+        }
+        return data;
+      }
+    : undefined;
+const anonAuthLimiter = new AnonAuthLimiter({
+  backend: parseBackend(process.env.RATE_LIMIT_BACKEND),
+  sharedConsume,
+});
 
 /**
  * 共享判定链（A05-3）：token → 身份结论。onAuthenticate（握手）与 onTokenSync
@@ -184,7 +181,7 @@ const server = new Server<CollabContext>({
     if (token.startsWith("share:")) {
       const shareToken = token.slice("share:".length);
       const ip = requestHeaders?.get?.("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-      if (!shareToken || !anonAuthAllowed(shareToken, ip)) {
+      if (!shareToken || !(await anonAuthLimiter.allowed(shareToken, ip))) {
         console.log("[auth] anonymous rate limited or empty token");
         throw new Error("unauthorized");
       }

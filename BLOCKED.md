@@ -8,9 +8,14 @@
    匿名出席名/色为临时随机值、不落 `user_profiles`。不要「顺手」给匿名编归属。
 2. **匿名不可改任务勾选**：`TaskItemToggleGuard` 只拦截本端 taskItem 勾选事务（远端
    同步照常到达）。放开需独立产品卡 + 子资源授权设计。
-3. **限流是单实例内存实现**：`/api/public-share/[token]/save` 与 collab 握手两级均为
-   进程内 token-bucket（token+IP、单 token）；多实例部署需换共享存储，否则限额按
-   实例数放大。
+3. **限流双 backend（A06 已补共享通道，2026-09-13）**：`/api/public-share/[token]/save`
+   与 collab 握手两级键（token+IP、单 token）语义不变；默认仍是进程内
+   token-bucket（单实例语义），**多实例部署时必须给所有实例配
+   `RATE_LIMIT_BACKEND=postgres`**（web 与 collab-server 同名变量，走 076 的
+   `consume_rate_limit` RPC 共享计数），否则限额按实例数放大。固定窗口有最多
+   2× limit 的窗口边界突刺（记录在 `docs/anon-rate-limit-design.md` §3）；
+   共享通道故障回退进程内档（不重试）。不要去掉单 token 总量兜底档——XFF
+   可伪造，IP 档只是细分。
 4. **撤销/过期在下次连接生效**：resolve/save/ydoc RPC 每次实时读 shares 行，HTTP
    快照保存即刻断；存量 WebSocket 不强制踢出（与登录侧「重连复核」口径一致）。
 5. **播种前空文档绝不落库**：PublicShareEditor 仅 user 来源标脏且保存前校验含种子

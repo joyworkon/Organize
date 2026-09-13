@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverError } from "@/lib/api/error";
 import { getRequestId, logApiError } from "@/lib/api/logger";
-import { rateLimit } from "@/lib/api/rate-limit";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 import { generateToken } from "@/lib/share/token";
 import { validateInvitePayload } from "@/lib/share/invite";
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!rateLimit(`invite:${user.id}`, INVITE_RATE_LIMIT, 60 * 60 * 1000)) {
+  if (!(await checkRateLimit(`invite:${user.id}`, INVITE_RATE_LIMIT, 60 * 60 * 1000))) {
     return NextResponse.json({ error: "邀请发送过于频繁，请稍后再试" }, { status: 429 });
   }
 

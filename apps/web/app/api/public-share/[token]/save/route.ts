@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
-import { rateLimit } from "@/lib/api/rate-limit";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 const SAVE_RATE_LIMIT = 30; // 每 token+IP 每分钟最多 30 次保存（§6 限流非协商项）
 const SAVE_TOKEN_BACKSTOP = 120; // 单 token 每分钟总量兜底（XFF 可伪造，不可只信 IP）
@@ -30,11 +30,12 @@ export async function POST(
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
     null;
-  // XFF 客户端可伪造：IP 档只是细分，另设单 token 总量兜底（RPC 内还有内容护栏）
-  if (!rateLimit(`public-save:${token}:${ip ?? "noip"}`, SAVE_RATE_LIMIT, SAVE_RATE_WINDOW_MS)) {
+  // XFF 客户端可伪造：IP 档只是细分，另设单 token 总量兜底（RPC 内还有内容护栏）。
+  // checkRateLimit 按 RATE_LIMIT_BACKEND 选进程内/共享存储（A06，多实例时开 postgres）
+  if (!(await checkRateLimit(`public-save:${token}:${ip ?? "noip"}`, SAVE_RATE_LIMIT, SAVE_RATE_WINDOW_MS))) {
     return NextResponse.json({ error: "保存过于频繁，请稍后再试" }, { status: 429 });
   }
-  if (!rateLimit(`public-save-token:${token}`, SAVE_TOKEN_BACKSTOP, SAVE_RATE_WINDOW_MS)) {
+  if (!(await checkRateLimit(`public-save-token:${token}`, SAVE_TOKEN_BACKSTOP, SAVE_RATE_WINDOW_MS))) {
     return NextResponse.json({ error: "保存过于频繁，请稍后再试" }, { status: 429 });
   }
 

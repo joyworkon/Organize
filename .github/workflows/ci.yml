@@ -271,6 +271,54 @@ jobs:
           REAL_DB_E2E: '1'
         run: npx playwright test -c playwright.collab.config.ts
 
+      # A06：多实例共享限流验证——两个 web（postgres backend）+ 两个 collab
+      # （postgres backend）指向同一 Supabase，脚本断言两实例合计额度正确、
+      # 伪造 XFF 绕不过总量档、WS 握手合计限额。上面的 3100/1420 保持 memory
+      # backend（默认），13 个 spec 的回归路径不受影响。
+      - name: Start shared-rate-limit instances (web 3101/3102 + collab 1421/1422)
+        working-directory: apps/collab-server
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+        run: |
+          for PORT in 1421 1422; do
+            PORT=$PORT RATE_LIMIT_BACKEND=postgres \
+            nohup npx tsx src/server.ts > /tmp/collab-server-$PORT.log 2>&1 &
+          done
+          for PORT in 1421 1422; do
+            for i in $(seq 1 30); do
+              timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$PORT" 2>/dev/null && break
+              sleep 1
+            done || { echo "collab-server $PORT failed to start"; cat /tmp/collab-server-$PORT.log; exit 1; }
+          done
+
+      - name: Start shared-rate-limit web instances (3101/3102)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_MOCK_BACKEND: 'false'
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_COLLAB_WS_URL: ws://127.0.0.1:1420
+          ORGANIZE_E2E: 'true'
+        run: |
+          for PORT in 3101 3102; do
+            RATE_LIMIT_BACKEND=postgres \
+            nohup npx next start -p $PORT > /tmp/web-server-$PORT.log 2>&1 &
+          done
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3101/api/health && curl -sf http://127.0.0.1:3102/api/health && break
+            sleep 2
+          done || { echo "shared-rate-limit web instances failed to start"; cat /tmp/web-server-3101.log /tmp/web-server-3102.log; exit 1; }
+
+      - name: Verify shared rate limit (A06 two-instance acceptance)
+        working-directory: apps/web
+        env:
+          WEB_A: http://127.0.0.1:3101
+          WEB_B: http://127.0.0.1:3102
+          COLLAB_A: ws://127.0.0.1:1421
+          COLLAB_B: ws://127.0.0.1:1422
+        run: node scripts/verify-shared-rate-limit.mjs
+
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -281,6 +329,10 @@ jobs:
             apps/web/.tmp-e2e/
             /tmp/collab-server.log
             /tmp/web-server.log
+            /tmp/collab-server-1421.log
+            /tmp/collab-server-1422.log
+            /tmp/web-server-3101.log
+            /tmp/web-server-3102.log
           retention-days: 7
           if-no-files-found: ignore
 
