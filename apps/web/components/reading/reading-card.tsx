@@ -104,9 +104,10 @@ export function ReadingCard({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="font-medium leading-tight line-clamp-2 flex-1 min-w-0">
+              {/* h2：页面 h1（PageHeader）下的条目标题，避免 h1→h3 跳级（C02 标题层级类） */}
+              <h2 className="font-medium leading-tight line-clamp-2 flex-1 min-w-0">
                 {item.title || item.url}
-              </h3>
+              </h2>
               <div
                 className={cn(
                   "hidden md:flex items-center gap-0.5 shrink-0 transition-opacity",

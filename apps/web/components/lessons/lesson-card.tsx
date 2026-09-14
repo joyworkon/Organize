@@ -6,7 +6,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,9 +58,10 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl shrink-0">{typeConfig.icon}</span>
             <div className="min-w-0">
-              <CardTitle className="text-base leading-tight line-clamp-2">
+              {/* 裸 h2 替代 CardTitle(h3)：页面 h1 下的条目标题不跳级（C02）；类名为 CardTitle 合并后的视觉等价结果 */}
+              <h2 className="text-base font-semibold tracking-tight leading-tight line-clamp-2">
                 {lesson.title || "未命名经验"}
-              </CardTitle>
+              </h2>
               <CardDescription className="text-xs mt-0.5">
                 {typeConfig.label} · {formatDate(lesson.created_at)}
               </CardDescription>
