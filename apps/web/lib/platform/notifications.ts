@@ -1,4 +1,5 @@
 import { detectPlatform, type HostPlatform } from "./detect";
+import { sanitizeNavigatePath } from "./navigate";
 
 /**
  * 统一系统通知抽象：应用代码只面向 PlatformNotifier 编程，
@@ -9,11 +10,21 @@ import { detectPlatform, type HostPlatform } from "./detect";
  * 对应平台运行时才拉取桥接模块。
  */
 
+/** 通知点击跳转的窗口事件名（components/platform/notification-navigate 监听） */
+export const NOTIFICATION_NAVIGATE_EVENT = "organize:navigate";
+
 export interface SystemNotificationRequest {
   title: string;
   body?: string;
   /** 去重标签：同 tag 的通知相互替换（web 平台语义；原生端尽力映射） */
   tag?: string;
+  /**
+   * 点击通知后的应用内跳转目标（应用内相对路径）。
+   * web 平台：经 sanitizeNavigatePath 校验后派发 NOTIFICATION_NAVIGATE_EVENT；
+   * 仅页面上下文存活时有效（构造式通知的固有限制，页面已关时由 SW push 路径兜底）。
+   * tauri plugin-notification v2 无点击回调 API，忽略。
+   */
+  url?: string;
 }
 
 export interface PlatformNotifier {
@@ -47,9 +58,10 @@ function createWebNotifier(): PlatformNotifier {
         return false;
       }
     },
-    notify: async ({ title, body, tag }) => {
+    notify: async ({ title, body, tag, url }) => {
       if (!supported() || Notification.permission !== "granted") return;
       try {
+        const targetPath = sanitizeNavigatePath(url);
         const notification = new Notification(title, {
           body,
           icon: "/favicon.ico",
@@ -58,6 +70,11 @@ function createWebNotifier(): PlatformNotifier {
         notification.onclick = () => {
           window.focus();
           notification.close();
+          // 应用内跳转走窗口事件通道（SPA 路由，不整页刷新）；
+          // 非法/外部路径已在 sanitize 时剔除
+          if (targetPath) {
+            window.dispatchEvent(new CustomEvent(NOTIFICATION_NAVIGATE_EVENT, { detail: targetPath }));
+          }
         };
       } catch {
         // 某些环境（如 iOS Safari 非 PWA）构造 Notification 会抛错，静默降级

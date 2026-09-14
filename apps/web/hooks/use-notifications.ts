@@ -115,8 +115,8 @@ export function useNotifications() {
   }, [notifier]);
 
   const showNotification = useCallback(
-    (title: string, body: string) => {
-      void notifier.notify({ title, body, tag: `due-${title}` });
+    (title: string, body: string, url?: string) => {
+      void notifier.notify({ title, body, tag: `due-${title}`, url });
     },
     [notifier]
   );
@@ -141,23 +141,23 @@ export function useNotifications() {
     notifiedRef.current = pruneNotifiedKeys(notifiedRef.current, current);
     const notified = notifiedRef.current;
 
-    tasks.forEach((task) => {
-      for (const reminder of buildDueReminders(task, now)) {
-        if (notified.has(reminder.key)) continue;
-        const delay = reminder.fireAt - now.getTime();
-        if (delay <= 0) {
-          showNotification(reminder.title, reminder.body);
-          notified.add(reminder.key);
-        } else if (delay <= MAX_TIMEOUT_MS) {
-          const timeout = setTimeout(() => {
-            if (!notified.has(reminder.key)) {
-              showNotification(reminder.title, reminder.body);
-              notified.add(reminder.key);
-              saveNotifiedTaskIds(notified);
-            }
-          }, delay);
-          timeoutsRef.current.push(timeout);
-        }
+      tasks.forEach((task) => {
+        for (const reminder of buildDueReminders(task, now)) {
+          if (notified.has(reminder.key)) continue;
+          const delay = reminder.fireAt - now.getTime();
+          if (delay <= 0) {
+            showNotification(reminder.title, reminder.body, `/tasks/${reminder.taskId}`);
+            notified.add(reminder.key);
+          } else if (delay <= MAX_TIMEOUT_MS) {
+            const timeout = setTimeout(() => {
+              if (!notified.has(reminder.key)) {
+                showNotification(reminder.title, reminder.body, `/tasks/${reminder.taskId}`);
+                notified.add(reminder.key);
+                saveNotifiedTaskIds(notified);
+              }
+            }, delay);
+            timeoutsRef.current.push(timeout);
+          }
         // delay > MAX_TIMEOUT_MS（≈24.8 天）时 setTimeout 会溢出立即触发，
         // 直接跳过排程；任务临近后本函数随任务列表刷新再次执行即可正常排程
       }
@@ -177,7 +177,7 @@ export function useNotifications() {
     }
     const summary = buildOverdueSummary(tasks, new Date());
     if (!summary) return;
-    showNotification(summary.title, summary.body);
+    showNotification(summary.title, summary.body, "/tasks");
     try {
       localStorage.setItem(OVERDUE_SUMMARY_DATE_KEY, todayKey);
     } catch {

@@ -25,6 +25,8 @@ export interface DueReminder {
   fireAt: number;
   title: string;
   body: string;
+  /** 所属任务 id：通知点击跳转用（/tasks/{taskId}） */
+  taskId: string;
 }
 
 interface RemindableTask {
@@ -71,6 +73,7 @@ export function buildDueReminders(task: RemindableTask, now: Date): DueReminder[
       fireAt: nowMs,
       title: overdue ? "任务已过期" : "任务到期提醒",
       body: overdue ? `任务已过期：${task.title}` : `任务即将到期：${task.title}`,
+      taskId: task.id,
     });
   }
 
@@ -81,6 +84,7 @@ export function buildDueReminders(task: RemindableTask, now: Date): DueReminder[
       fireAt: fifteenMinutesBefore,
       title: "任务即将到期",
       body: `任务即将到期：${task.title}（15分钟后）`,
+      taskId: task.id,
     });
   }
 
@@ -90,6 +94,7 @@ export function buildDueReminders(task: RemindableTask, now: Date): DueReminder[
       fireAt: dueMs,
       title: "任务到期提醒",
       body: `任务已到期：${task.title}`,
+      taskId: task.id,
     });
   }
 
