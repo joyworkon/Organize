@@ -49,6 +49,8 @@ export function ReminderPoller() {
             title: task.anchor === "end" ? "任务即将到期" : "任务即将开始",
             body: task.title,
             tag: key,
+            // tauri plugin-notification v2 无点击回调，暂忽略；带上以向前兼容
+            url: `/tasks/${task.task_id}`,
           });
         }
       } catch {

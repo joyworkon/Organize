@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
+import { isPermanentlyGonePushStatus, nextRetryDelayMinutes } from "@/lib/tasks/push-delivery";
 
 interface ReminderDelivery {
   delivery_id: string;
@@ -90,14 +91,14 @@ export async function POST(request: NextRequest) {
           typeof sendError === "object" && sendError && "statusCode" in sendError
             ? Number(sendError.statusCode)
             : 0;
-        const permanentlyGone = statusCode === 404 || statusCode === 410;
+        const permanentlyGone = isPermanentlyGonePushStatus(statusCode);
         if (permanentlyGone) {
           await admin
             .from("web_push_subscriptions")
             .update({ disabled_at: new Date().toISOString() })
             .eq("id", delivery.subscription_id);
         }
-        const retryMinutes = Math.min(60, 2 ** delivery.attempt_count);
+        const retryMinutes = nextRetryDelayMinutes(delivery.attempt_count);
         await admin
           .from("task_reminder_deliveries")
           .update({

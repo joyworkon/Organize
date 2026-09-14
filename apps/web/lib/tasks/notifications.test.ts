@@ -170,3 +170,14 @@ describe("buildOverdueSummary", () => {
     expect(summary!.count).toBe(1);
   });
 });
+
+describe("buildDueReminders 点击跳转字段", () => {
+  it("每个变体携带任务 id（通知点击跳转 /tasks/{taskId} 用，C05 S1）", () => {
+    const task = { id: "task-9", title: "写周报", status: "todo", due_date: LOCAL_TODAY_NOON };
+    const reminders = buildDueReminders(task, NOW);
+    expect(reminders.length).toBeGreaterThan(0);
+    for (const reminder of reminders) {
+      expect(reminder.taskId).toBe("task-9");
+    }
+  });
+});

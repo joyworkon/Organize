@@ -1,5 +1,6 @@
 import { NavigateBridge } from "@/components/desktop/navigate-bridge";
 import { MemoSyncBridge } from "@/components/desktop/memo-sync-bridge";
+import { NotificationNavigate } from "@/components/platform/notification-navigate";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -32,6 +33,7 @@ export default function RootLayout({
         {children}
         <WebViewCompat />
         <NavigateBridge />
+        <NotificationNavigate />
         <MemoSyncBridge />
         <ServiceWorkerRegistrar />
       </body>
