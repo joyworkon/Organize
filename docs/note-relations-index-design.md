@@ -137,8 +137,11 @@ returns jsonb  -- { total, rows: [{ id, title, created_at }], next_cursor }
 ```
 
 - 行形状与 v1 相同（`{id,title,created_at}`）→ 客户端切读只换 RPC 名与游标推进，UI 零改动（行形状见 `backlinks.tsx:11-15`）。
-- **稳定游标**：`(s.updated_at desc, s.id desc)` keyset；`p_cursor` 编码为 `{u: updated_at, i: id}`。
-  新反链出现插在首页，已翻页结果不受插入/删除影响（OFFSET 在此场景会漂移）。`next_cursor` 为 null 表示取尽。
+- **稳定游标**：`(s.updated_at desc, s.id desc)` keyset；`p_cursor` 编码为 `{u: updated_at, i: id}`，
+  **游标取本页最后一行的键**（若误用「越过本页首行」的键 + 严格落后谓词，该行自身会被跳过产生裂缝）；
+  下一页谓词为「严格落后于该键」。新反链出现插在首页，已翻页结果不受插入/删除影响（OFFSET 在此场景会漂移）。
+  **取尽时响应省略 `next_cursor` 键**——JSON null 与键缺失在 jsonb 语义不同（jsonb null 不是 SQL NULL），
+  键缺失语义使客户端 `->'next_cursor'` 得 SQL NULL 可安全判停，不产生空转循环。
 - `total` 每页返回（同可见性谓词一次 count；索引扫描，千级边成本可忽略）。
 - 来源过滤：`join note_links` → `s.deleted_at is null` → `s.id <> p_note_id` → 可见谓词（§3）。
 - 参数防御同 v1（page_size 1..200，越界回落 100）。
