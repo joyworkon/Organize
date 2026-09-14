@@ -1240,6 +1240,28 @@ export function TipTapEditor({
     };
   }, [editor]);
 
+  // tippy（BubbleMenu 底层）在 interactive 模式下会给参考元素挂 aria-expanded，
+  // 而参考元素是包裹 ProseMirror 的普通 div（无任何交互角色）——aria-expanded 在
+  // 此无语义且违反 ARIA（axe aria-allowed-attr critical）。tippy 6 无开关（v5 的
+  // a11y prop 已移除），TipTap v2 也不透传 reference 替换：这里在挂上的瞬间摘除。
+  // 只动 shell 的直接子 div；Radix 菜单触发器的 aria-expanded 是合法状态，不受影响。
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!editor || !root) return;
+    const strip = () => {
+      const wrapper = root.querySelector<HTMLElement>(":scope > div[aria-expanded]");
+      if (wrapper) wrapper.removeAttribute("aria-expanded");
+    };
+    strip();
+    const observer = new MutationObserver(strip);
+    observer.observe(root, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-expanded"],
+    });
+    return () => observer.disconnect();
+  }, [editor]);
+
   if (!editor) return null;
 
   return (
