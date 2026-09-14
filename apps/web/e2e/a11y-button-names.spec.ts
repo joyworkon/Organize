@@ -85,10 +85,24 @@ test("C02 标题层级回归：页面有 h1 且标题不跳级", async ({ page }
     await expectRulesClean(page, route, ["heading-order", "page-has-heading-one"]);
   }
 
-  // 笔记编辑页（此前无任何 h1）
+  // 笔记编辑页（此前无任何 h1）；选中文字弹 BubbleMenu 后，编辑器壳的
+  // tippy aria-expanded 产物与封面上传 file input 也一并断言（C02 第三轮）
   await openPage(page, "/notes");
   await page.getByRole("button", { name: /新建笔记/ }).first().click();
   await page.waitForURL(/\/notes\//);
   await page.waitForTimeout(1200);
   await expectRulesClean(page, "/notes/[id]", ["page-has-heading-one"]);
+
+  const editor = page.locator(".tiptap, .ProseMirror").first();
+  await editor.click();
+  await page.waitForTimeout(800);
+  await page.keyboard.type("标题层级与编辑器壳回归样例");
+  await page.waitForTimeout(1500);
+  await editor.getByText("标题层级与编辑器壳回归样例").first().selectText().catch(() => {});
+  await page.waitForTimeout(800);
+  await expectRulesClean(page, "/notes/[id] BubbleMenu 开", [
+    "page-has-heading-one",
+    "aria-allowed-attr",
+    "label",
+  ]);
 });

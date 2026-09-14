@@ -111,6 +111,7 @@ export function NotePageVisuals({
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp"
         className="sr-only"
+        aria-label="上传封面图片"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void uploadCover(file);
