@@ -114,7 +114,8 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   }
 
   return (
-    <div className="mt-8 pt-6 border-t">
+    // data-testid 供 E2E 作用域定位（侧边栏笔记列表与反链行可能同标题）
+    <div className="mt-8 pt-6 border-t" data-testid="backlinks-panel">
       {loading && (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

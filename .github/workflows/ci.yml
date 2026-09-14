@@ -222,6 +222,8 @@ jobs:
           node scripts/seed-anon-e2e.mjs
           # A04 同步块种子依赖 collab 种子的账号与空间（顺序执行）
           node scripts/seed-synced-block-e2e.mjs
+          # B03 反链切读种子依赖 collab 种子的 A 账号（078 触发器随 upsert 建边）
+          node scripts/seed-backlinks-e2e.mjs
 
       - name: Start collab-server (ws://127.0.0.1:1420)
         working-directory: apps/collab-server
