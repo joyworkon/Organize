@@ -213,12 +213,12 @@ export default function FavoritesPage() {
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium leading-tight line-clamp-1">
+                    <h2 className="font-medium leading-tight line-clamp-1">
                       {isReading && (reading?.title || reading?.url || "已删除的文章")}
                       {isNote && (note?.title || "无标题笔记")}
                       {isTask && (task?.title || "已删除的任务")}
                       {!fav.item && "内容已删除"}
-                    </h3>
+                    </h2>
 
                     <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground flex-wrap">
                       {isReading && reading?.url && (

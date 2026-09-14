@@ -5,7 +5,7 @@
 > 状态取值：候选、就绪、进行中、待验证、阻塞、完成、取消。代码已写但真机/真实后端未测，必须标「待验证」。
 > 卡片定义（范围/验收/边界）以计划原文为准，本表只维护状态与证据，不复制卡面。
 
-## 全局基线（2026-09-14，C02 第一轮合并时更新）
+## 全局基线（2026-09-14，C02 第二轮合并时更新）
 
 - master = `0d40d32`（B05 后）；迁移 `001–079`；备份 `BACKUP_VERSION = 5`（`apps/web/lib/backup/schema.ts:2`）。
 - Vitest 基线：A03 后 148 文件 / 1,099 用例；A04 后 148 / 1,101；A05 后 148 / 1,108；A06 后 web 148 / 1,114 + collab-server 24；B01 后 web 149 / 1,128；B02 后 web 150 / 1,135（+7 probe 单测，本地实跑全绿）；B03 后 web 150 / 1,140（+5 反链读路径单测）；B04 后 web 151 / 1,147；B05 后 web 153 / 1,163（+11 播种状态机 +5 来源解析）；C02-1 无单测增减（E2E 回归 +1：a11y-button-names 进 e2e-test job）。pgTAP 33 文件 / 894 断言（078 +34、079 +12）。以各 PR CI 复核为准。
@@ -42,7 +42,7 @@
 | ID | 卡 | 规模 | 状态 | 依赖 | 执行者 | PR/commit | 关键证据 | 未验证项 |
 |---|---|---|---|---|---|---|---|---|
 | C01 | 可持续改版界面地图 | S | 完成 | A01 | engineering-agent | 本 PR | 交付 `docs/ui-change-guide.md`：L0-L4 分层地图（token/主题色 inline 覆盖机制/18 件原语/壳组装顺序）、「改哪里影响哪里」速查表（13 类常见改动 × 牵动面，含导航四处入口同步义务）、功能入口追踪表（16 功能 × 4 渠道 + 条件入口）、一页改版模板 + 维护规则。事实经只读盘点核实（file:line 证据）：无第二套 Button/Dialog、单断点体系（767px/md）、图谱复用全局 token、帮助弹窗键位清单为手工需同步 | 键位清单与 NAV_ITEMS 无自动一致性校验（地图 §4 已标注；自动化校验可作后续候选） |
-| C02 | 键盘与可访问性改进 | M | 进行中（第一轮完成） | C01 | engineering-agent | 本 PR | **第一轮：读屏名称类**（按卡面「一次修一类」）。审计：新 `apps/web/scripts/a11y-scan.mjs`（axe-core 注入式扫描，核心 9 路由 + BubbleMenu 开/共享对话框开/任务详情开 3 交互态 + 640px 视口 200% 缩放代理口径）全站扫描，违规按规则聚合后选定 critical 且最广的 button-name 类（11 节点）。修复 24 处无名称控件：21 处 SelectTrigger 全部补 `aria-label`（任务工作台 3 筛选/任务详情 3/任务对话框 5/完成复盘对话框/日期选择器重复频率/经验详情 4/经验列表筛选/稍后读排序方式/空间成员角色/共享对话框 7——含按成员/空间名动态命名两处），经验卡片「更多」菜单补 aria-label + `focus-visible:opacity-100`（键盘聚焦不可见缺陷），笔记工具栏排序按钮补动态 aria-label（移动宽度文字 hidden 后变无名图标按钮）。**回归门**：新 `e2e/a11y-button-names.spec.ts`（axe button-name 断言 8 个页面/交互态，登录页与共享对话框打开态在内）进 CI e2e-test job 常跑，后续新增无名按钮会被拦下。复扫确认 button-name 全站归零 | 后续轮次按扫描记录推进：heading-order 6（列表页 h3 无前置 h1）、color-contrast 5（bg-primary/10 text-primary 徽章）、nested-interactive 4（任务卡内嵌可交互）、aria-allowed-attr 1 + label 1 + page-has-heading-one 1（编辑器壳）；键盘全程人工路径、焦点回归、真实读屏、200% 缩放布局人工核验未做——扫描的 640px 视口只是自动化代理，非「真正浏览器 200% 缩放」验收 |
+| C02 | 键盘与可访问性改进 | M | 进行中（前两轮完成） | C01 | engineering-agent | 第一轮 #281；第二轮本 PR | **第一轮：读屏名称类**（#281）——审计工具 `scripts/a11y-scan.mjs`（axe 注入式，9 路由 + 3 交互态 + 640px 200% 代理）；24 处无名称控件补 aria-label（21 SelectTrigger + 经验菜单 + 笔记排序按钮，后者顺带修键盘聚焦 opacity-0 不可见）；回归门 `e2e/a11y-button-names.spec.ts` 进 CI。**第二轮：标题层级类**（本 PR）——h1 后条目标题跳级到 h3（heading-order 6 节点）+ 笔记编辑页无任何 h1（page-has-heading-one 1）：reading-card / favorites / empty-state（10 页共用空态，核实无一处嵌于 CardTitle 内，全局换安全）三处条目标题 h3→h2（类名不变视觉零改动）；lesson-card 的 CardTitle(固定 h3) 换裸 h2（类名为 twMerge 后视觉等价集）；notes/[id] 补 sr-only h1（标题在编辑器内联渲染，视觉不重复）。复扫 heading-order + page-has-heading-one 全站归零；回归 spec 增第二用例（7 路由断言两规则 + 编辑器页 h1） | 后续轮次：color-contrast 5（bg-primary/10 text-primary 徽章——注意 text-primary 随用户品牌色变化，修复须按最浅品牌色核算）、nested-interactive 4（任务卡拖拽区嵌套可交互）、编辑器壳 aria-allowed-attr 1 + label 1；键盘全程人工路径、焦点回归、真实读屏、真浏览器 200% 缩放人工核验未做 |
 | C03 | 手机真机工作流 | M | 候选 | C01 + 真机 | — | — | 手机 **Web 布局**已完成（PR #257 底部五模块）；**原生 App 发布**是另一回事（见下方分流） | 中文输入法/软键盘/安全区/横竖屏全部待真机 |
 | C04 | macOS 刘海与多屏矩阵 | M | 候选 | A01 + 真机 | — | — | `docs/macos-notch-compatibility-review-2026-09-06.md` + 后续修复（`07b51d6` 等）；不能重复修已合并项 | 混合缩放/热插拔/睡眠唤醒待矩阵 |
 | C05 | 通知端到端闭环 | L | 候选 | A02/A03 | — | — | 双响防线三道锁已存在（BLOCKED.md W1–W6 声明 5） | Cron 重试/夏令时/点击跳转未端到端 |

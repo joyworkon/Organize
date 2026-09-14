@@ -21,9 +21,9 @@ async function openPage(page: Page, path: string) {
   await page.waitForTimeout(1200);
 }
 
-/** 注入 axe 并断言 button-name 违规为零（失败时列出节点选择器） */
-async function expectAllButtonsNamed(page: Page, label: string) {
-  const targets = await page.evaluate((src) => {
+/** 注入 axe 并断言指定规则违规为零（失败时列出节点选择器） */
+async function expectRulesClean(page: Page, label: string, ruleIds: string[]) {
+  const targets = await page.evaluate(({ src, rules }) => {
     const script = document.createElement("script");
     script.textContent = src;
     document.head.appendChild(script);
@@ -34,13 +34,18 @@ async function expectAllButtonsNamed(page: Page, label: string) {
       .run(document, { resultTypes: ["violations"] })
       .then((r) =>
         r.violations
-          .filter((v) => v.id === "button-name")
-          .flatMap((v) => v.nodes.map((n) => n.target.join(" ")))
+          .filter((v) => rules.includes(v.id))
+          .flatMap((v) => v.nodes.map((n) => `${v.id}: ${n.target.join(" ")}`))
       );
-  }, axeSource);
-  expect(targets, `${label} 存在无可访问名称的按钮`).toEqual([]);
+  }, { src: axeSource, rules: ruleIds });
+  expect(targets, `${label} 存在可访问性违规（${ruleIds.join("/")}）`).toEqual([]);
 }
 
+function expectAllButtonsNamed(page: Page, label: string) {
+  return expectRulesClean(page, label, ["button-name"]);
+}
+
+/** C02 第一轮：读屏名称 */
 test("C02 读屏名称回归：核心页面全部按钮有可访问名称", async ({ page }) => {
   // 登录（mock）：登录表单按钮本身也在被测范围内
   await openPage(page, "/login");
@@ -65,4 +70,25 @@ test("C02 读屏名称回归：核心页面全部按钮有可访问名称", asyn
   await shareButton.click();
   await page.waitForTimeout(1000);
   await expectAllButtonsNamed(page, "/notes/[id] 共享对话框");
+});
+
+/** C02 第二轮：标题层级（heading-order 跳级 + page-has-heading-one 缺一级标题） */
+test("C02 标题层级回归：页面有 h1 且标题不跳级", async ({ page }) => {
+  await openPage(page, "/login");
+  await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
+  await page.getByPlaceholder("密码").fill("smoke-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/library/);
+
+  for (const route of ["/library", "/notes", "/tasks", "/tasks/lessons", "/memos", "/favorites", "/trash"]) {
+    await openPage(page, route);
+    await expectRulesClean(page, route, ["heading-order", "page-has-heading-one"]);
+  }
+
+  // 笔记编辑页（此前无任何 h1）
+  await openPage(page, "/notes");
+  await page.getByRole("button", { name: /新建笔记/ }).first().click();
+  await page.waitForURL(/\/notes\//);
+  await page.waitForTimeout(1200);
+  await expectRulesClean(page, "/notes/[id]", ["page-has-heading-one"]);
 });

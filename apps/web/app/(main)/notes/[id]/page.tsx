@@ -1380,6 +1380,10 @@ export default function NoteEditorPage() {
         </div>
       )}
 
+      {/* 页面一级标题（读屏）：标题在编辑器内联渲染，视觉上不可重复——sr-only 供
+          辅助技术与 axe page-has-heading-one（C02 标题层级类） */}
+      <h1 className="sr-only">{title || "无标题笔记"}</h1>
+
       {/* 标题区（图标/封面/评论 + 标题）与目录同处一个 hover 域：鼠标移入标题时显示三个「添加」操作 */}
       <div className="note-page-title-zone">
         <NotePageVisuals
