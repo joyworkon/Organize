@@ -100,7 +100,12 @@ import { createNewNote } from "@/lib/notes/create-note";
 import { Plus } from "lucide-react";
 
 /** 事务来源分类（见 docs/g0-protocol.md §4）。 */
-import type { TransactionSource } from "@/lib/collab/transaction-source";
+import {
+  resolveTransactionSource,
+  type TransactionSource,
+} from "@/lib/collab/transaction-source";
+/** 协作播种租约协议（067/A04/B05）：状态机隔离自本组件的原内联 effect */
+import { createCollabSeedController } from "./collab-seeding";
 
 export type { TransactionSource };
 
@@ -236,11 +241,9 @@ export function TipTapEditor({
     onUpdate: ({ editor, transaction }) => {
       // 仅用于强制 NodeView 刷新的无内容变化事务，不触发上层 onUpdate/自动保存
       if (transaction.getMeta("breadcrumb:storage-refresh")) return;
-      // y-sync 协作事务（远端协作者的变更推入）= remote-sync：
-      // 不进 Undo、不生成 task mutation、不标脏（G3 预留枚举，ADR 0003）
-      const source: TransactionSource = transaction.getMeta("y-sync$")
-        ? "remote-sync"
-        : ((transaction.getMeta("transactionSource") as TransactionSource) || "user");
+      // 来源分类抽为纯函数（B05）：y-sync 协作事务（远端协作者的变更推入）=
+      // remote-sync，不进 Undo、不生成 task mutation、不标脏（ADR 0003）
+      const source = resolveTransactionSource(transaction);
       onUpdateRef.current(editor.getJSON(), source);
     },
     editable,
@@ -325,87 +328,62 @@ export function TipTapEditor({
   }, [editor, editable, collabSeedBlocked]);
 
   // 协作模式：房间为空时向服务端申请播种租约，获准后才用 DB 原始内容播种一次。
-  // setContent 第二参 false = 不产生 onUpdate（不标脏、不触发保存）。
+  // 协议状态机（seed-req/grant/wait/deny + 重试 + deny 观察窗）隔离在
+  // collab-seeding.ts（B05）；本组件只保留 UI 侧关切：阻塞态锁编辑与 deny toast。
   // 播种源必须是 seedContent（DB 加载时的原始快照）：页面 content state 会被
   // UniqueID 回填等编辑器事务覆盖，用它播种会把空文档写回房间。
-  // 租约仲裁（067 生产化卡）：服务端对同一房间只发一份 grant，两个客户端同时
-  // 首次进入空房间不再各自播种出重复段落（ADR 0003 已知边界，本卡根除）。
-  // 未获准的一方收到 seed-wait 后兜底重问（覆盖对方播种失败/掉线），
-  // seed-deny / 无回复则不播种（房间内容就绪、空笔记或连续失败封顶）。
   useEffect(() => {
     if (!collab || !editor) return;
     const provider = collab.provider;
-    let waits = 0;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    // A05 D5：deny 后房间持续为空 → 12s 后告知用户（覆盖 3×wait 重试与租约封顶），
-    // 不自动播种不写房间（deny = 播种阶段结束，强行写只会制造重复内容）
-    let denyWatchTimer: ReturnType<typeof setTimeout> | null = null;
-    // A05 D4 收尾：DB 有内容 + 房间还空 = 播种未定形，锁编辑直到 grant/deny/内容到达
-    const syncSeedBlock = () => {
-      setCollabSeedBlocked(editor.isEmpty && !!collab.seedContent);
-    };
-    syncSeedBlock();
-
-    const requestSeed = () => {
-      if (editor.isDestroyed || !editor.isEmpty || !collab.seedContent) return;
-      provider.sendStateless(JSON.stringify({ t: "seed-req" }));
-    };
-
-    const onSynced = () => {
-      if (editor.isEmpty) {
-        waits = 0;
-        requestSeed();
-      }
-    };
-
-    const onDocUpdate = () => {
-      if (!editor.isDestroyed && !editor.isEmpty) setCollabSeedBlocked(false);
-    };
-
-    const onStateless = ({ payload }: { payload: string }) => {
-      let msg: { t?: string };
-      try {
-        msg = JSON.parse(payload);
-      } catch {
-        return;
-      }
-      if (msg.t === "seed-grant") {
-        if (!editor.isDestroyed && editor.isEmpty && collab.seedContent) {
-          editor.commands.setContent(collab.seedContent as never, false);
-        }
-        setCollabSeedBlocked(false);
-      } else if (msg.t === "seed-wait" && waits < 3) {
-        waits += 1;
-        retryTimer = setTimeout(requestSeed, 2500);
-      } else if (msg.t === "seed-deny") {
-        // 播种阶段结束：内容要么即将随同步到达（onDocUpdate 解锁），要么封顶卡死
-        setCollabSeedBlocked(false);
-        if (!denyWatchTimer) {
-          denyWatchTimer = setTimeout(() => {
-            denyWatchTimer = null;
-            if (!editor.isDestroyed && editor.isEmpty) {
-              toast({
-                title: "协作内容加载受阻",
-                description: "未能从服务器同步到笔记内容，请刷新页面重试；笔记内容没有丢失。",
-              });
-            }
-          }, 12_000);
-        }
-      }
-    };
-
-    if (provider.isSynced) onSynced();
-    provider.on("synced", onSynced);
-    provider.on("stateless", onStateless);
-    editor.on("update", onDocUpdate);
-    return () => {
-      provider.off("synced", onSynced);
-      provider.off("stateless", onStateless);
-      editor.off("update", onDocUpdate);
-      if (retryTimer) clearTimeout(retryTimer);
-      if (denyWatchTimer) clearTimeout(denyWatchTimer);
-      setCollabSeedBlocked(false);
-    };
+    const controller = createCollabSeedController({
+      editor: {
+        get isEmpty() {
+          return editor.isEmpty;
+        },
+        get isDestroyed() {
+          return editor.isDestroyed;
+        },
+        setContent: (content, emitUpdate) => {
+          // 第二参 false = 不产生 onUpdate（不标脏、不触发保存）
+          editor.commands.setContent(content as never, emitUpdate);
+        },
+        onUpdate: (fn) => {
+          editor.on("update", fn);
+        },
+        offUpdate: (fn) => {
+          editor.off("update", fn);
+        },
+      },
+      provider: {
+        get isSynced() {
+          return provider.isSynced;
+        },
+        onSynced: (fn) => {
+          provider.on("synced", fn);
+        },
+        offSynced: (fn) => {
+          provider.off("synced", fn);
+        },
+        onStateless: (fn) => {
+          provider.on("stateless", fn);
+        },
+        offStateless: (fn) => {
+          provider.off("stateless", fn);
+        },
+        sendStateless: (payload) => provider.sendStateless(payload),
+      },
+      seedContent: collab.seedContent,
+      callbacks: {
+        onBlockedChange: setCollabSeedBlocked,
+        onDenyTimeout: () => {
+          toast({
+            title: "协作内容加载受阻",
+            description: "未能从服务器同步到笔记内容，请刷新页面重试；笔记内容没有丢失。",
+          });
+        },
+      },
+    });
+    return () => controller.detach();
   }, [collab, editor]);
 
   const closeMenus = useCallback(() => {
