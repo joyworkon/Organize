@@ -113,7 +113,7 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
       className={cn(
         "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
         isSelected(sel)
-          ? "bg-primary/10 text-primary font-medium"
+          ? "bg-accent text-accent-foreground font-medium"
           : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >

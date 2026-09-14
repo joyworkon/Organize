@@ -2,11 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 /**
- * C02 第一轮回归门（读屏名称类）：核心页面上不得存在无可访问名称的按钮
- * （axe button-name 规则，含 role=combobox 的 Select 触发器与图标按钮）。
- * 本 spec 在 CI e2e-test job（mock 构建）常跑；新增图标按钮/下拉若不带
- * aria-label 会被此处拦下。其余违规类（对比度/标题层级/嵌套交互等）是
- * C02 后续轮次，不在此断言。
+ * C02 回归门：核心页面可访问性回归（axe 注入式断言）。
+ * 用例 1（第一轮）：读屏名称——全部按钮有可访问名称（button-name）。
+ * 用例 2（第二/三轮）：标题层级——页面有 h1 且不跳级（heading-order /
+ * page-has-heading-one），编辑器壳 tippy aria-allowed-attr 与表单 label。
+ * 用例 3（第四轮）：对比度——color-contrast（侧栏选中态中性化、
+ * 弱化文本去透明度后归零）。
+ * 本 spec 在 CI e2e-test job（mock 构建）常跑；同类新违规会被此处拦下。
+ * 嵌套交互（nested-interactive）是后续轮次，不在此断言。
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- Playwright TS 转译为 CJS，import.meta 不可用
 const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -104,5 +107,28 @@ test("C02 标题层级回归：页面有 h1 且标题不跳级", async ({ page }
     "page-has-heading-one",
     "aria-allowed-attr",
     "label",
+    "color-contrast",
   ]);
+});
+
+/** C02 第四轮：对比度（color-contrast）——侧栏选中态中性化 + 弱化文本去透明度 */
+test("C02 对比度回归：核心页面与笔记编辑页无对比度违规", async ({ page }) => {
+  await openPage(page, "/login");
+  await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
+  await page.getByPlaceholder("密码").fill("smoke-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await expect(page).toHaveURL(/\/library/);
+
+  for (const route of ["/library", "/notes", "/tasks", "/tasks/lessons", "/memos", "/favorites", "/settings"]) {
+    await openPage(page, route);
+    await expectRulesClean(page, route, ["color-contrast"]);
+  }
+
+  // 笔记编辑页默认态：新建后标题持有焦点，标题区「添加图标/封面/评论」按钮
+  // 经 :focus-within 可见（键盘用户真实可见态），其颜色不达标会在此拦下
+  await openPage(page, "/notes");
+  await page.getByRole("button", { name: /新建笔记/ }).first().click();
+  await page.waitForURL(/\/notes\//);
+  await page.waitForTimeout(1200);
+  await expectRulesClean(page, "/notes/[id]", ["color-contrast"]);
 });
