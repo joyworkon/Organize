@@ -419,7 +419,7 @@ const visibleNavItems = useMemo(() => {
                     className={cn(
                       "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
                       active
-                        ? "bg-primary/10 font-medium text-primary"
+                        ? "bg-accent font-medium text-accent-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                     title={item.title || "无标题笔记"}
@@ -489,7 +489,7 @@ const visibleNavItems = useMemo(() => {
                             className={cn(
                               "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
                               tagActive
-                                ? "bg-primary/10 font-medium text-primary"
+                                ? "bg-accent font-medium text-accent-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
                             )}
                             title={`${tag.name}（文章 ${tag.reading_item_count || 0} · 笔记 ${tag.note_count || 0}）`}
@@ -736,7 +736,7 @@ function SidebarNoteTree({
               className={cn(
                 "group flex min-w-0 items-center rounded-md text-sm transition-colors",
                 active
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-accent text-accent-foreground font-medium"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
               style={{ paddingLeft: `${8 + Math.min(depth, 6) * 14}px` }}

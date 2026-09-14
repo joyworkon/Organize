@@ -153,7 +153,9 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity 120ms ease;
-  color: hsl(var(--muted-foreground) / 0.85);
+  /* 全值 muted-foreground：/0.85 叠在页面底色上仅 3.9:1（axe color-contrast），
+     hover/focus-within 显示时对键盘用户可见，须 ≥4.5:1（C02 第四轮） */
+  color: hsl(var(--muted-foreground));
 }
 .note-page-title-zone:hover .note-page-icon-actions .note-page-add-btn,
 .note-page-title-zone:focus-within .note-page-icon-actions .note-page-add-btn {
