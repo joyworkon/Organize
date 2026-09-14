@@ -401,7 +401,7 @@ function MemberRow({
             onValueChange={(value) => onRoleChange(member, value as WorkspaceMemberRole)}
             disabled={busy}
           >
-            <SelectTrigger className="h-8 w-[92px]">
+            <SelectTrigger aria-label={`成员 ${member.displayName || member.userId} 的角色`} className="h-8 w-[92px]">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SelectValue />}
             </SelectTrigger>
             <SelectContent>

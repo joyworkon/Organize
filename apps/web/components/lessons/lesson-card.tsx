@@ -72,7 +72,8 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                aria-label="更多操作"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 focus-visible:opacity-100"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>

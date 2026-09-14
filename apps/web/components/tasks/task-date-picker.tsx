@@ -165,7 +165,7 @@ export function TaskDatePicker({ value, onChange }: TaskDatePickerProps) {
             value={draft.recurrence_rule?.frequency || "none"}
             onValueChange={(v) => update({ recurrence_rule: v === "none" ? null : { frequency: v as TaskRecurrenceRule["frequency"], interval: 1 } })}
           >
-            <SelectTrigger className="w-auto h-8"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="重复频率" className="w-auto h-8"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">无</SelectItem>
               {Object.entries(RECURRENCE_LABELS).map(([k, label]) => (

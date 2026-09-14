@@ -384,7 +384,7 @@ export default function LessonEditorPage() {
             <div className="space-y-2">
               <Label htmlFor="type">类型</Label>
               <Select value={lessonType} onValueChange={(v: LessonType) => setLessonType(v)}>
-                <SelectTrigger id="type">
+                <SelectTrigger id="type" aria-label="经验类型">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -441,7 +441,7 @@ export default function LessonEditorPage() {
               <div className="space-y-2">
                 <Label>关联任务</Label>
                 <Select value={linkTaskId} onValueChange={setLinkTaskId}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="关联任务">
                     <SelectValue placeholder="无" />
                   </SelectTrigger>
                   <SelectContent>
@@ -458,7 +458,7 @@ export default function LessonEditorPage() {
               <div className="space-y-2">
                 <Label>关联阅读</Label>
                 <Select value={linkReadingId} onValueChange={setLinkReadingId}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="关联阅读">
                     <SelectValue placeholder="无" />
                   </SelectTrigger>
                   <SelectContent>
@@ -474,7 +474,7 @@ export default function LessonEditorPage() {
               <div className="space-y-2">
                 <Label>关联笔记</Label>
                 <Select value={linkNoteId} onValueChange={setLinkNoteId}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="关联笔记">
                     <SelectValue placeholder="无" />
                   </SelectTrigger>
                   <SelectContent>

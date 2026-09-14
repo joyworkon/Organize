@@ -121,7 +121,7 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
               <div className="grid gap-2">
                 <Label>类型</Label>
                 <Select value={lessonType} onValueChange={(v: LessonType) => setLessonType(v)}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="经验类型">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

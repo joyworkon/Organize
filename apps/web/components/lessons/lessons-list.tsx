@@ -193,7 +193,7 @@ export function LessonsList() {
         </div>
 
         <Select value={typeFilter} onValueChange={(v: TypeFilter) => setTypeFilter(v)}>
-          <SelectTrigger className="w-32">
+          <SelectTrigger aria-label="按类型筛选" className="w-32">
             <SelectValue placeholder="类型" />
           </SelectTrigger>
           <SelectContent>

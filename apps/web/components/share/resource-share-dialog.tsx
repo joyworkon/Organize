@@ -266,7 +266,7 @@ function OwnerShareSections({
                     }
                     disabled={busyWs === ws.id}
                   >
-                    <SelectTrigger className="h-8 w-[110px]">
+                    <SelectTrigger aria-label={`在「${ws.name}」中的共享权限`} className="h-8 w-[110px]">
                       {busyWs === ws.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SelectValue />}
                     </SelectTrigger>
                     <SelectContent>
@@ -440,7 +440,7 @@ function InviteSection({
   const inviteControls = (
     <>
       <Select value={role} onValueChange={(v) => setRole(v as "viewer" | "editor")}>
-        <SelectTrigger className="h-8 w-[110px]">
+        <SelectTrigger aria-label="邀请角色" className="h-8 w-[110px]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -449,7 +449,7 @@ function InviteSection({
         </SelectContent>
       </Select>
       <Select value={workspaceChoice} onValueChange={setWorkspaceChoice}>
-        <SelectTrigger className="h-8 w-[180px]">
+        <SelectTrigger aria-label="选择空间" className="h-8 w-[180px]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -735,7 +735,7 @@ function TransferOwnershipSection({
       ) : (
         <div className="flex gap-2">
           <Select value={selected} onValueChange={setSelected}>
-            <SelectTrigger className="h-8 w-[180px]">
+            <SelectTrigger aria-label="选择协作者" className="h-8 w-[180px]">
               <SelectValue placeholder="选择协作者" />
             </SelectTrigger>
             <SelectContent>
@@ -943,7 +943,7 @@ function PublicLinkSection({
               onValueChange={(v) => void patchAccessMode(v as ShareAccessMode)}
               disabled={patching}
             >
-              <SelectTrigger className="h-8 w-[130px]">
+              <SelectTrigger aria-label="链接访问权限" className="h-8 w-[130px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -955,7 +955,7 @@ function PublicLinkSection({
               </SelectContent>
             </Select>
             <Select value={expiry} onValueChange={(v) => setExpiry(v as ShareExpiryChoice)}>
-              <SelectTrigger className="h-8 w-[110px]">
+              <SelectTrigger aria-label="链接过期时间" className="h-8 w-[110px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1003,7 +1003,7 @@ function PublicLinkSection({
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={expiry} onValueChange={(v) => setExpiry(v as ShareExpiryChoice)}>
-              <SelectTrigger className="h-8 w-[110px]">
+              <SelectTrigger aria-label="公开链接过期时间" className="h-8 w-[110px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
