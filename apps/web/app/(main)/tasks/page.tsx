@@ -130,8 +130,10 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
   };
   return (
     <div
-      role="button"
-      tabIndex={0}
+      /* 整行可点击打开详情，但不设 role="button"/tabIndex：行内还有状态/日期/
+         便签/移动等原生按钮，交互角色嵌套会被 axe nested-interactive 判 serious，
+         且读屏只播报外层按钮、内层控件会被吞掉。打开详情的键盘入口是标题按钮
+         （Tab 可达，点击冒泡到本行的 onClick），x 快捷键经事件冒泡保留在行上。 */
       onClick={(event) => {
         if (suppressOpen.current) {
           event.preventDefault();
@@ -141,8 +143,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
         onOpen();
       }}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); return; }
-        // 行聚焦时按 x 切换完成状态（x 未占用全局 g 序列，避免与导航冲突）
+        // 行内任一控件聚焦时按 x 切换完成状态（x 未占用全局 g 序列，避免与导航冲突）
         if (onStatus && (event.key === "x" || event.key === "X")) { event.preventDefault(); event.stopPropagation(); onStatus(); }
       }}
       onPointerDown={(event) => {
@@ -192,7 +193,13 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
               className={cn("h-3.5 w-3.5 shrink-0", task.priority === "high" ? "fill-red-500 text-red-500" : "text-muted-foreground")}
             />
           )}
-          <div className={cn("truncate text-[15px] font-medium", task.status === "done" && "line-through")}>{task.title}</div>
+          {/* 标题即打开详情的键盘入口：原生按钮点击冒泡到行 onClick，无需单独处理 */}
+          <button
+            type="button"
+            className={cn("min-w-0 truncate rounded-xs text-left text-[15px] font-medium", task.status === "done" && "line-through")}
+          >
+            {task.title}
+          </button>
           {blocked && (
             <span
               aria-label="任务被未完成的前置任务阻塞"
