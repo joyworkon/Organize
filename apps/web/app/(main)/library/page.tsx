@@ -565,7 +565,7 @@ function LibraryPageInner() {
         </div>
         <div className="mobile-toolbar-actions flex w-full items-center justify-between gap-2 sm:w-auto">
           <Select value={smartSort} onValueChange={handleSortChange}>
-            <SelectTrigger className="w-auto sm:w-[140px] h-9 gap-1.5 sm:gap-1.5">
+            <SelectTrigger aria-label="排序方式" className="w-auto sm:w-[140px] h-9 gap-1.5 sm:gap-1.5">
               <Sparkles className="h-3.5 w-3.5 shrink-0" />
               <SelectValue />
             </SelectTrigger>

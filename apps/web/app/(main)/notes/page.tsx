@@ -748,6 +748,7 @@ export default function NotesPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
+            aria-label={`按${sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}排序`}
             onClick={() => setSortBy(nextSortField(sortBy))}
           >
             <ArrowUpDown className="h-3.5 w-3.5" />

@@ -198,7 +198,7 @@ export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
             <div className="space-y-2">
               <Label>分类</Label>
               <Select value={category} onValueChange={(v: TaskCategory) => setCategory(v)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="任务分类">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -211,7 +211,7 @@ export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
             <div className="space-y-2">
               <Label>优先级</Label>
               <Select value={priority} onValueChange={(v: TaskPriority) => setPriority(v)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="任务优先级">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -227,7 +227,7 @@ export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
             <div className="space-y-2">
               <Label>状态</Label>
               <Select value={status} onValueChange={(v: TaskStatus) => setStatus(v)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="任务状态">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -295,7 +295,7 @@ export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
             <div className="space-y-2">
               <Label>关联阅读文章</Label>
               <Select value={linkReadingId} onValueChange={setLinkReadingId}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="关联阅读文章">
                   <SelectValue placeholder="无" />
                 </SelectTrigger>
                 <SelectContent>
@@ -311,7 +311,7 @@ export function TaskDialog({ open, task, onClose, onSave }: TaskDialogProps) {
             <div className="space-y-2">
               <Label>关联笔记</Label>
               <Select value={linkNoteId} onValueChange={setLinkNoteId}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="关联笔记">
                   <SelectValue placeholder="无" />
                 </SelectTrigger>
                 <SelectContent>

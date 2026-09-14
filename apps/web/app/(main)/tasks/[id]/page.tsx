@@ -671,7 +671,7 @@ export default function TaskDetailPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <Select value={task.status} onValueChange={(v: TaskStatus) => handleStatusChange(v)}>
-              <SelectTrigger className="w-28">
+              <SelectTrigger aria-label="任务状态" className="w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -682,7 +682,7 @@ export default function TaskDetailPage() {
             </Select>
 
             <Select value={task.priority} onValueChange={(v: TaskPriority) => saveTask({ priority: v })}>
-              <SelectTrigger className="w-24">
+              <SelectTrigger aria-label="任务优先级" className="w-24">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -693,7 +693,7 @@ export default function TaskDetailPage() {
             </Select>
 
             <Select value={task.category} onValueChange={(v: TaskCategory) => saveTask({ category: v })}>
-              <SelectTrigger className="w-24">
+              <SelectTrigger aria-label="任务分类" className="w-24">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
