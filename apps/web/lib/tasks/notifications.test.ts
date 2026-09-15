@@ -181,3 +181,70 @@ describe("buildDueReminders 点击跳转字段", () => {
     }
   });
 });
+
+// ---- C05 S2 双响收敛（D1/D2）----
+
+import {
+  DEDUP_WINDOW_MS,
+  dueMomentsByTaskFromNotifiedKeys,
+  filterShadowedReminders,
+  isSuppressedByLocalDue,
+  type DueReminder,
+} from "./notifications";
+
+const reminderAt = (taskId: string, fireAt: number, keySuffix = "due"): DueReminder => ({
+  key: `${taskId}:${fireAt}:${keySuffix}`,
+  fireAt,
+  title: "任务到期提醒",
+  body: "x",
+  taskId,
+});
+
+describe("filterShadowedReminders（D1：已配置提醒行覆盖同一时刻时本地让位）", () => {
+  const dueMs = new Date(2026, 7, 19, 18, 0, 0).getTime();
+
+  it("±15min 窗口内有配置行触发时刻 → 该变体被剔除", () => {
+    const reminders = [
+      reminderAt("t1", dueMs),
+      reminderAt("t1", dueMs - DEDUP_WINDOW_MS, "15min"),
+    ];
+    const filtered = filterShadowedReminders(reminders, new Map([["t1", [dueMs + 5 * 60_000]]]));
+    // :due 与配置行差 5min → 剔除；:15min 与配置行差 20min → 保留
+    expect(filtered.map((r) => r.key)).toEqual([`${"t1"}:${dueMs - DEDUP_WINDOW_MS}:15min`]);
+  });
+
+  it("窗口边界恰好 15min 视为同一事件（≤）", () => {
+    const filtered = filterShadowedReminders([reminderAt("t1", dueMs)], new Map([["t1", [dueMs - DEDUP_WINDOW_MS]]]));
+    expect(filtered).toHaveLength(0);
+  });
+
+  it("窗口外的配置行不剔除；无配置行/空集不剔除", () => {
+    const reminders = [reminderAt("t1", dueMs)];
+    expect(filterShadowedReminders(reminders, new Map([["t1", [dueMs + DEDUP_WINDOW_MS + 1]]]))).toHaveLength(1);
+    expect(filterShadowedReminders(reminders, new Map([["t1", []]]))).toHaveLength(1);
+    expect(filterShadowedReminders(reminders, new Map())).toHaveLength(1);
+  });
+});
+
+describe("isSuppressedByLocalDue（D2：tauri 轮询对本地已报 due 提醒让位）", () => {
+  const dueMs = new Date(2026, 7, 19, 18, 0, 0).getTime();
+
+  it("同任务键的到期时刻落在触发时刻 ±15min 内 → 抑制", () => {
+    const keys = new Set([`t1:${dueMs}:15min`, `t2:${dueMs}:due`]);
+    expect(isSuppressedByLocalDue("t1", dueMs - 5 * 60_000, keys)).toBe(true);
+    expect(isSuppressedByLocalDue("t1", dueMs + DEDUP_WINDOW_MS, keys)).toBe(true);
+  });
+
+  it("窗口外、其他任务、空集 → 不抑制", () => {
+    const keys = new Set([`t1:${dueMs}:due`]);
+    expect(isSuppressedByLocalDue("t1", dueMs + DEDUP_WINDOW_MS + 1, keys)).toBe(false);
+    expect(isSuppressedByLocalDue("t9", dueMs, keys)).toBe(false);
+    expect(isSuppressedByLocalDue("t1", dueMs, new Set())).toBe(false);
+  });
+
+  it("不合法 key 静默忽略", () => {
+    const keys = new Set(["t1", "t1:notanumber:due", ":123:due"]);
+    expect(isSuppressedByLocalDue("t1", dueMs, keys)).toBe(false);
+    expect(dueMomentsByTaskFromNotifiedKeys(keys).size).toBe(0);
+  });
+});
