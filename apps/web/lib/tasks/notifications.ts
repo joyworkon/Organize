@@ -18,6 +18,17 @@ export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 /** 即时「已过期」提醒的宽限期：到期后 15 分钟内不再当场弹过期通知 */
 export const OVERDUE_IMMEDIATE_GRACE_MS = 15 * 60 * 1000;
 
+/**
+ * C05 S2 双响收敛窗口（默认 ±15 分钟，PR review 可调）：
+ * 同一任务「到期」（本地 due 计划）与「开始/结束」（用户配置的 task_reminders，
+ * 服务端 Push 多端投递）在窗口内视为同一事件，只响一条——配置行优先，
+ * 本地自动提醒让位；tauri 壳内轮询让位于页面本地已报（organize:notified-due）。
+ */
+export const DEDUP_WINDOW_MS = 15 * 60 * 1000;
+
+/** 本地 due 提醒已通知键的存储位置（use-notifications 写、reminder-poller 读） */
+export const NOTIFIED_DUE_STORAGE_KEY = "organize:notified-due";
+
 export interface DueReminder {
   /** 幂等 key：任务 id + 到期时刻 + 类型（改期后自然失效旧 key） */
   key: string;
@@ -116,6 +127,57 @@ export function pruneNotifiedKeys(keys: Set<string>, current: Map<string, number
     if (current.get(taskId) === Number(dueMs)) kept.add(key);
   });
   return kept;
+}
+
+/**
+ * C05 S2 D1：把「±窗口内有用户已配置提醒行将触发」的 due 变体剔除——
+ * 服务端 Push（多端一致、用户主动配置）覆盖同一时刻，本地自动提醒不再重复报。
+ * configuredFireAtsByTask 缺该任务或为空集时不剔除（未配置 = 无双响面）。
+ */
+export function filterShadowedReminders(
+  reminders: DueReminder[],
+  configuredFireAtsByTask: Map<string, number[]>,
+  windowMs: number = DEDUP_WINDOW_MS
+): DueReminder[] {
+  return reminders.filter((reminder) => {
+    const fireAts = configuredFireAtsByTask.get(reminder.taskId);
+    if (!fireAts || fireAts.length === 0) return true;
+    return !fireAts.some((fireAt) => Math.abs(fireAt - reminder.fireAt) <= windowMs);
+  });
+}
+
+/**
+ * 解析已通知键集合为 taskId → 到期时刻列表（organize:notified-due 的
+ * `${taskId}:${dueMs}:${variant}` 形态；不合法 key 静默忽略）。
+ */
+export function dueMomentsByTaskFromNotifiedKeys(keys: Set<string>): Map<string, number[]> {
+  const byTask = new Map<string, number[]>();
+  keys.forEach((key) => {
+    const parts = key.split(":");
+    if (parts.length < 2) return;
+    const [taskId, dueMs] = parts;
+    const moment = Number(dueMs);
+    if (!taskId || !Number.isFinite(moment)) return;
+    const list = byTask.get(taskId) ?? [];
+    list.push(moment);
+    byTask.set(taskId, list);
+  });
+  return byTask;
+}
+
+/**
+ * C05 S2 D2：tauri 壳内轮询抑制——同一任务的本地 due 提醒已报（或其到期时刻）
+ * 落在轮询触发时刻 ±窗口内时，视为同一事件，轮询不再另报一条。
+ */
+export function isSuppressedByLocalDue(
+  taskId: string,
+  triggerAtMs: number,
+  notifiedKeys: Set<string>,
+  windowMs: number = DEDUP_WINDOW_MS
+): boolean {
+  const moments = dueMomentsByTaskFromNotifiedKeys(notifiedKeys).get(taskId);
+  if (!moments) return false;
+  return moments.some((moment) => Math.abs(moment - triggerAtMs) <= windowMs);
 }
 
 export interface OverdueSummary {
