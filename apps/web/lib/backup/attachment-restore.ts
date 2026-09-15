@@ -15,10 +15,11 @@
  * 依赖注入（单测免真实 Storage）：uploadObject / publicUrl。
  */
 import { unzipSync } from "fflate";
-import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  ATTACHMENT_PACKAGE_VERSION,
   AttachmentPackageError,
+  sha256Hex,
   PACKAGE_MAX_FILES,
   PACKAGE_MAX_TOTAL_BYTES,
   isValidPackageKey,
@@ -206,11 +207,11 @@ function validateManifest(value: unknown): AttachmentManifest {
 }
 
 /** sha256 先行校验（全部通过才进入上传阶段——§5-1 任何校验失败零上传） */
-function verifyFileBytes(
+async function verifyFileBytes(
   file: AttachmentManifestFile,
   bytes: Uint8Array
-): void {
-  const digest = createHash("sha256").update(bytes).digest("hex");
+): Promise<void> {
+  const digest = await sha256Hex(bytes);
   if (digest !== file.sha256) {
     throw new AttachmentRestoreError(`坏包：${file.key} sha256 与 manifest 不符`);
   }
@@ -297,7 +298,7 @@ export async function restoreAttachmentPackage(
   for (const file of manifest.files) {
     const bytes = entries[file.key];
     if (!bytes) continue; // 包内缺文件 → missing（不阻断），上传阶段登记
-    verifyFileBytes(file, bytes);
+    await verifyFileBytes(file, bytes);
     verified.set(file.key, bytes);
   }
 
@@ -411,4 +412,125 @@ export function remapAttachmentReferences(
       if (hit) attachments[index] = { ...row, path: hit.path };
     }
   }
+}
+
+// ---- 线上传输格式（浏览器重放 → /api/backup/restore 服务端重写载荷） ----
+
+export interface AttachmentMappingWire {
+  migrated: { files: number; bytes: number };
+  missing: AttachmentRestoreMapping["missing"];
+  urlMap: AttachmentRestoreMapping["urlMap"];
+  pathMap: Array<{
+    bucket: PackageBucket;
+    old_path: string;
+    path: string;
+    new_url: string;
+  }>;
+  externalUrlCount: number;
+  inlineBase64Count: number;
+}
+
+export function serializeAttachmentMapping(
+  mapping: AttachmentRestoreMapping
+): AttachmentMappingWire {
+  return {
+    migrated: mapping.migrated,
+    missing: mapping.missing,
+    urlMap: mapping.urlMap,
+    pathMap: [...mapping.pathMap.entries()].map(([key, hit]) => ({
+      bucket: hit.bucket,
+      old_path: key.slice(key.indexOf("/") + 1),
+      path: hit.path,
+      new_url: hit.newUrl,
+    })),
+    externalUrlCount: mapping.manifest.external_urls.length,
+    inlineBase64Count: mapping.manifest.inline_base64_count,
+  };
+}
+
+/** 服务端 fail-closed 校验（映射只影响用户自己载荷的字符串重写，但仍验形状与规模） */
+export function isAttachmentMappingWire(value: unknown): value is AttachmentMappingWire {
+  if (typeof value !== "object" || value === null) return false;
+  const wire = value as AttachmentMappingWire;
+  if (
+    typeof wire.migrated !== "object" ||
+    wire.migrated === null ||
+    typeof wire.migrated.files !== "number" ||
+    typeof wire.migrated.bytes !== "number" ||
+    !Array.isArray(wire.missing) ||
+    !Array.isArray(wire.urlMap) ||
+    !Array.isArray(wire.pathMap) ||
+    typeof wire.externalUrlCount !== "number" ||
+    typeof wire.inlineBase64Count !== "number"
+  ) {
+    return false;
+  }
+  if (wire.pathMap.length > PACKAGE_MAX_FILES || wire.urlMap.length > PACKAGE_MAX_FILES * 2) {
+    return false;
+  }
+  for (const entry of wire.pathMap) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      (entry.bucket !== "images" && entry.bucket !== "attachments") ||
+      typeof entry.old_path !== "string" ||
+      !entry.old_path ||
+      typeof entry.path !== "string" ||
+      entry.path.length === 0 ||
+      entry.path.length > 512 ||
+      typeof entry.new_url !== "string" ||
+      !entry.new_url.startsWith("http")
+    ) {
+      return false;
+    }
+    if (!isValidPackageKey(`files/${entry.bucket}/${entry.old_path}`)) return false;
+  }
+  for (const entry of wire.urlMap) {
+    if (typeof entry !== "object" || entry === null || typeof entry.old_url !== "string" || typeof entry.new_url !== "string") {
+      return false;
+    }
+  }
+  for (const entry of wire.missing) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof entry.file_key !== "string" ||
+      !Array.isArray(entry.old_urls) ||
+      !entry.old_urls.every((url) => typeof url === "string") ||
+      typeof entry.reason !== "string"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function attachmentMappingFromWire(
+  wire: AttachmentMappingWire
+): AttachmentRestoreMapping {
+  return {
+    manifest: {
+      package_version: ATTACHMENT_PACKAGE_VERSION,
+      created_at: "",
+      backup_version: 5,
+      files: [],
+      url_map: wire.urlMap.map((entry) => ({
+        old_url: entry.old_url,
+        file_key: "",
+      })),
+      external_urls: new Array(wire.externalUrlCount).fill(""),
+      external_urls_truncated: false,
+      inline_base64_count: wire.inlineBase64Count,
+      total_bytes: wire.migrated.bytes,
+    },
+    urlMap: wire.urlMap,
+    pathMap: new Map(
+      wire.pathMap.map((entry) => [
+        `${entry.bucket}/${entry.old_path}`,
+        { bucket: entry.bucket, path: entry.path, newUrl: entry.new_url },
+      ])
+    ),
+    missing: wire.missing,
+    migrated: wire.migrated,
+  };
 }

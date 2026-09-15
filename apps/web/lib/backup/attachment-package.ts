@@ -16,7 +16,6 @@
  * B07-3 将实现恢复侧（安全解包/Storage 重放/URL 重映射）；本文件只导出。
  */
 import { Zip, ZipPassThrough } from "fflate";
-import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BACKUP_VERSION, type BackupData } from "./schema";
 
@@ -240,6 +239,15 @@ const MIME_BY_EXT: Record<string, string> = {
   zip: "application/zip",
 };
 
+/**
+ * sha256 hex（同构实现）：库同时跑在浏览器（设置页 UI）与 Node（演练脚本），
+ * 用全局 WebCrypto 而非 node:crypto——后者无法进浏览器 bundle。
+ */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
+  return [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 const mimeForPath = (path: string): string => {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return MIME_BY_EXT[ext] ?? "application/octet-stream";
@@ -323,7 +331,7 @@ export async function buildAttachmentPackage(
         );
       }
       const key = `files/${ref.bucket}/${ref.path}`;
-      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const sha256 = await sha256Hex(bytes);
       const entry = new ZipPassThrough(key);
       zip.add(entry);
       // 单对象 ≤ bucket 上限（5/50MB），整块推送；entry 以空块+final 收尾

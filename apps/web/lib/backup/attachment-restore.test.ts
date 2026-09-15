@@ -367,3 +367,55 @@ describe("prepareRestorePayload 附件重映射", () => {
     expect((payload.notes[0] as { content: string }).content).toContain("u1/../a.png");
   });
 });
+
+// ---- 线上映射格式（B07-4 恢复 UI → /api/backup/restore） ----
+
+import {
+  isAttachmentMappingWire,
+  serializeAttachmentMapping,
+} from "./attachment-restore";
+
+describe("附件映射线上格式", () => {
+  const mappingLike = {
+    manifest: {
+      package_version: 1,
+      created_at: "",
+      backup_version: 5,
+      files: [],
+      url_map: [{ old_url: "https://old/u1/a.png", file_key: "k" }],
+      external_urls: ["https://cdn.other/p.jpg"],
+      external_urls_truncated: false,
+      inline_base64_count: 2,
+      total_bytes: 7,
+    },
+    urlMap: [{ old_url: "https://old/u1/a.png", new_url: "https://new/x.png" }],
+    pathMap: new Map([
+      ["images/u1/a.png", { bucket: "images" as const, path: "new-user/x.png", new_url: "https://new/x.png", newUrl: "https://new/x.png" }],
+    ]),
+    missing: [{ file_key: "files/images/u1/gone.png", old_urls: ["https://old/u1/gone.png"], reason: "包内缺文件" }],
+    migrated: { files: 1, bytes: 7 },
+  } as never;
+
+  it("serialize → is 合法；形状篡改 → 拒绝（路由 fail-closed 依赖）", () => {
+    const wire = serializeAttachmentMapping(mappingLike);
+    expect(isAttachmentMappingWire(wire)).toBe(true);
+    expect(wire.pathMap[0]).toMatchObject({ bucket: "images", old_path: "u1/a.png", path: "new-user/x.png" });
+    expect(wire.externalUrlCount).toBe(1);
+    expect(wire.inlineBase64Count).toBe(2);
+    expect(isAttachmentMappingWire(null)).toBe(false);
+    expect(isAttachmentMappingWire({})).toBe(false);
+    expect(isAttachmentMappingWire({ ...wire, migrated: { files: "x", bytes: 1 } })).toBe(false);
+    expect(
+      isAttachmentMappingWire({ ...wire, pathMap: [{ ...wire.pathMap[0], old_path: "u1/../a.png" }] })
+    ).toBe(false);
+    expect(
+      isAttachmentMappingWire({ ...wire, pathMap: [{ ...wire.pathMap[0], bucket: "evil" }] })
+    ).toBe(false);
+    expect(
+      isAttachmentMappingWire({ ...wire, urlMap: [{ old_url: 1, new_url: "https://new/x.png" }] })
+    ).toBe(false);
+    expect(
+      isAttachmentMappingWire({ ...wire, missing: [{ file_key: "k", old_urls: "x", reason: "r" }] })
+    ).toBe(false);
+  });
+});
