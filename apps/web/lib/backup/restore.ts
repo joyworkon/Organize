@@ -5,10 +5,20 @@ import {
   type BackupTable,
   type BackupV2,
 } from "./schema";
+import { remapAttachmentReferences, type AttachmentRestoreMapping } from "./attachment-restore";
 
 export interface RestorePayload {
   restore_payload_version: 1;
   data: BackupData;
+}
+
+export interface RestorePayloadOptions {
+  /**
+   * B07-3：附件包恢复映射（restoreAttachmentPackage 的产物）。
+   * 提供时对白名单内容字段里的 A 类 Storage URL 与 task_attachments.path
+   * 做新账号重映射；不提供时行为与旧版完全一致。
+   */
+  attachments?: AttachmentRestoreMapping;
 }
 
 type UuidFactory = () => string;
@@ -48,7 +58,8 @@ type IdTable = (typeof ID_TABLES)[number];
 
 export function prepareRestorePayload(
   backup: BackupV2,
-  uuidFactory: UuidFactory = () => crypto.randomUUID()
+  uuidFactory: UuidFactory = () => crypto.randomUUID(),
+  options?: RestorePayloadOptions
 ): RestorePayload {
   const maps = {} as Record<IdTable, Map<string, string>>;
   const generatedIds = new Set<string>();
@@ -260,6 +271,11 @@ export function prepareRestorePayload(
     ...row,
     list_id: row.list_id ? remapOptional(row.list_id as string, maps.task_lists) : null,
   }));
+
+  // B07-3：附件包重映射（内容 URL + task_attachments 坐标；missing 的 URL 原样保留）
+  if (options?.attachments) {
+    remapAttachmentReferences(data as unknown as Record<string, unknown>, options.attachments);
+  }
 
   return { restore_payload_version: 1, data };
 }
