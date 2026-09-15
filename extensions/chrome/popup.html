@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Organize 剪藏</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <!-- 登录视图 -->
+    <div id="view-login" class="view hidden">
+      <h1>Organize 剪藏</h1>
+      <p class="hint">登录你的 Organize 账号，即可把当前网页一键保存到稍后读。</p>
+      <form id="login-form">
+        <label>
+          服务地址
+          <input id="login-base-url" type="text" placeholder="http://localhost:3000" spellcheck="false" />
+        </label>
+        <label>
+          邮箱
+          <input id="login-email" type="email" autocomplete="username" spellcheck="false" />
+        </label>
+        <label>
+          密码
+          <input id="login-password" type="password" autocomplete="current-password" />
+        </label>
+        <p id="login-error" class="error hidden"></p>
+        <button id="login-submit" type="submit">登录</button>
+      </form>
+    </div>
+
+    <!-- 主视图 -->
+    <div id="view-main" class="view hidden">
+      <header class="main-header">
+        <span id="user-email" class="user-email" title=""></span>
+        <button id="logout-btn" type="button" class="link-btn">退出</button>
+      </header>
+
+      <div class="page-card">
+        <div id="page-title" class="page-title"></div>
+        <div id="page-host" class="page-host"></div>
+      </div>
+
+      <div id="media-section" class="media-section hidden">
+        <h2>检测到的媒体</h2>
+        <ul id="media-list"></ul>
+      </div>
+
+      <button id="save-btn" type="button" class="primary">保存到稍后读</button>
+      <p id="save-error" class="error hidden"></p>
+      <div id="save-result" class="result hidden"></div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
