@@ -84,8 +84,19 @@ capacitor=local-notifications），按 `detectPlatform()` 分发。
 - **未验证的端到端段**：真实浏览器订阅 → 真实推送服务（Mozilla autopush / FCM）→
   设备离线期间 cron 重试 → 设备恢复收到补投。本地无法伪造真实推送服务，
   按 C05 验收「不以 mock 冒充」——归 staging 项（§5）
-- 可本地补强：对 route handler 的退避/停订分支做带 stub `web-push` 的单测
-  （纯 Node 层，不冒充推送服务本身）
+- **自动化订阅实测（2026-09-15，S4 本地段）**：Playwright 三种浏览器配置
+  （chromium headless shell / 完整 chromium new-headless / 有头真实 Chrome）×
+  三种授权方式（CDP grantPermissions / --use-fake-ui-for-permission / 页内
+  Notification.requestPermission），pushManager.subscribe 全部
+  `AbortError: Registration failed - permission denied`——即使
+  Notification.permission=granted、即使有头真实 Chrome。拒绝发生在 push 服务
+  **客户端注册层**（临时 profile 无 FCM check-in），不是通知权限内容设置问题，
+  无法在自动化环境绕过。真实订阅→真实推送维持 staging/真设备（§5）
+- **已交付的本地段（2026-09-15）**：route handler 投递分支 stub web-push 单测
+  （`app/api/cron/task-reminders/route.test.ts` 6 断言）——鉴权 401、未配置 503、
+  claim 失败 500、成功置 sent+sent_at+payload 跳转 URL、410 永久失败停订
+  （disabled_at + next_attempt_at=null）、500 瞬时失败按 2^attempt 指数退避；
+  纯 Node 层，不冒充推送服务本身
 
 ### 3.2 夏令时/时区
 
@@ -122,7 +133,7 @@ capacitor=local-notifications），按 `detectPlatform()` 分发。
 | due-soon 窗口/归一化 | vitest（due-soon.test.ts） | ✓ 已有 | 本地 |
 | claim RPC 领取/幂等/重领 | pgTAP 061 | ✓ 已有 | 本地 Postgres |
 | 任务改期/完成/删除 → 投递重置 | pgTAP（039 触发器，随 061 系列） | ✓ 已有 | 本地 Postgres |
-| route 退避/停订分支 | vitest + stub web-push | 本轮新增 | 本地 |
+| route 退避/停订分支 | vitest + stub web-push | ✓ S4 本地段已交 | 本地 |
 | 本地通知点击跳转 | e2e/探针（Notification 构造可拦截） | 本轮新增 | 本地 mock 栈 |
 | 真实订阅→真实推送→离线补投 | 端到端 | ✗ | **staging（VAPID 密钥 + 公网 HTTPS + 真浏览器）**；本地部分（自生成 VAPID + localhost secure context）可先行 |
 | 锁屏/后台 WebView 投递 | 真机 | ✗ | 真机（C03/C04 人工项） |
