@@ -11,26 +11,43 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const SHORTCUTS = [
+// g 序列唯一注册表：运行时跳转、帮助弹窗条目与 gotoMode 提示串均由此派生，
+// 新增/调整键位只改这里（C01 键位一致性校验见 global-hotkeys.test.ts）
+export interface GotoRoute {
+  sequence: [string, string];
+  path: string;
+  label: string;
+}
+
+export const GOTO_ROUTES: GotoRoute[] = [
+  { sequence: ["g", "h"], path: "/", label: "首页" },
+  // g i 是整合前「收集箱」的肌肉记忆，与 g l 同指向稍后读
+  { sequence: ["g", "i"], path: "/library", label: "稍后读" },
+  { sequence: ["g", "l"], path: "/library", label: "稍后读" },
+  { sequence: ["g", "n"], path: "/notes", label: "笔记" },
+  { sequence: ["g", "d"], path: "/tasks", label: "待办" },
+  { sequence: ["g", "e"], path: "/tasks/lessons", label: "经验" },
+  { sequence: ["g", "m"], path: "/memos", label: "速记" },
+  { sequence: ["g", "g"], path: "/graph", label: "图谱" },
+  { sequence: ["g", "f"], path: "/favorites", label: "收藏夹" },
+  { sequence: ["g", "t"], path: "/tags", label: "标签" },
+  { sequence: ["g", "r"], path: "/?view=review", label: "回顾" },
+  { sequence: ["g", "s"], path: "/?view=stats", label: "统计" },
+  { sequence: ["g", "p"], path: "/plugins", label: "插件" },
+];
+
+export const GOTO_HINT = `按 g 后，按 ${GOTO_ROUTES.map((r) => r.sequence[1]).join("/")} 跳转...`;
+
+// 全局清单：g 条目从 GOTO_ROUTES 派生，⌘K/⌘N/?/Esc 为各自组件注册的手工条目
+export const SHORTCUTS = [
   { keys: "⌘K", desc: "打开命令面板" },
   { keys: "⌘N", desc: "快捷添加" },
-  { keys: "g h", desc: "跳转到首页" },
-  { keys: "g i", desc: "跳转到稍后读" },
-  { keys: "g l", desc: "跳转到稍后读" },
-  { keys: "g n", desc: "跳转到笔记" },
-  { keys: "g d", desc: "跳转到待办" },
-  { keys: "g e", desc: "跳转到经验" },
-  { keys: "g g", desc: "跳转到图谱" },
-  { keys: "g f", desc: "跳转到收藏夹" },
-  { keys: "g t", desc: "跳转到标签" },
-  { keys: "g r", desc: "跳转到回顾" },
-  { keys: "g s", desc: "跳转到统计" },
-  { keys: "g p", desc: "跳转到插件" },
+  ...GOTO_ROUTES.map(({ sequence, label }) => ({ keys: sequence.join(" "), desc: `跳转到${label}` })),
   { keys: "?", desc: "显示快捷键帮助" },
   { keys: "Esc", desc: "关闭对话框/清空序列" },
 ];
 
-const PAGE_SHORTCUTS = [
+export const PAGE_SHORTCUTS = [
   {
     page: "笔记列表",
     items: [
@@ -84,22 +101,7 @@ export function GlobalHotkeys() {
   );
 
   useHotkeySequence(
-    [
-      { sequence: ["g", "h"], handler: () => go("/") },
-      // g i 是整合前「收集箱」的肌肉记忆，与 g l 同指向稍后读
-      { sequence: ["g", "i"], handler: () => go("/library") },
-      { sequence: ["g", "l"], handler: () => go("/library") },
-      { sequence: ["g", "n"], handler: () => go("/notes") },
-      { sequence: ["g", "d"], handler: () => go("/tasks") },
-      { sequence: ["g", "e"], handler: () => go("/tasks/lessons") },
-      { sequence: ["g", "m"], handler: () => go("/memos") },
-      { sequence: ["g", "g"], handler: () => go("/graph") },
-      { sequence: ["g", "f"], handler: () => go("/favorites") },
-      { sequence: ["g", "t"], handler: () => go("/tags") },
-      { sequence: ["g", "r"], handler: () => go("/?view=review") },
-      { sequence: ["g", "s"], handler: () => go("/?view=stats") },
-      { sequence: ["g", "p"], handler: () => go("/plugins") },
-    ],
+    GOTO_ROUTES.map(({ sequence, path }) => ({ sequence, handler: () => go(path) })),
     {
       onBufferChange: (buffer) => {
         setGotoMode(buffer.length === 1 && buffer[0] === "g");
@@ -113,7 +115,7 @@ export function GlobalHotkeys() {
     <>
       {gotoMode && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-popover text-popover-foreground border rounded-md px-3 py-1.5 text-sm">
-          按 g 后，按 h/i/l/n/d/e/g/f/t/r/s/p 跳转...
+          {GOTO_HINT}
         </div>
       )}
       <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
