@@ -95,6 +95,17 @@ const config: Config = {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },
+      /* C02 品牌安全文本 token：text-primary 解析到 --primary-text（各品牌对页面底/
+         primary/10 tint 底 ≥4.5:1 的派生色，见 hooks/use-theme-color.ts），
+         bg-/border-/ring-primary 仍取 colors.primary 品牌原色不受影响。
+         注意必须保留 foreground 子键——字符串形式会把 text-primary-foreground
+         从 textColor 命名空间整个顶掉（产物 CSS 直接丢类） */
+      textColor: {
+        primary: {
+          DEFAULT: "hsl(var(--primary-text))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+      },
     },
   },
   plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],

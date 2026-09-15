@@ -21,7 +21,7 @@
 
 | 想改的东西 | 要动的文件 | 会被牵动的暗面 |
 |---|---|---|
-| 品牌色 | `hooks/use-theme-color.ts` 的 COLORS（明暗成对） | inline 变量**覆盖** globals.css 的 `--primary`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持 |
+| 品牌色 | `hooks/use-theme-color.ts` 的 COLORS（明暗成对） | inline 变量**覆盖** globals.css 的 `--primary`/`--primary-text`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持。**C02 起 `text-primary` 解析到 `--primary-text`（品牌安全文本色）**，`bg-/border-/ring-primary` 仍取品牌原色；tailwind `textColor.primary` 覆盖必须保留 `foreground` 子键（字符串形式会顶掉 `text-primary-foreground`）；对比度契约由 `hooks/use-theme-color.test.ts` 钉住，改色值先跑它 |
 | 暗色模式 | globals.css `.dark` 块 | tailwind.config.ts `darkMode: ["class"]`；theme-toggle 切 html class；color-scheme（globals.css:97-102） |
 | 圆角/阴影 | `--radius-*` / `--shadow-*` | `@supports (corner-shape)` 连续曲率层（:59-63） |
 | 编辑器排版节奏 | `--organize-editor-padding` / `--organize-gutter` / `--organize-block-gap`（:2182-2188） | 移动端覆盖值在 :4581-4589 成对存在；prose 色映射 :985-1002 被历史版本预览与公开分享页共用 |
