@@ -10,6 +10,8 @@ export interface NoteTabMeta {
 }
 
 interface OpenTabsState {
+  /** 数据属主（登录用户 id）：换人即清，防止前账号笔记标题/ID 残留进新账号界面（C02/A02 缓存隔离） */
+  ownerId: string | null;
   /** 顶部标签页条当前打开的笔记（Chrome 式多开，持久化到 localStorage） */
   tabs: NoteTabMeta[];
   /** 最近打开的笔记（侧边栏「最近」分组，按最近访问排序） */
@@ -24,6 +26,13 @@ interface OpenTabsState {
   removeTab: (id: string) => string | null;
   /** 从标签页与最近列表中彻底移除（笔记被删除/移入垃圾箱时） */
   forgetNote: (id: string) => void;
+  /**
+   * 账号绑定（note-tabs-owner-bridge 在会话就绪/变更时调用）：
+   * 同一用户幂等；不同用户（含持久化里旧账号的无属主数据）清空 tabs/recents
+   */
+  rebindOwner: (userId: string) => void;
+  /** 登出清空（不绑定属主；下次登录按 rebindOwner 重建） */
+  clearForSignOut: () => void;
 }
 
 const MAX_TABS = 20;
@@ -32,6 +41,7 @@ const MAX_RECENTS = 12;
 export const useOpenTabsStore = create<OpenTabsState>()(
   persist(
     (set, get) => ({
+      ownerId: null,
       tabs: [],
       recents: [],
 
@@ -81,6 +91,20 @@ export const useOpenTabsStore = create<OpenTabsState>()(
           tabs: state.tabs.filter((tab) => tab.id !== id),
           recents: state.recents.filter((item) => item.id !== id),
         })),
+
+      rebindOwner: (userId) =>
+        set((state) =>
+          state.ownerId === userId
+            ? state
+            : { ownerId: userId, tabs: [], recents: [] }
+        ),
+
+      clearForSignOut: () =>
+        set((state) =>
+          state.ownerId === null && state.tabs.length === 0 && state.recents.length === 0
+            ? state
+            : { ownerId: null, tabs: [], recents: [] }
+        ),
     }),
     { name: "organize:note-open-tabs" }
   )

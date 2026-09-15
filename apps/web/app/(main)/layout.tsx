@@ -14,6 +14,7 @@ import { UpdaterBridge } from "@/components/desktop/updater";
 import { ReminderPoller } from "@/components/desktop/reminder-poller";
 import { ShareBridge } from "@/components/mobile/share-bridge";
 import { NoteTabsBar } from "@/components/notes/note-tabs-bar";
+import { NoteTabsOwnerBridge } from "@/components/notes/note-tabs-owner-bridge";
 
 export default function MainLayout({
   children,
@@ -34,6 +35,8 @@ export default function MainLayout({
       <main className="organize-main organize-sidebar-offset transition-[padding] duration-200">
         {/* 桌面端 Chrome 式笔记标签页条：吸顶，笔记页顶栏在其下方吸顶（见 globals.css 偏移） */}
         <NoteTabsBar />
+        {/* C02/A02：标签页与「最近」按登录身份重绑，换人即清（缓存隔离桥） */}
+        <NoteTabsOwnerBridge />
         <div className="organize-main-content p-4 md:p-6">{children}</div>
       </main>
       <QuickAdd />
