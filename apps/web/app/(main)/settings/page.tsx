@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -11,6 +11,12 @@ import { resetOnboarding } from "@/components/onboarding";
 import { tiptapJsonToMarkdown } from "@/lib/export/tiptap-to-md";
 import { createBackupV2 } from "@/lib/backup/schema";
 import { fetchBackupData, pruneExportData } from "@/lib/backup/export-data";
+import {
+  AttachmentPackageCancelledError,
+  buildAttachmentPackage,
+  scanAttachmentReferences,
+  type ScannedPackage,
+} from "@/lib/backup/attachment-package";
 import {
   Settings as SettingsIcon,
   Palette,
@@ -55,6 +61,86 @@ export default function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const router = useRouter();
   const [exportingMarkdown, setExportingMarkdown] = useState(false);
+  const [exportingAttachments, setExportingAttachments] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  // B07-4：附件包依赖对象存储（Storage 下载/重放），mock 后端无 Storage
+  const isMockMode = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
+
+  const exportWithAttachments = async () => {
+    setExportingAttachments(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const loadingToast = toast({ title: "带附件备份导出中（含附件下载）…" });
+
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error("未登录");
+      }
+
+      // 与「导出数据 (JSON)」同一条导出链（fetchBackupData → 剪枝 → v5），
+      // 附件包是它的伴生容器（设计 §3：成对交付，恢复时两个文件一起用）
+      const backupData = pruneExportData(await fetchBackupData(supabase, user.id));
+      const exportObj = createBackupV2(backupData);
+
+      const scanned: ScannedPackage = scanAttachmentReferences(backupData);
+      const dateStr = formatDateForFilename(new Date());
+      const timeStr = new Date().toTimeString().slice(0, 8).replace(/:/g, "");
+
+      downloadFile(
+        `organize-export-${dateStr}.json`,
+        JSON.stringify(exportObj, null, 2),
+        "application/json;charset=utf-8"
+      );
+
+      if (scanned.files.length === 0) {
+        loadingToast.dismiss();
+        toast({
+          title: "导出成功",
+          description: "未发现本应用存储的附件，JSON 已包含全部数据（无需附件包）",
+        });
+        return;
+      }
+
+      const chunks: BlobPart[] = [];
+      const result = await buildAttachmentPackage(
+        scanned,
+        (chunk) => {
+          chunks.push(new Uint8Array(chunk));
+        },
+        { supabase, signal: controller.signal, appVersion: APP_VERSION }
+      );
+      const blob = new Blob(chunks, { type: "application/zip" });
+      const zipUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = zipUrl;
+      a.download = `organize-files-${dateStr}-${timeStr}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(zipUrl), 1000);
+
+      loadingToast.dismiss();
+      toast({
+        title: `导出成功：${result.fileCount} 个附件（${(result.totalBytes / 1024 / 1024).toFixed(2)} MB）`,
+        description: `JSON 与附件包成对使用；外链图片 ${scanned.externalUrls.length} 条未打包（依赖原站）`,
+      });
+    } catch (err) {
+      loadingToast.dismiss();
+      toast({
+        title: err instanceof AttachmentPackageCancelledError ? "已取消导出" : "导出失败",
+        description: err instanceof Error ? err.message : "未知错误",
+        variant: "destructive",
+      });
+    } finally {
+      abortRef.current = null;
+      setExportingAttachments(false);
+    }
+  };
+
+  const cancelAttachmentExport = () => {
+    abortRef.current?.abort();
+  };
 
   const exportData = async () => {
     setExportingData(true);
@@ -232,7 +318,7 @@ export default function SettingsPage() {
           {/* P0-04：包含/排除清单——不打包的东西必须明说，禁止「成功但丢数据」 */}
           <details className="mb-4 rounded-md border bg-muted/30 text-sm">
             <summary className="cursor-pointer select-none px-3 py-2 text-muted-foreground">
-              备份包含什么？（v4 格式清单）
+              备份包含什么？（v5 格式清单）
             </summary>
             <div className="px-3 pb-3 space-y-2 text-xs leading-relaxed">
               <div>
@@ -242,9 +328,16 @@ export default function SettingsPage() {
                 </span>
               </div>
               <div>
+                <span className="font-medium text-foreground">「导出数据 (JSON + 附件包)」额外包含：</span>
+                <span className="text-muted-foreground">
+                  本应用存储的附件与图片文件本体（zip 附件包，与 JSON 成对恢复到新账号存储并自动改写引用）。
+                  外链图片与失效外链仍不打包（依赖原站）；base64 内联内容天然自包含。
+                </span>
+              </div>
+              <div>
                 <span className="font-medium text-destructive">不包含：</span>
                 <span className="text-muted-foreground">
-                  附件与图片的<strong>文件本体</strong>（仅恢复元数据，文件需另行保管）、登录凭据（auth）、插件配置、公开分享链接、AI 服务配置（含密钥，永不导出）
+                  登录凭据（auth）、插件配置、公开分享链接、AI 服务配置（含密钥，永不导出）；纯 JSON 导出不含附件文件本体
                 </span>
               </div>
               <div className="text-muted-foreground">
@@ -255,7 +348,7 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={exportData}
-              disabled={exportingData}
+              disabled={exportingData || exportingAttachments}
               className="flex items-center gap-2"
             >
               {exportingData ? (
@@ -265,6 +358,26 @@ export default function SettingsPage() {
               )}
               导出数据 (JSON)
             </Button>
+            {!isMockMode && (
+              <Button
+                onClick={() => void exportWithAttachments()}
+                disabled={exportingData || exportingAttachments}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                {exportingAttachments ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                导出数据 (JSON + 附件包)
+              </Button>
+            )}
+            {exportingAttachments && (
+              <Button variant="ghost" size="sm" onClick={cancelAttachmentExport}>
+                取消附件导出
+              </Button>
+            )}
             <Button
               onClick={exportMarkdown}
               disabled={exportingMarkdown}
@@ -279,6 +392,11 @@ export default function SettingsPage() {
              导出 Markdown
             </Button>
           </div>
+          {isMockMode && (
+            <p className="text-xs text-muted-foreground mt-2">
+              mock 模式无对象存储，附件包导出不可用；仅支持 JSON 元数据导出。
+            </p>
+          )}
           <RestoreSection />
         </div>
 
@@ -292,7 +410,7 @@ export default function SettingsPage() {
               <h3 className="text-sm font-medium">隐私说明</h3>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 你的数据仅存于你自己的账户空间（行级隔离），不会与其他用户共享。
-                「导出数据」可随时带走全部数据的 JSON 副本；附件与图片文件本体不在备份内。
+                「导出数据」可随时带走全部数据的 JSON 副本；附件文件本体请选「JSON + 附件包」携带。
               </p>
             </div>
             <div>
