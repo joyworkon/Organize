@@ -19,6 +19,8 @@
     --popover-foreground: 105 5% 16%;
     --primary: 14 58% 41%;
     --primary-foreground: 0 0% 98%;
+    /* C02：品牌安全文本色（text-primary 解析到这里），随品牌经 use-theme-color inline 覆盖 */
+    --primary-text: 14 58% 41%;
     --secondary: 45 16% 94%;
     --secondary-foreground: 105 5% 16%;
     --muted: 45 22% 95%;
@@ -72,6 +74,7 @@
     --popover-foreground: 60 12% 90%;
     --primary: 17 64% 69%;             /* #E39B7F */
     --primary-foreground: 24 18% 11%;  /* #211B17 */
+    --primary-text: 17 64% 69%;
     --secondary: 60 4% 16%;
     --secondary-foreground: 60 12% 90%;
     --muted: 60 3% 16%;
@@ -603,7 +606,7 @@
 }
 .note-history-item.active {
   background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
 }
 .note-history-item-time {
   flex-shrink: 0;
@@ -612,7 +615,7 @@
   color: hsl(var(--muted-foreground));
 }
 .note-history-item.active .note-history-item-time {
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
 }
 .note-history-item-name {
   flex: 1;
@@ -626,7 +629,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
   font-size: 10px;
 }
 .note-history-empty {
@@ -1987,7 +1990,7 @@
 
 /* 链接 */
 .organize-editor a {
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-thickness: 1px;
@@ -4005,7 +4008,7 @@
 }
 .organize-db-tag-x:hover { opacity: 1; background: rgba(0,0,0,.1); }
 .organize-db-tag-list { display: inline-flex; gap: 4px; flex-wrap: nowrap; }
-.organize-db-link { color: hsl(var(--primary)); text-decoration: none; }
+.organize-db-link { color: hsl(var(--primary-text)); text-decoration: none; }
 .organize-db-link:hover { text-decoration: underline; }
 
 .organize-db-input {
@@ -4121,7 +4124,7 @@
 }
 .organize-db-option-item:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
 .organize-db-option-item.is-selected { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); font-weight: 500; }
-.organize-db-option-item.is-new { color: hsl(var(--primary)); }
+.organize-db-option-item.is-new { color: hsl(var(--primary-text)); }
 .organize-db-option-dot {
   width: 8px;
   height: 8px;
@@ -4458,7 +4461,7 @@
   font-size: 10px;
   padding: 1px 4px;
   background: hsl(var(--primary) / .1);
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
   border-radius: 3px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4510,7 +4513,7 @@
   padding: 4px 0;
   border-left: 1px solid hsl(var(--border) / .3);
 }
-.organize-db-timeline-day.is-today { color: hsl(var(--primary)); font-weight: 600; }
+.organize-db-timeline-day.is-today { color: hsl(var(--primary-text)); font-weight: 600; }
 .organize-db-timeline-row {
   display: flex;
   align-items: center;
@@ -4715,7 +4718,7 @@ mark.hl-purple { background-color: rgb(221 214 254 / 0.7); color: inherit; paddi
 .reader-content h6 { font-size: 1em; }
 
 .reader-content a {
-  color: hsl(var(--primary));
+  color: hsl(var(--primary-text));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
