@@ -92,11 +92,16 @@ capacitor=local-notifications），按 `detectPlatform()` 分发。
 - 时刻存储全链 timestamptz（绝对时）：`reminderFireAt` = 锚点 + offset 分钟（绝对）、
   claim 窗口/退避用 DB `now()`（绝对）→ 提醒的**绝对时刻**不受 DST 影响 ✓
 - 全天任务按**本地墙钟** 23:59:59（`effectiveDueDate`）——语义正确（「当天结束」）✓
-- **决策项 R1**：033 `complete_recurring_task` 用绝对 interval 推进
-  （`+ interval '1 day'`）→「每天 09:00」在 DST 切换后漂移成 08:00/10:00。
-  若产品语义是「墙钟 09:00」需改 tz-aware 推进（DB 端 `AT TIME ZONE` 运算），
-  是行为变更、影响存量重复任务——需用户定方向后单独立卡
-- 决策项 R2：跨时区旅行场景（任务按创建时区还是查看时区解释）未定义——低频，随 R1 一并定
+- **决策项 R1（已定方向并实现，2026-09-15 用户确认默认墙钟语义，迁移 080）**：
+  033 `complete_recurring_task` 用绝对 interval 推进 →「每天 09:00」DST 切换后漂移成
+  08:00/10:00。080 新增 `advance_recurring_wall_clock`（任务 `timezone` 列做 AT TIME ZONE
+  墙钟日历推进，monthly/yearly 夹取由 naive 日历运算完成），RPC 改为「有合法 timezone 走墙钟、
+  null/非法时区回退 033 绝对推进」——存量任务（无时区）行为不变，不迁移数据。
+  pgTAP `080_complete_recurring_wall_clock.test.sql` 17 断言（春/秋令时、weekly、月末/闰日
+  夹取、回退信号、RPC 端到端+幂等+越权负例）
+- 决策项 R2（随 R1 一并定，2026-09-15）：任务始终按**创建时写入的 `tasks.timezone`**（浏览器
+  IANA 时区，task-date-popover 排程时落库）解释与推进，不随查看设备时区变；无 timezone 的
+  存量任务保持绝对时刻语义（回退合同），不补默认时区
 
 ### 3.3 点击跳转
 
@@ -119,9 +124,9 @@ capacitor=local-notifications），按 `detectPlatform()` 分发。
 | 任务改期/完成/删除 → 投递重置 | pgTAP（039 触发器，随 061 系列） | ✓ 已有 | 本地 Postgres |
 | route 退避/停订分支 | vitest + stub web-push | 本轮新增 | 本地 |
 | 本地通知点击跳转 | e2e/探针（Notification 构造可拦截） | 本轮新增 | 本地 mock 栈 |
-| 真实订阅→真实推送→离线补投 | 端到端 | ✗ | **staging（VAPID 密钥 + 公网 HTTPS + 真浏览器）** |
+| 真实订阅→真实推送→离线补投 | 端到端 | ✗ | **staging（VAPID 密钥 + 公网 HTTPS + 真浏览器）**；本地部分（自生成 VAPID + localhost secure context）可先行 |
 | 锁屏/后台 WebView 投递 | 真机 | ✗ | 真机（C03/C04 人工项） |
-| DST 跨界重复任务行为 | 决策后 | ✗ | 依赖 §3.2 R1 方向 |
+| DST 跨界重复任务行为 | 墙钟语义已实现（080） | ✓ | 本地 pgTAP |
 
 ## 5. 后续执行切片（建议顺序）
 
