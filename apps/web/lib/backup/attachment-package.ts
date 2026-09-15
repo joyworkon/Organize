@@ -30,6 +30,17 @@ export const PACKAGE_MAX_EXTERNAL_URLS = 5_000;
 /** 与恢复侧（B07-3 §5-1）共用的 zip entry 白名单合同 */
 export const PACKAGE_KEY_PATTERN = /^files\/(images|attachments)\/[A-Za-z0-9/._-]+$/;
 
+/**
+ * 包内 entry key 的完整安全校验（B07-3 恢复侧解包用）：
+ * 白名单正则之外再拒 `.`/`..` 路径段——正则字符集含点号，`u1/../evil.png`
+ * 能通过正则但构成路径逃逸，必须在两侧（导出扫描与恢复解包）都显式拒绝。
+ */
+export function isValidPackageKey(key: string): boolean {
+  if (!PACKAGE_KEY_PATTERN.test(key)) return false;
+  const rel = key.replace(/^files\/(images|attachments)\//, "");
+  return !rel.split("/").some((segment) => segment === "." || segment === "..");
+}
+
 type Bucket = "images" | "attachments";
 export type PackageBucket = Bucket;
 const BUCKETS: readonly Bucket[] = ["images", "attachments"];
