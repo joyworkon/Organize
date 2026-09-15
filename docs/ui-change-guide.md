@@ -26,7 +26,7 @@
 | 圆角/阴影 | `--radius-*` / `--shadow-*` | `@supports (corner-shape)` 连续曲率层（:59-63） |
 | 编辑器排版节奏 | `--organize-editor-padding` / `--organize-gutter` / `--organize-block-gap`（:2182-2188） | 移动端覆盖值在 :4581-4589 成对存在；prose 色映射 :985-1002 被历史版本预览与公开分享页共用 |
 | 侧边栏宽度/折叠 | `--organize-sidebar-width`（:2256）+ `data-sidebar-collapsed`（:2258） | sidebar.tsx 折叠写 data 属性（:144,197-202） |
-| 导航分组/顺序 | sidebar.tsx `navItems`（:53-61）+ 条件项（:116-127） | **四处入口需同步**：命令面板 NAV_ITEMS（command-palette.tsx:77-90）、移动底栏 `MOBILE_DESTINATIONS`（lib/navigation/mobile.ts:3-9）、g 前缀快捷键（global-hotkeys.tsx:86-108）、帮助弹窗清单（:33-71）。图谱/插件非一级入口（收进笔记页工具行/设置页，注释 :50-52） |
+| 导航分组/顺序 | sidebar.tsx `navItems`（:53-61）+ 条件项（:116-127） | **四处入口需同步**：命令面板 NAV_ITEMS（command-palette.tsx:77-90）、移动底栏 `MOBILE_DESTINATIONS`（lib/navigation/mobile.ts:3-9）、g 前缀快捷键与帮助清单（global-hotkeys.tsx `GOTO_ROUTES` 单源派生，:22-49——g 键位/帮助条目/goto 提示均由它生成，一致性有单测钉住）、图谱/插件非一级入口（收进笔记页工具行/设置页，注释 :50-52） |
 | 移动底栏五模块 | lib/navigation/mobile.ts | mobile-bottom-bar.tsx 渲染；详情路由与键盘弹出隐藏逻辑在 mobile-navigation.tsx:72,87 |
 | 壳断点 | 767px（mobile.css @media + matchMedia） | **单断点体系**：`md:`（768px）分桌面/移动；新增第二断点需同时动 mobile.css、mobile-navigation.tsx:39、sidebar 的 md: 类 |
 | 快捷键 | global-hotkeys.tsx（g 序列/`?` 帮助）、command-palette.tsx:339-352（⌘K） | `lib/hooks/use-hotkey.ts` 是唯一注册器：isTypingTarget 输入屏蔽、1.5s 序列 buffer、hasOpenDialog 弹层让位——新键位必须走它，不得自行 addEventListener |
