@@ -32,6 +32,13 @@
 
 ## 4. 识别的缺口（唯一值得做的增强）
 
+> **交付更新（2026-09-16，E02-2 已实现）**：实现时核实 §4 原前提有误——014 的
+> `anchor_path`/`anchor_offset` 在创建高亮时从未写入（insert 仅
+> user_id/reading_item_id/content/color），存量高亮无锚点可用。实际落地改为
+> 空白归一化文本匹配定位（`lib/reading/highlight-locate.ts`），任务侧链接带
+> `?hl={highlightId}`、阅读页定位 mark 并滚动闪烁、找不到静默降级；证据见
+> 账本 E02 行。以下原文保留。
+
 **任务→来源高亮位置无锚点定位**：任务侧「关联阅读」跳到 `library/[id]` 条目顶部；
 高亮在正文中的位置需要用户自行寻找（页内滚动定位仅在高亮面板内部可用，
 且依赖 `mark.textContent === highlight.content` 的全文匹配，重复文本会命中第一个）。
