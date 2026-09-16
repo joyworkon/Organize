@@ -101,7 +101,7 @@ export function TaskNavigationMenu({
         <div className="border-b px-4 py-3">
           <div className="flex items-center gap-3">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-xl font-bold text-white shadow-sm">
-              O
+              C
             </span>
             <div className="min-w-0">
               <p className="text-xl font-semibold leading-none">待办</p>

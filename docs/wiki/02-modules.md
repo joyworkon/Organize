@@ -34,7 +34,7 @@
 | `/share` | 我的分享管理 |
 | `/trash` | 回收站（软删除恢复/彻底删除） |
 | `/plugins` | 插件管理（启用/配置） |
-| `/settings` | 设置（主题色、备份导出/恢复、推送订阅等） |
+| `/settings` | 设置（外观说明、备份导出/恢复、推送订阅等；品牌色为单色，无主题色切换） |
 
 ## 2. 组件分组（apps/web/components）
 
@@ -50,7 +50,7 @@
 | `database/` | 数据库块视图：`dynamic-view.tsx` 分发 + table/board/list/gallery/calendar/timeline/chart/admin 各视图；`view-shared/` 提供 filters/sorts/grouping/aggregation 纯函数（均有单测） |
 | `tags/` | `tag-badge.tsx`、`tag-selector.tsx`、`tag-filter.tsx`、`tag-color-picker.tsx`、`auto-tag-dialog.tsx`、`use-tags.ts` |
 | `share/` | `share-dialog.tsx`、`export-button.tsx`（Markdown/HTML/剪贴板导出） |
-| `editor/`外的通用 | `command-palette.tsx` ⌘K 命令面板、`quick-add.tsx` 全局快速新增、`batch-actions-bar.tsx`、`favorite-button.tsx`、`onboarding.tsx`、`theme-color-picker.tsx` |
+| `editor/`外的通用 | `command-palette.tsx` ⌘K 命令面板、`quick-add.tsx` 全局快速新增、`batch-actions-bar.tsx`、`favorite-button.tsx`、`onboarding.tsx` |
 | `plugin/` | `plugin-bootstrap.tsx`（启动引导）、`plugin-container.tsx`（sidebar-panel 渲染宿主） |
 | `ui/` | shadcn 风格基础组件（button/dialog/dropdown-menu/popover/select/toast/command/virtual-list 等） |
 | `context-menu/` | 通用右键菜单列表 |

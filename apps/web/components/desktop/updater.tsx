@@ -35,7 +35,7 @@ export function UpdaterBridge() {
         const { addToast } = useToastStore.getState();
         addToast({
           title: "发现新版本",
-          description: `Organize ${update.version} 正在后台下载安装…`,
+          description: `Cairn ${update.version} 正在后台下载安装…`,
           duration: 8000,
         });
         // downloadAndInstall 内置进度（此处不展示百分比，装完再提示重启）
@@ -43,7 +43,7 @@ export function UpdaterBridge() {
         if (cancelled) return;
         addToast({
           title: "更新已就绪",
-          description: `Organize ${update.version} 安装完成，重启后生效。`,
+          description: `Cairn ${update.version} 安装完成，重启后生效。`,
           duration: 30_000,
           action: (
             <button

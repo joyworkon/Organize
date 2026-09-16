@@ -5,7 +5,7 @@ export default function NotFound() {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b">
         <div className="container mx-auto px-4 py-3">
-          <span className="font-semibold">Organize</span>
+          <span className="font-semibold">Cairn</span>
         </div>
       </header>
       <main className="flex-1 flex items-center justify-center">
@@ -15,7 +15,7 @@ export default function NotFound() {
             链接可能已失效，或分享者已撤销
           </p>
           <Link href="/" className="inline-block mt-4 text-sm text-primary hover:underline">
-            了解 Organize →
+            了解 Cairn →
           </Link>
         </div>
       </main>

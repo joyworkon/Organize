@@ -173,7 +173,7 @@ fn publish_panel(app: &AppHandle) {
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     app.manage(Shared::default());
     WebviewWindowBuilder::new(app, "notch-panel", WebviewUrl::App("desktop/notch".into()))
-        .title("Organize 快速记录")
+        .title("Cairn 快速记录")
         .inner_size(380.0, 520.0)
         .decorations(false)
         .transparent(true)
@@ -388,7 +388,7 @@ fn reconcile(app: &AppHandle) {
         let name = label(screen.id);
         if app.get_webview_window(&name).is_none() {
             if WebviewWindowBuilder::new(app, &name, WebviewUrl::App("desktop/notch".into()))
-                .title("Organize 快速记录入口")
+                .title("Cairn 快速记录入口")
                 .inner_size(96.0, 6.0)
                 .decorations(false)
                 .transparent(true)

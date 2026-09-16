@@ -158,7 +158,7 @@ fn main() {
             // 应用驻留菜单栏，托盘「退出」才真正退出。
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let memos = MenuItem::with_id(app, "memos", "打开速记", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出 Organize", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出 Cairn", true, None::<&str>)?;
             #[cfg(target_os = "macos")]
             let capture = MenuItem::with_id(app, "capture", "快速记录", true, None::<&str>)?;
             #[cfg(target_os = "macos")]
@@ -167,7 +167,7 @@ fn main() {
             let menu = Menu::with_items(app, &[&show, &memos, &quit])?;
             TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("app icon missing").clone())
-                .tooltip("Organize")
+                .tooltip("Cairn")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {

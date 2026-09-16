@@ -45,7 +45,7 @@ const tagSuggestPlugin = definePlugin({
   name: "标签推荐",
   version: "0.2.0",
   description: "根据文章内容自动推荐标签，支持关键词提取和分类建议",
-  author: "Organize Team",
+  author: "Cairn Team",
   icon: "🏷️",
   configFields: [
     {

@@ -6,7 +6,7 @@ const aiSummaryPlugin = definePlugin({
   name: "AI 摘要",
   version: "0.2.0",
   description: "使用 AI 自动生成文章摘要，支持自定义摘要长度和风格",
-  author: "Organize Team",
+  author: "Cairn Team",
   icon: "🤖",
   configFields: [
     {

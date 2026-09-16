@@ -44,7 +44,7 @@
 | AI | 问 AI/速记/标签推荐 | ✅ | ✅ | ✅ | 服务端 API；速记用 MediaRecorder，iOS Safari/WebView 支持（H.264/AAC 容器注意转码兼容） |
 | 插件 | ai-summary / tag-suggest | ✅ | ✅ | ✅ | 配置走 API 持久化 |
 | 离线 | 笔记/任务队列（X1） | ✅ | ✅ | ✅ | localStorage 队列在 WebView 内同样生效；在线回放机制不变 |
-| 外观 | 主题色/明暗/全宽/字体 | ✅ | ✅ | ✅ | localStorage 偏好 |
+| 外观 | 明暗/全宽/字体（品牌色单色，无主题色切换） | ✅ | ✅ | ✅ | localStorage 偏好 |
 | 数据 | 导出 JSON/Markdown、备份 | ✅ | 🔧 | 🔧 | 移动端浏览器下载文件体验差，P1 用 Share/Capacitor Filesystem 落「文件」应用 |
 | 快捷键 | 全局快速保存 ⌘⇧S | ✅ | 🚫 不适用 | 🚫 不适用 | 移动端无全局快捷键概念，功能由分享接收替代 |
 | 安全 | RLS 行级隔离 | ✅ | ✅ | ✅ | 后端侧，端无关 |

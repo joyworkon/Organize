@@ -32,7 +32,6 @@ import { AISettingsSection } from "@/components/settings/ai-settings";
 import { RestoreSection } from "@/components/settings/restore-section";
 import { NotchTriggerSetting } from "@/components/settings/notch-trigger-setting";
 import { PageHeader } from "@/components/layout/page-header";
-import { ThemeColorPicker } from "@/components/theme-color-picker";
 
 const APP_VERSION = "0.1.0";
 
@@ -198,7 +197,7 @@ export default function SettingsPage() {
       if (notesError) throw notesError;
 
       const mdParts: string[] = [];
-      mdParts.push(`# Organize 笔记导出\n\n导出时间: ${new Date().toLocaleString("zh-CN")}\n\n---\n`);
+      mdParts.push(`# Cairn 笔记导出\n\n导出时间: ${new Date().toLocaleString("zh-CN")}\n\n---\n`);
 
       for (const note of notes || []) {
         let noteContent = "";
@@ -279,10 +278,9 @@ export default function SettingsPage() {
             <Palette className="h-5 w-5 text-muted-foreground" />
             <h2 className="text-lg font-semibold">外观</h2>
           </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            选择主题色，明暗模式可在侧边栏底部切换。
+          <p className="text-sm text-muted-foreground">
+            Cairn 使用单一品牌色（陶土橙），不提供主题色切换；明暗模式可在侧边栏底部切换。
           </p>
-          <ThemeColorPicker />
         </div>
 
         {/* D06 迁移表：插件入口收进设置页（/plugins 原页保留，侧栏入口由改版移除） */}

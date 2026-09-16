@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Organize",
+  "productName": "Cairn",
   "version": "0.2.0",
   "identifier": "com.organize.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Organize",
+        "title": "Cairn",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
