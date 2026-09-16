@@ -43,8 +43,10 @@ function tintOver(rgb: [number, number, number], base: [number, number, number],
 }
 
 // 镜像 app/globals.css 的 --background（改动时两边同步）
-const PAGE_LIGHT = hslToRgb(45, 22, 96);
-const PAGE_DARK = hslToRgb(120, 3, 10);
+const PAGE_LIGHT = hslToRgb(0, 0, 98);
+const PAGE_DARK = hslToRgb(220, 8, 10);
+// 卡片纸面：亮色为纯白（已由 WHITE 覆盖），暗色为 --card
+const CARD_DARK = hslToRgb(220, 8, 13);
 const WHITE = hslToRgb(0, 0, 100);
 
 describe("品牌安全文本 token 对比度契约（单一品牌色）", () => {
@@ -64,10 +66,11 @@ describe("品牌安全文本 token 对比度契约（单一品牌色）", () => 
     expect(contrast(fg, primary)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("dark 模式 primaryTextDark 对暗页面底/暗 tint 底 ≥4.5", () => {
+  it("dark 模式 primaryTextDark 对暗页面底/暗卡片底/暗 tint 底 ≥4.5", () => {
     const textDark = parseHsl(c.primaryTextDark);
     const primaryDark = parseHsl(c.primaryDark);
     expect(contrast(textDark, PAGE_DARK)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(textDark, CARD_DARK)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(textDark, tintOver(primaryDark, PAGE_DARK))).toBeGreaterThanOrEqual(4.5);
   });
 

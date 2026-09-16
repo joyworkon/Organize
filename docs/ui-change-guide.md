@@ -8,8 +8,8 @@
 
 | 层 | 内容 | 唯一入口文件 |
 |---|---|---|
-| L0 token | 语义色/圆角/阴影 CSS 变量、`.dark` 覆盖、编辑器节奏变量 | `app/globals.css`（:14-90 语义色与暗色；:39-54 圆角阴影；:985-1002 编辑器 prose 色映射；:2177-2259 `--organize-*` 节奏与侧栏宽） |
-| L0+ 品牌色 | **单一品牌色**（陶土橙）inline 覆盖 primary/primary-foreground/primary-text/ring（D02 后 accent 不随品牌；2026-09-16 起取消 5 色切换与持久化） | `hooks/use-theme-color.ts`（`BRAND_COLOR`，`applyThemeColor()` 无参，`useThemeColor()` 监听 html class 重放明暗） |
+| L0 token | 语义色/圆角/阴影 CSS 变量、`.dark` 覆盖、编辑器节奏变量（2026-09-16 起：石墨中性冷灰外壳，`--radius-md` 收到 6px） | `app/globals.css`（:14-90 语义色与暗色；:39-54 圆角阴影；:985-1002 编辑器 prose 色映射；:2177-2259 `--organize-*` 节奏与侧栏宽） |
+| L0+ 品牌色 | **单一品牌色**（石板蓝 亮 `215 32% 44.5%` / 暗 `215 29% 58%`）inline 覆盖 primary/primary-foreground/primary-text/ring（D02 后 accent 不随品牌；2026-09-16 起取消 5 色切换与持久化，同日由陶土橙改为石板蓝） | `hooks/use-theme-color.ts`（`BRAND_COLOR`，`applyThemeColor()` 无参，`useThemeColor()` 监听 html class 重放明暗） |
 | L1 原语 | button/dialog/dropdown/select/popover/toast/command 等 18 件 | `components/ui/*`（**全站唯一**，无第二套 Button/Dialog——自查结论见 §5） |
 | L2 业务组件 | 侧边栏/移动壳/命令面板/编辑器/反链面板等 | `components/layout/*`、`components/notes/*`、`components/editor/*`、`components/share/*` |
 | L3 壳 | (main) 路由组装：侧边栏+移动壳+命令面板+全局热键 | `app/(main)/layout.tsx`（:25-45 固定顺序：MobileNavigation → Sidebar → GlobalHotkeys → CommandPalette → Toaster → main(NoteTabsBar) → 桥接器群） |
@@ -21,7 +21,7 @@
 
 | 想改的东西 | 要动的文件 | 会被牵动的暗面 |
 |---|---|---|
-| 品牌色 | `hooks/use-theme-color.ts` 的 `BRAND_COLOR`（明暗成对，单色） | inline 变量**覆盖** globals.css 的 `--primary`/`--primary-text`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持。**C02 起 `text-primary` 解析到 `--primary-text`（品牌安全文本色）**，`bg-/border-/ring-primary` 仍取品牌原色；tailwind `textColor.primary` 覆盖必须保留 `foreground` 子键（字符串形式会顶掉 `text-primary-foreground`）；对比度契约由 `hooks/use-theme-color.test.ts` 钉住（单色 5 断言），改色值先跑它 |
+| 品牌色 | `hooks/use-theme-color.ts` 的 `BRAND_COLOR`（明暗成对，单色；当前石板蓝） | inline 变量**覆盖** globals.css 的 `--primary`/`--primary-text`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持。**C02 起 `text-primary` 解析到 `--primary-text`（品牌安全文本色）**，`bg-/border-/ring-primary` 仍取品牌原色；tailwind `textColor.primary` 覆盖必须保留 `foreground` 子键（字符串形式会顶掉 `text-primary-foreground`）；对比度契约由 `hooks/use-theme-color.test.ts` 钉住（单色 5 断言，含 `bg-primary/10` tint 底与暗色卡片底），改色值先跑它；测试里的 `PAGE_LIGHT`/`PAGE_DARK`/`CARD_DARK` 是 globals.css 的镜像，改底色要两边同步 |
 | 暗色模式 | globals.css `.dark` 块 | tailwind.config.ts `darkMode: ["class"]`；theme-toggle 切 html class；color-scheme（globals.css:97-102） |
 | 圆角/阴影 | `--radius-*` / `--shadow-*` | `@supports (corner-shape)` 连续曲率层（:59-63） |
 | 编辑器排版节奏 | `--organize-editor-padding` / `--organize-gutter` / `--organize-block-gap`（:2182-2188） | 移动端覆盖值在 :4581-4589 成对存在；prose 色映射 :985-1002 被历史版本预览与公开分享页共用 |
