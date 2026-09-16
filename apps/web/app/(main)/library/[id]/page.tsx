@@ -37,6 +37,7 @@ import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
+import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
 
 interface RecommendedItem {
   id: string;
@@ -116,6 +117,8 @@ export default function ReadingDetailPage() {
   const originalContentRef = useRef<string | null>(null);
   const originalFocusContentRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
+  // E02-2 深链 ?hl={highlightId}：loadItem（跳过进度恢复）与定位 effect 共用
+  const deepLinkHighlightIdRef = useRef<string | null>(null);
   const [isConvertingToNote, setIsConvertingToNote] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
@@ -191,7 +194,8 @@ export default function ReadingDetailPage() {
           setItem((prev) => prev ? { ...prev, reading_status: "reading" } : null);
         }
 
-        if (data.reading_progress && data.reading_progress > 0.01) {
+        if (data.reading_progress && data.reading_progress > 0.01
+          && !new URLSearchParams(window.location.search).get("hl")) {
           const restoreScroll = () => {
             const docHeight = document.documentElement.scrollHeight - window.innerHeight;
             if (docHeight > 0) {
@@ -258,6 +262,25 @@ export default function ReadingDetailPage() {
       loadHighlights();
     }
   }, [itemId, loadHighlightReferences, supabase]);
+
+  // E02-2：任务侧「关联阅读」深链 ?hl={highlightId}——内容渲染后按高亮正文定位并
+  // 滚动闪烁；高亮已删或正文匹配不到时静默降级为条目顶部（不滚动）。一次性消费。
+  useEffect(() => {
+    if (!item || highlights.length === 0) return;
+    if (deepLinkHighlightIdRef.current === null) {
+      deepLinkHighlightIdRef.current = new URLSearchParams(window.location.search).get("hl");
+    }
+    const highlightId = deepLinkHighlightIdRef.current;
+    if (!highlightId) return;
+    deepLinkHighlightIdRef.current = null;
+    const highlight = highlights.find((h) => h.id === highlightId);
+    const container = contentRef.current;
+    if (!highlight || !container) return;
+    const target = findAndWrapHighlightText(container, highlight.content, highlight.color);
+    if (target) {
+      focusHighlight(target.el);
+    }
+  }, [item, highlights]);
 
   useEffect(() => {
     async function loadOtherItems() {

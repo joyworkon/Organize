@@ -11,6 +11,8 @@ interface LinkedTarget {
   id: string;
   title: string | null;
   state: ReferenceState;
+  /** 来源高亮 id：阅读链接带 ?hl= 让阅读页定位到对应段落（E02-2） */
+  highlightId?: string | null;
 }
 
 export function TaskLinkedContent({ task }: { task: Task }) {
@@ -21,7 +23,7 @@ export function TaskLinkedContent({ task }: { task: Task }) {
   useEffect(() => {
     let active = true;
     async function loadLinks() {
-      const [referenceResult, readingResult, noteResult] = await Promise.all([
+      const [referenceResult, readingResult, noteResult, highlightResult] = await Promise.all([
         supabase.rpc("get_linked_content_states", {
           p_reading_item_id: task.reading_item_id || null,
           p_note_id: task.note_id || null,
@@ -43,6 +45,15 @@ export function TaskLinkedContent({ task }: { task: Task }) {
               .is("deleted_at", null)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
+        task.reading_item_id
+          ? supabase
+              .from("highlights")
+              .select("id")
+              .eq("task_id", task.id)
+              .order("created_at", { ascending: true })
+              .limit(1)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
       ]);
       if (!active) return;
       const reference = referenceResult.data?.[0] || null;
@@ -51,6 +62,7 @@ export function TaskLinkedContent({ task }: { task: Task }) {
           id: task.reading_item_id,
           title: reference?.reading_title || readingResult.data?.title || null,
           state: reference?.reading_state || (readingResult.data ? "active" : "missing"),
+          highlightId: highlightResult.data?.id ?? null,
         });
       } else {
         setReading(null);
@@ -92,7 +104,11 @@ export function TaskLinkedContent({ task }: { task: Task }) {
     }
     return (
       <Link
-        href={`/${type === "reading" ? "library" : "notes"}/${target.id}`}
+        href={
+          type === "reading"
+            ? `/library/${target.id}${target.highlightId ? `?hl=${target.highlightId}` : ""}`
+            : `/notes/${target.id}`
+        }
         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
       >
         <Icon className="h-4 w-4" />
