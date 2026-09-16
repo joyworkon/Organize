@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, ListChecks, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { TASK_STATUS_CONFIG } from "@organize/shared";
 import { formatTaskDate } from "@/components/tasks/task-date-popover";
 import { searchTasks, taskDate, useTaskWorkspaceData } from "@/lib/tasks/workspace";
@@ -33,10 +34,11 @@ function SearchPageInner() {
 
   return (
     <section className="flex min-h-[calc(100vh-11rem)] w-full flex-col gap-6 rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
-      <header>
-        <h1 className="text-2xl font-semibold">搜索任务</h1>
-        <p className="mt-1 text-sm text-muted-foreground">搜索所有未删除任务，包括已完成和已取消的任务</p>
-      </header>
+      <PageHeader
+        icon={SearchIcon}
+        title="搜索任务"
+        description="搜索所有未删除任务，包括已完成和已取消的任务"
+      />
       <div className="relative">
         <SearchIcon className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
         <Input

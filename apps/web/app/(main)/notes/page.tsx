@@ -731,8 +731,8 @@ export default function NotesPage() {
         </div>
       )}
 
-      <div className="mobile-collection-toolbar flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1 max-w-sm">
+      <div className="mobile-collection-toolbar flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="mobile-collection-search relative flex-1 sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             ref={searchInputRef}

@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
@@ -127,13 +128,12 @@ function CountdownPageInner() {
   const sorted = useMemo(() => sortCountdownDays(days), [days]);
   return (
     <section className="min-h-[calc(100vh-11rem)] w-full rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">倒数日</h1>
-          <p className="mt-1 text-sm text-muted-foreground">记录重要日期，支持一次性和每年重复</p>
-        </div>
-        <Button type="button" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>
-      </header>
+      <PageHeader
+        icon={CalendarDays}
+        title="倒数日"
+        description="记录重要日期，支持一次性和每年重复"
+        actions={<Button type="button" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>}
+      />
       {loading ? (
         <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : sorted.length === 0 ? (

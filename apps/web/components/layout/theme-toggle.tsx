@@ -1,26 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useThemeMode } from "@/hooks/use-theme-mode";
 
+/** 侧栏底部的明暗快捷开关；状态与设置页「外观」分区共用 use-theme-mode */
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("organize-theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = stored === "dark" || (!stored && prefersDark);
-    setDark(isDark);
-    document.documentElement.classList.toggle("dark", isDark);
-  }, []);
-
-  const toggle = () => {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("organize-theme", next ? "dark" : "light");
-  };
+  const { dark, toggle } = useThemeMode();
 
   return (
     <button

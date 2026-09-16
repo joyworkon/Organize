@@ -72,7 +72,7 @@ export default function SpacesPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6">
+    <div className="organize-lane-narrow w-full space-y-5">
       <PageHeader
         title="协作空间"
         description="管理你参与的协作空间：成员角色、移除、属主移交。邀请成员请使用笔记的分享面板。"
@@ -85,7 +85,7 @@ export default function SpacesPage() {
         }
       />
 
-      {actionError && <p className="mt-4 text-sm text-destructive">{actionError}</p>}
+      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
 
       <div className="mt-6 space-y-4">
         {loading ? (

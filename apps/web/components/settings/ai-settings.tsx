@@ -152,7 +152,8 @@ export function AISettingsSection() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="space-y-2">
+          {/* organize-field：URL / 密钥 / 模型名本来就不长，字段宽度独立于泳道封顶 */}
+          <div className="organize-field space-y-2">
             <Label htmlFor="ai-base-url">API 地址</Label>
             <Input
               id="ai-base-url"
@@ -161,7 +162,7 @@ export function AISettingsSection() {
               onChange={update("base_url")}
             />
           </div>
-          <div className="space-y-2">
+          <div className="organize-field space-y-2">
             <Label htmlFor="ai-api-key">API 密钥</Label>
             <Input
               id="ai-api-key"
@@ -171,7 +172,7 @@ export function AISettingsSection() {
               onChange={update("api_key")}
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="organize-field grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="ai-text-model">文本模型</Label>
               <Input

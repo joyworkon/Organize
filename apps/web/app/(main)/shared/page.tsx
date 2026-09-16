@@ -34,7 +34,7 @@ export default function SharedNotesPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
+    <div className="w-full space-y-5">
       <PageHeader
         title="与我共享"
         description="其他账号通过协作空间共享给你的笔记；viewer 只读，editor 可直接编辑保存。"
@@ -42,7 +42,7 @@ export default function SharedNotesPage() {
       />
 
       {notes.length > 0 && (
-        <div className="mt-4 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input

@@ -2259,6 +2259,61 @@
   margin-bottom: 0;
 }
 
+/* ------------------------- 默认档筛选器降噪 ------------------------- */
+/* 待办工具行有 4 个筛选器，默认全是「全部状态 / 全部分类 / 全部优先级 / 全部标签」，
+   全部按实边框控件渲染时，一排占位文字比任务本身更抢眼。
+   默认档退成安静的中性底，一旦选了具体值就回到常规控件样式（即"有筛选"的信号）。 */
+.organize-filter-idle {
+  border-color: transparent;
+  background-color: hsl(var(--muted) / 0.6);
+  color: hsl(var(--muted-foreground));
+}
+
+/* ------------------------- 设置页分组卡 ------------------------- */
+/* 分区组件（AI 服务 / 刘海触发器等）各自带 border-b，
+   分组成多张卡后每张卡的最后一条会多出一根悬空分隔线，这里统一抹掉。 */
+.organize-settings-card > :last-child {
+  border-bottom-width: 0;
+}
+
+/* ------------------------- 内容泳道（版式宽度体系） ------------------------- */
+/* 问题：改版前除速记外所有页面内容直接铺满主区（1680px 视口下 1400px），
+   表单输入框被拉到 1300px、列表行的日期漂到极右，扫视距离过长、主次不清。
+   方案：主区给一条居中的「内容泳道」，按页面性质分三档宽度 + 单行表单字段上限。
+   默认档由 .organize-main-content > * 兜住——新页面不写任何类也落在标准档；
+   需要更宽/更窄/不受限的页面在自己的根节点显式声明泳道类（见下）。
+   移动端（<768px）不启用，避免与 mobile.css 的 16px 边距体系打架。 */
+:root {
+  --organize-lane: 68rem;         /* 1088px 标准档：列表页、明细页 */
+  --organize-lane-wide: 87.5rem;  /* 1400px 宽档：多栏工作台、双栏任务台、图谱画布 */
+  --organize-lane-narrow: 50rem;  /* 800px 窄档：设置、速记、插件等单栏读写流 */
+  --organize-field: 30rem;        /* 480px 单行表单字段（URL / 密钥 / 短文本）上限 */
+}
+@media (min-width: 768px) {
+  .organize-main-content > * {
+    max-width: var(--organize-lane);
+    margin-inline: auto;
+  }
+  /* 泳道分档：写在页面根节点上，覆盖上面的默认档 */
+  .organize-main-content > .organize-lane-wide {
+    max-width: var(--organize-lane-wide);
+  }
+  .organize-main-content > .organize-lane-narrow {
+    max-width: var(--organize-lane-narrow);
+  }
+  /* 不受泳道限制：自带宽度策略的页面（笔记详情/文章详情的全宽偏好、
+     固定定位的目录与高亮面板都按视口计算，被泳道裁剪会错位） */
+  .organize-main-content > .organize-lane-full {
+    max-width: none;
+    margin-inline: 0;
+  }
+}
+/* 单行表单字段宽度上限：语义是「这个输入框的内容本来就不长」，
+   与泳道无关，因此不限断点，移动端由 w-full 自然收窄。 */
+.organize-field {
+  max-width: var(--organize-field);
+}
+
 /* ------------------------- 可折叠桌面侧边栏 ------------------------- */
 :root {
   --organize-sidebar-width: 14.5rem; /* 232px（D02 规格） */
@@ -3071,8 +3126,11 @@
   min-width: 0;
   flex-direction: column;
 }
+/* 吸顶条左侧只作滚动时的位置提示（面包屑级），页面主标题是下方的问候语 h1 */
 .dashboard-view-switcher strong {
-  font-size: 15px;
+  font-size: 12px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
 }
 .dashboard-view-switcher > div:first-child span {
   overflow: hidden;

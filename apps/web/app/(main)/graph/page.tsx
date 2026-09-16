@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   buildNoteGraph,
   buildTaskGraph,
@@ -206,21 +207,18 @@ export default function GraphPage() {
   const isolatedCount = fullGraph.nodes.length - graph.nodes.length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Network className="h-6 w-6 text-primary" />
-            知识图谱
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {view === "notes"
-              ? `笔记 ${graph.nodes.length} 篇 · 链接 ${linkCount} 条 · 层级 ${parentCount} 条`
-              : `任务 ${graph.nodes.length} 个 · 依赖 ${graph.edges.length} 条`}
-            {hideIsolated && isolatedCount > 0 ? ` · 已隐藏 ${isolatedCount} 个孤立节点` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="organize-lane-wide space-y-4">
+      <PageHeader
+        icon={Network}
+        title="知识图谱"
+        description={
+          (view === "notes"
+            ? `笔记 ${graph.nodes.length} 篇 · 链接 ${linkCount} 条 · 层级 ${parentCount} 条`
+            : `任务 ${graph.nodes.length} 个 · 依赖 ${graph.edges.length} 条`) +
+          (hideIsolated && isolatedCount > 0 ? ` · 已隐藏 ${isolatedCount} 个孤立节点` : "")
+        }
+        actions={
+          <>
           <div className="flex rounded-lg border bg-card p-0.5">
             <Button
               variant={view === "notes" ? "default" : "ghost"}
@@ -252,8 +250,9 @@ export default function GraphPage() {
           <Button variant="outline" size="sm" onClick={() => void loadData()} disabled={loading} aria-label="重新加载">
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center justify-between">

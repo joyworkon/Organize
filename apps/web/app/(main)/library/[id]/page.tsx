@@ -839,7 +839,7 @@ export default function ReadingDetailPage() {
   return (
     <div
       className={cn(
-        "relative transition-[padding] duration-300",
+        "organize-lane-full relative transition-[padding] duration-300",
         // 高亮面板是 xl 下 fixed 的右侧栏（w-80），打开时整体右移内容列避免遮挡
         showHighlightsPanel && "xl:pr-80"
       )}

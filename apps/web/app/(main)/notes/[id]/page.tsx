@@ -1270,7 +1270,7 @@ export default function NoteEditorPage() {
   return (
       <div
         className={cn(
-          "note-page mx-auto max-w-none",
+          "note-page organize-lane-full mx-auto max-w-none",
           font === "serif" && "note-page-serif",
           font === "mono" && "note-page-mono",
           smallFont && "note-page-small",

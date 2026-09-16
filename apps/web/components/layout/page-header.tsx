@@ -24,14 +24,14 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "organize-page-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between",
+        "organize-page-header flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
         className
       )}
     >
       <div className="organize-page-heading flex min-w-0 items-center gap-3">
         {Icon && (
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[--radius-lg] bg-primary/10 text-primary">
-            <Icon className="h-5 w-5" />
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[--radius-lg] bg-primary/10 text-primary">
+            <Icon className="h-[18px] w-[18px]" />
           </span>
         )}
         <div className="min-w-0">
@@ -39,7 +39,7 @@ export function PageHeader({
             {title}
           </h1>
           {description && (
-            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
           )}
         </div>
       </div>
