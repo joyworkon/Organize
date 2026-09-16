@@ -19,7 +19,7 @@ import {
 } from "@/lib/backup/attachment-package";
 import {
   Settings as SettingsIcon,
-  Palette,
+  Puzzle,
   Download,
   FileText,
   Info,
@@ -31,6 +31,7 @@ import {
 import { AISettingsSection } from "@/components/settings/ai-settings";
 import { RestoreSection } from "@/components/settings/restore-section";
 import { NotchTriggerSetting } from "@/components/settings/notch-trigger-setting";
+import { AppearanceSection } from "@/components/settings/appearance-section";
 import { PageHeader } from "@/components/layout/page-header";
 
 const APP_VERSION = "0.1.0";
@@ -269,26 +270,32 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="w-full space-y-6">
-      <PageHeader icon={SettingsIcon} title="设置" />
+    <div className="organize-lane-narrow w-full space-y-5">
+      <PageHeader
+        icon={SettingsIcon}
+        title="设置"
+        description="外观、功能与服务、数据与账号，按组分开"
+      />
 
-      <div className="rounded-lg border bg-card">
-        <div className="p-5 border-b">
-          <div className="flex items-center gap-2 mb-3">
-            <Palette className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold">外观</h2>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Cairn 使用单一品牌色（陶土橙），不提供主题色切换；明暗模式可在侧边栏底部切换。
-          </p>
-        </div>
+      {/* 改版：原本 8 个分区挤在一张长卡里、层级全平；现在按「外观 / 功能与服务 /
+          数据与账号 / 关于」分成四张卡，每张卡内部仍用分隔线分区。
+          子分区组件（AI / 刘海）各自带 border-b，卡内最后一条由
+          .organize-settings-card > :last-child 抹掉，无需改动这些组件。 */}
+      <div className="organize-settings-card rounded-lg border bg-card">
+        <AppearanceSection />
+        <NotchTriggerSetting />
+      </div>
 
+      <div className="organize-settings-card rounded-lg border bg-card">
         {/* D06 迁移表：插件入口收进设置页（/plugins 原页保留，侧栏入口由改版移除） */}
         <div className="p-5 border-b">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">插件管理</h2>
-              <p className="text-sm text-muted-foreground mt-1">
+              <div className="flex items-center gap-2">
+                <Puzzle className="h-5 w-5 text-muted-foreground" />
+                <h2 className="text-lg font-semibold">插件管理</h2>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
                 启用或配置内置插件（AI 摘要、标签推荐等）。
               </p>
             </div>
@@ -302,9 +309,9 @@ export default function SettingsPage() {
         </div>
 
         <AISettingsSection />
+      </div>
 
-        <NotchTriggerSetting />
-
+      <div className="organize-settings-card rounded-lg border bg-card">
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">
             <Download className="h-5 w-5 text-muted-foreground" />
@@ -430,6 +437,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
+      </div>
+
+      <div className="organize-settings-card rounded-lg border bg-card">
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">
             <Info className="h-5 w-5 text-muted-foreground" />

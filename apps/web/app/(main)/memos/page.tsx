@@ -451,7 +451,7 @@ function MemosPageInner() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6">
+    <div className="organize-lane-narrow w-full space-y-5">
       {/* U03：桌面内容列宽收敛到舒适阅读宽度（此前 1366 下 ~1088px）；
           移动端固定顶栏已显示分区名，内容区大标题隐藏避免重复、让出首屏 */}
       <div className="hidden md:block">

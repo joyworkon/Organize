@@ -328,10 +328,10 @@ export default function TodayView() {
     <div className="dashboard-today space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-xl font-bold leading-tight sm:text-2xl">
             {getGreeting()}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {formatDate(today)}
           </p>
         </div>

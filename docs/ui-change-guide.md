@@ -1,6 +1,6 @@
 # UI 可持续改版地图（ui-change-guide）
 
-编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）。
+编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新。
 计划卡：[long-term-agent-plan-2026-09-11.md §5 C01](long-term-agent-plan-2026-09-11.md)。
 用途：改任何界面之前，先在这份地图上定位「改哪里、会牵动哪里」。本文随大改版 PR 更新（规则见 §6）。
 
@@ -8,7 +8,7 @@
 
 | 层 | 内容 | 唯一入口文件 |
 |---|---|---|
-| L0 token | 语义色/圆角/阴影 CSS 变量、`.dark` 覆盖、编辑器节奏变量（2026-09-16 起：石墨中性冷灰外壳，`--radius-md` 收到 6px） | `app/globals.css`（:14-90 语义色与暗色；:39-54 圆角阴影；:985-1002 编辑器 prose 色映射；:2177-2259 `--organize-*` 节奏与侧栏宽） |
+| L0 token | 语义色/圆角/阴影 CSS 变量、`.dark` 覆盖、编辑器节奏变量、**内容泳道宽度**（2026-09-16 起：石墨中性冷灰外壳，`--radius-md` 收到 6px；同日新增 `--organize-lane*` / `--organize-field`） | `app/globals.css`（:14-90 语义色与暗色；:39-54 圆角阴影；:985-1002 编辑器 prose 色映射；`--organize-*` 节奏与侧栏宽、内容泳道段、设置分组卡、`.organize-filter-idle`） |
 | L0+ 品牌色 | **单一品牌色**（石板蓝 亮 `215 32% 44.5%` / 暗 `215 29% 58%`）inline 覆盖 primary/primary-foreground/primary-text/ring（D02 后 accent 不随品牌；2026-09-16 起取消 5 色切换与持久化，同日由陶土橙改为石板蓝） | `hooks/use-theme-color.ts`（`BRAND_COLOR`，`applyThemeColor()` 无参，`useThemeColor()` 监听 html class 重放明暗） |
 | L1 原语 | button/dialog/dropdown/select/popover/toast/command 等 18 件 | `components/ui/*`（**全站唯一**，无第二套 Button/Dialog——自查结论见 §5） |
 | L2 业务组件 | 侧边栏/移动壳/命令面板/编辑器/反链面板等 | `components/layout/*`、`components/notes/*`、`components/editor/*`、`components/share/*` |
@@ -21,6 +21,9 @@
 
 | 想改的东西 | 要动的文件 | 会被牵动的暗面 |
 |---|---|---|
+| 内容宽度 / 页面版式节奏 | `app/globals.css` 内容泳道段：`--organize-lane`（1088px 标准）/ `--organize-lane-wide`（1400px）/ `--organize-lane-narrow`（800px）/ `--organize-field`（480px 单行表单字段） | 默认档由 `.organize-main-content > *` 兜住——**新页面不写类就是标准档**；要换档在页面根节点加 `organize-lane-wide` / `organize-lane-narrow` / `organize-lane-full`。三个坑：①泳道类必须落在 `.organize-main-content` 的**直接子节点**上，待办族有自己的 `tasks/layout.tsx`，类要加在那儿；②自带宽度策略的页面（笔记详情/文章详情的全宽偏好、fixed 目录与高亮面板）必须用 `organize-lane-full`，否则被裁剪错位；③泳道只在 ≥768px 生效，移动端仍是 mobile.css 的 16px 边距体系 |
+| 页面标题区 | `components/layout/page-header.tsx`（图标 36px + h1 `text-xl sm:text-2xl` + 描述 + 右侧 actions） | 全站页面标题的唯一实现，禁止再自建 h1 版式；工作台是特例（问候语 h1 + 吸顶条内的面包屑级「工作台」，样式在 globals.css `.dashboard-view-switcher`）；待办清单头是工作区面板头，保留自有样式 |
+| 明暗模式 | `hooks/use-theme-mode.ts`（`ThemeMode` = system/light/dark，`setThemeMode` 广播 `organize:theme-mode-change`） | 侧栏按钮 `theme-toggle.tsx` 与设置页 `components/settings/appearance-section.tsx` 共用这份状态，改一处必须两处同步；存储键仍是 `organize-theme`，**「跟随系统」= 删键**（旧语义，改成写字面量会让老代码读成亮色）；契约由 `hooks/use-theme-mode.test.ts` 钉住 |
 | 品牌色 | `hooks/use-theme-color.ts` 的 `BRAND_COLOR`（明暗成对，单色；当前石板蓝） | inline 变量**覆盖** globals.css 的 `--primary`/`--primary-text`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持。**C02 起 `text-primary` 解析到 `--primary-text`（品牌安全文本色）**，`bg-/border-/ring-primary` 仍取品牌原色；tailwind `textColor.primary` 覆盖必须保留 `foreground` 子键（字符串形式会顶掉 `text-primary-foreground`）；对比度契约由 `hooks/use-theme-color.test.ts` 钉住（单色 5 断言，含 `bg-primary/10` tint 底与暗色卡片底），改色值先跑它；测试里的 `PAGE_LIGHT`/`PAGE_DARK`/`CARD_DARK` 是 globals.css 的镜像，改底色要两边同步 |
 | 暗色模式 | globals.css `.dark` 块 | tailwind.config.ts `darkMode: ["class"]`；theme-toggle 切 html class；color-scheme（globals.css:97-102） |
 | 圆角/阴影 | `--radius-*` / `--shadow-*` | `@supports (corner-shape)` 连续曲率层（:59-63） |
@@ -61,7 +64,7 @@
 ## 4. 现状自检结论（2026-09-13）
 
 - **无第二套 Button/Dialog**（grep `.btn`、原生 `<dialog>` 均零命中；prompt-dialog 基于 ui/dialog）。
-- 无全局 useMobile hook——matchMedia 仅 mobile-navigation.tsx:39 与 theme-toggle.tsx:12 两处内联；如需第三处，先抽 hook 再用。
+- 无全局 useMobile hook——matchMedia 内联仅剩 mobile-navigation.tsx（壳断点）一处；明暗那份已按本规则抽成 `hooks/use-theme-mode.ts`（2026-09-16），侧栏按钮与设置页共用。如需再有第三处，同样先抽 hook。
 - 图谱页自含 SVG 力导向但**复用全局 token**（fill-primary 等），非独立视觉体系；改色不会漏。
 - 帮助弹窗（`?`）内的键位清单是**手工清单**（global-hotkeys.tsx:33-71）——加键位必须同步，无自动校验。
 - 移动壳高度由 `--mobile-header-height`/`--mobile-tab-height` + safe-area 计算（app/mobile.css:6-9）；`viewportFit: cover`（app/layout.tsx:20-22）。

@@ -551,8 +551,36 @@ function LibraryPageInner() {
         }}
       />
 
-      <div className="mobile-toolbar mobile-collection-toolbar flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1 max-w-sm">
+      {/* U-layout：状态分段（主筛选）与搜索/排序/多选合成一条工具行，
+          页头到首条内容之间原本 5 条横带压到 3 条 */}
+      <div className="mobile-toolbar mobile-collection-toolbar flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="reading-status-tabs flex gap-1 rounded-lg bg-muted p-1 w-fit">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setFilter(tab.value)}
+              aria-pressed={filter === tab.value}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                filter === tab.value
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-xs text-muted-foreground">
+                {tab.value === "all"
+                  ? stats.total
+                  : tab.value === "unread"
+                    ? stats.unread
+                    : tab.value === "reading"
+                      ? stats.reading
+                      : stats.read}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="mobile-collection-search relative flex-1 sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             ref={searchInputRef}
@@ -606,33 +634,6 @@ function LibraryPageInner() {
           onChange={changeTagFilter}
         />
       )}
-
-      <div className="reading-status-tabs flex gap-1 rounded-lg bg-muted p-1 w-fit">
-        {filterTabs.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setFilter(tab.value)}
-            aria-pressed={filter === tab.value}
-            className={cn(
-              "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              filter === tab.value
-                ? "bg-background shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {tab.label}
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              {tab.value === "all"
-                ? stats.total
-                : tab.value === "unread"
-                  ? stats.unread
-                  : tab.value === "reading"
-                    ? stats.reading
-                    : stats.read}
-            </span>
-          </button>
-        ))}
-      </div>
 
       {isSelectMode && (
         <BatchActionsBar

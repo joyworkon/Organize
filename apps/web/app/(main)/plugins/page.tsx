@@ -35,7 +35,7 @@ export default function PluginsPage() {
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="organize-lane-narrow w-full space-y-5">
       <PageHeader
         icon={Puzzle}
         title="插件管理"
