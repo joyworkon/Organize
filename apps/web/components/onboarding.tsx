@@ -84,7 +84,7 @@ export function Onboarding() {
 
   const steps = [
     {
-      title: "欢迎使用 Organize",
+      title: "欢迎使用 Cairn",
       description: "你的一站式稍后读 + 笔记工具。保存网页、阅读学习、记录灵感。",
       content: (
         <div className="flex flex-col items-center justify-center py-8">
@@ -92,7 +92,7 @@ export function Onboarding() {
             <BookOpen className="h-10 w-10" />
           </div>
           <DialogTitle className="text-2xl font-bold text-center mb-2">
-            欢迎使用 Organize
+            欢迎使用 Cairn
           </DialogTitle>
           <DialogDescription className="text-center text-base max-w-sm">
             你的一站式稍后读 + 笔记工具。保存网页、阅读学习、记录灵感。

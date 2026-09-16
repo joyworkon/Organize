@@ -121,7 +121,7 @@ gh pr merge --squash                # 单人项目自开自合；合并后删除
 
 ## 9. UI 约定
 
-- 主题色用 CSS 变量（primary `hsl(16, 85%, 50%)`，accent `hsl(16, 70%, 95%)`），禁止硬编码颜色；
+- 颜色一律用 CSS 变量（品牌色单色，实际值见 `hooks/use-theme-color.ts` 的 `BRAND_COLOR`；页面底/中性色见 `app/globals.css`），禁止硬编码颜色；
 - 卡片统一 `hover:bg-accent transition-colors duration-150`，无阴影；
 - 按钮用 shadcn 变体（ghost/outline/default）；
 - 阅读页排版用 `.reader-content` 体系（17px/1.8），编辑器排版在 `globals.css` 的 `.organize-editor` 作用域；

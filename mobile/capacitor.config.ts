@@ -4,7 +4,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // 前端代码与 Supabase 数据全平台共用，保证视觉与数据一致。
 const config: CapacitorConfig = {
   appId: "com.organize.app",
-  appName: "Organize",
+  appName: "Cairn",
   // 仅为 cap sync 提供占位产物；运行时由 server.url 接管加载远程应用
   webDir: "www",
   server: {
@@ -20,7 +20,7 @@ const config: CapacitorConfig = {
       splashImmersive: true,
     },
     Share: {
-      displayTickerText: "分享到 Organize",
+      displayTickerText: "分享到 Cairn",
     },
   },
 };

@@ -4,6 +4,7 @@
 //   NEXT_PUBLIC_MOCK_BACKEND=true ... npx next start -p 3100   # mock web
 //   node scripts/a11y-scan.mjs
 //
+// 品牌色已于 2026-09-16 收敛为单色（原 A11Y_SCAN_BRANDS 多品牌复扫已移除）。
 // 覆盖 C02 卡面范围：主导航（每页侧栏）、笔记编辑页（含选中文字弹 BubbleMenu）、
 // 任务工作台（含任务详情对话框）、速记、共享对话框；外加 200% 缩放口径
 // （640px 视口 = 1280 布局在浏览器 200% 下的 CSS 视口等价）复扫布局类规则。
@@ -18,15 +19,9 @@ const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const BASE = process.env.A11Y_BASE_URL ?? "http://127.0.0.1:3100";
 const results = [];
 
-async function newPage(browser, { width = 1280, height = 720 } = {}, brand) {
+async function newPage(browser, { width = 1280, height = 720 } = {}) {
   const context = await browser.newContext({ viewport: { width, height } });
   const page = await context.newPage();
-  if (brand) {
-    // 品牌色档：text-primary 类用色随品牌切换（use-theme-color），须在应用加载前写入
-    await page.addInitScript((b) => {
-      window.localStorage.setItem("organize:theme-color", b);
-    }, brand);
-  }
   await page.goto(`${BASE}/login`);
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
@@ -115,17 +110,6 @@ const browser = await chromium.launch();
     await scan(page, "/notes/[id] (共享对话框开)");
   }
 
-  await context.close();
-}
-
-// 可选：品牌色档复扫（A11Y_SCAN_BRANDS=pink,blue）——text-primary/bg-primary/10
-// 类用色随品牌变化，默认橙扫不到的对比度问题（如 pink 光模式 3.7:1）在此暴露
-for (const brand of (process.env.A11Y_SCAN_BRANDS ?? "").split(",").map(s => s.trim()).filter(Boolean)) {
-  const { context, page } = await newPage(browser, { width: 1280, height: 720 }, brand);
-  for (const route of ["/library", "/tasks", "/memos", "/favorites"]) {
-    await page.goto(`${BASE}${route}`);
-    await scan(page, `${route} @品牌=${brand}`);
-  }
   await context.close();
 }
 

@@ -550,7 +550,7 @@ export const mockDb: Record<string, any[]> = {
     {
       id: "countdown-release",
       user_id: MOCK_USER.id,
-      title: "Organize 发布日",
+      title: "Cairn 发布日",
       target_date: "2026-12-31",
       repeat_annually: false,
       deleted_at: null,

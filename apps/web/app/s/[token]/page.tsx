@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     title: share.resource.title || "分享内容",
-    description: "通过 Organize 分享的内容",
+    description: "通过 Cairn 分享的内容",
   };
 }
 
@@ -113,9 +113,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <span className="font-semibold">Organize</span>
+          <span className="font-semibold">Cairn</span>
           <Link href="/" className="text-sm text-muted-foreground hover:underline">
-            了解 Organize →
+            了解 Cairn →
           </Link>
         </div>
       </header>

@@ -1,8 +1,8 @@
 [package]
 name = "organize"
 version = "0.1.0"
-description = "Organize - 智能笔记与阅读管理工具"
-authors = ["Organize Team"]
+description = "Cairn - 智能笔记与阅读管理工具"
+authors = ["Cairn Team"]
 edition = "2021"
 
 [build-dependencies]

@@ -11,7 +11,7 @@ import { WebViewCompat } from "@/components/platform/webview-compat";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Organize - 智能笔记工具",
+  title: "Cairn - 智能笔记工具",
   description: "类 Notion + Cubox 的跨平台笔记与阅读管理工具",
 };
 

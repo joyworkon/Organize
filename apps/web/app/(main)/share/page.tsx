@@ -71,7 +71,7 @@ function ShareContent() {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <Share2 className="h-8 w-8 mx-auto mb-2 text-primary" />
-          <CardTitle className="text-lg">分享到 Organize</CardTitle>
+          <CardTitle className="text-lg">分享到 Cairn</CardTitle>
         </CardHeader>
         <CardContent className="text-center space-y-4">
           {status === "idle" && (

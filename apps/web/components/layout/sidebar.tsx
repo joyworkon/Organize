@@ -344,14 +344,14 @@ const visibleNavItems = useMemo(() => {
         <Link
           href="/library"
           className={cn("flex items-center font-bold text-lg", compact ? "gap-0" : "gap-2")}
-          title={compact ? "Organize" : undefined}
-          aria-label={compact ? "Organize 首页" : undefined}
+          title={compact ? "Cairn" : undefined}
+          aria-label={compact ? "Cairn 首页" : undefined}
           onClick={onClose}
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm shrink-0">
-            O
+            C
           </span>
-          {!compact && <span className="truncate">Organize</span>}
+          {!compact && <span className="truncate">Cairn</span>}
         </Link>
         <div className="flex items-center gap-1 shrink-0">
           {onClose && (

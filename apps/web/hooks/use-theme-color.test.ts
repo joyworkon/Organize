@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { THEME_COLORS } from "./use-theme-color";
+import { BRAND_COLOR } from "./use-theme-color";
 
-// C02 品牌安全文本 token 契约：use-theme-color.ts 里每个品牌的
+// C02 品牌安全文本 token 契约：use-theme-color.ts 的单一品牌色
 // primaryText / primaryFg（含 dark 侧）必须满足 WCAG AA 小字文本 ≥4.5:1。
+// 2026-09-16 起品牌色收敛为单色（原 5 色切换已移除），断言从 it.each 改为单例。
 // 背景取值镜像 app/globals.css 的 --primary/--background token；
 // bg-primary/10 类 tint 按浏览器 sRGB 逐通道 alpha 合成模拟。
 // 调整任何品牌色值前先看此测试，避免回归 axe color-contrast 违规。
@@ -16,7 +17,7 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   return [f(0), f(8), f(4)].map((v) => Math.round(v * 255)) as [number, number, number];
 }
 
-// 解析 THEME_COLORS 里的 "H S% L%" 形态
+// 解析 BRAND_COLOR 里的 "H S% L%" 形态
 function parseHsl(value: string): [number, number, number] {
   const m = value.match(/^(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/);
   if (!m) throw new Error(`无法解析 HSL: ${value}`);
@@ -46,14 +47,10 @@ const PAGE_LIGHT = hslToRgb(45, 22, 96);
 const PAGE_DARK = hslToRgb(120, 3, 10);
 const WHITE = hslToRgb(0, 0, 100);
 
-describe("品牌安全文本 token 对比度契约", () => {
-  const brands = Object.entries(THEME_COLORS);
+describe("品牌安全文本 token 对比度契约（单一品牌色）", () => {
+  const c = BRAND_COLOR;
 
-  it("覆盖全部五个品牌", () => {
-    expect(brands.map(([name]) => name)).toEqual(["orange", "blue", "green", "purple", "pink"]);
-  });
-
-  it.each(brands)("%s：light 模式 primaryText 对白底/页面底/primary tint 底 ≥4.5", (_name, c) => {
+  it("light 模式 primaryText 对白底/页面底/primary tint 底 ≥4.5", () => {
     const text = parseHsl(c.primaryText);
     const primary = parseHsl(c.primary);
     expect(contrast(text, WHITE)).toBeGreaterThanOrEqual(4.5);
@@ -61,24 +58,27 @@ describe("品牌安全文本 token 对比度契约", () => {
     expect(contrast(text, tintOver(primary, PAGE_LIGHT))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(brands)("%s：light 模式 primaryFg 对 primary 底 ≥4.5（resting 态契约）", (_name, c) => {
+  it("light 模式 primaryFg 对 primary 底 ≥4.5（resting 态契约）", () => {
     const fg = parseHsl(c.primaryFg);
     const primary = parseHsl(c.primary);
-    // 不含 hover:bg-primary/90 变亮组合：purple/white 在该瞬态下 4.46:1，
-    // 背景亮度死区内无解（见 use-theme-color.ts pink 段注释与账本 C02 行）
     expect(contrast(fg, primary)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(brands)("%s：dark 模式 primaryTextDark 对暗页面底/暗 tint 底 ≥4.5", (_name, c) => {
+  it("dark 模式 primaryTextDark 对暗页面底/暗 tint 底 ≥4.5", () => {
     const textDark = parseHsl(c.primaryTextDark);
     const primaryDark = parseHsl(c.primaryDark);
     expect(contrast(textDark, PAGE_DARK)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(textDark, tintOver(primaryDark, PAGE_DARK))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(brands)("%s：dark 模式 primaryFgDark 对 primaryDark 底 ≥4.5", (_name, c) => {
+  it("dark 模式 primaryFgDark 对 primaryDark 底 ≥4.5", () => {
     const fgDark = parseHsl(c.primaryFgDark);
     const primaryDark = parseHsl(c.primaryDark);
     expect(contrast(fgDark, primaryDark)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("ring 与 primary 同色（焦点环取品牌原色，明暗成对）", () => {
+    expect(c.ring).toBe(c.primary);
+    expect(c.ringDark).toBe(c.primaryDark);
   });
 });

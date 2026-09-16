@@ -13,7 +13,7 @@ const taskTools = new Set(["/tasks/calendar", "/tasks/countdown", "/tasks/lesson
 /** Explicit route boundaries keep tools out of the task-detail layout. */
 export function mobileRoute(pathname: string, params = new URLSearchParams()) {
   let section: MobileSection | null = null;
-  let title = "Organize";
+  let title = "Cairn";
   let detail = false;
   if (pathname === "/") section = "home";
   else if (pathname === "/library" || pathname.startsWith("/library/")) {
@@ -28,7 +28,7 @@ export function mobileRoute(pathname: string, params = new URLSearchParams()) {
   else if (pathname === "/tags") { section = "library"; title = "标签管理"; }
   else if (pathname === "/lessons" || pathname.startsWith("/lessons/")) { section = "tasks"; title = "经验"; }
   else {
-    title = ({ "/favorites": "收藏夹", "/settings": "设置", "/plugins": "插件管理", "/trash": "垃圾箱", "/shared": "与我共享", "/spaces": "协作空间", "/share": "保存到 Organize", "/review": "回顾", "/stats": "统计", "/inbox": "收集箱" } as Record<string, string>)[pathname] || "Organize";
+    title = ({ "/favorites": "收藏夹", "/settings": "设置", "/plugins": "插件管理", "/trash": "垃圾箱", "/shared": "与我共享", "/spaces": "协作空间", "/share": "保存到 Cairn", "/review": "回顾", "/stats": "统计", "/inbox": "收集箱" } as Record<string, string>)[pathname] || "Cairn";
   }
   return { section, title, detail };
 }
