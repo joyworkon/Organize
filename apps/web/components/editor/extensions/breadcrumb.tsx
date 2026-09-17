@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { ChevronRight, FileText } from "lucide-react";
+import { ChevronRight, FileText } from "@/components/icons";
 import Link from "next/link";
 import { useMemo } from "react";
 import { getNoteAncestors, type NoteTreeItem } from "@/lib/notes/tree";

@@ -24,7 +24,7 @@ import {
   Upload,
   X,
   ChevronDown,
-} from "lucide-react";
+} from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";

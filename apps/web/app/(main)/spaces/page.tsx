@@ -9,8 +9,10 @@ import {
   Trash2,
   UserMinus,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +49,17 @@ export default function SpacesPage() {
   const { workspaces, myUserId, loading, error, refresh } = useWorkspaces();
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  // 页内搜索：空间名 + 成员名（成员相当于空间的"标签"）
+  const visibleWorkspaces = useMemo(
+    () =>
+      filterByPageSearch(workspaces, search, (ws) => ({
+        title: ws.name,
+        tags: (ws.members ?? []).map((m) => m.displayName || ""),
+      })),
+    [workspaces, search]
+  );
 
   const createWorkspace = async () => {
     const name = await showPrompt({
@@ -76,6 +89,13 @@ export default function SpacesPage() {
       <PageHeader
         title="协作空间"
         icon={UsersRound}
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索协作空间（名称 / 成员）"
+          />
+        }
         actions={
           <Button onClick={() => void createWorkspace()} disabled={creating} className="gap-1.5">
             {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <UsersRound className="h-4 w-4" />}
@@ -104,8 +124,14 @@ export default function SpacesPage() {
             title="还没有协作空间"
             description="在笔记的分享面板邀请第一位协作者时会自动创建；也可以用右上角按钮先建一个空空间。"
           />
+        ) : visibleWorkspaces.length === 0 ? (
+          <EmptyState
+            icon={UsersRound}
+            title="没有匹配的协作空间"
+            description="只搜本页的空间名与成员名，换个关键词试试。"
+          />
         ) : (
-          workspaces.map((ws) => (
+          visibleWorkspaces.map((ws) => (
             <WorkspaceCard
               key={ws.id}
               workspace={ws}

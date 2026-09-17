@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { Check, Search, FolderInput, Loader2 } from "lucide-react";
+import { Check, Search, FolderInput, Loader2 } from "@/components/icons";
 import {
   Dialog,
   DialogContent,

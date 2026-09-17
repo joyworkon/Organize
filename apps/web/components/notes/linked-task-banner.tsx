@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ListChecks } from "lucide-react";
+import { ListChecks } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 
 interface LinkedTask {

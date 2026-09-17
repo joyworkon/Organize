@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { MousePointerClick, Pencil, X } from "lucide-react";
+import { MousePointerClick, Pencil, X } from "@/components/icons";
 import { useMemo, useState } from "react";
 import {
   DEFAULT_BUTTON_ATTRS,

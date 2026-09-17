@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Upload, FileText } from "lucide-react";
+import { Loader2, Upload, FileText } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 type ImportMode = "paste" | "upload";

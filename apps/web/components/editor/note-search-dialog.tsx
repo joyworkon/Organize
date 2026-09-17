@@ -12,7 +12,7 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Search, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 export interface SearchHit {

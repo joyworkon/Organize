@@ -97,7 +97,7 @@ import { createClient } from "@/lib/supabase/client";
 // 「dispatch 刷新 NodeView」effect 每渲染重跑（dispatch → onUpdate → 重渲染 死循环）
 const EMPTY_INTERNAL_LINK_STATES: Record<string, InternalLinkStateRow> = {};
 import { createNewNote } from "@/lib/notes/create-note";
-import { Plus } from "lucide-react";
+import { Plus } from "@/components/icons";
 
 /** 事务来源分类（见 docs/g0-protocol.md §4）。 */
 import {

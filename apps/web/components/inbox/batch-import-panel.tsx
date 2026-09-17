@@ -14,7 +14,7 @@ import {
   RotateCw,
   AlertCircle,
   Copy,
-} from "lucide-react";
+} from "@/components/icons";
 
 const CONCURRENCY = 3;
 

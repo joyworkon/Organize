@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes, type Editor } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { List } from "lucide-react";
+import { List } from "@/components/icons";
 import { useMemo, useState } from "react";
 import { focusAndHighlightBlock } from "./block-selection";
 import {

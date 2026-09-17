@@ -28,7 +28,7 @@ import {
   ExternalLink,
   UserPlus,
   ArrowLeftRight,
-} from "lucide-react";
+} from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { collabRoleLabel, type CollabRole } from "@/lib/collab/roles";
 import { showConfirm } from "@/components/ui/prompt-dialog";

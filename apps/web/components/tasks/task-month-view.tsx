@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";

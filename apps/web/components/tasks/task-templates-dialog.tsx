@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FilePlus2, LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react";
+import { FilePlus2, LayoutTemplate, Pencil, Plus, Trash2 } from "@/components/icons";
 import type {
   TaskCategory,
   TaskList,

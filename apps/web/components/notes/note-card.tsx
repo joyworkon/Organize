@@ -25,7 +25,7 @@ import {
   Link2,
   Star,
   FolderInput,
-} from "lucide-react";
+} from "@/components/icons";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
 import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
@@ -378,13 +378,17 @@ export function NoteCard({
     "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
     showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
     selected && "ring-2 ring-primary",
-    note.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
+    // 置顶态：不再用左缘色条（与圆角/复选框抢位、暗色几乎看不见），
+    // 改为「置顶」chip + 极淡底色，列表里还有独立的「置顶」分组标题呼应
+    note.is_pinned && "organize-pinned-card"
   );
 
-  const pinnedIcon = (inline = false) =>
-    note.is_pinned && (
-      <Pin className={cn("h-3.5 w-3.5 text-primary fill-primary shrink-0", inline && "mt-0.5")} />
-    );
+  const pinnedChip = note.is_pinned && (
+    <span className="organize-pinned-chip shrink-0" title="已置顶">
+      <Pin className="h-2.5 w-2.5" />
+      置顶
+    </span>
+  );
 
   const tagsPreview = (count: number) =>
     tags.length > 0 && (
@@ -434,7 +438,7 @@ export function NoteCard({
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center gap-3">
               {CheckboxEl}
-              {pinnedIcon()}
+              {pinnedChip}
               <div className="flex-1 min-w-0 flex items-center gap-2">
                 {Title}
                 {tagsPreview(2)}
@@ -474,7 +478,6 @@ export function NoteCard({
         <CardContent className="p-3 sm:p-4 flex-1 flex flex-col">
           <div className="flex items-start gap-2">
             {CheckboxEl}
-            {pinnedIcon(true)}
             <div className="flex-1 min-w-0">
               {Title}
             </div>
@@ -487,6 +490,7 @@ export function NoteCard({
           )}
           <div className="flex-1" />
           <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground flex-wrap">
+            {pinnedChip}
             {tags.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
                 {tags.slice(0, 3).map((tag) => (

@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { Database as DatabaseIcon, ExternalLink, Loader2 } from "lucide-react";
+import { Database as DatabaseIcon, ExternalLink, Loader2 } from "@/components/icons";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseView } from "@organize/shared";
 import { TableView } from "./table-view";

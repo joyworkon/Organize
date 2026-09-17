@@ -1,7 +1,7 @@
 "use client";
 
 import type { JSONContent } from "@tiptap/core";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "@/components/icons";
 import { useEffect, useMemo, useState } from "react";
 import { buildPresentationSlides } from "./block-utils";
 

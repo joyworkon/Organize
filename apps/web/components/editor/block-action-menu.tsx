@@ -20,7 +20,7 @@ import {
   Sparkles,
   Trash2,
   WandSparkles,
-} from "lucide-react";
+} from "@/components/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";

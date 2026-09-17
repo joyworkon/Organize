@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BookOpen, FileText } from "lucide-react";
+import { BookOpen, FileText } from "@/components/icons";
 import type { Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import type { ReferenceState } from "@/lib/reading/highlight-references";

@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { READING_STATUS_CONFIG, type ReadingStatus } from "@organize/shared";
-import { Clock, BookOpen, CheckCircle2 } from "lucide-react";
+import { Clock, BookOpen, CheckCircle2 } from "@/components/icons";
 import type { MouseEvent } from "react";
 
 interface StatusBadgeProps {

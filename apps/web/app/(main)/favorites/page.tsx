@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
-import { Star, BookOpen, FileText, ListChecks, LayoutList, Loader2, Globe } from "lucide-react";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
+import { Star, BookOpen, FileText, ListChecks, LayoutList, Loader2, Globe } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -25,6 +27,7 @@ export default function FavoritesPage() {
   const [favorites, setFavorites] = useState<FavoriteWithItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabFilter>("all");
+  const [search, setSearch] = useState("");
 
   const fetchFavorites = useCallback(async () => {
     setLoading(true);
@@ -46,13 +49,13 @@ export default function FavoritesPage() {
 
       const [readingsRes, notesRes, tasksRes] = await Promise.all([
         readingIds.length > 0
-          ? supabase.from("reading_items").select("id, title, url, site_name").in("id", readingIds)
+          ? supabase.from("reading_items").select("id, title, url, site_name, tags:tags!item_tags(id, name)").in("id", readingIds)
           : Promise.resolve({ data: [] }),
         noteIds.length > 0
-          ? supabase.from("notes").select("id, title").in("id", noteIds)
+          ? supabase.from("notes").select("id, title, tags:tags!note_tags(id, name)").in("id", noteIds)
           : Promise.resolve({ data: [] }),
         taskIds.length > 0
-          ? supabase.from("tasks").select("id, title, status").in("id", taskIds)
+          ? supabase.from("tasks").select("id, title, status, tags:tags!task_tags(id, name)").in("id", taskIds)
           : Promise.resolve({ data: [] }),
       ]);
 
@@ -96,9 +99,18 @@ export default function FavoritesPage() {
     }
   };
 
-  const filteredFavorites = activeTab === "all"
+  const byTab = activeTab === "all"
     ? favorites
     : favorites.filter(f => f.target_type === activeTab);
+  // 页内搜索：收藏项的标题 + 其自身标签（文章额外可搜站点/链接）
+  const filteredFavorites = filterByPageSearch(byTab, search, (fav) => {
+    const item = fav.item as (ReadingItem & Note & Task) | undefined;
+    return {
+      title: item?.title ?? null,
+      tags: (item as { tags?: Array<{ name?: string | null }> } | undefined)?.tags,
+      extra: [(item as ReadingItem | undefined)?.url],
+    };
+  });
 
   const counts = {
     all: favorites.length,
@@ -124,6 +136,13 @@ export default function FavoritesPage() {
       <PageHeader
         icon={Star}
         title="收藏夹"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索收藏（标题 / 标签）"
+          />
+        }
       />
 
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit flex-wrap">
@@ -163,8 +182,8 @@ export default function FavoritesPage() {
       ) : filteredFavorites.length === 0 ? (
         <EmptyState
           icon={Star}
-          title="还没有收藏内容"
-          description="点击文章、笔记或任务上的星标图标即可收藏"
+          title={search.trim() ? "没有匹配的收藏" : "还没有收藏内容"}
+          description={search.trim() ? "换个关键词试试，只搜收藏夹内的标题与标签" : "点击文章、笔记或任务上的星标图标即可收藏"}
         />
       ) : (
         <div className="space-y-2">

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronRight, Circle } from "lucide-react";
+import { Check, ChevronRight } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -121,7 +121,8 @@ const DropdownMenuRadioItem = React.forwardRef<
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <Circle className="h-2 w-2 fill-current" />
+        {/* 单选点：设计系统没有"实心小圆点"资产，这里用纯 CSS 圆点（不混用图标风格） */}
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}

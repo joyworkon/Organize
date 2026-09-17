@@ -11,7 +11,7 @@ import {
   Trash2,
   Check,
   CheckCircle2,
-} from "lucide-react";
+} from "@/components/icons";
 import {
   ContextMenu,
   ContextMenuTrigger,

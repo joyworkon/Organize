@@ -19,7 +19,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import type { ReadingItem, ReadingStatus, Highlight, HighlightColor, Tag } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal, Tag as TagIcon } from "lucide-react";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal, Tag as TagIcon } from "@/components/icons";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,7 @@ import type { JSONContent } from "@tiptap/core";
 import Link from "next/link";
 import { CollectionBackLink } from "@/components/layout/mobile-navigation";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "@/components/icons";
 import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";

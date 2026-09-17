@@ -13,8 +13,10 @@ import {
   RotateCcw,
   Timer,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
@@ -56,6 +58,7 @@ export default function TrashPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TrashFilter>("all");
+  const [search, setSearch] = useState("");
   const [pendingOperation, setPendingOperation] = useState<{
     key: string;
     action: "restore" | "permanent_delete";
@@ -79,13 +82,17 @@ export default function TrashPage() {
     void loadItems();
   }, [loadItems]);
 
-  const visibleItems = useMemo(
-    () =>
+  const visibleItems = useMemo(() => {
+    const byType =
       filter === "all"
         ? items
-        : items.filter((item) => item.resource_type === filter),
-    [filter, items]
-  );
+        : items.filter((item) => item.resource_type === filter);
+    // 垃圾箱条目只带标题与类型（无标签），页内搜索口径 = 标题 + 类型名（"笔记"/"文章"…）
+    return filterByPageSearch(byType, search, (item) => ({
+      title: item.title,
+      extra: [resourceConfig[item.resource_type].label],
+    }));
+  }, [filter, items, search]);
 
   const removeLocalItem = (item: TrashItem) => {
     setItems((current) =>
@@ -147,6 +154,13 @@ export default function TrashPage() {
       <PageHeader
         icon={Trash2}
         title="垃圾箱"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索垃圾箱（标题 / 类型）"
+          />
+        }
         actions={
           <Button
             variant="outline"
@@ -202,11 +216,19 @@ export default function TrashPage() {
       ) : visibleItems.length === 0 ? (
         <EmptyState
           icon={Trash2}
-          title={filter === "all" ? "垃圾箱是空的" : "没有这类已删除内容"}
+          title={
+            search.trim()
+              ? "没有匹配的已删除内容"
+              : filter === "all"
+                ? "垃圾箱是空的"
+                : "没有这类已删除内容"
+          }
           description={
-            filter === "all"
-              ? "从内容列表删除的项目会出现在这里"
-              : "切换到其他类型查看"
+            search.trim()
+              ? "换个关键词试试"
+              : filter === "all"
+                ? "从内容列表删除的项目会出现在这里"
+                : "切换到其他类型查看"
           }
         />
       ) : (

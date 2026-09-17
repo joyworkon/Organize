@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Network } from "lucide-react";
+import { Network } from "@/components/icons";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { useAllTags } from "@/components/tags/use-tags";
 import { BatchActionsBar } from "@/components/batch-actions-bar";
@@ -14,7 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { NoteWithTags } from "@organize/shared";
 import type { NoteTreeItem } from "@/lib/notes/tree";
-import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
+import { Plus, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "@/components/icons";
 import { NoteCard, NoteFavoritesContext, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import {
@@ -27,9 +26,11 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
+import { LayoutGrid, List as ListIcon, FileDown } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { JoyspaceImportDialog } from "@/components/notes/joyspace-import-dialog";
 import { MarkdownImportDialog } from "@/components/notes/markdown-import-dialog";
@@ -568,18 +569,29 @@ export default function NotesPage() {
     return new Map(notes.map((note) => [note.id, findNoteSearchMatch(note.content, query)]));
   }, [notes, debouncedHighlight]);
 
+  // 页内搜索的最终口径在客户端收口：服务端只能 ilike 标题 / 正文（mock 后端更是不实现），
+  // 标签命中必须在这里补齐——"只搜当前功能内的标题和标签"是页头搜索框的统一契约
+  const visibleNotes = useMemo(
+    () =>
+      filterByPageSearch(notes, search, (note) => ({
+        title: note.title,
+        tags: note.tags,
+      })),
+    [notes, search]
+  );
+
   // 列表视图 + 默认排序（更新时间降序）+ 非搜索态时按时间分组（今天/昨天/本周/更早），
   // 置顶笔记独立成组保持在最上；其余排序方式或搜索态下保持平铺，不干扰用户预期。
   const noteSections = useMemo<DateGroup<NoteWithTags>[] | null>(() => {
     if (view !== "list" || sortBy !== "updated_at" || sortOrder !== "desc" || search.trim()) {
       return null;
     }
-    const pinned = notes.filter((note) => note.is_pinned);
-    const groups = groupNotesByDate(notes.filter((note) => !note.is_pinned));
+    const pinned = visibleNotes.filter((note) => note.is_pinned);
+    const groups = groupNotesByDate(visibleNotes.filter((note) => !note.is_pinned));
     return pinned.length > 0
       ? [{ key: "pinned", label: "置顶", items: pinned }, ...groups]
       : groups;
-  }, [notes, view, sortBy, sortOrder, search]);
+  }, [visibleNotes, view, sortBy, sortOrder, search]);
 
   const toggleFavoriteById = useCallback(async (id: string) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -691,6 +703,14 @@ export default function NotesPage() {
             )}
           </>
         }
+        search={
+          <PageSearch
+            ref={searchInputRef}
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索笔记（标题 / 标签）"
+          />
+        }
         actions={
           <>
             {/* U-layout 第六步：导入两件套与图谱收进「更多」，页头只留一个主动作 */}
@@ -728,7 +748,7 @@ export default function NotesPage() {
       </div>
 
       <div className="flex items-center justify-between gap-2 md:hidden">
-        <p className="text-sm text-muted-foreground">{loading ? "整理中…" : `${notes.length} 篇笔记`}{!online ? " · 离线中" : ""}</p>
+        <p className="text-sm text-muted-foreground">{loading ? "整理中…" : `${visibleNotes.length} 篇笔记`}{!online ? " · 离线中" : ""}</p>
         <DropdownMenu>
           <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" aria-label="笔记列表更多操作"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -758,17 +778,13 @@ export default function NotesPage() {
       )}
 
       <div className="mobile-collection-toolbar flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="mobile-collection-search relative flex-1 sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            placeholder="搜索笔记"
-            aria-label="搜索笔记"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+        {/* 桌面端搜索在页头标题行；移动端页头隐藏，这里保留同一个搜索框 */}
+        <PageSearch
+          className="mobile-collection-search md:hidden"
+          value={search}
+          onChange={setSearch}
+          placeholder="搜索笔记（标题 / 标签）"
+        />
         <div className="mobile-note-tools flex items-center gap-1 flex-wrap">
           {/* U-layout 第四步：标签筛选并入工具行，不再单独占一条横带 */}
           <TagFilter
@@ -877,7 +893,7 @@ export default function NotesPage() {
             <div key={index} className="h-[88px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
-      ) : notes.length === 0 ? (
+      ) : visibleNotes.length === 0 ? (
         <EmptyState
           icon={FileText}
           title={search.trim() || selectedTagIds.length > 0 ? "没有找到匹配的笔记" : "还没有笔记"}
@@ -917,7 +933,7 @@ export default function NotesPage() {
         ) : (
           <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
             <div className="grid gap-2 sm:gap-3">
-              {notes.map((note) => (
+              {visibleNotes.map((note) => (
                 <NoteCard key={note.id} {...noteCardProps(note)} />
               ))}
             </div>
@@ -926,7 +942,7 @@ export default function NotesPage() {
       ) : (
         <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
           <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {notes.map((note) => (
+            {visibleNotes.map((note) => (
               <NoteCard key={note.id} {...noteCardProps(note)} />
             ))}
           </div>

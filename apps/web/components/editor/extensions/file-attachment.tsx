@@ -10,7 +10,7 @@ import {
   FileAudio,
   FileText,
   FileVideo,
-} from "lucide-react";
+} from "@/components/icons";
 
 /** 面向附件面板等处复用：字节大小格式化 */
 export function formatFileSize(size: unknown): string {

@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { History, RotateCcw, Trash2, Loader2 } from "lucide-react";
+import { History, RotateCcw, Trash2, Loader2 } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
 

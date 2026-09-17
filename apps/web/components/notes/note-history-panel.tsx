@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, X } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";

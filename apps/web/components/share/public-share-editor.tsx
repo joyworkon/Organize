@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "@/components/icons";
 import { TipTapEditor, type TransactionSource } from "@/components/editor/tiptap-editor";
 import { useNoteCollab } from "@/hooks/use-note-collab";
 

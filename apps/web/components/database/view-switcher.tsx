@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Table2, Kanban, List, LayoutGrid, CalendarDays, GanttChart, BarChart3, LayoutDashboard, Activity,
   Plus, Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import type { DatabaseView, DatabaseViewType } from "@organize/shared";
 
 const VIEW_TYPE_META: Record<string, { icon: typeof Table2; label: string }> = {

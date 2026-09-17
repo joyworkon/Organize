@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BookOpen, Link as LinkIcon, FileText, ListChecks } from "lucide-react";
+import { BookOpen, Link as LinkIcon, FileText, ListChecks } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

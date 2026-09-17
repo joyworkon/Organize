@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Loader2, MessageSquare, Reply, Send, Trash2 } from "lucide-react";
+import { Check, Loader2, MessageSquare, Reply, Send, Trash2 } from "@/components/icons";
 import type { BlockComment, CommentThread } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";

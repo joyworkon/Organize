@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";

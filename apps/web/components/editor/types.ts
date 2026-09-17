@@ -1,5 +1,5 @@
+import type { DsIconComponent } from "@/components/icons";
 import type { Editor, JSONContent } from "@tiptap/core";
-import type { LucideIcon } from "lucide-react";
 
 export type BlockCommandCategory = "建议" | "基本区块" | "媒体" | "布局" | "插件";
 
@@ -29,7 +29,7 @@ export interface BlockCommandDefinition {
   label: string;
   description?: string;
   category: BlockCommandCategory;
-  icon: LucideIcon;
+  icon: DsIconComponent;
   keywords: string[];
   shortcut?: string;
   canTransform?: boolean;

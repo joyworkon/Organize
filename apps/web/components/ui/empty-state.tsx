@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import type { LucideIcon } from "lucide-react";
 
 interface EmptyStateProps {
-  icon: LucideIcon;
+  /** 图标组件（设计系统图标：@/components/icons） */
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description?: string;
   action?: React.ReactNode;

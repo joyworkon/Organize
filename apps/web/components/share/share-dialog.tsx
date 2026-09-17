@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Share2, Copy, Check, Trash2, Loader2, ExternalLink } from "lucide-react";
+import { Share2, Copy, Check, Trash2, Loader2, ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { ShareResourceType } from "@organize/shared";
 

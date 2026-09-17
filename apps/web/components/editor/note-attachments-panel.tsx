@@ -11,7 +11,7 @@
 import type { Editor } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, Paperclip, Trash2, X } from "lucide-react";
+import { ExternalLink, Paperclip, Trash2, X } from "@/components/icons";
 import { formatFileSize, iconForMime } from "./extensions/file-attachment";
 import { Button } from "@/components/ui/button";
 

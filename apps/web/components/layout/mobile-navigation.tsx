@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Menu, Plus, Search } from "lucide-react";
+import { Menu, Plus, Search } from "@/components/icons";
 import { MobileBottomBar } from "./mobile-bottom-bar";
 import { MOBILE_DESTINATIONS, MOBILE_LOCATIONS_KEY, collectionLocation, mobileKeyboardOpen, mobileRoute, readMobileLocations } from "@/lib/navigation/mobile";
 import type { MobileLocations, MobileSection } from "@/lib/navigation/mobile";

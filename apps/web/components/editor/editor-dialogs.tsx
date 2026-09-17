@@ -16,7 +16,7 @@ import {
   Send,
   Trash2,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { findBlockById, isSameNodeSnapshot, nodeText } from "./block-utils";

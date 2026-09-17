@@ -19,7 +19,7 @@ import {
   RotateCcw,
   Link2,
   Printer,
-} from "lucide-react";
+} from "@/components/icons";
 import { formatDueDate, getDueDateColorClass } from "@/lib/date-utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

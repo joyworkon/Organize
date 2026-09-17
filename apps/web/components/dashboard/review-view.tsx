@@ -14,7 +14,7 @@ import {
   Highlighter,
   Clock,
   Loader2,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 interface Task {

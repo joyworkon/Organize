@@ -23,8 +23,8 @@ import {
   Trash2,
   ListTree,
   Paperclip,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+} from "@/components/icons";
+import type { DsIconComponent } from "@/components/icons";
 import type { NoteFont } from "@organize/shared";
 
 interface NotePageMenuProps {
@@ -68,7 +68,7 @@ interface MenuItem {
   label: string;
   /** 关键词，用于搜索匹配（除 label 外） */
   keywords?: string[];
-  icon?: LucideIcon;
+  icon?: DsIconComponent;
   shortcut?: string;
   /** 只有 action 类型在执行后会关闭菜单 */
   danger?: boolean;
@@ -82,7 +82,7 @@ interface MenuItem {
 interface MenuSection {
   /** 分组标签，空字符串表示无标签（紧贴上方分隔线） */
   label: string;
-  labelIcon?: LucideIcon;
+  labelIcon?: DsIconComponent;
   items: MenuItem[];
 }
 

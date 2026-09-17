@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "@/components/icons";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabaseView } from "@organize/shared";
 
 interface ListViewProps {

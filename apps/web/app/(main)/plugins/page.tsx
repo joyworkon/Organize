@@ -3,14 +3,33 @@
 import { useState } from "react";
 import { usePluginStore } from "@/lib/plugin/store";
 import { Button } from "@/components/ui/button";
-import { Puzzle, Power, PowerOff } from "lucide-react";
+import { Puzzle, Power, PowerOff } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { cn } from "@/lib/utils";
+
+/** 扩展点中文名：既用于卡片标签，也作为页内搜索的匹配面 */
+const EXTENSION_LABEL: Record<string, string> = {
+  "toolbar-action": "工具栏",
+  "sidebar-panel": "侧边栏",
+  "content-processor": "内容处理",
+  "ai-action": "AI 操作",
+};
 
 export default function PluginsPage() {
   const [toggling, setToggling] = useState<string | null>(null);
   const [pluginError, setPluginError] = useState("");
+  const [search, setSearch] = useState("");
   const { plugins, activePlugins } = usePluginStore();
+
+  // 插件没有标签，页内搜索口径 = 名称 + 描述 + 作者 + 扩展点中文名（"工具栏"/"AI 操作"…）
+  const visiblePlugins = filterByPageSearch(plugins, search, (plugin) => ({
+    title: plugin.name,
+    tags: plugin.extensions.map((ext) => EXTENSION_LABEL[ext.type] ?? ext.type),
+    extra: [plugin.description, plugin.author, plugin.id],
+  }));
+
 
   const togglePlugin = async (pluginId: string, enabled: boolean) => {
     setToggling(pluginId);
@@ -39,23 +58,30 @@ export default function PluginsPage() {
       <PageHeader
         icon={Puzzle}
         title="插件管理"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索插件（名称 / 能力）"
+          />
+        }
       />
 
       {pluginError && <p className="text-sm text-destructive">{pluginError}</p>}
 
-      {plugins.length === 0 ? (
+      {visiblePlugins.length === 0 ? (
         <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">
           <Puzzle className="h-12 w-12 mx-auto mb-4 opacity-30" />
-          <p>暂无已安装的插件</p>
+          <p>{search.trim() ? "没有匹配的插件" : "暂无已安装的插件"}</p>
           <p className="text-sm mt-2">
-            将插件包放入 packages/plugins/ 目录即可自动加载
+            {search.trim() ? "换个关键词试试" : "将插件包放入 packages/plugins/ 目录即可自动加载"}
           </p>
         </div>
       ) : (
         <div className="rounded-lg border bg-card shadow-none">
-          {plugins.map((plugin, index) => {
+          {visiblePlugins.map((plugin, index) => {
             const isActive = activePlugins.has(plugin.id);
-            const isLast = index === plugins.length - 1;
+            const isLast = index === visiblePlugins.length - 1;
             return (
               <div key={plugin.id} className={cn("p-5", !isLast && "border-b")}>
                 <div className="flex items-start justify-between gap-4">
@@ -95,10 +121,7 @@ export default function PluginsPage() {
                         "bg-muted text-muted-foreground"
                       )}
                     >
-                      {ext.type === "toolbar-action" && "🔧 工具栏"}
-                      {ext.type === "sidebar-panel" && "📋 侧边栏"}
-                      {ext.type === "content-processor" && "⚙️ 内容处理"}
-                      {ext.type === "ai-action" && "🤖 AI 操作"}
+                      {EXTENSION_LABEL[ext.type] ?? ext.type}
                     </span>
                   ))}
                 </div>

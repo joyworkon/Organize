@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, Tag as TagIcon } from "lucide-react";
+import { ChevronDown, Tag as TagIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TagBadge } from "./tag-badge";

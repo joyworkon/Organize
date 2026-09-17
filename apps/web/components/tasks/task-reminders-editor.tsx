@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, Plus, Trash2 } from "lucide-react";
+import { Bell, Plus, Trash2 } from "@/components/icons";
 import type { Task, TaskReminder } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";

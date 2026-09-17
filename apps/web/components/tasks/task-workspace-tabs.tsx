@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CalendarDays, Lightbulb, ListChecks, Search, Timer } from "lucide-react";
+import { CalendarDays, Lightbulb, ListChecks, Search, Timer } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 const tabs = [

@@ -11,7 +11,7 @@ import {
   ListTree,
   MoreHorizontal,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,

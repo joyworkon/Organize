@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, FileText, ListTodo, Loader2, Settings, X, Zap } from "lucide-react";
+import { BookOpen, Check, FileText, ListTodo, Loader2, Settings, X, Zap } from "@/components/icons";
 import type { Memo, Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";

@@ -34,7 +34,7 @@ import {
   Link2,
   Repeat2,
   Database as DatabaseIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import type { BlockCommandContext, BlockCommandDefinition, BlockCommandRunResult } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
 import { normalizeColumnCount, normalizeColumnWidths } from "./extensions/columns";

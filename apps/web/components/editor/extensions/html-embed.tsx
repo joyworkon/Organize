@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { Code2, Pencil, X } from "lucide-react";
+import { Code2, Pencil, X } from "@/components/icons";
 import { useMemo, useState } from "react";
 
 const DEFAULT_HTML = `<div class="demo">HTML 嵌入块</div>

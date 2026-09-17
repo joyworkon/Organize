@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { collectReadingItem, type CollectResult } from "@/lib/reading/collect";
-import { Loader2, Check, Share2 } from "lucide-react";
+import { Loader2, Check, Share2 } from "@/components/icons";
 
 export default function ShareTargetPage() {
   return (

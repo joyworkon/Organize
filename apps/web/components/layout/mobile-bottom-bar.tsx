@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BookOpen, Feather, FileText, House, ListChecks } from "lucide-react";
+import { BookOpen, Feather, FileText, House, ListChecks } from "@/components/icons";
 import { MOBILE_DESTINATIONS } from "@/lib/navigation/mobile";
 import type { MobileLocations, MobileSection } from "@/lib/navigation/mobile";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ export function MobileBottomBar({ active, locations }: { active: MobileSection |
         const selected = active === key;
         return (
           <Link key={key} href={locations[key] || href} aria-current={selected ? "page" : undefined} className={cn("mobile-tab", selected && "is-active")}>
-            <span className="mobile-tab-icon"><Icon className="h-[21px] w-[21px]" strokeWidth={selected ? 2.2 : 1.7} /></span>
+            <span className="mobile-tab-icon"><Icon className="h-[21px] w-[21px]" /></span>
             <span>{label}</span>
           </Link>
         );

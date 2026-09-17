@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Users, Loader2 } from "lucide-react";
+import { Users, Loader2 } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useSharedNotes, type SharedNoteItem } from "@/hooks/use-shared-notes";
@@ -23,11 +24,14 @@ export default function SharedNotesPage() {
   const { notes, loading, error, refresh } = useSharedNotes();
   const [keyword, setKeyword] = useState("");
 
-  const filtered = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return notes;
-    return notes.filter((note) => (note.title || "").toLowerCase().includes(q));
-  }, [notes, keyword]);
+  const filtered = useMemo(
+    () =>
+      filterByPageSearch(notes, keyword, (note) => ({
+        title: note.title,
+        extra: [note.ownerName, collabRoleLabel(note.myRole)],
+      })),
+    [notes, keyword]
+  );
 
   const openNote = (note: SharedNoteItem) => {
     router.push(`/notes/${note.id}`);
@@ -38,21 +42,14 @@ export default function SharedNotesPage() {
       <PageHeader
         title="与我共享"
         icon={Users}
+        search={
+          <PageSearch
+            value={keyword}
+            onChange={setKeyword}
+            placeholder="搜索共享笔记（标题 / 来源）"
+          />
+        }
       />
-
-      {notes.length > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索共享笔记…"
-              className="pl-8"
-            />
-          </div>
-        </div>
-      )}
 
       <div className="mt-6">
         {loading ? (

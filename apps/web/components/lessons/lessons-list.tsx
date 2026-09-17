@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { LessonCard } from "@/components/lessons/lesson-card";
 import { TagFilter } from "@/components/tags/tag-filter";
 import {
@@ -21,8 +20,10 @@ import {
   Lightbulb,
   Plus,
   Search,
-} from "lucide-react";
+} from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { matchesPageSearch } from "@/lib/search/page-search";
 import type { LessonWithTags, Tag, LessonType, TagWithCount } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -150,13 +151,12 @@ export function LessonsList() {
       const lessonTagIds = (l.tags || []).map(tag => tag.id);
       if (!selectedTagIds.some(id => lessonTagIds.includes(id))) return false;
     }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      const title = (l.title || "").toLowerCase();
-      const textContent = l.content ? JSON.stringify(l.content).toLowerCase() : "";
-      return title.includes(q) || textContent.includes(q);
-    }
-    return true;
+    // 页内搜索统一口径：标题 + 标签（经验额外可搜正文，正文是它的主要内容）
+    return matchesPageSearch(search, {
+      title: l.title,
+      tags: l.tags,
+      extra: [l.content ? JSON.stringify(l.content) : null],
+    });
   });
 
   return (
@@ -164,6 +164,14 @@ export function LessonsList() {
       <PageHeader
         icon={Lightbulb}
         title="经验总结"
+        search={
+          <PageSearch
+            ref={searchInputRef}
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索经验（标题 / 标签，按 / 聚焦）"
+          />
+        }
         actions={
           <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
             <Plus className="h-4 w-4" />
@@ -173,17 +181,6 @@ export function LessonsList() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            placeholder="搜索经验...（按 / 聚焦）"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
         <Select value={typeFilter} onValueChange={(v: TypeFilter) => setTypeFilter(v)}>
           <SelectTrigger aria-label="按类型筛选" className="w-32">
             <SelectValue placeholder="类型" />

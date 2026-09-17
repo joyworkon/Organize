@@ -15,6 +15,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
 import {
   enqueueMemoCreate,
@@ -27,7 +29,7 @@ import { emitDataChanged, subscribeDataChanged } from "@/lib/desktop/notch";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Memo } from "@organize/shared";
-import { Feather, Loader2, Pencil, FileText, Trash2 } from "lucide-react";
+import { Feather, Loader2, Pencil, FileText, Trash2 } from "@/components/icons";
 
 const MEMO_MAX_LENGTH = 5000;
 
@@ -76,6 +78,7 @@ function MemosPageInner() {
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -296,10 +299,14 @@ function MemosPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const visible = useMemo(
-    () => (filterTag ? memos.filter((m) => m.tags?.includes(filterTag)) : memos),
-    [memos, filterTag]
-  );
+  const visible = useMemo(() => {
+    const byTag = filterTag ? memos.filter((m) => m.tags?.includes(filterTag)) : memos;
+    // 速记没有标题，正文首行即标题；页内搜索口径 = 正文 + #标签
+    return filterByPageSearch(byTag, search, (memo) => ({
+      title: memo.content,
+      tags: memo.tags,
+    }));
+  }, [memos, filterTag, search]);
 
   const grouped = useMemo(() => {
     const groups: { label: string; items: Memo[] }[] = [];
@@ -481,8 +488,23 @@ function MemosPageInner() {
         <PageHeader
           icon={Feather}
           title="速记"
+          search={
+            <PageSearch
+              value={search}
+              onChange={setSearch}
+              placeholder="搜索速记（正文 / 标签）"
+            />
+          }
         />
       </div>
+
+      {/* 桌面端搜索在页头标题行；移动端页头隐藏，这里补同一个搜索框 */}
+      <PageSearch
+        className="md:hidden"
+        value={search}
+        onChange={setSearch}
+        placeholder="搜索速记（正文 / 标签）"
+      />
 
       {/* 输入区：桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
       <div className="memo-composer rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
@@ -610,10 +632,20 @@ function MemosPageInner() {
       ) : visible.length === 0 ? (
         <EmptyState
           icon={Feather}
-          title={filterTag ? `没有带 #${filterTag} 的速记` : "还没有速记"}
-          description="想到什么就记下来，别让灵感溜走"
+          title={
+            search.trim()
+              ? "没有匹配的速记"
+              : filterTag
+                ? `没有带 #${filterTag} 的速记`
+                : "还没有速记"
+          }
+          description={search.trim() ? "换个关键词或标签试试" : "想到什么就记下来，别让灵感溜走"}
           action={
-            filterTag ? (
+            search.trim() ? (
+              <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => setSearch("")}>
+                清空搜索
+              </button>
+            ) : filterTag ? (
               <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => setFilterTag(null)}>
                 查看全部
               </button>

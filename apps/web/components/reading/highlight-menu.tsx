@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Copy, ListTodo, StickyNote } from "lucide-react";
+import { Copy, ListTodo, StickyNote } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { HighlightColor } from "@organize/shared";

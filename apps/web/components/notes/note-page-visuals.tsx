@@ -9,7 +9,7 @@ import {
   SmilePlus,
   Trash2,
   Upload,
-} from "lucide-react";
+} from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   Popover,

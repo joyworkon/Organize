@@ -17,7 +17,7 @@ import {
   Trash2,
   WifiOff,
   AlertTriangle,
-} from "lucide-react";
+} from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { appEvents } from "@/lib/plugin/events";
@@ -55,6 +55,8 @@ import { groupTasksByDate } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { TaskFilterMenu, countActiveTaskFilters, type TaskFilterState } from "@/components/tasks/task-filter-menu";
+import { PageSearch } from "@/components/layout/page-search";
+import { matchesPageSearch } from "@/lib/search/page-search";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import { TaskTemplatesDialog } from "@/components/tasks/task-templates-dialog";
@@ -304,6 +306,7 @@ function TasksPageInner() {
   const selectedTaskId = searchParams.get("task");
   const sidebarScope = (searchParams.get("scope") as TaskScope) || "all";
   const sidebarListId = searchParams.get("list");
+  const [search, setSearch] = useState("");
   const sidebarSelection = useMemo<SidebarSelection>(() => ({ scope: sidebarScope, listId: sidebarScope === "list" ? sidebarListId : null }), [sidebarListId, sidebarScope]);
   const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null;
 
@@ -684,9 +687,11 @@ function TasksPageInner() {
     if (categoryFilter !== "all" && task.category !== categoryFilter) return false;
     if (priorityFilter !== "all" && task.priority !== priorityFilter) return false;
     if (selectedTagIds.length && !(task.tags || []).some((tag) => selectedTagIds.includes(tag.id))) return false;
+    // 页内搜索：只搜当前范围（清单 / 全部 / 垃圾箱）内的任务标题与标签
+    if (!matchesPageSearch(search, { title: task.title, tags: task.tags, extra: [task.description] })) return false;
     return true;
     });
-  }, [categoryFilter, priorityFilter, selectedTagIds, sidebarSelection, statusFilter, tasks]);
+  }, [categoryFilter, priorityFilter, search, selectedTagIds, sidebarSelection, statusFilter, tasks]);
 
   // 筛选/scope 变化后裁掉不可见的选择项：防止批量操作作用到当前视野外的任务
   useEffect(() => {
@@ -1051,6 +1056,13 @@ function TasksPageInner() {
             tasks={tasks.filter((task) => !task.deleted_at)}
             onOpenTask={(taskId) => updateUrl({ task: taskId })}
           />
+          {/* 页内搜索：与清单名同一行、清单头最右侧（移动端在下方工具行） */}
+          <PageSearch
+            className="hidden shrink-0 md:flex"
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索本清单（标题 / 标签）"
+          />
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1071,6 +1083,14 @@ function TasksPageInner() {
                 🔕 通知已禁用
               </div>
             )}
+
+            {/* 移动端清单头装不下搜索框，这里补同一个（桌面在清单头最右） */}
+            <PageSearch
+              className="mb-3 md:hidden"
+              value={search}
+              onChange={setSearch}
+              placeholder="搜索本清单（标题 / 标签）"
+            />
 
             {/* U-layout：移动端保留一条工具行（筛选面板 + 视图开关）；桌面这三项已在清单头 */}
             <div className="mobile-task-tools mb-3 flex items-center gap-2 md:hidden">
@@ -1184,7 +1204,7 @@ function TasksPageInner() {
                     <Button size="sm" variant="ghost" onClick={() => void fetchTasks()}>重试</Button>
                   </div>
                 )}
-                {filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "写下下一步，或点右上角添加待办"} /> : (
+                {filteredTasks.length === 0 ? <EmptyState icon={ListChecks} title={search.trim() ? "没有匹配的任务" : sidebarSelection.scope === "trash" ? "垃圾箱是空的" : "还没有任务"} description={search.trim() ? "只搜当前范围内的任务标题与标签，换个关键词试试" : sidebarSelection.scope === "trash" ? "删除的任务会在这里出现，可恢复或永久删除" : "写下下一步，或点右上角添加待办"} /> : (
               <div className="overflow-hidden rounded-xl border bg-background">
                 {activeSections ? (
                   activeSections.map((section) => (

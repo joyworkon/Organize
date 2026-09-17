@@ -24,7 +24,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2, Lightbulb, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2, Lightbulb, MoreHorizontal } from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
