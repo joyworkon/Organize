@@ -8,7 +8,6 @@ import { ReadingCard } from "@/components/reading/reading-card";
 import { QuickAddBar } from "@/components/reading/quick-add-bar";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { TagFilter } from "@/components/tags/tag-filter";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { useAllTags } from "@/components/tags/use-tags";
@@ -22,16 +21,17 @@ import {
   BookOpen,
   Clock,
   CheckCircle2,
-  Search,
   ListChecks,
   Trash2,
   Pin,
   Sparkles,
   Library,
   Layers,
-} from "lucide-react";
+} from "@/components/icons";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Select,
@@ -297,8 +297,15 @@ function LibraryPageInner() {
   }, [filter, search, selectedTagIds]);
 
   const sortedItems = useMemo(() => {
-    return sortItems(items, smartSort);
-  }, [items, smartSort]);
+    // 页内搜索最终口径在客户端收口：服务端只能按标题/摘要/正文 ilike，
+    // 标签命中与 mock 后端（不实现 ilike）都靠这一层补齐
+    const searched = filterByPageSearch(items, search, (item) => ({
+      title: item.title,
+      tags: item.tags,
+      extra: [item.excerpt, item.url],
+    }));
+    return sortItems(searched, smartSort);
+  }, [items, search, smartSort]);
 
   const handleSortChange = (value: SmartSortOption) => {
     setSmartSort(value);
@@ -541,6 +548,14 @@ function LibraryPageInner() {
       <PageHeader
         icon={Library}
         title="稍后读"
+        search={
+          <PageSearch
+            ref={searchInputRef}
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索稍后读（标题 / 标签）"
+          />
+        }
       />
 
       <QuickAddBar
@@ -578,17 +593,6 @@ function LibraryPageInner() {
               </span>
             </button>
           ))}
-        </div>
-        <div className="mobile-collection-search relative flex-1 sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            placeholder="搜索阅读内容"
-            aria-label="搜索阅读内容"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
         </div>
         <div className="mobile-toolbar-actions flex w-full items-center justify-between gap-2 sm:w-auto">
           {/* U-layout 第四步：标签筛选并入工具行，页头到首条内容之间只剩 2 条横带 */}
@@ -679,7 +683,7 @@ function LibraryPageInner() {
             <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
-      ) : items.length === 0 ? (
+      ) : sortedItems.length === 0 ? (
         (() => {
           const hasFilter = search.trim() !== "" || selectedTagIds.length > 0 || filter !== "all";
           return (

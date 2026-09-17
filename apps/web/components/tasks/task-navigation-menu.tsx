@@ -12,7 +12,7 @@ import {
   ListChecks,
   Plus,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import type { TaskList, TaskWithTags } from "@organize/shared";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { toast } from "@/hooks/use-toast";

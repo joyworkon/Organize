@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { ExternalLink, ListTodo, StickyNote, Trash2, X } from "lucide-react";
+import { ExternalLink, ListTodo, StickyNote, Trash2, X } from "@/components/icons";
 import type { Highlight, HighlightColor } from "@organize/shared";
 import { toast } from "@/hooks/use-toast";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";

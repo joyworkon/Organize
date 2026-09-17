@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, ExternalLink, Eye, File, Loader2, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Eye, File, Loader2, Trash2 } from "@/components/icons";
 import type { TaskAttachment } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";

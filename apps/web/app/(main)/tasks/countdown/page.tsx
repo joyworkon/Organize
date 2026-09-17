@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Loader2, Pencil, Plus, Repeat2, Trash2 } from "lucide-react";
+import { CalendarDays, Loader2, Pencil, Plus, Repeat2, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
@@ -40,6 +42,7 @@ const blankForm = (): CountdownForm => ({
 function CountdownPageInner() {
   const supabase = useMemo(() => createClient(), []);
   const [days, setDays] = useState<CountdownDay[]>([]);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,20 +129,32 @@ function CountdownPageInner() {
   };
 
   const sorted = useMemo(() => sortCountdownDays(days), [days]);
+  // 倒数日只有标题（无标签），页内搜索匹配标题
+  const visibleDays = useMemo(
+    () => filterByPageSearch(sorted, search, (item) => ({ title: item.title })),
+    [sorted, search]
+  );
   return (
     <section className="min-h-[calc(100vh-11rem)] w-full rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
       <PageHeader
         icon={CalendarDays}
         title="倒数日"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索倒数日（标题）"
+          />
+        }
         actions={<Button type="button" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>}
       />
       {loading ? (
         <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div>
-      ) : sorted.length === 0 ? (
-        <EmptyState icon={CalendarDays} title="还没有倒数日" description="添加一个重要日期，随时掌握剩余时间" action={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>} />
+      ) : visibleDays.length === 0 ? (
+        <EmptyState icon={CalendarDays} title={search.trim() ? "没有匹配的倒数日" : "还没有倒数日"} description={search.trim() ? "只搜本页的倒数日标题，换个关键词试试" : "添加一个重要日期，随时掌握剩余时间"} action={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>} />
       ) : (
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          {sorted.map((item) => {
+          {visibleDays.map((item) => {
             const display = countdownDisplay(item);
             return (
               <article key={item.id} className="rounded-xl border bg-card p-4 shadow-sm">

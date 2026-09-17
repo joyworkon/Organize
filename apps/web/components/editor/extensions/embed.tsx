@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { ExternalLink, Link2, Pencil, X } from "lucide-react";
+import { ExternalLink, Link2, Pencil, X } from "@/components/icons";
 import { useState } from "react";
 
 interface OEmbedData {

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "@/components/icons";
 import type { Task, LessonType } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 

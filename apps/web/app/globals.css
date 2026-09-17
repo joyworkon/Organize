@@ -393,21 +393,9 @@
 }
 
 /* === 桌面端笔记标签页条（挂在主布局、笔记页之外；条高 40px，与下方
-   .note-topbar 的吸顶偏移联动。外壳配色见 .organize-chrome-bar） === */
-.note-tabs-add {
-  /* 溢出滚动时贴右不被卷走，需要不透明底遮住从下方滚过的标签 */
-  margin-left: 2px;
-  background: hsl(var(--muted));
-}
-.note-tabs-add:hover {
-  background: hsl(var(--accent));
-}
-.dark .note-tabs-add {
-  background: hsl(var(--background));
-}
-.dark .note-tabs-add:hover {
-  background: hsl(var(--accent));
-}
+   .note-topbar 的吸顶偏移联动。外壳配色见 .organize-chrome-bar）
+   2026-09-17：条上的前进/后退与「+」已移除（与浏览器导航、页头「新建笔记」重复），
+   这条只在打开某篇笔记且确有标签时出现，笔记列表页不再挂空壳条。 === */
 .note-tabs-scroll {
   scrollbar-width: none;
 }
@@ -2354,6 +2342,156 @@
   color: hsl(var(--muted-foreground));
 }
 
+/* ------------------------- 页内搜索框（功能页页头最右侧） ------------------------- */
+/* 全站每个功能页都有一个"只搜本功能"的搜索框，位置固定在标题同一行的最右侧
+   （摆放由 components/layout/page-header.tsx 的 search 槽负责）。
+   视觉契约：未聚焦 = 浅灰底 + 无边框（安静，不与标题抢视线）；
+             聚焦 = 纸面底 + 品牌色外框 + 光环（"只有选中时才有外侧框"）。
+   跨功能搜索仍走 ⌘K 命令面板，二者语义不重叠。 */
+/* 放进 @layer components：这条规则设了 display，若留在文件末尾的普通层里，
+   会盖掉 Tailwind 的 `hidden` / `md:hidden`（同优先级、源序在后），
+   导致「桌面版搜索框」在手机宽度下也显示出来。 */
+@layer components {
+  .organize-page-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+  @media (min-width: 640px) {
+    .organize-page-search {
+      width: 232px;
+      flex: 0 0 auto;
+    }
+  }
+}
+.organize-page-search-icon {
+  position: absolute;
+  left: 9px;
+  height: 14px;
+  width: 14px;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+}
+.organize-page-search-input {
+  height: 34px;
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background-color: hsl(var(--muted));
+  padding: 0 28px 0 29px;
+  font-size: 13px;
+  line-height: 20px;
+  color: hsl(var(--foreground));
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.organize-page-search-input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+.organize-page-search-input:hover {
+  background-color: hsl(var(--accent));
+}
+.organize-page-search-input:focus,
+.organize-page-search-input:focus-visible {
+  outline: none;
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--ring) / 0.6);
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.16);
+}
+.organize-page-search-clear {
+  position: absolute;
+  right: 5px;
+  display: grid;
+  height: 20px;
+  width: 20px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: hsl(var(--muted-foreground));
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.organize-page-search-clear:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+/* ------------------------- 置顶态标识（chip） ------------------------- */
+/* 改版前置顶卡片靠左缘一条品牌色竖条表示，问题：竖条与卡片圆角/复选框抢位置，
+   在列表里像"未读标记"而不是"置顶"，暗色下更是几乎看不出来。
+   现在改成 meta 行里的一枚灰底「置顶」chip（图钉 + 文字，自解释），
+   卡片本身只留极淡的一层底色区分。明暗两套都走 token，无需各写一份颜色。 */
+.organize-pinned-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.organize-pinned-card {
+  background: hsl(var(--muted) / 0.35);
+}
+.dark .organize-pinned-card {
+  background: hsl(var(--muted) / 0.5);
+}
+
+/* ------------------------- 侧栏「待办」子导航（2026-09-17） ------------------------- */
+/* 问题：展开后「全部 / 今天 / 最近7天 / 各清单 / 已完成 / 垃圾桶」与一级导航
+   （工作台 / 稍后读 / 笔记 …）字号、缩进、图标尺寸完全一致，视觉上是同一层，
+   展开后整条侧栏变成一长串同质条目，看不出哪些属于待办。
+   方案：三重降级 —— ①整块缩进到父行图标中心并挂一条竖导引线；
+   ②子项小一号（13px）、图标 14px、行高更紧；③分「视图 / 清单 / 归档」小标题分段。
+   几何：nav 内边距 12px + 父行 pl-3(12px) + 图标半宽 8px = 32px ⇒ 竖线落在父图标中心线上。 */
+.organize-task-subnav {
+  position: relative;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  margin-left: 20px;   /* 12px(nav p-3) + 20px = 32px：与父行图标中心对齐 */
+  padding-left: 10px;
+  border-left: 1px solid hsl(var(--border));
+}
+.dark .organize-task-subnav {
+  border-left-color: hsl(var(--border) / 0.7);
+}
+/* 分段小标题：比子项再小一号、拉开字距，只做分组不抢注意力 */
+.organize-task-subnav-caption {
+  margin: 2px 0 1px;
+  padding-left: 8px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground) / 0.75);
+  user-select: none;
+}
+/* 选中态：子项用左侧色条 + 弱底色，与一级导航的整块 accent 底色区分开 */
+.organize-task-subnav-item {
+  position: relative;
+}
+.organize-task-subnav-item[data-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
+}
+
+/* ------------------------- 设计系统图标（TraeWork 单色资产） ------------------------- */
+/* 由 scripts/gen-ds-icons.mjs 生成的组件统一带 .ds-icon：
+   几何原样保留，fill=currentColor ⇒ 明暗色自动跟随文字色。 */
+.ds-icon {
+  flex-shrink: 0;
+}
+
 /* ------------------------- 待办清单头兜底滚动 ------------------------- */
 /* 清单头在窄双栏（≤1180px 且打开任务详情）里可能装不下全部工具，
    允许横向滚动比裁掉按钮好，但不要显示横向滚动条。 */
@@ -3233,6 +3371,14 @@
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 吸顶条右侧：视图切换 + 页内搜索并排（搜索在最右） */
+.dashboard-view-switcher-tools {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
 }
 .dashboard-view-switcher [role="tablist"] {
   display: grid;

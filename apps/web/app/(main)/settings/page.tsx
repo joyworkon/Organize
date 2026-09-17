@@ -27,12 +27,15 @@ import {
   RotateCcw,
   Loader2,
   ShieldAlert,
-} from "lucide-react";
+} from "@/components/icons";
 import { AISettingsSection } from "@/components/settings/ai-settings";
 import { RestoreSection } from "@/components/settings/restore-section";
 import { NotchTriggerSetting } from "@/components/settings/notch-trigger-setting";
 import { AppearanceSection } from "@/components/settings/appearance-section";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { matchesPageSearch } from "@/lib/search/page-search";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const APP_VERSION = "0.1.0";
 
@@ -59,6 +62,7 @@ export default function SettingsPage() {
   const supabase = useMemo(() => createClient(), []);
   const [exportingData, setExportingData] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [search, setSearch] = useState("");
   const router = useRouter();
   const [exportingMarkdown, setExportingMarkdown] = useState(false);
   const [exportingAttachments, setExportingAttachments] = useState(false);
@@ -269,24 +273,50 @@ export default function SettingsPage() {
     }
   };
 
+  // 页内搜索：设置页没有列表数据，匹配面 = 各分区标题 + 该分区的关键词（等价于"标签"）
+  const sectionMatch = (title: string, keywords: string[]) =>
+    matchesPageSearch(search, { title, tags: keywords });
+  const show = {
+    appearance: sectionMatch("外观", ["主题", "深色", "暗色", "浅色", "字体", "配色"]),
+    notch: sectionMatch("刘海触发器", ["桌面端", "notch", "快捷唤出", "菜单栏"]),
+    plugins: sectionMatch("插件管理", ["插件", "AI 摘要", "标签推荐", "扩展"]),
+    ai: sectionMatch("AI 服务", ["AI", "模型", "密钥", "api key", "端点", "openai"]),
+    data: sectionMatch("数据管理", ["导出", "备份", "恢复", "markdown", "json", "附件包"]),
+    account: sectionMatch("账号与数据", ["账号", "隐私", "删除账号", "注销"]),
+    about: sectionMatch("关于", ["版本", "快捷键", "帮助"]),
+    misc: sectionMatch("其他", ["引导", "新手指引", "重置"]),
+  };
+  const nothingMatched = Object.values(show).every((visible) => !visible);
+
   return (
     <div className="w-full space-y-5">
       <PageHeader
         icon={SettingsIcon}
         title="设置"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索设置项"
+          />
+        }
       />
 
       {/* 改版：原本 8 个分区挤在一张长卡里、层级全平；现在按「外观 / 功能与服务 /
           数据与账号 / 关于」分成四张卡，每张卡内部仍用分隔线分区。
           子分区组件（AI / 刘海）各自带 border-b，卡内最后一条由
           .organize-settings-card > :last-child 抹掉，无需改动这些组件。 */}
-      <div className="organize-settings-card rounded-lg border bg-card">
-        <AppearanceSection />
-        <NotchTriggerSetting />
-      </div>
+      {(show.appearance || show.notch) && (
+        <div className="organize-settings-card rounded-lg border bg-card">
+          {show.appearance && <AppearanceSection />}
+          {show.notch && <NotchTriggerSetting />}
+        </div>
+      )}
 
+      {(show.plugins || show.ai) && (
       <div className="organize-settings-card rounded-lg border bg-card">
         {/* D06 迁移表：插件入口收进设置页（/plugins 原页保留，侧栏入口由改版移除） */}
+        {show.plugins && (
         <div className="p-5 border-b">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -306,11 +336,15 @@ export default function SettingsPage() {
             </Link>
           </div>
         </div>
+        )}
 
-        <AISettingsSection />
+        {show.ai && <AISettingsSection />}
       </div>
+      )}
 
+      {(show.data || show.account) && (
       <div className="organize-settings-card rounded-lg border bg-card">
+        {show.data && (
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">
             <Download className="h-5 w-5 text-muted-foreground" />
@@ -403,7 +437,9 @@ export default function SettingsPage() {
           )}
           <RestoreSection />
         </div>
+        )}
 
+        {show.account && (
         <div className="p-5 border-b border-destructive/30">
           <div className="flex items-center gap-2 mb-3">
             <ShieldAlert className="h-5 w-5 text-destructive" />
@@ -435,10 +471,14 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+        )}
 
       </div>
+      )}
 
+      {(show.about || show.misc) && (
       <div className="organize-settings-card rounded-lg border bg-card">
+        {show.about && (
         <div className="p-5 border-b">
           <div className="flex items-center gap-2 mb-3">
             <Info className="h-5 w-5 text-muted-foreground" />
@@ -455,7 +495,9 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
+        )}
 
+        {show.misc && (
         <div className="p-5">
           <div className="flex items-center gap-2 mb-3">
             <RotateCcw className="h-5 w-5 text-muted-foreground" />
@@ -473,7 +515,17 @@ export default function SettingsPage() {
             重新查看引导
           </Button>
         </div>
+        )}
       </div>
+      )}
+
+      {nothingMatched && (
+        <EmptyState
+          icon={SettingsIcon}
+          title="没有匹配的设置项"
+          description="只搜设置页内的分区名与关键词，换个词试试（如「主题」「导出」「密钥」）"
+        />
+      )}
     </div>
   );
 }

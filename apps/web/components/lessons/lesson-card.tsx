@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Trash2, BookOpen, FileText, CheckCircle2, ArrowRight } from "lucide-react";
+import { MoreHorizontal, Trash2, BookOpen, FileText, CheckCircle2, ArrowRight } from "@/components/icons";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import type { LessonWithTags } from "@organize/shared";

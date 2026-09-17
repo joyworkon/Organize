@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllNoteBacklinks } from "@/lib/notes/backlinks";
-import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "lucide-react";
+import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "@/components/icons";
 import type { ReadingItem } from "@organize/shared";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 

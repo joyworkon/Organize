@@ -50,7 +50,7 @@ import {
   HelpCircle,
   Settings,
   Network,
-} from "lucide-react";
+} from "@/components/icons";
 import { resetOnboarding } from "@/components/onboarding";
 import type { Task, ReadingItem, Note, Lesson, Memo, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
 import { Input } from "@/components/ui/input";

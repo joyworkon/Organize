@@ -7,7 +7,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Plus, X } from "lucide-react";
+import { Plus, X } from "@/components/icons";
 import { useState } from "react";
 import { normalizeActiveIndex, normalizeTabTitle } from "./tabs";
 

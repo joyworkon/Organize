@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, Link2, LockKeyhole, Plus, X } from "lucide-react";
+import { CheckCircle2, Circle, Link2, LockKeyhole, Plus, X } from "@/components/icons";
 import type { Task, TaskDependency } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";

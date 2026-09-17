@@ -18,7 +18,7 @@ import {
 } from "@/lib/backup/attachment-restore";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Upload, CheckCircle2, AlertTriangle, PackageOpen } from "lucide-react";
+import { Loader2, Upload, CheckCircle2, AlertTriangle, PackageOpen } from "@/components/icons";
 
 interface RestoreReport {
   counts: Record<string, number>;

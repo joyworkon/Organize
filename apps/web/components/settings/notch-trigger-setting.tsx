@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Monitor } from "lucide-react";
+import { Monitor } from "@/components/icons";
 import { getPlatform } from "@/lib/platform/detect";
 import { NOTCH_TRIGGER_HIDDEN_KEY, NOTCH_PLAIN_DISPLAYS_KEY } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";

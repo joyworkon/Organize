@@ -20,7 +20,7 @@ import {
   SquareSlash,
   TableProperties,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {

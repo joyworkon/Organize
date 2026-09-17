@@ -6,7 +6,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   Plus, Trash2, GripVertical, Type, Hash, CheckSquare, Calendar, Link, List,
   ListChecks, ChevronDown, FileText, Image as FileIcon, X, Check,
-} from "lucide-react";
+} from "@/components/icons";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabasePropertyType } from "@organize/shared";
 
 interface TableViewProps {

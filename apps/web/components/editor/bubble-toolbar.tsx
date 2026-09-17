@@ -48,7 +48,7 @@ import {
   Columns2,
   Columns3,
   Columns4,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { BLOCK_COMMANDS } from "./block-commands";

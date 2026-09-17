@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, FileText, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FileText, Search } from "@/components/icons";
 import { useMemo, useState } from "react";
 import {
   Popover,

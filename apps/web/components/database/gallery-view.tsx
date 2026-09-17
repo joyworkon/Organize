@@ -2,7 +2,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, Image as ImageIcon } from "@/components/icons";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabaseView } from "@organize/shared";
 
 interface GalleryViewProps {

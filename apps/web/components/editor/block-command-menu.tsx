@@ -1,7 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
-import { Puzzle, Search, X } from "lucide-react";
+import { Puzzle, Search, X } from "@/components/icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createEditorBridge } from "@/lib/plugin/editor-bridge";
 import { slashCommandRegistry } from "@/lib/plugin/slash-commands";

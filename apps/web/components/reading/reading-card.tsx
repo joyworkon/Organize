@@ -10,12 +10,12 @@ import { ShareDialog } from "@/components/share/share-dialog";
 import { ListItemContextMenu } from "@/components/context-menu/context-menu-list";
 import { cn } from "@/lib/utils";
 import type { ReadingItem, ReadingStatus, Tag } from "@organize/shared";
-import { ExternalLink, Trash2, Pin, Globe, Clock } from "lucide-react";
+import { ExternalLink, Trash2, Pin, Globe, Clock } from "@/components/icons";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { cycleStatus, getHostname } from "./reading-card-utils";
 import { useState, type MouseEvent } from "react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Check, Share2, Sparkles } from "lucide-react";
+import { MoreHorizontal, Check, Share2, Sparkles } from "@/components/icons";
 import { FavoriteButton } from "@/components/favorite-button";
 
 interface ReadingCardProps {
@@ -73,7 +73,8 @@ export function ReadingCard({
         "group transition-colors duration-150 relative overflow-hidden",
         showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
         selected && "ring-2 ring-primary",
-        item.is_pinned && "before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary"
+        // 置顶态：不再用左缘色条，改为 meta 行的「置顶」chip + 极淡底色（见 globals.css）
+        item.is_pinned && "organize-pinned-card"
       )}
     >
       <CardContent className="p-3 sm:p-4">
@@ -196,6 +197,12 @@ export function ReadingCard({
             )}
 
             <div className="flex items-center gap-2 mt-3 flex-wrap text-xs text-muted-foreground">
+              {item.is_pinned && (
+                <span className="organize-pinned-chip" title="已置顶">
+                  <Pin className="h-2.5 w-2.5" />
+                  置顶
+                </span>
+              )}
               <StatusBadge
                 status={item.reading_status}
                 onClick={

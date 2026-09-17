@@ -1,6 +1,6 @@
 # UI 可持续改版地图（ui-change-guide）
 
-编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新；2026-09-17 随第七步（顶部工具条统一：笔记标签改四角圆角胶囊 + 「+」紧跟标签 + 稍后读文章顶栏并入同一条壳）与第八步（文章顶栏收密度并贴顶、标签分隔条与 × 显隐、**全站默认内容宽度统一到标准泳道**、侧栏速记「+」）更新；2026-09-17 随第九步（详情页操作行统一壳 `.organize-detail-bar`：任务 / 经验详情与笔记详情同几何，破坏性操作收进「更多」，侧栏「+」对齐同一列）更新；2026-09-17 随第十步（功能页页头去说明：全站功能页标题区只留「名称 + 右侧动作」，不再放功能说明与计数，收藏夹页头面包屑与标题重复一并移除）更新。
+编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新；2026-09-17 随第七步（顶部工具条统一：笔记标签改四角圆角胶囊 + 「+」紧跟标签 + 稍后读文章顶栏并入同一条壳）与第八步（文章顶栏收密度并贴顶、标签分隔条与 × 显隐、**全站默认内容宽度统一到标准泳道**、侧栏速记「+」）更新；2026-09-17 随第九步（详情页操作行统一壳 `.organize-detail-bar`：任务 / 经验详情与笔记详情同几何，破坏性操作收进「更多」，侧栏「+」对齐同一列）更新；2026-09-17 随第十步（功能页页头去说明：全站功能页标题区只留「名称 + 右侧动作」，不再放功能说明与计数，收藏夹页头面包屑与标题重复一并移除）更新。2026-09-17 随第十一步（**设计系统图标层**：TraeWork 单色 SVG 代码生成 + 131 文件 codemod 摘掉 lucide-react；**功能页页内搜索**统一进页头 `search` 槽；侧栏「待办」子导航改为缩进 + 竖导引线 + 分段小标题；置顶态从左侧色条改为灰底 chip；笔记列表页去掉前进/后退/「+」条；侧栏速记「+」改为设计系统闪电并落到最右列）更新。同日新增自检文档 [design-system-audit-2026-09-17.md](design-system-audit-2026-09-17.md)。
 计划卡：[long-term-agent-plan-2026-09-11.md §5 C01](long-term-agent-plan-2026-09-11.md)。
 用途：改任何界面之前，先在这份地图上定位「改哪里、会牵动哪里」。本文随大改版 PR 更新（规则见 §6）。
 
@@ -42,6 +42,11 @@
 | 角色可见性 | lib/collab/roles.ts（owner/editor/viewer + saveRpcNameForRole）、lib/notes/capabilities.ts | 分流点集中在 notes/[id]/page.tsx（:1295/:1312/:1340/:1387/:1410/:1426-1428/:1496）；note-page-visuals.tsx:20；分享面板 components/share/resource-share-dialog.tsx（owner 才能改授权） |
 | 顶部工具条（笔记标签条 / 文章顶栏）外壳与胶囊 | `app/globals.css` 的 `.organize-chrome-bar` / `.organize-chrome-pill`（灰底条 + 四角 6px 圆角胶囊，暗色条落回 background、开启态用 accent 提亮）；结构在 `components/notes/note-tabs-bar.tsx` 与 `app/(main)/library/[id]/page.tsx` 顶栏 | 三个坑：①`.organize-chrome-pill` 只给非 Button 元素用，`ui/Button` 的 ghost 变体带 `hover:bg-accent`，会在悬停时盖掉底色——Button 要直接写 `bg-card shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent`（经 tailwind-merge 才压得住）；②标签条「+」在滚动容器内 `sticky right-0`，必须保持 `.note-tabs-add` 的不透明底，否则溢出时标签会从它下面滚过去；③文章顶栏（第八步）与标签条对齐的三件事：`-mt-4 md:-mt-6` 抵消内容区上内边距做到**贴顶不留白带**、内层 `md:h-10` 与标签条同高 40px、顶栏下沿那条 `bg-primary` 阅读进度线**已删除**（滚动进度仍在正文里以文字显示）；④文章顶栏桌面动作簇收在 `.reading-topbar-actions`（高亮/专注/收藏/更多/原文=唯一 outline），速读、宽度、转为笔记、分享在「更多」菜单里，状态徽标移到左侧面包屑后（lg 以上显示）——加动作先想能不能进菜单；⑤标签之间的灰色圆角小竖条是 `.note-tab + .note-tab::before`，相邻标签任一被选中或悬停时置 `opacity: 0`；未激活标签的 × 是 `opacity-0 group-hover/tab:opacity-100` |
 | 详情页操作行（笔记 / 任务 / 经验详情） | `app/globals.css` 的 `.organize-detail-bar` + `-inner/-group/-nav/-back/-actions`（与笔记 `.note-topbar` 共用几何：44px 行高、`padding 0 .5rem`/md `.75rem`、吸顶、静止态无分隔线）；结构在 `app/(main)/notes/[id]/page.tsx`（用 `.note-topbar`，因上方有常驻标签条，吸顶偏移 40px）、`app/(main)/tasks/[id]/page.tsx` 与 `app/(main)/lessons/[id]/page.tsx`（用 `.organize-detail-bar`，桌面吸顶 top:0） | 四个坑：①任务详情在 `tasks/layout.tsx` 的 tab 行下面，**不能用 `-mt-4 md:-mt-6` 负边距贴顶**（会压住 tab 行），只有经验详情这种直接挂在主内容区的页面才用负边距；②顶栏里不放孤立的红色破坏性图标——`移入垃圾箱` 一律进「更多」菜单末位（`DropdownMenuSeparator` + `text-destructive focus:text-destructive`），红色只出现在确认框的确认按钮上；③确认框用 `components/ui/prompt-dialog` 的 `showConfirm`（`destructive: true`），不要用原生 `confirm()`；④这三条操作行的高度/内边距靠共用 CSS 选择器保持一致，改 `.note-topbar-inner` 一类规则时记得它同时管着 `.organize-detail-bar-inner` |
+| 图标资产 | `apps/web/scripts/ds-icon-map.json`（图标名 → TraeWork SVG 文件名）+ `scripts/gen-ds-icons.mjs` 生成 `components/icons/ds-icons.generated.tsx`；业务侧一律 `from "@/components/icons"` | 三个坑：①**不要手写 SVG path**，改图标就改映射再跑生成脚本（`node scripts/gen-ds-icons.mjs`，源目录可用 `TRAEWORK_ICONS` 覆盖）；②`TraeWork Copy/` 是未跟踪的只读参考物，构建期不能依赖它存在——生成产物必须入库；③图标全部 `fill="currentColor"`，颜色只能由文字色带，给图标直接写颜色会破坏暗色。`rg "lucide-react" apps/web --glob '!node_modules'` 应只命中 `package.json` |
+| 功能页页内搜索 | `components/layout/page-search.tsx`（唯一形态）+ `components/layout/page-header.tsx` 的 `search` 槽 + `lib/search/page-search.ts`（`matchesPageSearch` / `filterByPageSearch`）+ globals.css `.organize-page-search*` | 四个坑：①**只搜本功能**（标题 + 标签，部分页加 URL/摘要），跨功能搜索是 ⌘K 命令面板，语义不许重叠；②视觉契约固定为「未聚焦浅灰底无边框 / 聚焦纸面底 + 品牌色外框 + 光环」，别在页面里另写一套输入框；③`.organize-page-search` 的 `display` 规则**必须留在 `@layer components` 里**，否则会盖掉 Tailwind 的 `hidden` / `md:hidden`，桌面副本会在手机宽度下漏出来；④待办族（`/tasks`、`/tasks/countdown`）的搜索框贴的是工作台内框（`px-8`），右缘比标准泳道页窄 32px，这是对的；`/tasks/calendar` 故意没有页内搜索（日历格子无列表可筛，跨任务搜索在 `/tasks/search` tab） |
+| 侧栏「待办」子导航 | `components/tasks/task-sidebar.tsx`（`nested = hideHeading`）+ globals.css `.organize-task-subnav` / `-item` / `-caption` | 三个坑：①缩进 `margin-left: 20px` 是算出来的（nav `p-3` 12px + 父行 `pl-3` 12px + 图标半宽 8px = 32px 竖线压在父图标中心线上），改侧栏内边距要同步改它；②子项选中态用 `data-selected` + CSS 左侧色条 + `bg-accent/60`，**不要复用一级导航那块实底 accent**（两层同权重就白改了）；③内层那个是**「已删除任务」**视图，跟侧栏一级的「垃圾箱」不是一回事，别再改回「垃圾桶」 |
+| 置顶态标识 | globals.css `.organize-pinned-chip` / `.organize-pinned-card`；用在 `components/reading/reading-card.tsx` 与 `components/notes/note-card.tsx` | 旧实现是卡片左缘一条 `before:w-1 bg-primary` 竖条，跟圆角/复选框抢位、暗色下几乎看不见，已删；新实现是 meta 行里的灰底 chip + 卡片一层极淡底色。**不要再往卡片左缘加竖条**（那个位置留给多选复选框） |
+| 笔记标签页条 | `components/notes/note-tabs-bar.tsx` | 只在 `/notes/<id>` **且**有已开标签时渲染；`/notes` 列表页不渲染。前进/后退按钮与末尾「+」已删（列表页顶上摆一条只有导航按钮的空壳没有意义，新建笔记入口在页头「新建笔记」和侧栏「笔记」行的「+」两处都有） |
 | 表格配色/边框 | `data-table-color` 变量组（globals.css:1128-1190） | editor/extensions/table-style.ts 持久化属性成对 |
 
 ## 3. 功能入口追踪表（卡面验收：每个主要功能入口可追踪）
@@ -74,6 +79,9 @@
 - 图谱页自含 SVG 力导向但**复用全局 token**（fill-primary 等），非独立视觉体系；改色不会漏。
 - 帮助弹窗（`?`）内的键位清单是**手工清单**（global-hotkeys.tsx:33-71）——加键位必须同步，无自动校验。
 - 移动壳高度由 `--mobile-header-height`/`--mobile-tab-height` + safe-area 计算（app/mobile.css:6-9）；`viewportFit: cover`（app/layout.tsx:20-22）。
+- **图标已收口（2026-09-17）**：源码零 `lucide-react` 引用，131 个文件统一从 `@/components/icons` 取图标；`lucide-react` 只剩 package.json 依赖项，可在后续 PR 摘掉。
+- **`.ds-*` 组件类有意不采用**：Cairn 的 L1 原语是 shadcn/Radix 一套，TraeWork 只作亮色视觉参考（它没有暗色一份）。详见 [design-system-audit-2026-09-17.md](design-system-audit-2026-09-17.md) §3。
+- **每个侧栏功能页都有页内搜索**：`/`（今天视图）`/library` `/notes` `/tasks` `/tasks/lessons` `/tasks/countdown` `/memos` `/favorites` `/trash` `/tags` `/plugins` `/graph` `/settings` `/shared` `/spaces`。唯一例外 `/tasks/calendar`。
 
 ## 5. 一页改版模板（每次改版按此执行，复制进 PR 描述）
 
@@ -107,3 +115,5 @@
 2. 新增一级入口/移动模块/快捷键 = 信息架构变更：除 §5 模板外需在账本留一行证据。
 3. 视觉 PR（L0/L0+）不夹带权限与数据模型变化；无法兼容的改版必须给迁移与回退路径（计划 §3）。
 4. 行号会漂移：引用行号仅辅助定位，以文件+符号名为准；发现失修随手修。
+5. 新增功能页 = 必须带页内搜索：走 `PageHeader` 的 `search` 槽 + `lib/search/page-search.ts`，口径固定为「本功能内的标题 + 标签」；确实不适用（如日历格子）要在 §4 的例外清单里写明原因。
+6. 新增图标 = 先加 `scripts/ds-icon-map.json` 映射再跑生成脚本，不许在业务组件里内联 SVG，也不许重新引入第二套图标库。

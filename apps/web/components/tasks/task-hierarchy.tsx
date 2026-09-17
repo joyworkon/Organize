@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, CornerUpLeft, Plus } from "lucide-react";
+import { Check, ChevronRight, CornerUpLeft, Plus } from "@/components/icons";
 import type { Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";

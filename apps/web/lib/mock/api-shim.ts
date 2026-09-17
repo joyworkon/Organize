@@ -468,6 +468,103 @@ const deleteSyncedBlock: MockHandler = ({ params }) => {
   return { body: { ok: true } };
 };
 
+// ---- 垃圾箱（对齐 list_trash / mutate_trash RPC 的返回形状）----
+
+// 真实实现是两个 RPC；mock 下按「表 → 资源类型」映射扫 deleted_at 非空的行。
+// 只覆盖有软删除列的表，database 走 /api/databases（mock 未实现）故不在表内。
+const TRASH_SOURCES: Array<{ table: string; type: string; titleOf: (row: any) => string }> = [
+  { table: "notes", type: "note", titleOf: (r) => r.title || "无标题笔记" },
+  { table: "reading_items", type: "reading_item", titleOf: (r) => r.title || r.url || "无标题文章" },
+  { table: "tasks", type: "task", titleOf: (r) => r.title || "无标题任务" },
+  { table: "lessons", type: "lesson", titleOf: (r) => r.title || "无标题经验" },
+  { table: "countdown_days", type: "countdown", titleOf: (r) => r.title || "无标题倒数日" },
+  { table: "memos", type: "memo", titleOf: (r) => (r.content || "").slice(0, 60) || "空速记" },
+];
+
+const listTrash: MockHandler = ({ url }) => {
+  const wanted = url.searchParams.get("resource_type");
+  const rows: Array<{ resource_type: string; id: string; title: string; deleted_at: string }> = [];
+  for (const src of TRASH_SOURCES) {
+    if (wanted && wanted !== src.type) continue;
+    for (const row of mockDb[src.table] || []) {
+      if (row.user_id !== MOCK_USER.id || !row.deleted_at) continue;
+      rows.push({
+        resource_type: src.type,
+        id: row.id,
+        title: src.titleOf(row),
+        deleted_at: row.deleted_at,
+      });
+    }
+  }
+  rows.sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
+  return { body: rows };
+};
+
+const mutateTrash: MockHandler = ({ body }) => {
+  const action = body?.action;
+  const type = body?.resource_type;
+  const ids: string[] = Array.isArray(body?.ids) ? body.ids : [];
+  const src = TRASH_SOURCES.find((s) => s.type === type);
+  if (!src || (action !== "restore" && action !== "permanent_delete")) {
+    return { status: 400, body: { error: "垃圾箱操作无效", code: "INVALID_TRASH_MUTATION" } };
+  }
+  const idSet = new Set(ids);
+  const table = mockDb[src.table] || [];
+  const hit = table.filter((r) => r.user_id === MOCK_USER.id && r.deleted_at && idSet.has(r.id));
+  if (action === "restore") {
+    hit.forEach((r) => { r.deleted_at = null; });
+  } else {
+    mockDb[src.table] = table.filter((r) => !hit.includes(r));
+  }
+  return { body: { success: true, affected: hit.length } };
+};
+
+// ---- 插件配置（mock 下不落库也要能开关，否则每页都弹"插件配置读取失败"）----
+
+const listPlugins: MockHandler = () => ({
+  body: mockDb.plugins.filter((row) => row.user_id === MOCK_USER.id),
+});
+
+const patchPlugin: MockHandler = ({ body, params }) => {
+  const row = mockDb.plugins.find((r) => r.id === params.id && r.user_id === MOCK_USER.id);
+  if (!row) return { status: 500, body: { error: "插件不存在" } };
+  if (body?.config !== undefined) row.config = body.config;
+  if (body?.enabled !== undefined) row.enabled = body.enabled;
+  row.updated_at = nowIso();
+  return { body: row };
+};
+
+const upsertPlugin: MockHandler = ({ body }) => {
+  const packageName = typeof body?.package_name === "string" ? body.package_name : null;
+  const name = typeof body?.name === "string" ? body.name : null;
+  if (!packageName || !name) {
+    return { status: 400, body: { error: "name 和 package_name 为必填项" } };
+  }
+  const existing = mockDb.plugins.find(
+    (r) => r.user_id === MOCK_USER.id && r.package_name === packageName
+  );
+  if (existing) {
+    existing.name = name;
+    if (body?.config !== undefined) existing.config = body.config;
+    existing.enabled = true;
+    existing.updated_at = nowIso();
+    return { status: 201, body: existing };
+  }
+  const row = {
+    id: genId("plugins"),
+    user_id: MOCK_USER.id,
+    name,
+    package_name: packageName,
+    version: body?.version ?? null,
+    config: body?.config ?? {},
+    enabled: true,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  mockDb.plugins.push(row);
+  return { status: 201, body: row };
+};
+
 const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions$/, handler: listVersions },
   { method: "GET", pattern: /^\/api\/notes\/([^/]+)\/versions\/([^/]+)$/, handler: getVersion },
@@ -493,6 +590,11 @@ const ROUTES: MockRoute[] = [
   { method: "POST", pattern: /^\/api\/synced-blocks$/, handler: createSyncedBlock },
   { method: "PATCH", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: patchSyncedBlock },
   { method: "DELETE", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: deleteSyncedBlock },
+  { method: "GET", pattern: /^\/api\/trash$/, handler: listTrash },
+  { method: "POST", pattern: /^\/api\/trash$/, handler: mutateTrash },
+  { method: "GET", pattern: /^\/api\/plugins$/, handler: listPlugins },
+  { method: "POST", pattern: /^\/api\/plugins$/, handler: upsertPlugin },
+  { method: "PATCH", pattern: /^\/api\/plugins\/([^/]+)$/, handler: patchPlugin },
 ];
 
 const jsonResponse = (body: unknown, status: number, headers?: Record<string, string>) =>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, GripVertical } from "lucide-react";
+import { Plus, GripVertical } from "@/components/icons";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabaseView } from "@organize/shared";
 import { groupBySelectProperty, UNGROUPED_KEY } from "./view-shared/grouping";
 

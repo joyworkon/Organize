@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, WifiOff } from "lucide-react";
+import { Check, Loader2, WifiOff } from "@/components/icons";
 
 /**
  * 顶栏保存状态区（R08.1 自笔记页抽离，纯展示）：

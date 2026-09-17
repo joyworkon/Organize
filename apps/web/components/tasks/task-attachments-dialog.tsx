@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Paperclip } from "lucide-react";
+import { Loader2, Paperclip } from "@/components/icons";
 import type { TaskAttachment, TaskWithTags } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";

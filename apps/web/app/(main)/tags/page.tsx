@@ -13,8 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tag as TagIcon, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "lucide-react";
+import { Tag as TagIcon, Plus, Pencil, Trash2, Loader2, ArrowLeft, BookOpen, FileText, LayoutList, ListChecks, Lightbulb } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { cn } from "@/lib/utils";
 import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -183,9 +185,8 @@ export default function TagsPage() {
     }
   }, [selectedTag, fetchTagDetail]);
 
-  const filtered = tags.filter((t) =>
-    !search.trim() ? true : t.name.toLowerCase().includes(search.trim().toLowerCase())
-  );
+  // 标签管理页的"标题"就是标签名，页内搜索口径与其它页一致
+  const filtered = filterByPageSearch(tags, search, (t) => ({ title: t.name, tags: [t.name] }));
 
   const totalUsage = (t: TagWithCount) =>
     (t.note_count || 0) + (t.reading_item_count || 0) + (t.task_count || 0) + (t.lesson_count || 0);
@@ -468,6 +469,13 @@ export default function TagsPage() {
       <PageHeader
         icon={TagIcon}
         title="标签管理"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索标签"
+          />
+        }
         actions={
           <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />
@@ -512,15 +520,7 @@ export default function TagsPage() {
           </DialogContent>
         </Dialog>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="筛选标签..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
+      {/* 桌面端搜索已在页头标题行；窄屏页头会换行，这里不再重复一条搜索带 */}
 
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">

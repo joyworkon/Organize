@@ -1,6 +1,6 @@
 "use client";
 
-import { Moon, MonitorSmartphone, Palette, Sun } from "lucide-react";
+import { Moon, MonitorSmartphone, Palette, Sun } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useThemeMode, type ThemeMode } from "@/hooks/use-theme-mode";
 

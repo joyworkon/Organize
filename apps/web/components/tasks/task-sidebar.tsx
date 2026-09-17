@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   ListChecks, ChevronDown, ChevronRight, Plus,
   Calendar, CalendarDays, CheckCircle2, Trash2, List as ListIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import {
   ContextMenu,
@@ -62,6 +62,9 @@ export function isRootTask(task: Pick<TaskWithTags, "parent_task_id">): boolean 
 
 export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, onRenameList, onDeleteList, hideHeading = false, active = true }: TaskSidebarProps) {
   const [expanded, setExpanded] = useState(true);
+  // hideHeading = 挂在主侧栏「待办」下作为子树：需要缩进 + 竖导引线 + 更小的行，
+  // 否则子项与一级导航长得一模一样，展开后完全分不清层级（用户反馈）
+  const nested = hideHeading;
 
   useEffect(() => {
     if (hideHeading) {
@@ -110,14 +113,21 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
     <button
       type="button"
       onClick={() => onSelect(sel)}
+      data-selected={isSelected(sel) ? "true" : undefined}
       className={cn(
-        "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
+        "organize-task-subnav-item w-full flex items-center gap-2 rounded-md transition-colors",
+        // 嵌在侧栏一级导航下时刻意做小一号、更紧：与「工作台/稍后读/…」明显不同层级
+        nested ? "px-2 py-1 text-[13px]" : "px-3 py-1.5 text-sm",
         isSelected(sel)
-          ? "bg-accent text-accent-foreground font-medium"
+          // 嵌套时用弱底色 + CSS 左侧色条（见 globals.css .organize-task-subnav-item），
+          // 不复用一级导航那块实底 accent，避免两层选中态看起来同权重
+          ? nested
+            ? "bg-accent/60 text-foreground font-medium"
+            : "bg-accent text-accent-foreground font-medium"
           : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" style={accent ? { color: accent } : undefined} />
+      <Icon className={cn("shrink-0", nested ? "h-3.5 w-3.5" : "h-4 w-4")} style={accent ? { color: accent } : undefined} />
       <span className="flex-1 text-left truncate">{label}</span>
       {alert !== undefined && alert > 0 && (
         <span className="rounded-full bg-destructive/15 px-1.5 text-xs font-medium text-destructive tabular-nums">{alert}</span>
@@ -129,7 +139,12 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
   );
 
   return (
-    <div className="organize-task-sidebar flex flex-col gap-0.5 p-2 min-w-[200px] max-w-[240px]">
+    <div
+      className={cn(
+        "organize-task-sidebar flex flex-col gap-0.5",
+        nested ? "organize-task-subnav" : "p-2 min-w-[200px] max-w-[240px]"
+      )}
+    >
       {!hideHeading && (
         <div className="flex items-center gap-1 px-1 py-1.5">
           <button type="button" onClick={toggleExpanded} className="p-0.5 rounded hover:bg-muted" aria-label={expanded ? "收起待办导航" : "展开待办导航"}>
@@ -142,15 +157,16 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
 
       {expanded && (
         <div className="flex flex-col gap-0.5">
+          <p className="organize-task-subnav-caption">视图</p>
           <NavItem icon={ListChecks} label="全部" count={activeTasks.length} sel={{ scope: "all", listId: null }} />
           <NavItem icon={Calendar} label="今天" count={todayCount} alert={overdueCount} sel={{ scope: "today", listId: null }} />
           <NavItem icon={CalendarDays} label="最近7天" count={upcomingCount} sel={{ scope: "upcoming", listId: null }} />
 
           {/* 清单分组 */}
-          <div className="mt-2 mb-1 px-3 flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground uppercase">清单</span>
-            <button type="button" onClick={onCreateList} title="新建清单" className="p-0.5 rounded hover:bg-muted">
-              <Plus className="h-3.5 w-3.5" />
+          <div className={cn("mt-2 mb-0.5 flex items-center justify-between", nested ? "pl-2 pr-1" : "px-3")}>
+            <span className="organize-task-subnav-caption">清单</span>
+            <button type="button" onClick={onCreateList} title="新建清单" aria-label="新建清单" className="grid h-5 w-5 place-items-center rounded hover:bg-muted">
+              <Plus className="h-3 w-3" />
             </button>
           </div>
           {lists.map((list) => (
@@ -186,9 +202,11 @@ export function TaskSidebar({ lists, tasks, selection, onSelect, onCreateList, o
             </ContextMenu>
           ))}
 
-          <div className="mt-2 border-t pt-1">
+          <div className={cn("mt-2 flex flex-col gap-0.5 border-t pt-1.5", nested && "border-border/60")}>
+            <p className="organize-task-subnav-caption">归档</p>
             <NavItem icon={CheckCircle2} label="已完成" count={completedCount} sel={{ scope: "completed", listId: null }} />
-            <NavItem icon={Trash2} label="垃圾桶" count={trashCount} sel={{ scope: "trash", listId: null }} />
+            {/* 与侧栏一级导航的「垃圾箱」区分：这里只是"已删除的任务"视图（只读） */}
+            <NavItem icon={Trash2} label="已删除任务" count={trashCount} sel={{ scope: "trash", listId: null }} />
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback } from "react";
 import {
   Plus, Trash2, GripVertical, Pencil, Check,
   LayoutDashboard, BarChart3,
-} from "lucide-react";
+} from "@/components/icons";
 import type { Database as DatabaseRecord, DatabaseRow as DatabaseRowRecord, DatabaseProperty, DatabaseView } from "@organize/shared";
 import { aggregate, type AggregationFn, type AggregationResult } from "./view-shared/aggregation";
 import { ChartSvg, type ChartType, fmt } from "./chart-svg";

@@ -8,7 +8,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { AlertTriangle, Loader2, RefreshCw, Repeat2 } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, Repeat2 } from "@/components/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   classifyConflict,

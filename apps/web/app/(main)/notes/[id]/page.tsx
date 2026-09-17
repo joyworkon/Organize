@@ -35,7 +35,7 @@ import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
 import { NoteTocPanel } from "@/components/notes/note-toc-panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "lucide-react";
+import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "@/components/icons";
 import Link from "next/link";
 import { CollectionBackLink } from "@/components/layout/mobile-navigation";
 import { cn } from "@/lib/utils";

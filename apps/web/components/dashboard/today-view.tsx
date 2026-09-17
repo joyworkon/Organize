@@ -16,6 +16,7 @@ import type { Task, TaskWithTags, ReadingItem, NoteWithTags, Tag } from "@organi
 import { TASK_CATEGORY_CONFIG } from "@organize/shared";
 import { computeTaskStreak, computeTodayCompletion } from "@/lib/dashboard/workbench-stats";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
+import { filterByPageSearch } from "@/lib/search/page-search";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import {
   FileText,
@@ -34,7 +35,7 @@ import {
   ChevronDown,
   ChevronRight,
   Feather,
-} from "lucide-react";
+} from "@/components/icons";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 import { DashboardCapture } from "./dashboard-capture";
 
@@ -114,7 +115,7 @@ function getNoteExcerpt(content: Record<string, unknown> | null): string {
   return "";
 }
 
-export default function TodayView() {
+export default function TodayView({ search = "" }: { search?: string } = {}) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
@@ -311,11 +312,21 @@ export default function TodayView() {
   const taskStreak = computeTaskStreak(allTasks.map((t) => t.completed_at), today);
 
   // D03 §5.1「继续处理」：逾期 → 今日到期 → 进行中 合并的待办清单（各段保持原排序）
-  const actionableTasks: TaskWithTags[] = [
-    ...overdueTasks,
-    ...todayTasks,
-    ...inProgressTasks,
-  ];
+  const actionableTasks: TaskWithTags[] = filterByPageSearch(
+    [...overdueTasks, ...todayTasks, ...inProgressTasks],
+    search,
+    (task) => ({ title: task.title, tags: task.tags })
+  );
+  // 页内搜索只作用在工作台自己展示的四组内容上（待办 / 阅读 / 笔记 / 速记）
+  const visibleArticles = filterByPageSearch(unreadArticles, search, (article) => ({
+    title: article.title || article.url,
+    extra: [article.excerpt],
+  }));
+  const visibleNotes = filterByPageSearch(recentNotes, search, (note) => ({
+    title: note.title,
+    tags: note.tags,
+  }));
+  const visibleMemos = filterByPageSearch(recentMemos, search, (memo) => ({ title: memo.content }));
 
   if (loading) {
     return (
@@ -401,7 +412,7 @@ export default function TodayView() {
               </div>
               {actionableTasks.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  今天没有待办，享受轻松的一天吧
+                  {search.trim() ? "没有匹配的待办" : "今天没有待办，享受轻松的一天吧"}
                 </p>
               ) : (
                 <div className="space-y-1">
@@ -462,7 +473,7 @@ export default function TodayView() {
                     size="sm"
                     className="h-6 px-1.5 text-[11px] font-normal text-muted-foreground"
                     onClick={handleRecommendNext}
-                    disabled={unreadArticles.length === 0}
+                    disabled={visibleArticles.length === 0}
                   >
                     <RefreshCw className="h-3 w-3 mr-1" />
                     随机一篇
@@ -473,13 +484,13 @@ export default function TodayView() {
                   </Link>
                 </div>
               </div>
-              {unreadArticles.length === 0 ? (
+              {visibleArticles.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  阅读清单已清空，去稍后读添加新文章
+                  {search.trim() ? "没有匹配的文章" : "阅读清单已清空，去稍后读添加新文章"}
                 </p>
               ) : (
                 <div className="space-y-1">
-                  {unreadArticles.slice(0, 4).map((article) => (
+                  {visibleArticles.slice(0, 4).map((article) => (
                     <Link
                       key={article.id}
                       href={`/library/${article.id}`}
@@ -511,11 +522,11 @@ export default function TodayView() {
                   <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
-              {recentNotes.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">还没有笔记，开始记录你的想法</p>
+              {visibleNotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">{search.trim() ? "没有匹配的笔记" : "还没有笔记，开始记录你的想法"}</p>
               ) : (
                 <div className="space-y-1">
-                  {recentNotes.slice(0, 5).map((note) => (
+                  {visibleNotes.slice(0, 5).map((note) => (
                     <Link
                       key={note.id}
                       href={`/notes/${note.id}`}
@@ -544,11 +555,11 @@ export default function TodayView() {
                   <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
-              {recentMemos.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">上方输入框可快速记一条</p>
+              {visibleMemos.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">{search.trim() ? "没有匹配的速记" : "上方输入框可快速记一条"}</p>
               ) : (
                 <div className="space-y-1">
-                  {recentMemos.map((memo) => (
+                  {visibleMemos.map((memo) => (
                     <Link
                       key={memo.id}
                       // F05：沿用 ?memo= 深链合同，搜索/工作台/外链定位同一目标

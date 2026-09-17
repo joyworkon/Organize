@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, ListChecks, Loader2, Network, RefreshCw } from "lucide-react";
+import { FileText, ListChecks, Loader2, Network, RefreshCw } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { PageSearch } from "@/components/layout/page-search";
+import { matchesPageSearch, searchTokens } from "@/lib/search/page-search";
 import {
   buildNoteGraph,
   buildTaskGraph,
@@ -46,6 +48,7 @@ export default function GraphPage() {
   const supabase = useMemo(() => createClient(), []);
   const [view, setView] = useState<GraphView>("notes");
   const [hideIsolated, setHideIsolated] = useState(true);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [noteRows, setNoteRows] = useState<NoteGraphRow[]>([]);
@@ -74,12 +77,12 @@ export default function GraphPage() {
       const [notesResult, tasksResult, depsResult] = await Promise.all([
         supabase
           .from("notes")
-          .select("id, title, content, parent_note_id")
+          .select("id, title, content, parent_note_id, tags:tags!note_tags(id, name)")
           .eq("user_id", user.id)
           .is("deleted_at", null),
         supabase
           .from("tasks")
-          .select("id, title, status")
+          .select("id, title, status, tags:tags!task_tags(id, name)")
           .eq("user_id", user.id)
           .is("deleted_at", null),
         supabase
@@ -113,10 +116,35 @@ export default function GraphPage() {
     () => (view === "notes" ? buildNoteGraph(noteRows) : buildTaskGraph(taskRows, dependencyRows)),
     [view, noteRows, taskRows, dependencyRows]
   );
-  const graph: GraphData = useMemo(
-    () => (hideIsolated ? filterIsolatedNodes(fullGraph) : fullGraph),
-    [fullGraph, hideIsolated]
-  );
+  // 节点 id → 标签名：图谱节点本身只有标题，页内搜索要能命中标签
+  const nodeTags = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const collect = (rows: Array<{ id: string; tags?: Array<{ name?: string | null }> | null }>) => {
+      for (const row of rows) {
+        map.set(row.id, (row.tags ?? []).map((t) => t?.name ?? "").filter(Boolean));
+      }
+    };
+    collect(noteRows as unknown as Array<{ id: string; tags?: Array<{ name?: string | null }> | null }>);
+    collect(taskRows as unknown as Array<{ id: string; tags?: Array<{ name?: string | null }> | null }>);
+    return map;
+  }, [noteRows, taskRows]);
+
+  const graph: GraphData = useMemo(() => {
+    // 有搜索词时以"命中节点 + 它们之间的连线"为结果，并让位于「隐藏孤立节点」——
+    // 否则搜到的节点常因失去连线被一起隐藏，看起来像"搜不到"
+    if (searchTokens(search).length > 0) {
+      const kept = new Set(
+        fullGraph.nodes
+          .filter((node) => matchesPageSearch(search, { title: node.label, tags: nodeTags.get(node.id) }))
+          .map((node) => node.id)
+      );
+      return {
+        nodes: fullGraph.nodes.filter((node) => kept.has(node.id)),
+        edges: fullGraph.edges.filter((edge) => kept.has(edge.source) && kept.has(edge.target)),
+      };
+    }
+    return hideIsolated ? filterIsolatedNodes(fullGraph) : fullGraph;
+  }, [fullGraph, hideIsolated, search, nodeTags]);
 
   const positions = useMemo(
     () => new Map(computeForceLayout(graph, { width: CANVAS_WIDTH, height: CANVAS_HEIGHT }).map((p) => [p.id, p])),
@@ -127,7 +155,7 @@ export default function GraphPage() {
   useEffect(() => {
     setTransform({ k: 1, x: 0, y: 0 });
     setHoverId(null);
-  }, [view, hideIsolated]);
+  }, [view, hideIsolated, search]);
 
   const neighbors = useMemo(() => {
     if (!hoverId) return null;
@@ -208,6 +236,13 @@ export default function GraphPage() {
       <PageHeader
         icon={Network}
         title="知识图谱"
+        search={
+          <PageSearch
+            value={search}
+            onChange={setSearch}
+            placeholder="搜索节点（标题 / 标签）"
+          />
+        }
         actions={
           <>
           <div className="flex rounded-lg border bg-card p-0.5">
@@ -262,14 +297,26 @@ export default function GraphPage() {
       ) : !error && graph.nodes.length === 0 ? (
         <EmptyState
           icon={Network}
-          title={hideIsolated && fullGraph.nodes.length > 0 ? "当前没有相互连接的内容" : "还没有可展示的内容"}
+          title={
+            search.trim()
+              ? "没有匹配的节点"
+              : hideIsolated && fullGraph.nodes.length > 0
+                ? "当前没有相互连接的内容"
+                : "还没有可展示的内容"
+          }
           description={
-            view === "notes"
-              ? "在笔记正文中用 [[ 或链接插入其他笔记，或建立父子层级，这里就会生长出知识网络。"
-              : "在任务详情中添加前置依赖，这里就会展示任务的阻塞关系。"
+            search.trim()
+              ? "只搜当前图谱内的节点标题与标签，换个关键词试试"
+              : view === "notes"
+                ? "在笔记正文中用 [[ 或链接插入其他笔记，或建立父子层级，这里就会生长出知识网络。"
+                : "在任务详情中添加前置依赖，这里就会展示任务的阻塞关系。"
           }
           action={
-            hideIsolated && fullGraph.nodes.length > 0 ? (
+            search.trim() ? (
+              <Button variant="outline" onClick={() => setSearch("")}>
+                清空搜索
+              </Button>
+            ) : hideIsolated && fullGraph.nodes.length > 0 ? (
               <Button variant="outline" onClick={() => setHideIsolated(false)}>
                 显示全部节点
               </Button>

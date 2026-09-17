@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Plus, Link2, FileText, Feather, ListTodo, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Link2, FileText, Feather, ListTodo, ChevronRight, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";

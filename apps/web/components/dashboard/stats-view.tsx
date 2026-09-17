@@ -18,7 +18,7 @@ import {
   Star,
   Highlighter,
   Calendar,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 

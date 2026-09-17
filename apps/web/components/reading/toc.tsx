@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { List } from "lucide-react";
+import { List } from "@/components/icons";
 
 export interface Heading {
   id: string;

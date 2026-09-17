@@ -14,7 +14,7 @@ import { BatchImportPanel } from "@/components/inbox/batch-import-panel";
 import { extractFirstUrl } from "@/lib/inbox/batch-import";
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
 import { toast } from "@/hooks/use-toast";
-import { ClipboardPaste, Layers, Link2, Loader2 } from "lucide-react";
+import { ClipboardPaste, Layers, Link2, Loader2 } from "@/components/icons";
 
 interface QuickAddBarProps {
   /** 入库成功后回调（列表刷新） */

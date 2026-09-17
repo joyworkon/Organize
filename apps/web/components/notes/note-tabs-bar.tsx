@@ -4,13 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
   FileText,
   Loader2,
   Plus,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
@@ -23,16 +21,18 @@ const NOTE_ID_RE = /^\/notes\/([^/]+)/;
 
 /**
  * 桌面端顶部笔记标签页条（Chrome 式）：
- * - 仅在 /notes 与 /notes/[id] 显示，其他功能区不渲染（标签数据仍持久化，回到笔记区即恢复）
+ * - 只在打开某篇笔记（/notes/[id]）且确有标签时显示；笔记列表页 /notes 不渲染
+ *   （原来在列表页也挂一条带前进/后退/「+」的空壳条，那里既没有"上一篇"语义也与页头动作重复）
+ * - 不再提供浏览器式前进/后退与条上「+」：前者与浏览器/侧栏导航重复，后者与页头「新建笔记」重复
  * - 访问 /notes/[id] 自动开标签，标题/图标由笔记页经 organize:note-tab 事件回填
  * - 点标签切换、X 或中键关闭，关闭当前标签后聚焦左侧邻位（无则右侧/回列表）
  * - 右侧「+」新建笔记；标签持久化，刷新后恢复
  */
 export function NoteTabsBar() {
   const pathname = usePathname();
-  const isNotesRoute = pathname === "/notes" || pathname.startsWith("/notes/");
+  // 只有笔记详情页才有"标签页"语义；列表页不渲染这条
+  const isNoteDetailRoute = pathname.startsWith("/notes/");
   const router = useRouter();
-  const supabase = createClient();
   const tabs = useOpenTabsStore((state) => state.tabs);
   const openTab = useOpenTabsStore((state) => state.openTab);
   const updateMeta = useOpenTabsStore((state) => state.updateMeta);
@@ -42,7 +42,6 @@ export function NoteTabsBar() {
 
   // zustand persist 在客户端挂载后才回放 localStorage，先渲染空条避免 SSR 水合不一致
   const [mounted, setMounted] = useState(false);
-  const [creating, setCreating] = useState(false);
   // 拖拽排序进行中的标签 id（Chrome 式：悬停到目标标签上即实时换位）
   const [dragId, setDragId] = useState<string | null>(null);
 
@@ -88,54 +87,14 @@ export function NoteTabsBar() {
     router.push(neighborId ? `/notes/${neighborId}` : "/notes");
   };
 
-  const handleNewNote = async () => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      // N02：统一创建服务（离线入队返回 queued，客户端 id 即最终地址）
-      const result = await createNewNote(supabase);
-      if (result.status === "unauthenticated" || result.status === "failed") {
-        toast({ title: describeCreateNoteResult(result), variant: "destructive" });
-        return;
-      }
-      if (result.status === "queued") {
-        toast({ title: describeCreateNoteResult(result) });
-      }
-      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
-      router.push(`/notes/${result.noteId}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  // 非笔记路由不渲染（hooks 已全部声明完毕，事件监听保持挂载以便回填 store）
-  if (!isNotesRoute) return null;
+  // 非笔记详情页 / 无标签时不渲染（hooks 已全部声明完毕，事件监听保持挂载以便回填 store）
+  if (!isNoteDetailRoute) return null;
+  if (mounted && tabs.length === 0) return null;
 
   return (
     <>
     {/* M01：移动端切换入口已收进笔记页顶栏（MobileNoteTabsButton），不再在此浮动 */}
     <div className="note-tabs-bar organize-chrome-bar sticky top-0 z-50 hidden h-10 items-center gap-1 px-2 md:flex">
-      <div className="flex shrink-0 items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          title="后退"
-          aria-label="后退"
-          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => router.forward()}
-          title="前进"
-          aria-label="前进"
-          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <ArrowRight className="h-4 w-4" />
-        </button>
-      </div>
-
       <div className="note-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1">
         {mounted &&
           tabs.map((tab) => {
@@ -198,17 +157,6 @@ export function NoteTabsBar() {
               </div>
             );
           })}
-        {/* 「+」紧跟最后一个标签（截图式）；标签溢出滚动时 sticky 贴在右侧不被卷走 */}
-        <button
-          type="button"
-          onClick={() => void handleNewNote()}
-          title="新建笔记标签页"
-          aria-label="新建笔记标签页"
-          disabled={creating}
-          className="note-tabs-add sticky right-0 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-        </button>
       </div>
     </div>
     </>

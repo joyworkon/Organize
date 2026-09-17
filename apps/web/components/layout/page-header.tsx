@@ -7,11 +7,16 @@ interface PageHeaderProps {
   icon?: React.ComponentType<{ className?: string }>;
   /** 右侧操作区（按钮组） */
   actions?: React.ReactNode;
+  /**
+   * 页内搜索框（`PageSearch`）：固定落在这一行的最右侧，
+   * 只搜当前功能内的内容。跨功能搜索走 ⌘K 命令面板。
+   */
+  search?: React.ReactNode;
   className?: string;
 }
 
 /**
- * 主内容页统一的页面标题区：图标 + 标题 + 描述 + 右侧操作。
+ * 主内容页统一的页面标题区：图标 + 标题 + 描述 + 右侧操作 + 最右侧页内搜索。
  * 各页 h1 字号、描述字号、图标样式不一致的问题统一收口到这里。
  */
 export function PageHeader({
@@ -19,6 +24,7 @@ export function PageHeader({
   description,
   icon: Icon,
   actions,
+  search,
   className,
 }: PageHeaderProps) {
   return (
@@ -43,8 +49,11 @@ export function PageHeader({
           )}
         </div>
       </div>
-      {actions && (
-        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+      {(actions || search) && (
+        <div className="organize-page-header-actions flex flex-wrap items-center gap-2 sm:flex-nowrap sm:justify-end">
+          {actions}
+          {search}
+        </div>
       )}
     </header>
   );

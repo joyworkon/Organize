@@ -25,9 +25,10 @@ import {
   Loader2,
   Network,
   Feather,
+  Lightning,
   Users,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -353,7 +354,8 @@ const visibleNavItems = useMemo(() => {
           </span>
           {!compact && <span className="truncate">Cairn</span>}
         </Link>
-        <div className="flex items-center gap-1 shrink-0">
+        {/* -mr-0.5：让收起箭头图标中心与下方导航行尾按钮（笔记/待办箭头、速记闪电）同列 */}
+        <div className="-mr-0.5 flex items-center gap-1 shrink-0">
           {onClose && (
             <button
               type="button"
@@ -658,9 +660,12 @@ const visibleNavItems = useMemo(() => {
                   <item.icon className="h-4 w-4 shrink-0" />
                   <span className="truncate">{item.label}</span>
                 </Link>
+                {/* 「+」换成设计系统单色闪电（flash-2）：速记是"闪念捕捉"，
+                    加号语义太泛；位置也从"与笔记的 + 同列"改到最右列，
+                    与顶部收起箭头、笔记/待办的展开箭头同一条中心线上（mr-1） */}
                 <button
                   type="button"
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                  className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
                   title="快速新建速记"
                   aria-label="快速新建速记"
                   onClick={() => {
@@ -672,10 +677,8 @@ const visibleNavItems = useMemo(() => {
                     router.push("/memos?compose=1");
                   }}
                 >
-                  <Plus className="h-3.5 w-3.5" />
+                  <Lightning className="h-3.5 w-3.5" />
                 </button>
-                {/* 占位：让速记的「+」与笔记的「+」落在同一列（笔记右侧还有展开箭头） */}
-                <span className="mr-1 h-7 w-7 shrink-0" aria-hidden="true" />
               </div>
             );
           }

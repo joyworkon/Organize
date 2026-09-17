@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, FileDown } from "lucide-react";
+import { Loader2, FileDown } from "@/components/icons";
 
 interface JoyspaceImportDialogProps {
   open: boolean;

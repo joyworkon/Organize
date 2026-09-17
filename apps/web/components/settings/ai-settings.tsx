@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2 } from "@/components/icons";
 
 interface AISettingsView {
   configured: boolean;

@@ -2,7 +2,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
-import { GitGraph, Pencil, X } from "lucide-react";
+import { GitGraph, Pencil, X } from "@/components/icons";
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_MERMAID_CODE, looksLikeMermaid } from "./mermaid";
 

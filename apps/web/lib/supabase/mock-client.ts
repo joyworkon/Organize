@@ -30,6 +30,20 @@ const COLLAB_MANAGEMENT_RPCS = new Set([
   "save_note_with_tasks_v2",
 ]);
 
+// 真实后端里软删除的行是被 RLS（023 起）挡在 SELECT 之外的，所以业务查询大多
+// 不显式写 .is("deleted_at", null)。mock 没有 RLS，若不补这一层，垃圾箱里的行
+// 会同时出现在正常列表里（表现为"删了还在"）。约定：这些表的 select 默认只回
+// deleted_at 为空的行，除非调用方自己对 deleted_at 下了过滤器（垃圾箱视图那样）。
+const SOFT_DELETE_TABLES = new Set([
+  "notes",
+  "reading_items",
+  "tasks",
+  "lessons",
+  "memos",
+  "countdown_days",
+  "task_lists",
+]);
+
 // 链式查询构造器：支持 select/insert/update/delete + 常见过滤器，且可 await
 class MockQuery implements PromiseLike<{ data: any; count: number | null; error: null }> {
   private table: string;
@@ -54,7 +68,14 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
 
   // 按 eq / in 过滤（其它过滤器忽略，UI 预览够用）
   private applyFilters(rows: any[]): any[] {
-    return rows.filter((row) =>
+    const hideSoftDeleted =
+      this.op === "select" &&
+      SOFT_DELETE_TABLES.has(this.table) &&
+      !this.filters.some((f) => f.column === "deleted_at");
+    const scoped = hideSoftDeleted
+      ? rows.filter((row) => row.deleted_at == null)
+      : rows;
+    return scoped.filter((row) =>
       this.filters.every((f) => {
         if (f.method === "eq") return row[f.column] === f.value;
         if (f.method === "neq") return row[f.column] !== f.value;

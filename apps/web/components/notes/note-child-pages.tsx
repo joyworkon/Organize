@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronRight, Loader2, Plus } from "@/components/icons";
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
