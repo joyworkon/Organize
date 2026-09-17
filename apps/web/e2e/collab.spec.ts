@@ -46,14 +46,17 @@ async function loadSeed() {
 }
 
 async function login(page: Page, email: string, password: string) {
+  // 预置「已完成引导」标记：onboarding 弹窗在首帧后的 effect 里异步挂载，
+  // 盲按 Esc 的时机不稳（CI 实测慢机上 Esc 先于挂载到达 → 弹窗残留拦截
+  // 一切点击直到测试超时）。同 note-backlinks / smoke.spec 的确定性做法
+  await page.addInitScript(() => {
+    window.localStorage.setItem("organize:onboarded", "1");
+  });
   await page.goto("/login");
   await page.getByPlaceholder("邮箱地址").fill(email);
   await page.getByPlaceholder("密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL("**/library");
-  // 首次登录会有 onboarding 弹窗（拦截一切点击），Esc 关闭并写入已读标记
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
 }
 
 async function openNote(page: Page) {
