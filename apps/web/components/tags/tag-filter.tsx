@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Filter, ChevronDown } from "lucide-react";
+import { ChevronDown, Tag as TagIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TagBadge } from "./tag-badge";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,8 @@ interface TagFilterProps {
   onChange: (ids: string[]) => void;
   /** 最多显示多少个已选 chip 在外面；超出折叠 */
   maxVisibleSelected?: number;
+  /** 供调用方把筛选器塞进自己的工具行（U-layout 第四步起不再单独占一条横带） */
+  className?: string;
 }
 
 export function TagFilter({
@@ -22,6 +25,7 @@ export function TagFilter({
   selectedIds,
   onChange,
   maxVisibleSelected = 5,
+  className,
 }: TagFilterProps) {
   const [open, setOpen] = useState(false);
 
@@ -41,34 +45,32 @@ export function TagFilter({
     }
   };
 
+  const hasSelection = selectedIds.length > 0;
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {visibleSelected.length > 0 ? (
-        visibleSelected.map((tag) => (
-          <TagBadge key={tag.id} tag={tag} active onRemove={() => toggle(tag.id)} />
-        ))
-      ) : (
-        <span className="text-xs text-muted-foreground">全部标签</span>
-      )}
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      {visibleSelected.map((tag) => (
+        <TagBadge key={tag.id} tag={tag} active onRemove={() => toggle(tag.id)} />
+      ))}
       {hiddenCount > 0 && (
         <span className="text-xs text-muted-foreground">+{hiddenCount}</span>
       )}
 
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button
+          <Button
             type="button"
-            className={cn(
-              "inline-flex items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-accent",
-              selectedIds.length > 0 && "border-primary text-primary"
-            )}
+            variant="outline"
+            size="sm"
+            aria-label="按标签筛选"
+            className={cn("gap-1.5", hasSelection ? "border-primary text-primary" : "organize-filter-idle")}
           >
-            <Filter className="h-3 w-3" />
-            筛选
-            <ChevronDown className="h-3 w-3" />
-          </button>
+            <TagIcon className="h-3.5 w-3.5" />
+            标签{hasSelection ? ` · ${selectedIds.length}` : ""}
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+          </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64 p-2">
+        <PopoverContent align="start" className="w-64 space-y-2 p-2">
           {options.length === 0 ? (
             <p className="text-center text-xs text-muted-foreground py-3">还没有标签</p>
           ) : (
@@ -82,6 +84,17 @@ export function TagFilter({
                 />
               ))}
             </div>
+          )}
+          {hasSelection && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-full text-xs"
+              onClick={() => onChange([])}
+            >
+              清除标签筛选（{selectedIds.length}）
+            </Button>
           )}
         </PopoverContent>
       </Popover>

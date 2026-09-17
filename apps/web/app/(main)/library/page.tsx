@@ -592,6 +592,14 @@ function LibraryPageInner() {
           />
         </div>
         <div className="mobile-toolbar-actions flex w-full items-center justify-between gap-2 sm:w-auto">
+          {/* U-layout 第四步：标签筛选并入工具行，页头到首条内容之间只剩 2 条横带 */}
+          {allTags.length > 0 && (
+            <TagFilter
+              options={allTags}
+              selectedIds={selectedTagIds}
+              onChange={changeTagFilter}
+            />
+          )}
           <Select value={smartSort} onValueChange={handleSortChange}>
             <SelectTrigger aria-label="排序方式" className="w-auto sm:w-[140px] h-9 gap-1.5 sm:gap-1.5">
               <Sparkles className="h-3.5 w-3.5 shrink-0" />
@@ -626,14 +634,6 @@ function LibraryPageInner() {
           </Button>
         </div>
       </div>
-
-      {allTags.length > 0 && (
-        <TagFilter
-          options={allTags}
-          selectedIds={selectedTagIds}
-          onChange={changeTagFilter}
-        />
-      )}
 
       {isSelectMode && (
         <BatchActionsBar

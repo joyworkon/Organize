@@ -8,7 +8,6 @@ import {
   Check,
   ChevronDown,
   FileText,
-  Filter,
   Flag,
   Group,
   ListChecks,
@@ -46,7 +45,6 @@ import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
 import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
@@ -55,8 +53,8 @@ import { BatchActionsBar } from "@/components/batch-actions-bar";
 import { useSelection } from "@/hooks/use-selection";
 import { groupTasksByDate } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
-import { TagFilter } from "@/components/tags/tag-filter";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
+import { TaskFilterMenu, countActiveTaskFilters, type TaskFilterState } from "@/components/tasks/task-filter-menu";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import { TaskTemplatesDialog } from "@/components/tasks/task-templates-dialog";
@@ -66,7 +64,7 @@ import { toast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
 import type { TagWithCount, Task, TaskCategory, TaskDependency, TaskPriority, TaskStatus, TaskWithTags } from "@organize/shared";
-import { TASK_CATEGORY_CONFIG, TASK_PRIORITY_CONFIG, TASK_STATUS_CONFIG } from "@organize/shared";
+import { TASK_PRIORITY_CONFIG } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import {
   fetchTaskWorkspace,
@@ -284,12 +282,17 @@ function TasksPageInner() {
   const activeTasksRef = useRef<TaskWithTags[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   // U03：移动端筛选默认折叠为「筛选 · N」入口，点开才占首屏空间
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const activeFilterCount =
-    (statusFilter !== "all" ? 1 : 0)
-    + (categoryFilter !== "all" ? 1 : 0)
-    + (priorityFilter !== "all" ? 1 : 0)
-    + selectedTagIds.length;
+  // U-layout 第四步：四个筛选条件收进清单头的「筛选」面板，页面只保留条件状态本身
+  const taskFilter = useMemo<TaskFilterState>(
+    () => ({ status: statusFilter, category: categoryFilter, priority: priorityFilter, tagIds: selectedTagIds }),
+    [categoryFilter, priorityFilter, selectedTagIds, statusFilter]
+  );
+  const applyTaskFilter = useCallback((next: TaskFilterState) => {
+    setStatusFilter(next.status);
+    setCategoryFilter(next.category);
+    setPriorityFilter(next.priority);
+    setSelectedTagIds(next.tagIds);
+  }, []);
   // 待办组按日期分组展示（分组模式下禁用手动排序，避免与 sort_order 语义冲突）
   const [groupByDate, setGroupByDate] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -963,9 +966,10 @@ function TasksPageInner() {
     <div className="organize-task-screen flex h-[calc(100vh-11rem)] min-h-0 w-full overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
       <section className={cn("organize-task-list-pane flex min-w-0 flex-1 flex-col", selectedTask && "hidden lg:flex")}>
         {/* U03：移动端清单头压缩（h1 缩小），首屏让位给任务列表 */}
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 md:h-16 md:gap-4 md:px-8">
+        {/* U-layout：清单头收纳筛选/视图开关/模板/附件；窄双栏时退成图标并允许横向滚动兜底 */}
+        <header className="organize-task-header flex h-12 shrink-0 items-center gap-3 overflow-x-auto border-b px-4 md:h-16 md:gap-3 md:px-8">
           <span className="text-xl md:text-2xl">{currentList?.icon || "📋"}</span>
-          <h1 className="truncate text-base font-semibold md:text-xl">{listTitle}</h1>
+          <h1 className="min-w-0 truncate text-base font-semibold md:text-xl">{listTitle}</h1>
           <div className="mobile-task-scope min-w-0 flex-1 md:hidden">
             <TaskNavigationMenu trigger={<button type="button" aria-label={`选择任务范围：${listTitle}`} className="flex max-w-full items-center gap-2 text-base font-semibold"><span className="truncate">{listTitle}</span><ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /></button>} />
           </div>
@@ -981,7 +985,57 @@ function TasksPageInner() {
               {deadLetterEntries.length} 项同步失败待处理
             </span>
           )}
+          {/* U-layout 第四步：筛选与视图开关收进清单头，正文首屏只剩「快速添加 + 任务」 */}
+          <div className="ml-auto hidden shrink-0 items-center gap-1.5 md:flex">
+            {permission === "default" && (
+              <button
+                type="button"
+                onClick={() => requestPermission()}
+                title="开启浏览器通知以接收任务到期提醒"
+                className="rounded-md bg-muted/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                🔔 开启通知
+              </button>
+            )}
+            {permission === "denied" && (
+              <span
+                className="text-xs text-muted-foreground"
+                title="通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。"
+              >
+                🔕 通知已禁用
+              </span>
+            )}
+            <TaskFilterMenu value={taskFilter} onChange={applyTaskFilter} tags={tags} />
+            <Button
+              variant={groupByDate ? "default" : "outline"}
+              size="sm"
+              className="gap-1.5 px-2.5"
+              aria-label="按日期分组待办任务"
+              aria-pressed={groupByDate}
+              title="按日期分组待办任务（按 v）"
+              onClick={() => setGroupByDate((value) => !value)}
+            >
+              <Group className="h-3.5 w-3.5" />
+              {/* 窄栏（含选中任务的双栏）只留图标，宽屏补回文字标签 */}
+              <span className={cn("hidden", selectedTask ? "2xl:inline" : "lg:inline")}>日期分组</span>
+            </Button>
+            {sidebarSelection.scope !== "trash" && (
+              <Button
+                variant={showCheckbox ? "default" : "outline"}
+                size="sm"
+                className="gap-1.5 px-2.5"
+                aria-label="多选批量操作"
+                aria-pressed={showCheckbox}
+                title="多选批量操作（按 m）"
+                onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                <span className={cn("hidden", selectedTask ? "2xl:inline" : "lg:inline")}>多选</span>
+              </Button>
+            )}
+          </div>
           <TaskTemplatesDialog
+            compact={!!selectedTask}
             lists={lists}
             defaultListId={sidebarSelection.scope === "list" ? sidebarSelection.listId : null}
             defaultDueDate={quickAddDueDate(sidebarSelection.scope)}
@@ -992,6 +1046,7 @@ function TasksPageInner() {
             }}
           />
           <TaskAttachmentsDialog
+            compact={!!selectedTask}
             tasks={tasks.filter((task) => !task.deleted_at)}
             onOpenTask={(taskId) => updateUrl({ task: taskId })}
           />
@@ -1008,31 +1063,24 @@ function TasksPageInner() {
               </p>
             )}
 
-            {/* U03：通知状态用短摘要呈现，长说明收进悬停提示，不再占首屏两行 */}
-            {permission === "default" && <div className="mb-3 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:mb-4"><span title="开启浏览器通知以接收任务到期提醒">🔔 浏览器通知未开启</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
+            {/* U03/U-layout：通知状态短摘要；桌面收进清单头 chip，移动端保留这条细带 */}
+            {permission === "default" && <div className="mb-3 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:hidden"><span>🔔 浏览器通知未开启</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
             {permission === "denied" && (
-              <div className="mb-3 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:mb-4" title="通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。">
-                🔕 通知已禁用<span className="hidden md:inline">：提醒将无法送达，可在站点设置改为「允许」</span>
+              <div className="mb-3 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:hidden">
+                🔕 通知已禁用
               </div>
             )}
 
-            {/* U03：移动端筛选默认折叠为带生效数量的入口；md+ 保持常驻 */}
-            <div className="mb-3 flex items-center gap-2 md:hidden">
-              <Button
-                variant={filtersOpen ? "default" : "outline"}
-                size="sm"
-                className="gap-1.5"
-                aria-expanded={filtersOpen}
-                onClick={() => setFiltersOpen((value) => !value)}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                筛选{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
-              </Button>
-              <div className="ml-auto flex items-center gap-1 md:hidden">
+            {/* U-layout：移动端保留一条工具行（筛选面板 + 视图开关）；桌面这三项已在清单头 */}
+            <div className="mobile-task-tools mb-3 flex items-center gap-2 md:hidden">
+              <TaskFilterMenu value={taskFilter} onChange={applyTaskFilter} tags={tags} />
+              <div className="ml-auto flex items-center gap-1">
                 <Button
                   variant={groupByDate ? "default" : "outline"}
                   size="sm"
                   className="gap-1.5"
+                  aria-label="按日期分组待办任务"
+                  aria-pressed={groupByDate}
                   title="按日期分组待办任务（按 v）"
                   onClick={() => setGroupByDate((value) => !value)}
                 >
@@ -1043,41 +1091,12 @@ function TasksPageInner() {
                     variant={showCheckbox ? "default" : "outline"}
                     size="sm"
                     className="gap-1.5"
+                    aria-label="多选批量操作"
+                    aria-pressed={showCheckbox}
                     title="多选批量操作（按 m）"
                     onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
                   >
                     <ListChecks className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            <div className={cn("mb-4 flex flex-wrap items-center gap-2", !filtersOpen && "hidden md:flex")}>
-              <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}><SelectTrigger aria-label="按状态筛选" className={cn("h-9 w-auto min-w-[112px]", statusFilter === "all" && "organize-filter-idle")}><Filter className="mr-1 h-3.5 w-3.5" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{Object.entries(TASK_STATUS_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
-              <Select value={categoryFilter} onValueChange={(value: CategoryFilter) => setCategoryFilter(value)}><SelectTrigger aria-label="按分类筛选" className={cn("h-9 w-auto min-w-[112px]", categoryFilter === "all" && "organize-filter-idle")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部分类</SelectItem>{Object.entries(TASK_CATEGORY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
-              <Select value={priorityFilter} onValueChange={(value: PriorityFilter) => setPriorityFilter(value)}><SelectTrigger aria-label="按优先级筛选" className={cn("h-9 w-auto min-w-[112px]", priorityFilter === "all" && "organize-filter-idle")}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部优先级</SelectItem>{Object.entries(TASK_PRIORITY_CONFIG).map(([key, config]) => <SelectItem key={key} value={key}>{config.label}</SelectItem>)}</SelectContent></Select>
-              <TagFilter options={tags} selectedIds={selectedTagIds} onChange={setSelectedTagIds} />
-              <div className="ml-auto hidden items-center gap-1 md:flex">
-                <Button
-                  variant={groupByDate ? "default" : "outline"}
-                  size="sm"
-                  className="gap-1.5"
-                  title="按日期分组待办任务（按 v）"
-                  onClick={() => setGroupByDate((value) => !value)}
-                >
-                  <Group className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">日期分组</span>
-                </Button>
-                {sidebarSelection.scope !== "trash" && (
-                  <Button
-                    variant={showCheckbox ? "default" : "outline"}
-                    size="sm"
-                    className="gap-1.5"
-                    title="多选批量操作（按 m）"
-                    onClick={() => { if (showCheckbox) exitSelection(); else setSelectionMode(true); }}
-                  >
-                    <ListChecks className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">多选</span>
                   </Button>
                 )}
               </div>

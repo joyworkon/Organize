@@ -15,6 +15,7 @@ import {
 } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,8 @@ interface TaskTemplatesDialogProps {
   defaultListId: string | null;
   defaultDueDate: string | null;
   onCreated: (taskId: string) => Promise<void>;
+  /** 清单栏收窄（打开任务详情的双栏态）时只渲染图标，文字进 aria-label/title */
+  compact?: boolean;
 }
 
 interface TemplateForm extends TaskTemplateSnapshot {
@@ -58,6 +61,7 @@ export function TaskTemplatesDialog({
   defaultListId,
   defaultDueDate,
   onCreated,
+  compact = false,
 }: TaskTemplatesDialogProps) {
   const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
@@ -191,9 +195,14 @@ export function TaskTemplatesDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button type="button" className="ml-auto inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted">
+        <button
+          type="button"
+          aria-label="从模板创建任务"
+          title="从模板创建任务"
+          className={cn("inline-flex h-9 shrink-0 items-center gap-2 rounded-md border text-sm hover:bg-muted", compact ? "px-2.5" : "px-3")}
+        >
           <LayoutTemplate className="h-4 w-4" />
-          模板
+          {!compact && "模板"}
         </button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">

@@ -5,6 +5,7 @@ import { Loader2, Paperclip } from "lucide-react";
 import type { TaskAttachment, TaskWithTags } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -18,11 +19,14 @@ import { TaskAttachmentList } from "@/components/tasks/task-attachment-list";
 interface TaskAttachmentsDialogProps {
   tasks: TaskWithTags[];
   onOpenTask: (taskId: string) => void;
+  /** 清单栏收窄（打开任务详情的双栏态）时只渲染图标，文字进 aria-label/title */
+  compact?: boolean;
 }
 
 export function TaskAttachmentsDialog({
   tasks,
   onOpenTask,
+  compact = false,
 }: TaskAttachmentsDialogProps) {
   const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
@@ -64,9 +68,14 @@ export function TaskAttachmentsDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button type="button" className="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm hover:bg-muted">
+        <button
+          type="button"
+          aria-label="任务附件"
+          title="任务附件"
+          className={cn("inline-flex h-9 shrink-0 items-center gap-2 rounded-md border text-sm hover:bg-muted", compact ? "px-2.5" : "px-3")}
+        >
           <Paperclip className="h-4 w-4" />
-          附件
+          {!compact && "附件"}
         </button>
       </DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto">
