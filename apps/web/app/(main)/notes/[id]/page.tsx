@@ -131,7 +131,7 @@ export default function NoteEditorPage() {
   const [loading, setLoading] = useState(true);
   /** 加载失败原因：not-found=在线确认不存在；offline=离线导致查询失败（服务器可能有数据） */
   const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | null>(null);
-  const [fullWidth, setFullWidth] = useState(true);
+  const [fullWidth, setFullWidth] = useState(false);
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -209,7 +209,7 @@ export default function NoteEditorPage() {
     cover_url: null,
     cover_position: 50,
     parent_note_id: null,
-    full_width: true,
+    full_width: false,
     font_family: "default",
     small_font: false,
   });
@@ -444,7 +444,7 @@ export default function NoteEditorPage() {
             cover_url: null,
             cover_position: 50,
             parent_note_id: null,
-            full_width: true,
+            full_width: false,
             font_family: "default",
             small_font: false,
           };
