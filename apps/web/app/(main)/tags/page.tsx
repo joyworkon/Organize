@@ -468,7 +468,6 @@ export default function TagsPage() {
       <PageHeader
         icon={TagIcon}
         title="标签管理"
-        description={`共 ${tags.length} 个标签，累计使用 ${tags.reduce((sum, t) => sum + totalUsage(t), 0)} 次`}
         actions={
           <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />

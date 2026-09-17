@@ -39,7 +39,6 @@ export default function PluginsPage() {
       <PageHeader
         icon={Puzzle}
         title="插件管理"
-        description="管理已安装的插件，启用或禁用功能扩展"
       />
 
       {pluginError && <p className="text-sm text-destructive">{pluginError}</p>}

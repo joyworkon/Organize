@@ -159,19 +159,11 @@ export function LessonsList() {
     return true;
   });
 
-  const stats = {
-    total: lessons.length,
-    reflection: lessons.filter((l) => l.lesson_type === "reflection").length,
-    lesson: lessons.filter((l) => l.lesson_type === "lesson").length,
-    insight: lessons.filter((l) => l.lesson_type === "insight").length,
-  };
-
   return (
     <div className="space-y-4 sm:space-y-6">
       <PageHeader
         icon={Lightbulb}
         title="经验总结"
-        description={`共 ${stats.total} 条经验 · ${stats.reflection} 篇复盘 · ${stats.lesson} 条经验 · ${stats.insight} 个灵感`}
         actions={
           <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
             <Plus className="h-4 w-4" />

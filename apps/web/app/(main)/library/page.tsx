@@ -541,7 +541,6 @@ function LibraryPageInner() {
       <PageHeader
         icon={Library}
         title="稍后读"
-        description="保存链接稍后阅读，收集与阅读在同一处完成"
       />
 
       <QuickAddBar

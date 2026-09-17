@@ -5,14 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { PageHeader } from "@/components/layout/page-header";
 import { Star, BookOpen, FileText, ListChecks, LayoutList, Loader2, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -129,22 +121,9 @@ export default function FavoritesPage() {
 
   return (
     <div className="space-y-6">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">首页</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>收藏夹</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <PageHeader
         icon={Star}
         title="收藏夹"
-        description={`共 ${counts.all} 个收藏`}
       />
 
       <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit flex-wrap">

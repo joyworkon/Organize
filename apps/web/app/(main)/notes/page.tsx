@@ -691,7 +691,6 @@ export default function NotesPage() {
             )}
           </>
         }
-        description="记录你的想法和阅读笔记"
         actions={
           <>
             {/* U-layout 第六步：导入两件套与图谱收进「更多」，页头只留一个主动作 */}

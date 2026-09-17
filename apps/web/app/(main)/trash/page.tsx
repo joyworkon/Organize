@@ -147,7 +147,6 @@ export default function TrashPage() {
       <PageHeader
         icon={Trash2}
         title="垃圾箱"
-        description="已删除内容会保留在这里，直到你永久删除"
         actions={
           <Button
             variant="outline"
