@@ -38,19 +38,28 @@ test.beforeAll(() => {
 });
 
 async function login(page: Page, email: string, password: string) {
+  // 预置「已完成引导」标记：onboarding 弹窗在首帧后的 effect 里异步挂载，
+  // 盲按 Esc 的时机不稳（CI 实测弹窗残留拦截一切点击直到测试超时）。
+  // 同 note-backlinks / smoke.spec 的确定性做法
+  await page.addInitScript(() => {
+    window.localStorage.setItem("organize:onboarded", "1");
+  });
   await page.goto("/login");
   await page.getByPlaceholder("邮箱地址").fill(email);
   await page.getByPlaceholder("密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL("**/library");
-  await page.keyboard.press("Escape"); // 关 onboarding 弹窗
-  await page.waitForTimeout(300);
 }
 
 /** 打开笔记并等同步块工具栏出现（挂载拉取完成） */
 async function openNote(page: Page, noteId: string) {
   await page.goto(`/notes/${noteId}`);
   await page.locator(".ProseMirror").waitFor();
+  // 等协作会话健康定形（首次同步完成）再放行后续输入：协作门控解除前编辑器
+  // 不可编辑，typeInBlock 的 toBeEditable 会在此窗口空等（PR #313 调查）
+  await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({
+    timeout: 45_000,
+  });
   await page.locator(`[data-synced-id="${seed.syncedId}"]`).waitFor();
 }
 
@@ -87,6 +96,13 @@ async function typeInBlock(page: Page, text: string) {
     if (focused) break;
     await page.waitForTimeout(400);
   }
+  // 焦点始终没进编辑器就打字 = 输入静默丢失（实测：内容超出视口后坐标点击
+  // 落空），后续断言只会报「待同步没出现」这类远离根因的错——在这里显式失败
+  const focused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+  });
+  if (!focused) throw new Error("click never focused the editor; typing would be lost");
   await page.keyboard.type(text);
 }
 

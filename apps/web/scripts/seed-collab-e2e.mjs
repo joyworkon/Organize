@@ -44,6 +44,11 @@ const [userA, userB] = await Promise.all(USERS.map(ensureUser));
 // 固定 uuid：笔记 N 属于 A；W 为 A 的团队空间，B 是 member，笔记对 W 授权 editor
 const NOTE_ID = "ee000000-0000-4000-8000-000000000001";
 const WORKSPACE_ID = "ee000000-0000-4000-8000-000000000002";
+// 撤权 E2E（collab-revocation.spec）专用笔记：该套件会往正文写入
+// 「降级前可达/降级后不可达」标记并留在房间 blob 里，若与并发编辑共用一篇，
+// 排在其后跑的 collab.spec 就会在被污染的文档上做段落数判断与坐标输入
+// （PR #313 调查：CI collab.spec:70 两次丢字均伴随污染段落）。隔离后互不影响
+const REVOCATION_NOTE_ID = "ee000000-0000-4000-8000-000000000003";
 
 const db = createClient(url, serviceKey, {
   auth: { persistSession: false },
@@ -83,17 +88,43 @@ if (noteErr) throw new Error(`note: ${noteErr.message}`);
 // 重跑清理：删固定 UUID 笔记的协作 ydoc 残留（067）。上轮运行落下的 blob 比
 // 本次种子的 notes.updated_at 新时会先回放旧内容而非重新播种，破坏
 // 「每次重跑同一起点」（A04：真实后端 E2E 必须可重复运行）
-const { error: ydocErr } = await db.from("note_ydocs").delete().eq("note_id", NOTE_ID);
-if (ydocErr) throw new Error(`note_ydocs cleanup: ${ydocErr.message}`);
+for (const noteId of [NOTE_ID, REVOCATION_NOTE_ID]) {
+  const { error: ydocErr } = await db.from("note_ydocs").delete().eq("note_id", noteId);
+  if (ydocErr) throw new Error(`note_ydocs cleanup ${noteId}: ${ydocErr.message}`);
+}
+
+const { error: revocationNoteErr } = await db.from("notes").upsert(
+  {
+    id: REVOCATION_NOTE_ID,
+    user_id: userA,
+    title: "撤权端到端验证笔记",
+    content: {
+      type: "doc",
+      content: [{ type: "paragraph" }, { type: "paragraph" }],
+    },
+    content_revision: 0,
+  },
+  { onConflict: "id" }
+);
+if (revocationNoteErr) throw new Error(`revocation note: ${revocationNoteErr.message}`);
 
 const { error: aclErr } = await db.from("resource_acl").upsert(
-  {
-    workspace_id: WORKSPACE_ID,
-    resource_type: "note",
-    resource_id: NOTE_ID,
-    access_role: "editor",
-    created_by: userA,
-  },
+  [
+    {
+      workspace_id: WORKSPACE_ID,
+      resource_type: "note",
+      resource_id: NOTE_ID,
+      access_role: "editor",
+      created_by: userA,
+    },
+    {
+      workspace_id: WORKSPACE_ID,
+      resource_type: "note",
+      resource_id: REVOCATION_NOTE_ID,
+      access_role: "editor",
+      created_by: userA,
+    },
+  ],
   { onConflict: "workspace_id,resource_type,resource_id" }
 );
 if (aclErr) throw new Error(`acl: ${aclErr.message}`);
@@ -104,6 +135,7 @@ writeFileSync(
   JSON.stringify(
     {
       noteId: NOTE_ID,
+      revocationNoteId: REVOCATION_NOTE_ID,
       userA: { email: USERS[0].email, password: PASSWORD },
       userB: { email: USERS[1].email, password: PASSWORD },
       // A05-4：撤权 E2E 直删 workspace_members 需要 userB 的 auth uid。
