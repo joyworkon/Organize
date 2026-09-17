@@ -202,21 +202,12 @@ export default function GraphPage() {
         ? { markerEnd: "url(#graph-arrow)" }
         : {};
 
-  const linkCount = graph.edges.filter((e) => e.kind === "link").length;
-  const parentCount = graph.edges.filter((e) => e.kind === "parent").length;
-  const isolatedCount = fullGraph.nodes.length - graph.nodes.length;
 
   return (
     <div className="space-y-4">
       <PageHeader
         icon={Network}
         title="知识图谱"
-        description={
-          (view === "notes"
-            ? `笔记 ${graph.nodes.length} 篇 · 链接 ${linkCount} 条 · 层级 ${parentCount} 条`
-            : `任务 ${graph.nodes.length} 个 · 依赖 ${graph.edges.length} 条`) +
-          (hideIsolated && isolatedCount > 0 ? ` · 已隐藏 ${isolatedCount} 个孤立节点` : "")
-        }
         actions={
           <>
           <div className="flex rounded-lg border bg-card p-0.5">

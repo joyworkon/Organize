@@ -37,7 +37,6 @@ export default function SharedNotesPage() {
     <div className="w-full space-y-5">
       <PageHeader
         title="与我共享"
-        description="其他账号通过协作空间共享给你的笔记；viewer 只读，editor 可直接编辑保存。"
         icon={Users}
       />
 

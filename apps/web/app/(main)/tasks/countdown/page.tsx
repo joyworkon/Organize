@@ -131,7 +131,6 @@ function CountdownPageInner() {
       <PageHeader
         icon={CalendarDays}
         title="倒数日"
-        description="记录重要日期，支持一次性和每年重复"
         actions={<Button type="button" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>}
       />
       {loading ? (

@@ -481,7 +481,6 @@ function MemosPageInner() {
         <PageHeader
           icon={Feather}
           title="速记"
-          description={`随手捕捉碎片想法，#标签 组织${total !== null ? `，共 ${total} 条` : ""}`}
         />
       </div>
 

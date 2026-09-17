@@ -274,7 +274,6 @@ export default function SettingsPage() {
       <PageHeader
         icon={SettingsIcon}
         title="设置"
-        description="外观、功能与服务、数据与账号，按组分开"
       />
 
       {/* 改版：原本 8 个分区挤在一张长卡里、层级全平；现在按「外观 / 功能与服务 /
