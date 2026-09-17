@@ -744,6 +744,12 @@ export default function NotesPage() {
           />
         </div>
         <div className="mobile-note-tools flex items-center gap-1 flex-wrap">
+          {/* U-layout 第四步：标签筛选并入工具行，不再单独占一条横带 */}
+          <TagFilter
+            options={allTags}
+            selectedIds={selectedTagIds}
+            onChange={setSelectedTagIds}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -815,14 +821,6 @@ export default function NotesPage() {
             <span>多选</span>
           </Button>
         </div>
-      </div>
-
-      <div className="flex items-center">
-        <TagFilter
-          options={allTags}
-          selectedIds={selectedTagIds}
-          onChange={setSelectedTagIds}
-        />
       </div>
 
       {isSelectMode && (
