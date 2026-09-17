@@ -3180,6 +3180,53 @@
   color: hsl(var(--foreground));
   box-shadow: 0 1px 3px hsl(220 20% 10% / 0.12);
 }
+/* 工作台卡片层级（2026-09-17 Cairn 第五步）：
+   主卡指标条 + 第三档「全部」文字导航链——四张卡不再用同一套 ghost 按钮头，
+   层级靠字号（15/14/13px）与色阶，不靠品牌色图标堆叠 */
+.dashboard-metric-row {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+.dashboard-metric-row > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+.dashboard-metric-row strong {
+  color: hsl(var(--foreground));
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.dashboard-metric-alert {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}
+.dashboard-section-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1;
+  transition: color 150ms ease;
+}
+.dashboard-section-link:hover {
+  color: hsl(var(--foreground));
+}
 .editor-menu-subtitle {
   display: flex;
   align-items: center;

@@ -32,6 +32,7 @@ import {
   Loader2,
   ListChecks,
   ChevronDown,
+  ChevronRight,
   Feather,
 } from "lucide-react";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
@@ -325,13 +326,15 @@ export default function TodayView() {
   }
 
   return (
-    <div className="dashboard-today space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold leading-tight sm:text-2xl">
+    <div className="dashboard-today space-y-5">
+      {/* 首屏行动区：问候语 + 入口 + 快速记录归为一组，卡片区从更靠上开始 */}
+      <div className="dashboard-intro space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+          <h1 className="text-lg font-semibold leading-tight sm:text-xl">
             {getGreeting()}
           </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground sm:text-sm">
             {formatDate(today)}
           </p>
         </div>
@@ -339,7 +342,7 @@ export default function TodayView() {
           <TaskNavigationMenu
             onCreateList={handleCreateTaskList}
             trigger={(
-              <Button size="sm" aria-label="打开待办菜单">
+              <Button variant="outline" size="sm" aria-label="打开待办菜单">
                 <ListChecks className="h-4 w-4 mr-1.5" />
                 待办
                 <ChevronDown className="ml-1 h-3.5 w-3.5" />
@@ -365,24 +368,37 @@ export default function TodayView() {
       </div>
 
       <DashboardCapture onAdded={() => void loadData()} />
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 lg:gap-5 lg:grid-cols-3">
         {/* 主列（约 2/3）：继续处理 */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">继续处理</h3>
-                <Link
-                  href="/tasks"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
-                >
-                  查看全部待办
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="flex items-baseline gap-2.5">
+                  <h3 className="text-[15px] font-semibold">继续处理</h3>
+                  {overdueTasks.length > 0 && (
+                    <span className="dashboard-metric-alert">逾期 {overdueTasks.length}</span>
+                  )}
+                </div>
+                <Link href="/tasks" className="dashboard-section-link">
+                  全部待办
+                  <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">
-                今日完成 {todayCompletion.completed}/{todayCompletion.planned} · 连续 {taskStreak} 天
-              </p>
+              <div className="dashboard-metric-row mb-3">
+                <span>
+                  <strong>
+                    {todayCompletion.completed}/{todayCompletion.planned}
+                  </strong>
+                  今日完成
+                </span>
+                <span>
+                  <strong>{taskStreak}</strong>
+                  连续天数
+                </span>
+              </div>
               {actionableTasks.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
                   今天没有待办，享受轻松的一天吧
@@ -436,26 +452,24 @@ export default function TodayView() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
                   继续阅读
                 </h3>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2 text-xs"
+                    className="h-6 px-1.5 text-[11px] font-normal text-muted-foreground"
                     onClick={handleRecommendNext}
                     disabled={unreadArticles.length === 0}
                   >
                     <RefreshCw className="h-3 w-3 mr-1" />
                     随机一篇
                   </Button>
-                  <Link
-                    href="/library"
-                    className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
-                  >
-                    查看全部
+                  <Link href="/library" className="dashboard-section-link">
+                    全部
+                    <ChevronRight className="h-3 w-3" />
                   </Link>
                 </div>
               </div>
@@ -465,7 +479,7 @@ export default function TodayView() {
                 </p>
               ) : (
                 <div className="space-y-1">
-                  {unreadArticles.slice(0, 3).map((article) => (
+                  {unreadArticles.slice(0, 4).map((article) => (
                     <Link
                       key={article.id}
                       href={`/library/${article.id}`}
@@ -484,19 +498,17 @@ export default function TodayView() {
         </div>
 
         {/* 辅列（约 1/3）：最近笔记 + 最近速记 */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3.5">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <NoteIcon className="h-4 w-4 text-primary" />
+                <h3 className="text-[13px] font-medium text-muted-foreground flex items-center gap-1.5">
+                  <NoteIcon className="h-3.5 w-3.5" />
                   最近笔记
                 </h3>
-                <Link
-                  href="/notes"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
-                >
-                  查看全部
+                <Link href="/notes" className="dashboard-section-link">
+                  全部
+                  <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
               {recentNotes.length === 0 ? (
@@ -507,7 +519,7 @@ export default function TodayView() {
                     <Link
                       key={note.id}
                       href={`/notes/${note.id}`}
-                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                      className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
                     >
                       <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -521,17 +533,15 @@ export default function TodayView() {
           </Card>
 
           <Card>
-            <CardContent className="p-4">
+            <CardContent className="p-3.5">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Feather className="h-4 w-4 text-primary" />
+                <h3 className="text-[13px] font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Feather className="h-3.5 w-3.5" />
                   最近速记
                 </h3>
-                <Link
-                  href="/memos"
-                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-7 px-2 text-xs")}
-                >
-                  查看全部
+                <Link href="/memos" className="dashboard-section-link">
+                  全部
+                  <ChevronRight className="h-3 w-3" />
                 </Link>
               </div>
               {recentMemos.length === 0 ? (
@@ -543,7 +553,7 @@ export default function TodayView() {
                       key={memo.id}
                       // F05：沿用 ?memo= 深链合同，搜索/工作台/外链定位同一目标
                       href={`/memos?memo=${memo.id}`}
-                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                      className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
                     >
                       <p className="text-sm line-clamp-2">{memo.content}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
