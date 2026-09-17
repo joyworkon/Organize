@@ -270,7 +270,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="organize-lane-narrow w-full space-y-5">
+    <div className="w-full space-y-5">
       <PageHeader
         icon={SettingsIcon}
         title="设置"

@@ -371,6 +371,27 @@
   box-shadow: none;
 }
 
+/* 标签之间的灰色圆角小竖条分隔：只出现在两个「都没被选中、也没被悬停」的标签之间
+   （选中/悬停的胶囊本身已有底色，再加分隔线会脏） */
+.note-tab + .note-tab::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 2px;
+  height: 16px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: hsl(var(--border));
+  transition: opacity 0.12s ease;
+}
+.note-tab[data-state="on"]::before,
+.note-tab[data-state="on"] + .note-tab::before,
+.note-tab:hover::before,
+.note-tab:hover + .note-tab::before {
+  opacity: 0;
+}
+
 /* === 桌面端笔记标签页条（挂在主布局、笔记页之外；条高 40px，与下方
    .note-topbar 的吸顶偏移联动。外壳配色见 .organize-chrome-bar） === */
 .note-tabs-add {

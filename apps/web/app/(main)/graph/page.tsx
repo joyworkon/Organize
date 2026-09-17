@@ -207,7 +207,7 @@ export default function GraphPage() {
   const isolatedCount = fullGraph.nodes.length - graph.nodes.length;
 
   return (
-    <div className="organize-lane-wide space-y-4">
+    <div className="space-y-4">
       <PageHeader
         icon={Network}
         title="知识图谱"

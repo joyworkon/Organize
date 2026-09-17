@@ -72,7 +72,7 @@ export default function SpacesPage() {
   };
 
   return (
-    <div className="organize-lane-narrow w-full space-y-5">
+    <div className="w-full space-y-5">
       <PageHeader
         title="协作空间"
         description="管理你参与的协作空间：成员角色、移除、属主移交。邀请成员请使用笔记的分享面板。"

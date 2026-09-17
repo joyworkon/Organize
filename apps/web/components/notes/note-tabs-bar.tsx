@@ -188,8 +188,9 @@ export function NoteTabsBar() {
                   aria-label={`关闭 ${tab.title || "无标题笔记"}`}
                   onClick={() => closeTab(tab.id)}
                   className={cn(
-                    "grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground",
-                    active ? "opacity-90" : "opacity-60 group-hover/tab:opacity-100"
+                    // × 只在当前标签或悬停时出现（截图行为），其余时候让位给标题
+                    "grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground/70 transition-opacity hover:bg-accent hover:text-foreground",
+                    active ? "opacity-90" : "opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100"
                   )}
                 >
                   <X className="h-3.5 w-3.5" />

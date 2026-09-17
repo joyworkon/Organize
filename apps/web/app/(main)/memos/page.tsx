@@ -252,6 +252,29 @@ function MemosPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, memos, loading]);
 
+  // 侧栏「+」快速新建：?compose=1 进来或已在本页时收到事件，都聚焦到输入框
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusComposer = useCallback(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus();
+  }, []);
+  useEffect(() => {
+    const handler = () => focusComposer();
+    window.addEventListener("organize:memo-compose", handler);
+    return () => window.removeEventListener("organize:memo-compose", handler);
+  }, [focusComposer]);
+  useEffect(() => {
+    if (searchParams.get("compose") !== "1") return;
+    // 聚焦后把 ?compose=1 抹掉，避免刷新/回退重复触发
+    const timer = setTimeout(() => {
+      focusComposer();
+      window.history.replaceState(null, "", "/memos");
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [searchParams, focusComposer]);
+
   // F04：标签计数来自服务端全量聚合（此前由前 500 条本地统计，大数量下失真）
   const [tagCounts, setTagCounts] = useState<Array<[string, number]>>([]);
   useEffect(() => {
@@ -451,7 +474,7 @@ function MemosPageInner() {
   };
 
   return (
-    <div className="organize-lane-narrow w-full space-y-5">
+    <div className="w-full space-y-5">
       {/* U03：桌面内容列宽收敛到舒适阅读宽度（此前 1366 下 ~1088px）；
           移动端固定顶栏已显示分区名，内容区大标题隐藏避免重复、让出首屏 */}
       <div className="hidden md:block">
@@ -465,6 +488,7 @@ function MemosPageInner() {
       {/* 输入区：桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
       <div className="memo-composer rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
         <textarea
+          ref={composerRef}
           value={input}
           onChange={(e) => updateInput(e.target.value)}
           onKeyDown={(e) => {
