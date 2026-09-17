@@ -74,6 +74,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -552,13 +553,13 @@ export default function TaskDetailPage() {
 
   return (
     <div className="w-full min-w-0 space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-4">
-          <Link href="/tasks">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              返回
-            </Button>
+      {/* 详情页操作行统一壳（与笔记详情同几何：44px 行高、吸顶、无常驻分隔线） */}
+      <div className="organize-detail-bar -mb-2">
+        <div className="organize-detail-bar-inner">
+          <div className="organize-detail-bar-group organize-detail-bar-nav">
+          <Link href="/tasks" className="organize-detail-bar-back" aria-label="返回任务列表">
+            <ArrowLeft className="h-4 w-4" />
+            返回
           </Link>
           <Breadcrumb className="hidden min-w-0 sm:block">
             <BreadcrumbList>
@@ -576,7 +577,7 @@ export default function TaskDetailPage() {
             </BreadcrumbList>
           </Breadcrumb>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="organize-detail-bar-group organize-detail-bar-actions">
           <FavoriteButton targetType="task" targetId={taskId} />
           <Button
             variant="ghost"
@@ -606,6 +607,13 @@ export default function TaskDetailPage() {
               <DropdownMenuItem onClick={() => window.print()}>
                 <Printer className="h-4 w-4 mr-2" />打印详情
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />移入垃圾箱
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
@@ -628,16 +636,7 @@ export default function TaskDetailPage() {
               完成任务
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeleteDialogOpen(true)}
-            className="text-destructive hover:text-destructive"
-            title="移入垃圾箱"
-            aria-label="移入垃圾箱"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        </div>
         </div>
       </div>
 

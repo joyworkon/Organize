@@ -436,7 +436,8 @@
 .note-topbar.scrolled {
   border-bottom-color: hsl(var(--border));
 }
-.note-topbar-inner {
+.note-topbar-inner,
+.organize-detail-bar-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -445,21 +446,25 @@
   padding: 0 0.5rem;
 }
 @media (min-width: 768px) {
-  .note-topbar-inner {
+  .note-topbar-inner,
+  .organize-detail-bar-inner {
     padding: 0 0.75rem;
   }
 }
-.note-topbar-group {
+.note-topbar-group,
+.organize-detail-bar-group {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
 }
-.note-topbar-nav {
+.note-topbar-nav,
+.organize-detail-bar-nav {
   flex: 1 1 auto;
   overflow: hidden;
 }
-.note-topbar-back {
+.note-topbar-back,
+.organize-detail-bar-back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -470,13 +475,33 @@
   text-decoration: none;
   flex-shrink: 0;
 }
-.note-topbar-back:hover {
+.note-topbar-back:hover,
+.organize-detail-bar-back:hover {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
-.note-topbar-actions {
+.note-topbar-actions,
+.organize-detail-bar-actions {
   flex-shrink: 0;
   gap: 2px;
+}
+
+/* === 详情页操作行通用壳（任务 / 经验详情复用笔记顶栏的几何与配色；
+   笔记页上方常驻标签页条，吸顶偏移在 .note-topbar 里单独定义） === */
+.organize-detail-bar {
+  position: sticky;
+  /* 移动端固定顶栏 h-14（56px），吸顶贴其下方 */
+  top: 3.5rem;
+  z-index: 30;
+  background: hsl(var(--background) / 0.85);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid transparent;
+}
+@media (min-width: 768px) {
+  .organize-detail-bar {
+    top: 0;
+  }
 }
 
 /* ------------------------- 页面目录（TOC） ------------------------- */

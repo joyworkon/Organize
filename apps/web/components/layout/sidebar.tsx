@@ -660,7 +660,7 @@ const visibleNavItems = useMemo(() => {
                 </Link>
                 <button
                   type="button"
-                  className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
                   title="快速新建速记"
                   aria-label="快速新建速记"
                   onClick={() => {
@@ -674,6 +674,8 @@ const visibleNavItems = useMemo(() => {
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
+                {/* 占位：让速记的「+」与笔记的「+」落在同一列（笔记右侧还有展开箭头） */}
+                <span className="mr-1 h-7 w-7 shrink-0" aria-hidden="true" />
               </div>
             );
           }

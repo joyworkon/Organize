@@ -24,7 +24,13 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2, Lightbulb } from "lucide-react";
+import { ArrowLeft, Loader2, Save, Trash2, Pencil, X, BookOpen, FileText, CheckCircle2, Lightbulb, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { cn } from "@/lib/utils";
@@ -33,6 +39,7 @@ import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { mutateTrash } from "@/lib/trash/client";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 
 function nodeText(node: any): string {
   if (!node) return "";
@@ -274,7 +281,13 @@ export default function LessonEditorPage() {
       router.push("/tasks/lessons");
       return;
     }
-    if (!confirm("将这条经验移入垃圾箱？之后可以恢复。")) return;
+    const confirmed = await showConfirm({
+      title: "移入垃圾箱？",
+      description: "这条经验会移入垃圾箱，之后可以恢复。",
+      confirmText: "移入垃圾箱",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await mutateTrash("lesson", [lessonId], "soft_delete");
       toast({ title: "经验已移入垃圾箱" });
@@ -326,13 +339,15 @@ export default function LessonEditorPage() {
 
   return (
     <div className="w-full space-y-6">
-      <div className="flex items-center gap-2">
-        <Link href="/tasks/lessons">
-          <Button variant="ghost" size="icon" className="h-9 w-9">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <Breadcrumb className="flex-1 min-w-0">
+      {/* 详情页操作行统一壳（与笔记 / 任务详情同几何：44px 行高、吸顶、无常驻分隔线） */}
+      <div className="organize-detail-bar -mx-4 -mt-4 mb-2 md:-mx-6 md:-mt-6">
+        <div className="organize-detail-bar-inner">
+          <div className="organize-detail-bar-group organize-detail-bar-nav">
+            <Link href="/tasks/lessons" className="organize-detail-bar-back" aria-label="返回经验总结">
+              <ArrowLeft className="h-4 w-4" />
+              返回
+            </Link>
+            <Breadcrumb className="min-w-0">
           <BreadcrumbList>
             <BreadcrumbItem className="hidden sm:inline-flex">
               <BreadcrumbLink href="/">首页</BreadcrumbLink>
@@ -351,31 +366,41 @@ export default function LessonEditorPage() {
               </BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
-        </Breadcrumb>
-        {!editing && !isNew && (
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            <Pencil className="h-4 w-4 mr-1" />
-            编辑
-          </Button>
-        )}
-        {editing && !isNew && (
-          <Button variant="ghost" size="sm" onClick={() => { setEditing(false); fetchLesson(); }}>
-            <X className="h-4 w-4 mr-1" />
-            取消编辑
-          </Button>
-        )}
-        {!isNew && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={handleDelete}
-            title="移入垃圾箱"
-            aria-label="移入垃圾箱"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+            </Breadcrumb>
+          </div>
+          <div className="organize-detail-bar-group organize-detail-bar-actions">
+            {!editing && !isNew && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                <Pencil className="h-4 w-4 mr-1" />
+                编辑
+              </Button>
+            )}
+            {editing && !isNew && (
+              <Button variant="ghost" size="sm" onClick={() => { setEditing(false); fetchLesson(); }}>
+                <X className="h-4 w-4 mr-1" />
+                取消编辑
+              </Button>
+            )}
+            {!isNew && (
+              /* 破坏性操作收进「更多」，顶栏不留孤立红色图标（单色原则） */
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" title="更多操作" aria-label="更多操作">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={handleDelete}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />移入垃圾箱
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </div>
       </div>
 
       {editing ? (
