@@ -2458,15 +2458,18 @@
 .dark .organize-task-subnav {
   border-left-color: hsl(var(--border) / 0.7);
 }
-/* 分段小标题：比子项再小一号、拉开字距，只做分组不抢注意力 */
+/* 分段小标题：比子项再小一号、拉开字距，只做分组不抢注意力。
+   颜色必须是完整的 --muted-foreground：曾用 /0.75 透明度弱化，在侧栏浅灰底上
+   实测只有 2.96:1，被 e2e/a11y-button-names.spec.ts 的 color-contrast 门禁拦下
+   （C02 规则：弱化文本靠 token 本身，不靠叠透明度）。 */
 .organize-task-subnav-caption {
   margin: 2px 0 1px;
   padding-left: 8px;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 15px;
   font-weight: 500;
   letter-spacing: 0.06em;
-  color: hsl(var(--muted-foreground) / 0.75);
+  color: hsl(var(--muted-foreground));
   user-select: none;
 }
 /* 选中态：子项用左侧色条 + 弱底色，与一级导航的整块 accent 底色区分开 */

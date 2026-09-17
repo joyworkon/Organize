@@ -81,6 +81,7 @@
 - 移动壳高度由 `--mobile-header-height`/`--mobile-tab-height` + safe-area 计算（app/mobile.css:6-9）；`viewportFit: cover`（app/layout.tsx:20-22）。
 - **图标已收口（2026-09-17）**：源码零 `lucide-react` 引用，131 个文件统一从 `@/components/icons` 取图标；`lucide-react` 只剩 package.json 依赖项，可在后续 PR 摘掉。
 - **`.ds-*` 组件类有意不采用**：Cairn 的 L1 原语是 shadcn/Radix 一套，TraeWork 只作亮色视觉参考（它没有暗色一份）。详见 [design-system-audit-2026-09-17.md](design-system-audit-2026-09-17.md) §3。
+- **弱化文本靠 token 本身，不靠叠透明度**：`hsl(var(--muted-foreground) / 0.7x)` 这类"再淡一点"写法在浅灰底上会掉到 3:1 以下，`e2e/a11y-button-names.spec.ts` 的 C02 `color-contrast` 门禁会直接拦下（侧栏「待办」分段小标题就踩过一次：0.75 透明度实测 2.96:1，改回完整 token 后 4.78:1 亮 / 7.1:1 暗）。要更弱只能换 token 或改字号字重。
 - **每个侧栏功能页都有页内搜索**：`/`（今天视图）`/library` `/notes` `/tasks` `/tasks/lessons` `/tasks/countdown` `/memos` `/favorites` `/trash` `/tags` `/plugins` `/graph` `/settings` `/shared` `/spaces`。唯一例外 `/tasks/calendar`。
 
 ## 5. 一页改版模板（每次改版按此执行，复制进 PR 描述）
