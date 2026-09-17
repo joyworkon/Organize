@@ -882,8 +882,8 @@ export default function ReadingDetailPage() {
 
       {/* 顶栏：全宽吸顶（负 margin 抵消主布局 p-4/md:p-6）。
           左侧返回+面包屑，右侧操作；进度条贴顶栏下沿 */}
-      <div className="reading-topbar organize-chrome-bar sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 backdrop-blur">
-        <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3">
+      <div className="reading-topbar organize-chrome-bar sticky top-14 md:top-0 z-30 -mx-4 -mt-4 mb-8 backdrop-blur md:-mx-6 md:-mt-6">
+        <div className="flex h-14 items-center justify-between gap-2 px-2 md:h-10 md:px-3">
           <div className="flex items-center gap-1.5 min-w-0">
             <CollectionBackLink section="library" aria-label="返回阅读列表" className="grid h-11 w-11 shrink-0 place-items-center rounded-md hover:bg-accent md:h-8 md:w-8">
               <ArrowLeft className="h-5 w-5" />
@@ -909,71 +909,14 @@ export default function ReadingDetailPage() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
+            <StatusBadge status={item.reading_status} className="hidden shrink-0 lg:inline-flex" />
           </div>
-          <div className="hidden items-center gap-1 sm:gap-1.5 md:flex">
+          {/* 桌面动作簇（第八步收密度）：常用四件套 + 唯一 outline 主动作「原文」，
+              速读 / 全宽 / 转为笔记 / 分享 收进「更多」菜单；开启态用浮起胶囊 */}
+          <div className="reading-topbar-actions hidden items-center gap-1 sm:gap-1.5 md:flex">
             <Button
               variant="ghost"
               size="sm"
-              data-state={bionicMode ? "on" : "idle"}
-              className={`gap-1 sm:gap-1.5 ${bionicMode ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
-              onClick={() => setBionicMode(!bionicMode)}
-              title="速读"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">速读</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-state={focusMode ? "on" : "idle"}
-              className={`gap-1 sm:gap-1.5 ${focusMode ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
-              onClick={() => setFocusMode(!focusMode)}
-              title="专注"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">专注</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-state={fullWidth ? "on" : "idle"}
-              className={`gap-1 sm:gap-1.5 ${fullWidth ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
-              onClick={toggleFullWidth}
-              title={fullWidth ? "默认宽度" : "全宽"}
-            >
-              <StretchHorizontal className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">全宽</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1 sm:gap-1.5"
-              onClick={handleConvertToNote}
-              disabled={isConvertingToNote}
-              title="笔记"
-            >
-              {isConvertingToNote ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FileText className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">笔记</span>
-            </Button>
-            <FavoriteButton targetType="reading" targetId={itemId} />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1 sm:gap-1.5"
-              onClick={() => setShareDialogOpen(true)}
-              title="分享"
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">分享</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-state={showHighlightsPanel ? "on" : "idle"}
               className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
               onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
               title="高亮"
@@ -981,21 +924,57 @@ export default function ReadingDetailPage() {
               <Highlighter className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">高亮</span>
               {highlights.length > 0 && (
-                <span className="ml-0.5 sm:ml-1 text-xs bg-primary/10 text-primary px-1 sm:px-1.5 rounded-full">
+                <span className="ml-0.5 rounded-full bg-primary/10 px-1 text-xs text-primary sm:ml-1 sm:px-1.5">
                   {highlights.length}
                 </span>
               )}
             </Button>
-            <StatusBadge status={item.reading_status} />
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="hidden sm:inline">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`gap-1 sm:gap-1.5 ${focusMode ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
+              onClick={() => setFocusMode(!focusMode)}
+              title="专注"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">专注</span>
+            </Button>
+            <FavoriteButton targetType="reading" targetId={itemId} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1 sm:gap-1.5" aria-label="更多阅读工具" title="更多">
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">更多</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onSelect={() => setBionicMode(!bionicMode)}>
+                  <Zap className="mr-2 h-4 w-4" />
+                  {bionicMode ? "关闭速读" : "速读"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={toggleFullWidth}>
+                  <StretchHorizontal className="mr-2 h-4 w-4" />
+                  {fullWidth ? "恢复默认宽度" : "全宽阅读"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={isConvertingToNote} onSelect={() => void handleConvertToNote()}>
+                  {isConvertingToNote ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  转为笔记
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShareDialogOpen(true)}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  分享文章
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <a href={item.url} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm" className="gap-2">
                 <ExternalLink className="h-3.5 w-3.5" />
                 原文
-              </Button>
-            </a>
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="sm:hidden">
-              <Button variant="ghost" size="sm" title="原文">
-                <ExternalLink className="h-4 w-4" />
               </Button>
             </a>
           </div>
@@ -1016,13 +995,6 @@ export default function ReadingDetailPage() {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
-        {/* 进度条：贴顶栏下沿，全宽一条（不再重复渲染页面顶部 fixed 进度条） */}
-        <div className="h-0.5 bg-border/60">
-          <div
-            className="h-full bg-primary transition-[width] duration-100 ease-out"
-            style={{ width: `${scrollProgress}%` }}
-          />
         </div>
       </div>
 

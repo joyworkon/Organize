@@ -637,6 +637,46 @@ const visibleNavItems = useMemo(() => {
               </div>
             );
           }
+          if (item.href === "/memos" && !compact) {
+            // 速记：与笔记一致的行内「+」——已在速记页时直接聚焦输入框，
+            // 否则带 ?compose=1 过去，由页面负责聚焦（刷新即失效，不留状态）
+            return (
+              <div
+                key={item.href}
+                className={cn(
+                  "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                <Link
+                  href="/memos"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+                <button
+                  type="button"
+                  className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                  title="快速新建速记"
+                  aria-label="快速新建速记"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    if (pathname === "/memos") {
+                      window.dispatchEvent(new CustomEvent("organize:memo-compose"));
+                      return;
+                    }
+                    router.push("/memos?compose=1");
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          }
           return (
             <Link
               key={item.href}

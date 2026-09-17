@@ -1,6 +1,6 @@
 # UI 可持续改版地图（ui-change-guide）
 
-编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新；2026-09-17 随第七步（顶部工具条统一：笔记标签改四角圆角胶囊 + 「+」紧跟标签 + 稍后读文章顶栏并入同一条壳）更新。
+编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新；2026-09-17 随第七步（顶部工具条统一：笔记标签改四角圆角胶囊 + 「+」紧跟标签 + 稍后读文章顶栏并入同一条壳）与第八步（文章顶栏收密度并贴顶、标签分隔条与 × 显隐、**全站默认内容宽度统一到标准泳道**、侧栏速记「+」）更新。
 计划卡：[long-term-agent-plan-2026-09-11.md §5 C01](long-term-agent-plan-2026-09-11.md)。
 用途：改任何界面之前，先在这份地图上定位「改哪里、会牵动哪里」。本文随大改版 PR 更新（规则见 §6）。
 
@@ -21,7 +21,7 @@
 
 | 想改的东西 | 要动的文件 | 会被牵动的暗面 |
 |---|---|---|
-| 内容宽度 / 页面版式节奏 | `app/globals.css` 内容泳道段：`--organize-lane`（1088px 标准）/ `--organize-lane-wide`（1400px）/ `--organize-lane-narrow`（800px）/ `--organize-field`（480px 单行表单字段） | 默认档由 `.organize-main-content > *` 兜住——**新页面不写类就是标准档**；要换档在页面根节点加 `organize-lane-wide` / `organize-lane-narrow` / `organize-lane-full`。三个坑：①泳道类必须落在 `.organize-main-content` 的**直接子节点**上，待办族有自己的 `tasks/layout.tsx`，类要加在那儿；②自带宽度策略的页面（笔记详情/文章详情的全宽偏好、fixed 目录与高亮面板）必须用 `organize-lane-full`，否则被裁剪错位；③泳道只在 ≥768px 生效，移动端仍是 mobile.css 的 16px 边距体系 |
+| 内容宽度 / 页面版式节奏 | `app/globals.css` 内容泳道段：`--organize-lane`（1088px 标准，**2026-09-17 起全站默认档**）/ `--organize-lane-wide`（1400px）/ `--organize-lane-narrow`（800px）/ `--organize-field`（480px 单行表单字段） | **第八步起：侧边栏能点进去的每个功能页都用标准档 1088**——设置/插件/协作空间/速记去掉了 `organize-lane-narrow`，待办工作台与图谱去掉了 `organize-lane-wide`，页面不写泳道类就是标准档（由 `.organize-main-content > *` 兜住）。wide / narrow token 保留但当前无页面使用，**再要开档必须先说明为什么这一页必须与其它页不同宽**。仍有的例外只剩两处文档页：笔记详情与文章详情用 `organize-lane-full`（它们自带全宽偏好、fixed 目录与高亮面板，被裁会错位）。另两个坑：①泳道类必须落在 `.organize-main-content` 的**直接子节点**上，待办族的类在 `tasks/layout.tsx`；②泳道只在 ≥768px 生效，移动端仍是 mobile.css 的 16px 边距体系 |
 | 列表页筛选器 | 待办：`components/tasks/task-filter-menu.tsx`（状态/分类/优先级/标签四组 chip 收进清单头的「筛选」面板）；其余列表页：`components/tags/tag-filter.tsx`（默认态只是一个安静的「标签」按钮，选中后 chip 就地显示） | **不要再给筛选器单开一条横带**：稍后读/笔记/经验一律把 `TagFilter` 塞进自己的工具行（`className` 可透传）。待办面板内部**禁止嵌 Radix Select**（开在 Popover 里会与外层 DismissableLayer 打架），四组条件用 chip；生效条数由 `countActiveTaskFilters` 单源计算（单测钉住）。默认态的安静样式来自 `.organize-filter-idle` |
 | 待办清单头工具区 | `app/(main)/tasks/page.tsx` 的 `.organize-task-header`（筛选面板 / 日期分组 / 多选 / 模板 / 附件 / 通知提示 chip） | 清单栏宽度取决于**是否打开任务详情**（`TaskInlineDetail` 占 `34.5vw`，最小 420px），所以文字标签按 `selectedTask ? 2xl : lg` 分档，`TaskTemplatesDialog` / `TaskAttachmentsDialog` 收到 `compact` 时只留图标（可访问名进 `aria-label`+`title`，`a11y-button-names.spec.ts` 会查）；≤1024px 双栏仍装不下时靠 `.organize-task-header` 的横向滚动兜底（滚动条隐藏），**不要改回 `overflow-hidden`**，否则按钮被裁。移动端那条工具行在 `.mobile-task-tools`（mobile.css 给 44px 触控高） |
 | 工作台首屏与卡片层级 | `components/dashboard/today-view.tsx`（首屏 `.dashboard-intro` 分组 + 四卡层级）+ globals.css `.dashboard-metric-row` / `.dashboard-metric-alert` / `.dashboard-section-link` | 首屏只有**两条横带**（问候语+入口 / 快速记录同属 `.dashboard-intro`），别再往中间插第三条；卡片层级靠**字号三档**（主卡 15px/600、次主卡 14px/600、辅列 13px/500 muted）与内边距（16px / 14px），**不要给辅列卡加品牌色图标**（会拉平层级）；四张卡的「全部」一律用 `.dashboard-section-link` 文字链（不是 ghost 按钮），只有真正的动作（随机一篇）保留按钮；首屏**只允许一个实心品牌按钮**（快速记录的「保存」），导航入口一律 outline；未读列表渲染 4 条对应查询 `limit(5)`，改渲染条数先看 `loadData` 的 limit |
@@ -40,7 +40,7 @@
 | 新增按钮/对话框 | 一律 `components/ui/button|dialog` | 禁止第二套实现（现状核查：无 `.btn` 类、无原生 dialog；裸 `<button>` 仅限一次性图标按钮，如 theme-toggle.tsx:26-37） |
 | 笔记页设置（全宽/字体/小字号） | note-page-menu.tsx → page.tsx :1266-1279 contentClassName + 根类 | CSS 生效点 globals.css:116-146；持久化 note-save-session.ts:664-667 与 local-draft.ts 成对 |
 | 角色可见性 | lib/collab/roles.ts（owner/editor/viewer + saveRpcNameForRole）、lib/notes/capabilities.ts | 分流点集中在 notes/[id]/page.tsx（:1295/:1312/:1340/:1387/:1410/:1426-1428/:1496）；note-page-visuals.tsx:20；分享面板 components/share/resource-share-dialog.tsx（owner 才能改授权） |
-| 顶部工具条（笔记标签条 / 文章顶栏）外壳与胶囊 | `app/globals.css` 的 `.organize-chrome-bar` / `.organize-chrome-pill`（灰底条 + 四角 6px 圆角胶囊，暗色条落回 background、开启态用 accent 提亮）；结构在 `components/notes/note-tabs-bar.tsx` 与 `app/(main)/library/[id]/page.tsx` 顶栏 | 三个坑：①`.organize-chrome-pill` 只给非 Button 元素用，`ui/Button` 的 ghost 变体带 `hover:bg-accent`，会在悬停时盖掉底色——Button 要直接写 `bg-card shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent`（经 tailwind-merge 才压得住）；②标签条「+」在滚动容器内 `sticky right-0`，必须保持 `.note-tabs-add` 的不透明底，否则溢出时标签会从它下面滚过去；③文章顶栏进度条轨道不能再用 `bg-muted`（与条底同色会消失），用 `bg-border/60` |
+| 顶部工具条（笔记标签条 / 文章顶栏）外壳与胶囊 | `app/globals.css` 的 `.organize-chrome-bar` / `.organize-chrome-pill`（灰底条 + 四角 6px 圆角胶囊，暗色条落回 background、开启态用 accent 提亮）；结构在 `components/notes/note-tabs-bar.tsx` 与 `app/(main)/library/[id]/page.tsx` 顶栏 | 三个坑：①`.organize-chrome-pill` 只给非 Button 元素用，`ui/Button` 的 ghost 变体带 `hover:bg-accent`，会在悬停时盖掉底色——Button 要直接写 `bg-card shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent`（经 tailwind-merge 才压得住）；②标签条「+」在滚动容器内 `sticky right-0`，必须保持 `.note-tabs-add` 的不透明底，否则溢出时标签会从它下面滚过去；③文章顶栏（第八步）与标签条对齐的三件事：`-mt-4 md:-mt-6` 抵消内容区上内边距做到**贴顶不留白带**、内层 `md:h-10` 与标签条同高 40px、顶栏下沿那条 `bg-primary` 阅读进度线**已删除**（滚动进度仍在正文里以文字显示）；④文章顶栏桌面动作簇收在 `.reading-topbar-actions`（高亮/专注/收藏/更多/原文=唯一 outline），速读、宽度、转为笔记、分享在「更多」菜单里，状态徽标移到左侧面包屑后（lg 以上显示）——加动作先想能不能进菜单；⑤标签之间的灰色圆角小竖条是 `.note-tab + .note-tab::before`，相邻标签任一被选中或悬停时置 `opacity: 0`；未激活标签的 × 是 `opacity-0 group-hover/tab:opacity-100` |
 | 表格配色/边框 | `data-table-color` 变量组（globals.css:1128-1190） | editor/extensions/table-style.ts 持久化属性成对 |
 
 ## 3. 功能入口追踪表（卡面验收：每个主要功能入口可追踪）
@@ -52,7 +52,7 @@
 | 笔记 | `/notes` | ✓（含笔记树） | ✓ 笔记 | ✓ | g n |
 | 待办 | `/tasks` | ✓（含清单） | ✓ 待办 | ✓ | g d |
 | 经验 | `/tasks/lessons` | （tab） | （tab） | ✓ | g e |
-| 速记 | `/memos` | ✓ | ✓ | ✓ | g m |
+| 速记 | `/memos` | ✓（行内「+」快速新建，非本页时走 `/memos?compose=1` 聚焦输入框后抹参数） | ✓ | ✓ | g m |
 | 图谱 | `/graph` | ✗（笔记页页头「更多」菜单，移动端在列表「更多」） | ✗ | ✓ | g g |
 | 收藏夹 | `/favorites` | ✓ 条件插入（有收藏才显示） | ✗ | ✓ | g f |
 | 标签管理 | `/tags` | ✗（稍后读分组「管理标签」） | ✗ | ✓ | g t |
