@@ -17,7 +17,16 @@ import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, Search, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "lucide-react";
 import { NoteCard, NoteFavoritesContext, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@/components/ui/dropdown-menu";
 import { MoreHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { LayoutGrid, List as ListIcon, FileDown } from "lucide-react";
@@ -51,7 +60,8 @@ import { groupNotesByDate, type DateGroup } from "@/lib/date-groups";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
-  nextSortField,
+  SORT_FIELD_LABEL,
+  sortSummary,
   applyPinned,
   applyPinnedBatch,
   removeNotes,
@@ -684,14 +694,31 @@ export default function NotesPage() {
         description="记录你的想法和阅读笔记"
         actions={
           <>
-            <Button variant="outline" onClick={() => setImportOpen(true)} className="hidden sm:flex">
-              <FileDown className="h-4 w-4 mr-2" />
-              从 JoySpace 导入
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setMdImportOpen(true)} className="shrink-0">
-              <Upload className="h-4 w-4" />
-              <span className="hidden sm:inline ml-2">导入MD</span>
-            </Button>
+            {/* U-layout 第六步：导入两件套与图谱收进「更多」，页头只留一个主动作 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="shrink-0 gap-1.5" title="更多笔记操作" aria-label="更多笔记操作">
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="hidden sm:inline">更多</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+                  <FileDown className="mr-2 h-4 w-4" />
+                  从 JoySpace 导入
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setMdImportOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  导入 Markdown
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {/* D00 迁移表：图谱仍是笔记页入口，从工具行挪到这里 */}
+                <DropdownMenuItem onSelect={() => router.push("/graph")}>
+                  <Network className="mr-2 h-4 w-4" />
+                  知识图谱
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={createNote} disabled={creating} className="shrink-0" title="新建笔记（按 n）">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline ml-2">新建笔记</span>
@@ -750,37 +777,37 @@ export default function NotesPage() {
             selectedIds={selectedTagIds}
             onChange={setSelectedTagIds}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            aria-label={`按${sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}排序`}
-            onClick={() => setSortBy(nextSortField(sortBy))}
-          >
-            <ArrowUpDown className="h-3.5 w-3.5" />
-            <span className="mobile-tool-label hidden sm:inline">{sortBy === "updated_at" ? "更新时间" : sortBy === "created_at" ? "创建时间" : "标题"}</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-            className="mobile-note-sort-order hidden sm:flex"
-          >
-            {sortOrder === "desc" ? "降序" : "升序"}
-          </Button>
-
-          {/* D00 迁移表：图谱入口收进笔记页工具行（仍到 /graph，保留其内部切换） */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="mobile-note-graph gap-1.5"
-            onClick={() => router.push("/graph")}
-            title="图谱视图"
-            aria-label="图谱视图"
-          >
-            <Network className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">图谱</span>
-          </Button>
+          {/* U-layout 第六步：排序字段与升降序合成一个下拉，工具行少两个按钮 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                title={`排序：${sortSummary(sortBy, sortOrder)}`}
+                aria-label={`排序：${sortSummary(sortBy, sortOrder)}`}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                <span className="mobile-tool-label hidden sm:inline">{sortSummary(sortBy, sortOrder)}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel>排序字段</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortField)}>
+                {(Object.keys(SORT_FIELD_LABEL) as SortField[]).map((field) => (
+                  <DropdownMenuRadioItem key={field} value={field}>
+                    {SORT_FIELD_LABEL[field]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>顺序</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={sortOrder} onValueChange={(v) => setSortOrder(v as SortOrder)}>
+                <DropdownMenuRadioItem value="desc">降序</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="asc">升序</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="mobile-note-view hidden sm:flex items-center rounded-md border overflow-hidden">
             <button

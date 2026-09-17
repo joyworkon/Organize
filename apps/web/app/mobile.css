@@ -133,8 +133,6 @@
   .mobile-note-tools button { min-height: 40px; }
   .mobile-note-tools > button { padding-left: 10px; padding-right: 10px; }
   .mobile-note-tools .mobile-tool-label { display: inline; }
-  .mobile-note-tools .mobile-note-graph { display: none; }
-  .mobile-note-tools .mobile-note-sort-order { display: inline-flex; }
   .mobile-note-tools .mobile-note-view { display: flex; margin-left: auto; }
   .mobile-note-tools .mobile-note-view button { min-width: 40px; }
   .mobile-collection-toolbar { gap: 10px; }

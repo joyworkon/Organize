@@ -47,7 +47,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { useHasSharedNotes } from "@/hooks/use-shared-notes";
 import { useHasTeamWorkspaces } from "@/hooks/use-workspaces";
 
-// 侧边栏可见的一级导航（D06 迁移表落地）：图谱收进笔记页工具行、插件收进设置页
+// 侧边栏可见的一级导航（D06 迁移表落地）：图谱收进笔记页页头「更多」菜单、插件收进设置页
 // 「插件管理」入口——原一级入口移除，旧 URL 保留可达。
 // 「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
 const navItems = [

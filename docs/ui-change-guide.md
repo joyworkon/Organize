@@ -1,6 +1,6 @@
 # UI 可持续改版地图（ui-change-guide）
 
-编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）与第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）更新。
+编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新。
 计划卡：[long-term-agent-plan-2026-09-11.md §5 C01](long-term-agent-plan-2026-09-11.md)。
 用途：改任何界面之前，先在这份地图上定位「改哪里、会牵动哪里」。本文随大改版 PR 更新（规则见 §6）。
 
@@ -25,6 +25,7 @@
 | 列表页筛选器 | 待办：`components/tasks/task-filter-menu.tsx`（状态/分类/优先级/标签四组 chip 收进清单头的「筛选」面板）；其余列表页：`components/tags/tag-filter.tsx`（默认态只是一个安静的「标签」按钮，选中后 chip 就地显示） | **不要再给筛选器单开一条横带**：稍后读/笔记/经验一律把 `TagFilter` 塞进自己的工具行（`className` 可透传）。待办面板内部**禁止嵌 Radix Select**（开在 Popover 里会与外层 DismissableLayer 打架），四组条件用 chip；生效条数由 `countActiveTaskFilters` 单源计算（单测钉住）。默认态的安静样式来自 `.organize-filter-idle` |
 | 待办清单头工具区 | `app/(main)/tasks/page.tsx` 的 `.organize-task-header`（筛选面板 / 日期分组 / 多选 / 模板 / 附件 / 通知提示 chip） | 清单栏宽度取决于**是否打开任务详情**（`TaskInlineDetail` 占 `34.5vw`，最小 420px），所以文字标签按 `selectedTask ? 2xl : lg` 分档，`TaskTemplatesDialog` / `TaskAttachmentsDialog` 收到 `compact` 时只留图标（可访问名进 `aria-label`+`title`，`a11y-button-names.spec.ts` 会查）；≤1024px 双栏仍装不下时靠 `.organize-task-header` 的横向滚动兜底（滚动条隐藏），**不要改回 `overflow-hidden`**，否则按钮被裁。移动端那条工具行在 `.mobile-task-tools`（mobile.css 给 44px 触控高） |
 | 工作台首屏与卡片层级 | `components/dashboard/today-view.tsx`（首屏 `.dashboard-intro` 分组 + 四卡层级）+ globals.css `.dashboard-metric-row` / `.dashboard-metric-alert` / `.dashboard-section-link` | 首屏只有**两条横带**（问候语+入口 / 快速记录同属 `.dashboard-intro`），别再往中间插第三条；卡片层级靠**字号三档**（主卡 15px/600、次主卡 14px/600、辅列 13px/500 muted）与内边距（16px / 14px），**不要给辅列卡加品牌色图标**（会拉平层级）；四张卡的「全部」一律用 `.dashboard-section-link` 文字链（不是 ghost 按钮），只有真正的动作（随机一篇）保留按钮；首屏**只允许一个实心品牌按钮**（快速记录的「保存」），导航入口一律 outline；未读列表渲染 4 条对应查询 `limit(5)`，改渲染条数先看 `loadData` 的 limit |
+| 笔记页工具行与页头动作 | `app/(main)/notes/page.tsx`（`.mobile-note-tools` 工具行 + PageHeader actions）+ `app/(main)/notes/page-utils.ts` 的 `SORT_FIELD_LABEL` / `sortSummary` | 工具行**只允许四簇**：标签筛选 / 排序 / 视图切换 / 多选——排序字段与升降序合成**一个下拉**（触发器标签走 `sortSummary` 单源，字段循环函数已删，改文案只动 page-utils）；导入两件套与图谱收进页头「更多」菜单，页头只留一个实心主动作「新建笔记」；图谱入口迁移要同步 §3 追踪表与 sidebar.tsx 顶部注释；移动端沿用同一套控件（mobile.css `.mobile-note-tools`，`.mobile-note-graph` / `.mobile-note-sort-order` 两条规则随按钮删除已移除）；**mock 后端只保留最后一个 `.order()`**（页面末位是 `id`），所以 mock 下看不到重排，排序落地靠「标题档取消日期分组」与 page-utils 单测证明 |
 | 页面标题区 | `components/layout/page-header.tsx`（图标 36px + h1 `text-xl sm:text-2xl` + 描述 + 右侧 actions） | 全站页面标题的唯一实现，禁止再自建 h1 版式；工作台是特例（问候语 h1 + 吸顶条内的面包屑级「工作台」，样式在 globals.css `.dashboard-view-switcher`）；待办清单头是工作区面板头，保留自有样式 |
 | 明暗模式 | `hooks/use-theme-mode.ts`（`ThemeMode` = system/light/dark，`setThemeMode` 广播 `organize:theme-mode-change`） | 侧栏按钮 `theme-toggle.tsx` 与设置页 `components/settings/appearance-section.tsx` 共用这份状态，改一处必须两处同步；存储键仍是 `organize-theme`，**「跟随系统」= 删键**（旧语义，改成写字面量会让老代码读成亮色）；契约由 `hooks/use-theme-mode.test.ts` 钉住 |
 | 品牌色 | `hooks/use-theme-color.ts` 的 `BRAND_COLOR`（明暗成对，单色；当前石板蓝） | inline 变量**覆盖** globals.css 的 `--primary`/`--primary-text`——只改 CSS 变量不生效；MutationObserver 重放逻辑（:105-128）必须保持。**C02 起 `text-primary` 解析到 `--primary-text`（品牌安全文本色）**，`bg-/border-/ring-primary` 仍取品牌原色；tailwind `textColor.primary` 覆盖必须保留 `foreground` 子键（字符串形式会顶掉 `text-primary-foreground`）；对比度契约由 `hooks/use-theme-color.test.ts` 钉住（单色 5 断言，含 `bg-primary/10` tint 底与暗色卡片底），改色值先跑它；测试里的 `PAGE_LIGHT`/`PAGE_DARK`/`CARD_DARK` 是 globals.css 的镜像，改底色要两边同步 |
@@ -51,7 +52,7 @@
 | 待办 | `/tasks` | ✓（含清单） | ✓ 待办 | ✓ | g d |
 | 经验 | `/tasks/lessons` | （tab） | （tab） | ✓ | g e |
 | 速记 | `/memos` | ✓ | ✓ | ✓ | g m |
-| 图谱 | `/graph` | ✗（笔记页工具行） | ✗ | ✓ | g g |
+| 图谱 | `/graph` | ✗（笔记页页头「更多」菜单，移动端在列表「更多」） | ✗ | ✓ | g g |
 | 收藏夹 | `/favorites` | ✓ 条件插入（有收藏才显示） | ✗ | ✓ | g f |
 | 标签管理 | `/tags` | ✗（稍后读分组「管理标签」） | ✗ | ✓ | g t |
 | 复盘/统计 | `/?view=review|stats` | ✗ | ✗ | ✓ | g r / g s |
