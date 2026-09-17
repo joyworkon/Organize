@@ -945,10 +945,11 @@ function TasksPageInner() {
     onOpenNote: task.note_id ? () => router.push(`/notes/${task.note_id}`) : undefined,
   });
 
+  // U-layout：分组头是"标签"不是"横带"——去掉灰底与不可点的假折叠箭头，只留轻量标题
   const sectionHeader = (label: string, count: number) => (
-    <div className="flex items-center gap-2 border-b bg-muted/20 px-5 py-3 text-sm font-semibold">
-      <ChevronDown className="h-4 w-4" />{label}
-      <span className="text-xs font-normal text-muted-foreground">{count}</span>
+    <div className="flex items-center gap-2 border-b px-5 py-2 text-xs font-medium text-muted-foreground">
+      {label}
+      <span className="font-normal">{count}</span>
     </div>
   );
 
@@ -1055,7 +1056,7 @@ function TasksPageInner() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="w-full px-4 pb-12 pt-5 md:px-8">
             {sidebarSelection.scope !== "trash" && (
-              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加到${listTitle}`} enterKeyHint="done" className="mb-4 h-12 w-full rounded-xl border-0 bg-muted/60 px-5 text-base outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20 md:mb-6 md:h-14" />
+              <input ref={quickAddInputRef} aria-label="快速添加任务" title="按 n 快速聚焦" onKeyDown={(event) => void quickAdd(event)} placeholder={`添加到${listTitle}`} enterKeyHint="done" className="mb-3 h-11 w-full rounded-lg border-0 bg-muted/50 px-4 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/20 md:mb-4 md:h-12" />
             )}
             {sidebarSelection.scope === "trash" && (
               <p className="mb-6 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
