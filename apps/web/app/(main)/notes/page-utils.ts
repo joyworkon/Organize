@@ -3,11 +3,21 @@ import type { NoteWithTags } from "@organize/shared";
 export type SortField = "updated_at" | "created_at" | "title";
 export type SortOrder = "asc" | "desc";
 
-/** 排序字段循环：更新时间 → 创建时间 → 标题 → 更新时间 */
-export function nextSortField(current: SortField): SortField {
-  const fields: SortField[] = ["updated_at", "created_at", "title"];
-  const idx = fields.indexOf(current);
-  return fields[(idx + 1) % fields.length];
+/** 排序字段文案单源：下拉选项与触发器标签共用，避免两处各写一遍 */
+export const SORT_FIELD_LABEL: Record<SortField, string> = {
+  updated_at: "更新时间",
+  created_at: "创建时间",
+  title: "标题",
+};
+
+export const SORT_ORDER_LABEL: Record<SortOrder, string> = {
+  desc: "降序",
+  asc: "升序",
+};
+
+/** 排序触发器标签：「更新时间 · 降序」 */
+export function sortSummary(field: SortField, order: SortOrder): string {
+  return `${SORT_FIELD_LABEL[field]} · ${SORT_ORDER_LABEL[order]}`;
 }
 
 /** 本地更新单篇笔记的置顶状态（不可变更新，供乐观 UI 与失败回滚复用） */

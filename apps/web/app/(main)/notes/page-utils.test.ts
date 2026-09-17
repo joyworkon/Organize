@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { NoteWithTags } from "@organize/shared";
 import {
-  nextSortField,
+  SORT_FIELD_LABEL,
+  SORT_ORDER_LABEL,
+  sortSummary,
   applyPinned,
   applyPinnedBatch,
   removeNotes,
@@ -21,11 +23,15 @@ function makeNote(id: string, pinned = false): NoteWithTags {
   } as NoteWithTags;
 }
 
-describe("nextSortField", () => {
-  it("按 updated_at → created_at → title → updated_at 循环", () => {
-    expect(nextSortField("updated_at")).toBe("created_at");
-    expect(nextSortField("created_at")).toBe("title");
-    expect(nextSortField("title")).toBe("updated_at");
+describe("排序文案单源", () => {
+  it("三个字段与两个顺序都有文案", () => {
+    expect(Object.keys(SORT_FIELD_LABEL).sort()).toEqual(["created_at", "title", "updated_at"]);
+    expect(Object.keys(SORT_ORDER_LABEL).sort()).toEqual(["asc", "desc"]);
+  });
+
+  it("sortSummary 拼出触发器标签", () => {
+    expect(sortSummary("updated_at", "desc")).toBe("更新时间 · 降序");
+    expect(sortSummary("title", "asc")).toBe("标题 · 升序");
   });
 });
 
