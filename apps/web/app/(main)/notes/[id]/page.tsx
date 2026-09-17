@@ -1277,6 +1277,19 @@ export default function NoteEditorPage() {
           tocOpen && "note-page-toc-open",
           historyOpen && "note-page-history-open"
         )}
+        data-collab-session={
+          // E2E 观测钩子（A04/A05 丢字窗口）：协作模式下编辑器先以非协作实例
+          // 挂载、会话定形后重建，此刻输入会丢——测试必须等「ready」（首次同步
+          // 完成）才能输入；「degraded」表示已降级本地保存（输入不会进房间）。
+          // 纯属性无行为影响，产品逻辑不读它
+          !collabConfigured
+            ? "off"
+            : collab.synced
+              ? "ready"
+              : collab.status === "error"
+                ? "degraded"
+                : "pending"
+        }
       >
       {/* Notion 风格顶栏：全宽吸顶 */}
       <div className="note-topbar">

@@ -22,6 +22,9 @@ test.use({
 
 let seed: {
   noteId: string;
+  /** 撤权套件专用笔记（seed-collab-e2e.mjs 隔离播种）：本套件会往正文写降级
+   *  标记并留在房间 blob，不能污染 collab.spec 的并发编辑笔记（PR #313 调查） */
+  revocationNoteId: string;
   userA: { email: string; password: string };
   userB: { email: string; password: string };
   /** 种子即事实源：admin API 的 ?email= 过滤在本地 GoTrue 不生效，勿现查 */
@@ -84,7 +87,7 @@ test.describe.serial("A05 存量连接撤权（真实后端）", () => {
     ]).catch(() => undefined);
     await rest(
       "PATCH",
-      `resource_acl?workspace_id=eq.${WORKSPACE_ID}&resource_type=eq.note&resource_id=eq.${seed.noteId}`,
+      `resource_acl?workspace_id=eq.${WORKSPACE_ID}&resource_type=eq.note&resource_id=eq.${seed.revocationNoteId}`,
       { access_role: "editor" }
     );
     await rest("PATCH", `shares?token=eq.${anonSeed.editToken}`, {
@@ -104,8 +107,13 @@ test.describe.serial("A05 存量连接撤权（真实后端）", () => {
   }
 
   async function openNote(page: Page) {
-    await page.goto(`/notes/${seed.noteId}`);
+    await page.goto(`/notes/${seed.revocationNoteId}`);
     await page.locator(".ProseMirror").waitFor();
+    // 等协作会话健康定形（首次同步完成）再放行输入：旧写法只等段落数，
+    // 非协作初始实例立即满足，CI 慢机在重建窗口输入会丢字（PR #313 调查）
+    await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({
+      timeout: 45_000,
+    });
     // 等协作播种/同步完成（≥2 段 = 种子正文已进房间）
     await expect
       .poll(() => page.locator(".ProseMirror > *").count(), { timeout: 20_000 })
@@ -125,6 +133,12 @@ test.describe.serial("A05 存量连接撤权（真实后端）", () => {
       if (focused) break;
       await page.waitForTimeout(400);
     }
+    // 焦点始终没进编辑器就打字 = 输入静默丢失，后续断言会报远离根因的错——显式失败
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+    });
+    if (!focused) throw new Error("click never focused the editor; typing would be lost");
     await page.keyboard.type(text);
   }
 
@@ -145,7 +159,7 @@ test.describe.serial("A05 存量连接撤权（真实后端）", () => {
     // 撤权：ACL editor→viewer（服务端重验 ≤COLLAB_REAUTH_INTERVAL_MS 后改 readOnly）
     await rest(
       "PATCH",
-      `resource_acl?workspace_id=eq.${WORKSPACE_ID}&resource_type=eq.note&resource_id=eq.${seed.noteId}`,
+      `resource_acl?workspace_id=eq.${WORKSPACE_ID}&resource_type=eq.note&resource_id=eq.${seed.revocationNoteId}`,
       { access_role: "viewer" }
     );
     // 等 ≥2 个重验周期（CI 间隔 3s，留余量）

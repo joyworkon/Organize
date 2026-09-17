@@ -51,6 +51,11 @@ async function login(page: Page, email: string, password: string) {
 async function openNote(page: Page, noteId: string) {
   await page.goto(`/notes/${noteId}`);
   await page.locator(".ProseMirror").waitFor();
+  // 等协作会话健康定形（首次同步完成）再放行后续输入：协作门控解除前编辑器
+  // 不可编辑，typeInBlock 的 toBeEditable 会在此窗口空等（PR #313 调查）
+  await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({
+    timeout: 45_000,
+  });
   await page.locator(`[data-synced-id="${seed.syncedId}"]`).waitFor();
 }
 
@@ -87,6 +92,13 @@ async function typeInBlock(page: Page, text: string) {
     if (focused) break;
     await page.waitForTimeout(400);
   }
+  // 焦点始终没进编辑器就打字 = 输入静默丢失（实测：内容超出视口后坐标点击
+  // 落空），后续断言只会报「待同步没出现」这类远离根因的错——在这里显式失败
+  const focused = await page.evaluate(() => {
+    const el = document.activeElement;
+    return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+  });
+  if (!focused) throw new Error("click never focused the editor; typing would be lost");
   await page.keyboard.type(text);
 }
 
