@@ -114,8 +114,8 @@ export function NoteTabsBar() {
   return (
     <>
     {/* M01：移动端切换入口已收进笔记页顶栏（MobileNoteTabsButton），不再在此浮动 */}
-    <div className="note-tabs-bar sticky top-0 z-50 hidden h-10 items-end gap-1 border-b bg-background px-2 md:flex">
-      <div className="flex shrink-0 items-center gap-0.5 pb-1.5">
+    <div className="note-tabs-bar organize-chrome-bar sticky top-0 z-50 hidden h-10 items-center gap-1 px-2 md:flex">
+      <div className="flex shrink-0 items-center gap-0.5">
         <button
           type="button"
           onClick={() => router.back()}
@@ -136,7 +136,7 @@ export function NoteTabsBar() {
         </button>
       </div>
 
-      <div className="note-tabs-scroll flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-1">
+      <div className="note-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1">
         {mounted &&
           tabs.map((tab) => {
             const active = tab.id === activeId;
@@ -163,11 +163,11 @@ export function NoteTabsBar() {
                   event.preventDefault();
                   closeTab(tab.id);
                 }}
+                data-state={active ? "on" : "idle"}
                 className={cn(
-                  "note-tab group/tab relative flex h-8 max-w-[200px] min-w-[100px] shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 text-xs",
-                  active
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  // 四角圆角矩形胶囊：选中态白纸面浮起、未选中态平贴灰条（配色见 .organize-chrome-pill）
+                  "note-tab organize-chrome-pill group/tab relative flex h-7 max-w-[200px] min-w-[112px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
+                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                   dragId === tab.id && "opacity-40"
                 )}
               >
@@ -188,8 +188,8 @@ export function NoteTabsBar() {
                   aria-label={`关闭 ${tab.title || "无标题笔记"}`}
                   onClick={() => closeTab(tab.id)}
                   className={cn(
-                    "grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-background/80 hover:text-foreground",
-                    active ? "opacity-90" : "opacity-0 group-hover/tab:opacity-100"
+                    "grid h-5 w-5 shrink-0 place-items-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground",
+                    active ? "opacity-90" : "opacity-60 group-hover/tab:opacity-100"
                   )}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -197,18 +197,18 @@ export function NoteTabsBar() {
               </div>
             );
           })}
+        {/* 「+」紧跟最后一个标签（截图式）；标签溢出滚动时 sticky 贴在右侧不被卷走 */}
+        <button
+          type="button"
+          onClick={() => void handleNewNote()}
+          title="新建笔记标签页"
+          aria-label="新建笔记标签页"
+          disabled={creating}
+          className="note-tabs-add sticky right-0 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+        </button>
       </div>
-
-      <button
-        type="button"
-        onClick={() => void handleNewNote()}
-        title="新建笔记标签页"
-        aria-label="新建笔记标签页"
-        disabled={creating}
-        className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      >
-        {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-      </button>
     </div>
     </>
   );

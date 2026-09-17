@@ -1,6 +1,6 @@
 # UI 可持续改版地图（ui-change-guide）
 
-编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新。
+编制：2026-09-13。代码基线：master `e514eee`（C01 卡交付）；2026-09-16 随 Cairn 改版第二步（石墨中性 + 石板蓝）与第三步（内容泳道 / 页头收口 / 设置页分组）更新；2026-09-17 随第四步（工具行收口：筛选面板 + 标签筛选并入工具行）、第五步（工作台首屏信息密度：横带合并 + 卡片三档层级）与第六步（笔记页工具行收口：排序合成下拉 + 导入/图谱收进页头「更多」）更新；2026-09-17 随第七步（顶部工具条统一：笔记标签改四角圆角胶囊 + 「+」紧跟标签 + 稍后读文章顶栏并入同一条壳）更新。
 计划卡：[long-term-agent-plan-2026-09-11.md §5 C01](long-term-agent-plan-2026-09-11.md)。
 用途：改任何界面之前，先在这份地图上定位「改哪里、会牵动哪里」。本文随大改版 PR 更新（规则见 §6）。
 
@@ -40,6 +40,7 @@
 | 新增按钮/对话框 | 一律 `components/ui/button|dialog` | 禁止第二套实现（现状核查：无 `.btn` 类、无原生 dialog；裸 `<button>` 仅限一次性图标按钮，如 theme-toggle.tsx:26-37） |
 | 笔记页设置（全宽/字体/小字号） | note-page-menu.tsx → page.tsx :1266-1279 contentClassName + 根类 | CSS 生效点 globals.css:116-146；持久化 note-save-session.ts:664-667 与 local-draft.ts 成对 |
 | 角色可见性 | lib/collab/roles.ts（owner/editor/viewer + saveRpcNameForRole）、lib/notes/capabilities.ts | 分流点集中在 notes/[id]/page.tsx（:1295/:1312/:1340/:1387/:1410/:1426-1428/:1496）；note-page-visuals.tsx:20；分享面板 components/share/resource-share-dialog.tsx（owner 才能改授权） |
+| 顶部工具条（笔记标签条 / 文章顶栏）外壳与胶囊 | `app/globals.css` 的 `.organize-chrome-bar` / `.organize-chrome-pill`（灰底条 + 四角 6px 圆角胶囊，暗色条落回 background、开启态用 accent 提亮）；结构在 `components/notes/note-tabs-bar.tsx` 与 `app/(main)/library/[id]/page.tsx` 顶栏 | 三个坑：①`.organize-chrome-pill` 只给非 Button 元素用，`ui/Button` 的 ghost 变体带 `hover:bg-accent`，会在悬停时盖掉底色——Button 要直接写 `bg-card shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent`（经 tailwind-merge 才压得住）；②标签条「+」在滚动容器内 `sticky right-0`，必须保持 `.note-tabs-add` 的不透明底，否则溢出时标签会从它下面滚过去；③文章顶栏进度条轨道不能再用 `bg-muted`（与条底同色会消失），用 `bg-border/60` |
 | 表格配色/边框 | `data-table-color` 变量组（globals.css:1128-1190） | editor/extensions/table-style.ts 持久化属性成对 |
 
 ## 3. 功能入口追踪表（卡面验收：每个主要功能入口可追踪）

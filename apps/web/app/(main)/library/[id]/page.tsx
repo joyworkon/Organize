@@ -882,7 +882,7 @@ export default function ReadingDetailPage() {
 
       {/* 顶栏：全宽吸顶（负 margin 抵消主布局 p-4/md:p-6）。
           左侧返回+面包屑，右侧操作；进度条贴顶栏下沿 */}
-      <div className="reading-topbar sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 bg-background/95 backdrop-blur border-b">
+      <div className="reading-topbar organize-chrome-bar sticky top-14 md:top-0 z-30 -mx-4 md:-mx-6 mb-8 backdrop-blur">
         <div className="flex items-center justify-between gap-2 px-2 py-2 md:px-3">
           <div className="flex items-center gap-1.5 min-w-0">
             <CollectionBackLink section="library" aria-label="返回阅读列表" className="grid h-11 w-11 shrink-0 place-items-center rounded-md hover:bg-accent md:h-8 md:w-8">
@@ -914,7 +914,8 @@ export default function ReadingDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              className={`gap-1 sm:gap-1.5 ${bionicMode ? "text-primary bg-primary/10" : ""}`}
+              data-state={bionicMode ? "on" : "idle"}
+              className={`gap-1 sm:gap-1.5 ${bionicMode ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
               onClick={() => setBionicMode(!bionicMode)}
               title="速读"
             >
@@ -924,7 +925,8 @@ export default function ReadingDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              className={`gap-1 sm:gap-1.5 ${focusMode ? "text-primary bg-primary/10" : ""}`}
+              data-state={focusMode ? "on" : "idle"}
+              className={`gap-1 sm:gap-1.5 ${focusMode ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
               onClick={() => setFocusMode(!focusMode)}
               title="专注"
             >
@@ -934,7 +936,8 @@ export default function ReadingDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              className={`gap-1 sm:gap-1.5 ${fullWidth ? "text-primary bg-primary/10" : ""}`}
+              data-state={fullWidth ? "on" : "idle"}
+              className={`gap-1 sm:gap-1.5 ${fullWidth ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
               onClick={toggleFullWidth}
               title={fullWidth ? "默认宽度" : "全宽"}
             >
@@ -970,7 +973,8 @@ export default function ReadingDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "text-primary bg-primary/10" : ""}`}
+              data-state={showHighlightsPanel ? "on" : "idle"}
+              className={`gap-1 sm:gap-1.5 ${showHighlightsPanel ? "bg-card text-primary shadow-xs hover:bg-card dark:bg-accent dark:hover:bg-accent" : ""}`}
               onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
               title="高亮"
             >
@@ -1014,7 +1018,7 @@ export default function ReadingDetailPage() {
           </div>
         </div>
         {/* 进度条：贴顶栏下沿，全宽一条（不再重复渲染页面顶部 fixed 进度条） */}
-        <div className="h-0.5 bg-muted">
+        <div className="h-0.5 bg-border/60">
           <div
             className="h-full bg-primary transition-[width] duration-100 ease-out"
             style={{ width: `${scrollProgress}%` }}

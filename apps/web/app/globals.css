@@ -343,10 +343,49 @@
   font-size: 11px;
 }
 
-/* === 桌面端笔记标签页条（Chrome 式，挂在主布局、笔记页之外） === */
-.note-tabs-bar {
-  /* 与下方 .note-topbar 的吸顶偏移联动（40px） */
-  box-shadow: inset 0 -1px 0 hsl(var(--border) / 0.6);
+/* === 顶部工具条外壳（chrome bar，2026-09-17 Cairn 第七步） ===
+   灰底条 + 四角圆角胶囊：亮色条为 muted 灰、选中胶囊为白纸面浮起；
+   暗色条落回 background、选中胶囊用 accent 提亮（暗色里"更亮"才是浮起）。
+   笔记标签条与稍后读文章顶栏共用这一套，避免两处各写一份配色。 */
+.organize-chrome-bar {
+  background: hsl(var(--muted) / 0.9);
+  box-shadow: inset 0 -1px 0 hsl(var(--border) / 0.7);
+}
+.dark .organize-chrome-bar {
+  background: hsl(var(--background) / 0.95);
+  box-shadow: inset 0 -1px 0 hsl(var(--border) / 0.65);
+}
+/* 条上的胶囊：闲置态平贴（透明），选中/开启态浮起。
+   注意：只给非 Button 元素（如标签页）用；ui/Button 请直接写
+   `bg-card shadow-xs hover:bg-card dark:bg-accent` 类，
+   否则 ghost 变体的 hover:bg-accent 会在悬停时盖掉这里的底色。 */
+.organize-chrome-pill[data-state="idle"]:hover {
+  background: hsl(var(--accent) / 0.75);
+}
+.organize-chrome-pill[data-state="on"] {
+  background: hsl(var(--card));
+  box-shadow: var(--shadow-xs);
+}
+.dark .organize-chrome-pill[data-state="on"] {
+  background: hsl(var(--accent));
+  box-shadow: none;
+}
+
+/* === 桌面端笔记标签页条（挂在主布局、笔记页之外；条高 40px，与下方
+   .note-topbar 的吸顶偏移联动。外壳配色见 .organize-chrome-bar） === */
+.note-tabs-add {
+  /* 溢出滚动时贴右不被卷走，需要不透明底遮住从下方滚过的标签 */
+  margin-left: 2px;
+  background: hsl(var(--muted));
+}
+.note-tabs-add:hover {
+  background: hsl(var(--accent));
+}
+.dark .note-tabs-add {
+  background: hsl(var(--background));
+}
+.dark .note-tabs-add:hover {
+  background: hsl(var(--accent));
 }
 .note-tabs-scroll {
   scrollbar-width: none;
