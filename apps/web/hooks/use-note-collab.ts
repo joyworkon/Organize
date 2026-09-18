@@ -54,6 +54,21 @@ interface UseNoteCollabOptions {
    * 实时判权（editor 可写 / viewer 服务端置只读）。
    */
   anonymousToken?: string;
+  /**
+   * 082 名额闸门：本设备的会话凭证。链接设了 session_limit 时，握手令牌拼成
+   * "share:<token>:<sessionId>"，判权 RPC 据此认名额；不设限的链接传 null/不传
+   * （令牌形状与 072 一致，行为零变化）。
+   */
+  anonymousSessionId?: string | null;
+}
+
+/**
+ * 匿名握手令牌（082）：有会话凭证时拼成 "share:<token>:<sessionId>"。
+ * 分享 token 是 url-safe base64（`[A-Za-z0-9_-]`，**不含 ':'**），因此服务端
+ * 按第一个 ':' 切分是安全的——不会被令牌内容里的冒号打乱。
+ */
+export function anonShareToken(token: string, sessionId?: string | null): string {
+  return sessionId ? `share:${token}:${sessionId}` : `share:${token}`;
 }
 
 export interface NoteCollab {
@@ -94,6 +109,7 @@ export function useNoteCollab({
   enabled,
   displayName,
   anonymousToken,
+  anonymousSessionId,
 }: UseNoteCollabOptions): NoteCollab {
   const [provider, setProvider] = useState<HocuspocusProvider | null>(null);
   const [peers, setPeers] = useState<CollabPeer[]>([]);
@@ -225,7 +241,7 @@ export function useNoteCollab({
         // TokenSync 重验请求都会重新求值——登录用户拿到刷新后的 JWT，不再是一
         // 次性的过期凭证；匿名分享令牌恒定。
         token: anonymousToken
-          ? () => `share:${anonymousToken}`
+          ? () => anonShareToken(anonymousToken, anonymousSessionId)
           : async () => {
               const {
                 data: { session: s },
@@ -338,8 +354,9 @@ export function useNoteCollab({
       awarenessRef.current = null;
     };
     // authEpoch 重建会话：退出/切换账号后用新身份重新握手
+    // anonymousSessionId 参与重建：082 下会话凭证是握手令牌的一部分，换了必须重连
     // eslint-disable-next-line react-hooks/exhaustive-deps -- displayName 经 ref 传递，不参与重建
-  }, [enabled, noteId, anonymousToken, authEpoch]);
+  }, [enabled, noteId, anonymousToken, anonymousSessionId, authEpoch]);
 
   // 名字解析晚于会话建立时（罕见），刷新本地 awareness 的 user 字段
   const awarenessRef = useRef<Awareness | null>(null);

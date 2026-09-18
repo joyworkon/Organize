@@ -12,6 +12,9 @@ export function isAuthExemptPath(pathname: string): boolean {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/s/") || // 公开分享页：/s/[token]
+    // 爬虫声明必须未登录可达：307 到 /login 会让爬虫拿不到 robots.txt，
+    // 等于没声明（默认放开抓取）——而 /s/ 分享页恰恰不该被收录
+    pathname === "/robots.txt" ||
     // 匿名可编辑公开链接的快照保存（072）：无登录态可达；权限由 save_public_note
     // 按 token 实时判定（token 即能力），路由另有 token+IP 限流
     pathname.startsWith("/api/public-share/") ||

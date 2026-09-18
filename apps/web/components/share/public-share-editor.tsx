@@ -12,12 +12,19 @@ interface PublicShareEditorProps {
   noteId: string;
   /** 服务端渲染时的原始内容快照：空房间播种用 */
   seedContent: Record<string, unknown> | null;
+  /**
+   * 082 名额闸门：本设备的会话凭证（服务端从 httpOnly cookie 取出后传入）。
+   * 链接设了 session_limit 时，握手与快照保存都必须带上它，否则被 RPC 按
+   * 「无会话证据」拒掉；没设限的链接传 null 即可（通道不校验会话）。
+   */
+  sessionId: string | null;
 }
 
 /**
  * 匿名可编辑公开链接（Track B 072，分叉 2-B）。
  *
- * - 实时：useNoteCollab 匿名分支（token = share:<token>），与登录用户共享同一房间；
+ * - 实时：useNoteCollab 匿名分支（token = share:<token> 或 share:<token>:<session>），
+ *   与登录用户共享同一房间；
  *   落库双通道 = collab-server 的 CRDT blob + 本组件经 /api/public-share/[token]/save
  *   的节流快照（save_public_note 属主 scope 写）。
  * - 快照乐观锁传 null（节流覆盖写，与协作在线时 v2 的口径一致）：房间里的 Y.Doc
@@ -36,7 +43,12 @@ function docText(node: Record<string, unknown>): string {
   return content.map((c) => docText(c as Record<string, unknown>)).join("");
 }
 
-export default function PublicShareEditor({ token, noteId, seedContent }: PublicShareEditorProps) {
+export default function PublicShareEditor({
+  token,
+  noteId,
+  seedContent,
+  sessionId,
+}: PublicShareEditorProps) {
   const realBackend = process.env.NEXT_PUBLIC_MOCK_BACKEND !== "true";
   const wsConfigured = Boolean(process.env.NEXT_PUBLIC_COLLAB_WS_URL);
   const enabled = realBackend && wsConfigured;
@@ -46,6 +58,8 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
     enabled,
     displayName: "访客",
     anonymousToken: token,
+    // 082：设了名额的链接，握手必须带会话凭证（collab-server 透传给判权 RPC）
+    anonymousSessionId: sessionId,
   });
   // collab.user 身份对象必须 memo：useEditor 以 collab?.user 为重建依赖，
   // 内联对象每帧换新会让编辑器无限重建（Maximum update depth 实测）
@@ -57,6 +71,9 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
   const lastJsonRef = useRef<Record<string, unknown> | null>(null);
   const savingRef = useRef(false);
   const forbiddenRef = useRef(false);
+  // 083 每日写入额度用尽：与「权限被收回」是两回事——权限还在，只是今天写不动了。
+  // 一旦收到就该停掉后续保存尝试，否则每次编辑都白打一次请求
+  const quotaRef = useRef(false);
   // 播种判定：属主有内容时，快照必须仍包含种子文本才允许落库——协作编辑器在
   // 播种完成前是空文档，期间任何 user 来源事务（链接刷新 dispatch 等）产生的
   // 空/半空文档绝不能写快照（会把 DB 内容清掉）。
@@ -66,10 +83,14 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [revoked, setRevoked] = useState(false);
+  const [quotaBlocked, setQuotaBlocked] = useState(false);
 
   const shouldSave = useCallback(
     (json: Record<string, unknown> | null): json is Record<string, unknown> =>
-      !!json && !forbiddenRef.current && (!seedText || docText(json).includes(seedText)),
+      !!json &&
+      !forbiddenRef.current &&
+      !quotaRef.current &&
+      (!seedText || docText(json).includes(seedText)),
     [seedText]
   );
 
@@ -91,6 +112,13 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
         // 权限已被实时收回（改回只读/关闭/过期）：立即停写并置只读
         forbiddenRef.current = true;
         setRevoked(true);
+        return;
+      }
+      if (data.status === "quota_exceeded") {
+        // 083 每日写入额度用尽。**不能**置只读——权限并未被收回，谎称收回会让
+        // 访客以为分享者关掉了链接。如实提示并停掉后续尝试即可（额度次日重置）
+        quotaRef.current = true;
+        setQuotaBlocked(true);
         return;
       }
       if (!res.ok) {
@@ -171,6 +199,12 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
         <Notice
           tone="warning"
           text="分享者已关闭可编辑权限，当前为只读视图。"
+        />
+      ) : null}
+      {quotaBlocked ? (
+        <Notice
+          tone="warning"
+          text="今天的编辑次数已达这条链接的上限，改动暂时无法保存（实时会话内仍可编辑）。明天恢复，或请分享者重新分享。"
         />
       ) : null}
       {!collab.synced && collab.status !== "error" && (

@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { getPublicShare } from "./public-share";
 
+// 返回的是 getPublicShare 的**选项对象**（082 起签名收成 options：多了 sessionId），
+// 这样各调用点 `getPublicShare(token, clientReturning([...]))` 形状保持不变
 function clientReturning(data: unknown) {
   return {
-    rpc: async () => ({ data, error: null }),
+    client: {
+      rpc: async () => ({ data, error: null }),
+    },
+  };
+}
+
+/** 捕获传给 RPC 的实参，用于断言 p_session_id 确实下传（082） */
+function clientCapturingArgs(sink: Record<string, unknown>[], data: unknown) {
+  return {
+    client: {
+      rpc: async (_name: string, args: Record<string, unknown>) => {
+        sink.push(args);
+        return { data, error: null };
+      },
+    },
   };
 }
 
@@ -11,9 +27,11 @@ describe("getPublicShare", () => {
   it("does not call the database for malformed tokens", async () => {
     let called = false;
     const result = await getPublicShare("short", {
-      rpc: async () => {
-        called = true;
-        return { data: [], error: null };
+      client: {
+        rpc: async () => {
+          called = true;
+          return { data: [], error: null };
+        },
       },
     });
 
@@ -122,5 +140,37 @@ describe("getPublicShare", () => {
     );
 
     expect(result).toEqual({ state: "missing" });
+  });
+
+  it("surfaces claim_required without leaking resource, and forwards the session id (082)", async () => {
+    const args: Record<string, unknown>[] = [];
+    const gated = await getPublicShare(
+      "1234567890123456",
+      clientCapturingArgs(args, [
+        {
+          status: "claim_required",
+          resource_type: "note",
+          expires_at: null,
+          access_mode: "public_edit",
+          resource: null,
+        },
+      ])
+    );
+
+    expect(gated).toEqual({
+      state: "claim_required",
+      resource_type: "note",
+      expires_at: null,
+      access_mode: "public_edit",
+    });
+    // 未持会话时也要显式传 null——RPC 据此走「无会话证据」分支（不设限的链接不受影响）
+    expect(args[0]).toEqual({ p_token: "1234567890123456", p_session_id: null });
+
+    const sessionId = "0b7a1c2d-3e4f-4a5b-8c9d-0e1f2a3b4c5d";
+    await getPublicShare("1234567890123456", {
+      sessionId,
+      ...clientCapturingArgs(args, [{ status: "active", resource_type: "note", resource: null }]),
+    });
+    expect(args[1]).toEqual({ p_token: "1234567890123456", p_session_id: sessionId });
   });
 });

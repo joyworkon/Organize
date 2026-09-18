@@ -1,8 +1,11 @@
 import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
 import { getPublicShare } from "@/lib/share/public-share";
+import { parseSessionId, shareSessionCookieName } from "@/lib/share/session";
 import { sanitizeContent } from "@/lib/sanitize/sanitize-html";
 import PublicShareEditor from "@/components/share/public-share-editor";
+import PublicShareGate from "@/components/share/public-share-gate";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
@@ -13,22 +16,56 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
+/**
+ * 读链接 + 本设备的会话凭证（082）。
+ *
+ * 会话 id 取自 httpOnly cookie（客户端 JS 读不到），随服务端渲染一起交给
+ * 编辑器组件——编辑器必须拿它去和 collab-server 握手，否则握手会被
+ * resolve_share_access 按「无会话证据」拒掉。
+ */
+async function loadShare(token: string) {
+  const cookieStore = await cookies();
+  const sessionId = parseSessionId(cookieStore.get(shareSessionCookieName(token))?.value);
+  const share = await getPublicShare(token, { sessionId });
+  return { share, sessionId };
+}
+
+/**
+ * 分享页一律 noindex（防扩散）。
+ *
+ * robots.txt 只是约定，不守约的爬虫仍在抓；页面级 noindex 是第二道。
+ * 而且 robots.txt 挡不住**已经在公开处出现的链接**被收录——分享链接一旦进搜索
+ * 索引，就等于对所有人公开，与「只发给某个人」的意图相反。
+ */
+const NO_INDEX = { index: false, follow: false } as const;
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
-  const share = await getPublicShare(token);
-  if (share.state !== "active") return { title: "分享不存在" };
+  const { share } = await loadShare(token);
+  // 未认领时不回标题：标题也是内容的一部分，不该在名额确认前泄漏给预览爬虫
+  if (share.state !== "active") return { title: "分享内容", robots: NO_INDEX };
 
   return {
     title: share.resource.title || "分享内容",
     description: "通过 Cairn 分享的内容",
+    robots: NO_INDEX,
   };
 }
 
 export default async function SharePage({ params }: PageProps) {
   const { token } = await params;
-  const share = await getPublicShare(token);
+  const { share, sessionId } = await loadShare(token);
   if (share.state === "missing") {
     notFound();
+  }
+
+  // 082 名额闸门：链接有效但本设备没有有效会话 → 只给「确认进入」，不给内容
+  if (share.state === "claim_required") {
+    return (
+      <Shell>
+        <PublicShareGate token={token} accessMode={share.access_mode} />
+      </Shell>
+    );
   }
 
   if (share.state === "expired") {
@@ -55,6 +92,7 @@ export default async function SharePage({ params }: PageProps) {
               token={token}
               noteId={share.resource.id}
               seedContent={share.resource.content}
+              sessionId={sessionId}
             />
           </div>
         </Shell>

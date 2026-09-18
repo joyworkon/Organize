@@ -84,17 +84,19 @@ UPDATE public.shares SET access_mode = 'public_read', is_public = true
  WHERE token = '72s-token-read-000000000002';
 
 -- EXECUTE 分层：token 型 RPC anon / authenticated / service_role 分层
-SELECT is(has_function_privilege('anon', 'public.resolve_share_access(text, uuid)', 'EXECUTE'), true,
+-- （签名在 082 各追加了一个 p_session_id uuid default null；带默认值的新实参
+--   让下面所有少传一个实参的调用点继续可解析——这正是本卡向后兼容的落点）
+SELECT is(has_function_privilege('anon', 'public.resolve_share_access(text, uuid, uuid)', 'EXECUTE'), true,
   'anon 可调 resolve_share_access（collab-server 用 anon key 判权）');
-SELECT is(has_function_privilege('anon', 'public.save_public_note(text, jsonb, integer, text, uuid)', 'EXECUTE'), true,
+SELECT is(has_function_privilege('anon', 'public.save_public_note(text, jsonb, integer, text, uuid, uuid)', 'EXECUTE'), true,
   'anon 可调 save_public_note');
-SELECT is(has_function_privilege('anon', 'public.get_note_ydoc_by_token(text, uuid)', 'EXECUTE'), true,
+SELECT is(has_function_privilege('anon', 'public.get_note_ydoc_by_token(text, uuid, uuid)', 'EXECUTE'), true,
   'anon 可调 get_note_ydoc_by_token');
-SELECT is(has_function_privilege('anon', 'public.save_note_ydoc_by_token(text, uuid, text)', 'EXECUTE'), true,
+SELECT is(has_function_privilege('anon', 'public.save_note_ydoc_by_token(text, uuid, text, uuid)', 'EXECUTE'), true,
   'anon 可调 save_note_ydoc_by_token');
-SELECT is(has_function_privilege('authenticated', 'public.resolve_share_access(text, uuid)', 'EXECUTE'), true,
+SELECT is(has_function_privilege('authenticated', 'public.resolve_share_access(text, uuid, uuid)', 'EXECUTE'), true,
   'authenticated 可调 resolve_share_access（同房间登录用户）');
-SELECT is(has_function_privilege('service_role', 'public.save_public_note(text, jsonb, integer, text, uuid)', 'EXECUTE'), true,
+SELECT is(has_function_privilege('service_role', 'public.save_public_note(text, jsonb, integer, text, uuid, uuid)', 'EXECUTE'), true,
   'service_role 可调 save_public_note');
 
 -- ========== 2. get_public_share 返回 access_mode ==========

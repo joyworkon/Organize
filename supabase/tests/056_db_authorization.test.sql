@@ -183,8 +183,9 @@ SELECT is(
   has_function_privilege('service_role', 'claim_due_task_reminder_deliveries(integer)', 'EXECUTE'),
   true, 'service_role 可调用 cron 提醒投递'
 );
+-- 签名在 082 追加 p_session_id uuid default null（名额闸门），实参增至两个
 SELECT is(
-  has_function_privilege('anon', 'get_public_share(text)', 'EXECUTE'),
+  has_function_privilege('anon', 'get_public_share(text, uuid)', 'EXECUTE'),
   true, 'anon 可调用公开分享读取（匿名分享页依赖）'
 );
 

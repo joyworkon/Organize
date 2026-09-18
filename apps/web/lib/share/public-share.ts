@@ -32,6 +32,22 @@ export type ShareAccessMode = "disabled" | "public_read" | "public_edit";
 export type PublicShareResult =
   | { state: "missing" }
   | { state: "expired"; resource_type: "note" | "reading_item"; expires_at: string }
+  /**
+   * 082 名额闸门：链接本身有效，但调用方没带有效会话（名额已满 / 尚未认领）。
+   * 只回元信息、**不回 resource**——内容在服务端就断掉。页面据此渲染「确认进入」
+   * 或「名额已被占用」，因此这一态不能并入 missing（那会显示成「链接不存在」，
+   * 让使用者误以为链接坏了）。
+   */
+  | {
+      state: "claim_required";
+      resource_type: "note" | "reading_item";
+      expires_at: string | null;
+      /**
+       * 收窄到两个公开态：disabled 的分享行走 is_public=false → missing，
+       * 永远到不了 claim_required，类型上也不该给它留位子。
+       */
+      access_mode: "public_read" | "public_edit";
+    }
   | {
       state: "active";
       resource_type: "note";
@@ -72,6 +88,15 @@ function parseRpcRow(value: unknown): PublicShareResult {
       state: "expired",
       resource_type: resourceType,
       expires_at: row.expires_at,
+    };
+  }
+
+  if (row.status === "claim_required" && resourceType) {
+    return {
+      state: "claim_required",
+      resource_type: resourceType,
+      expires_at: typeof row.expires_at === "string" ? row.expires_at : null,
+      access_mode: row.access_mode === "public_edit" ? "public_edit" : "public_read",
     };
   }
 
@@ -130,16 +155,26 @@ function parseRpcRow(value: unknown): PublicShareResult {
   };
 }
 
+export interface GetPublicShareOptions {
+  /** 082 名额闸门：本设备的会话凭证（来自 httpOnly cookie）；不设限的链接不需要 */
+  sessionId?: string | null;
+  /** 测试注入；不传则建真实客户端 */
+  client?: PublicShareRpcClient;
+}
+
 export async function getPublicShare(
   token: string,
-  injectedClient?: PublicShareRpcClient
+  options: GetPublicShareOptions = {}
 ): Promise<PublicShareResult> {
   if (!token || token.length < 16 || token.length > 256) {
     return { state: "missing" };
   }
 
-  const client = injectedClient ?? (await createClient());
-  const { data, error } = await client.rpc("get_public_share", { p_token: token });
+  const client = options.client ?? (await createClient());
+  const { data, error } = await client.rpc("get_public_share", {
+    p_token: token,
+    p_session_id: options.sessionId ?? null,
+  });
   if (error) {
     console.error("Public share lookup failed:", error.message);
     return { state: "missing" };
