@@ -4,9 +4,9 @@ import { serverError } from "@/lib/api/error";
 import { generateToken } from "@/lib/share/token";
 import type { ShareResourceType } from "@organize/shared";
 
-/** 082 访问限制档位的读写列（POST 复用 / GET 返回 / PATCH 更新共用一份） */
+/** 082/084 分享设置的读写列（POST 复用 / GET 返回 / PATCH 更新共用一份） */
 const SHARE_COLUMNS =
-  "id, token, is_public, expires_at, access_mode, session_limit, ip_limit, created_at";
+  "id, token, is_public, expires_at, access_mode, session_limit, ip_limit, spread_alert_enabled, created_at";
 
 /** 档位上限：超过这个数量已无「防扩散」意义，只防住手滑填出天文数字 */
 const LIMIT_MAX = 1000;
@@ -246,9 +246,15 @@ export async function PATCH(request: NextRequest) {
   if (!sessionLimit.valid || !ipLimit.valid) {
     return NextResponse.json({ error: LIMIT_INVALID_MESSAGE }, { status: 400 });
   }
+  // 084 扩散告警开关（可选）
+  const spreadAlert = body?.spread_alert_enabled;
+  if (spreadAlert !== undefined && typeof spreadAlert !== "boolean") {
+    return NextResponse.json({ error: "spread_alert_enabled 必须是布尔值" }, { status: 400 });
+  }
   if (
     body?.access_mode === undefined &&
     body?.expires_at === undefined &&
+    spreadAlert === undefined &&
     !sessionLimit.present &&
     !ipLimit.present
   ) {
@@ -266,6 +272,7 @@ export async function PATCH(request: NextRequest) {
   }
   if (sessionLimit.present) updates.session_limit = sessionLimit.value;
   if (ipLimit.present) updates.ip_limit = ipLimit.value;
+  if (spreadAlert !== undefined) updates.spread_alert_enabled = spreadAlert;
 
   // 先定位目标行：跨字段一致性（ip_limit 不能单独存在）要拿改完之后的组合判，
   // 只看请求体判不出「把 session_limit 清成不限却留着 ip_limit」这种组合
