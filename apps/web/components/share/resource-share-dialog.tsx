@@ -780,6 +780,54 @@ function expiryDateFromChoice(choice: ShareExpiryChoice): string | null {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+/* --------- 082 访问限制（名额 / IP 档）--------- */
+
+/** 预设名额：0 无意义（那是撤销分享的事），负数字面上也说不通 */
+const SESSION_LIMIT_PRESETS = [1, 2, 5] as const;
+const SESSION_LIMIT_LABELS: Record<number, string> = {
+  1: "仅首人",
+  2: "2 人",
+  5: "5 人",
+};
+
+/** 下拉的取值：字符串化的数字，或 "unlimited" */
+function limitToChoice(value: number | null): string {
+  return value === null ? "unlimited" : String(value);
+}
+
+function choiceToLimit(choice: string): number | null {
+  return choice === "unlimited" ? null : Number(choice);
+}
+
+/**
+ * 下拉选项：预设 + 当前值（若当前值不在预设里，如别处经 API 设了 3，
+ * 也要能显示出来——否则面板会把「3 人」显示成「不限」，属主看到的就不是事实）
+ */
+function limitOptions(current: number | null): { value: string; label: string }[] {
+  const opts = [
+    { value: "unlimited", label: "不限" },
+    ...SESSION_LIMIT_PRESETS.map((n) => ({ value: String(n), label: SESSION_LIMIT_LABELS[n] })),
+  ];
+  if (current !== null && !SESSION_LIMIT_PRESETS.includes(current as (typeof SESSION_LIMIT_PRESETS)[number])) {
+    opts.push({ value: String(current), label: `${current} 人` });
+  }
+  return opts;
+}
+
+/** 从 /api/share 的响应里挑出 082 的档位字段（不把 unknown 直接摊进 state） */
+function pickLimits(data: { session_limit?: unknown; ip_limit?: unknown }) {
+  return {
+    session_limit: typeof data.session_limit === "number" ? data.session_limit : null,
+    ip_limit: typeof data.ip_limit === "number" ? data.ip_limit : null,
+  };
+}
+
+interface ClaimedSummary {
+  active: number;
+  released: number;
+  ips: string[];
+}
+
 function PublicLinkSection({
   resourceType,
   resourceId,
@@ -788,10 +836,13 @@ function PublicLinkSection({
   resourceId: string;
 }) {
   const [share, setShare] = useState<{
+    id: string;
     token: string;
     url: string;
     is_public: boolean;
     access_mode: ShareAccessMode;
+    session_limit: number | null;
+    ip_limit: number | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -800,6 +851,53 @@ function PublicLinkSection({
   const [error, setError] = useState<string | null>(null);
   // 072：过期时间选择（建议默认 7 天，§6 非协商项），创建与改模式共用
   const [expiry, setExpiry] = useState<ShareExpiryChoice>("7d");
+  // 082：名额占用概览（属主视角）+ 释放中
+  const [claimed, setClaimed] = useState<ClaimedSummary | null>(null);
+  const [releasing, setReleasing] = useState(false);
+
+  /** /api/share 各响应形状统一收口，省得三处 setShare 各写一份（082 加了 id 与档位） */
+  const applyShareResponse = useCallback((data: Record<string, unknown>) => {
+    setShare({
+      id: String(data.id ?? ""),
+      token: String(data.token ?? ""),
+      url: String(data.url ?? ""),
+      is_public: !!data.is_public,
+      access_mode: (data.access_mode ??
+        (data.is_public ? "public_read" : "disabled")) as ShareAccessMode,
+      ...pickLimits(data),
+    });
+  }, []);
+
+  /**
+   * 名额占用概览（082）：list_share_sessions 是属主专属 RPC（函数内再校
+   * auth.uid() = owner_id），浏览器客户端带着用户会话直接调即可。
+   * 失败只是看不到概览，不影响面板其余功能——故静默置 null。
+   */
+  const loadSessions = useCallback(async (shareId: string) => {
+    if (!shareId) {
+      setClaimed(null);
+      return;
+    }
+    try {
+      const supabase = createClient();
+      const { data, error: rpcErr } = await supabase.rpc("list_share_sessions", {
+        p_share_id: shareId,
+      });
+      if (rpcErr) {
+        setClaimed(null);
+        return;
+      }
+      const rows = (data ?? []) as { released: boolean; ip: string | null }[];
+      const active = rows.filter((r) => !r.released);
+      setClaimed({
+        active: active.length,
+        released: rows.filter((r) => r.released).length,
+        ips: Array.from(new Set(active.map((r) => r.ip).filter((ip): ip is string => !!ip))),
+      });
+    } catch {
+      setClaimed(null);
+    }
+  }, []);
 
   const loadShare = useCallback(async () => {
     setLoading(true);
@@ -810,22 +908,19 @@ function PublicLinkSection({
       });
       if (!res.ok) throw new Error("加载失败");
       const data = await res.json();
-      setShare(
-        data
-          ? {
-              token: data.token,
-              url: data.url,
-              is_public: data.is_public,
-              access_mode: (data.access_mode ?? (data.is_public ? "public_read" : "disabled")) as ShareAccessMode,
-            }
-          : null
-      );
+      if (data) {
+        applyShareResponse(data);
+        void loadSessions(String(data.id ?? ""));
+      } else {
+        setShare(null);
+        setClaimed(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [resourceType, resourceId]);
+  }, [resourceType, resourceId, applyShareResponse, loadSessions]);
 
   useEffect(() => {
     void loadShare();
@@ -850,7 +945,8 @@ function PublicLinkSection({
         throw new Error(data.error || "创建失败");
       }
       const data = await res.json();
-      setShare({ token: data.token, url: data.url, is_public: data.is_public, access_mode: data.access_mode });
+      applyShareResponse(data);
+      void loadSessions(String(data.id ?? ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : "创建失败");
     } finally {
@@ -879,11 +975,67 @@ function PublicLinkSection({
         throw new Error(data.error || "修改失败");
       }
       const data = await res.json();
-      setShare({ token: data.token, url: data.url, is_public: data.is_public, access_mode: data.access_mode });
+      applyShareResponse(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "修改失败");
     } finally {
       setPatching(false);
+    }
+  };
+
+  /**
+   * 改名额 / IP 档（082）。两档一起传：ip_limit 不能单独存在，服务端会按
+   * 「改完之后的组合」校验并给 400（这里原样透传错误文案，不猜）。
+   */
+  const patchLimits = async (next: { session_limit?: number | null; ip_limit?: number | null }) => {
+    if (!share || patching) return;
+    setPatching(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/share", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: share.token, ...next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "修改失败");
+      }
+      const data = await res.json();
+      applyShareResponse(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "修改失败");
+    } finally {
+      setPatching(false);
+    }
+  };
+
+  /**
+   * 释放已占用的名额（082）。属主的唯一纠偏阀：朋友换了设备、或误把名额用光时，
+   * 点一下清空活跃会话，新人就能重新认领。
+   */
+  const releaseSessions = async () => {
+    if (!share || releasing) return;
+    if (
+      !confirm(
+        "释放已占用的名额？已进入的人刷新后会重新认领；名额被占满时，这是让新人进来的唯一办法。"
+      )
+    ) {
+      return;
+    }
+    setReleasing(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const { error: rpcErr } = await supabase.rpc("release_share_sessions", {
+        p_share_id: share.id,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      await loadSessions(share.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "释放失败");
+    } finally {
+      setReleasing(false);
     }
   };
 
@@ -965,6 +1117,71 @@ function PublicLinkSection({
               </SelectContent>
             </Select>
           </div>
+
+          {/* 082 访问限制：名额 / IP 档（只在公开态下有意义——关闭时链接本就不通） */}
+          {share.is_public && (
+            <div className="space-y-1.5 rounded-md border p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={limitToChoice(share.session_limit)}
+                  onValueChange={(v) => {
+                    const next = choiceToLimit(v);
+                    // 清掉名额必须连 IP 档一起清：服务端不允许 ip_limit 单独存在
+                    void patchLimits(
+                      next === null ? { session_limit: null, ip_limit: null } : { session_limit: next }
+                    );
+                  }}
+                  disabled={patching}
+                >
+                  <SelectTrigger aria-label="访问名额" className="h-8 w-[130px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {limitOptions(share.session_limit).map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={limitToChoice(share.ip_limit)}
+                  onValueChange={(v) => void patchLimits({ ip_limit: choiceToLimit(v) })}
+                  disabled={patching || share.session_limit === null}
+                >
+                  <SelectTrigger aria-label="IP 限制" className="h-8 w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unlimited">不限网络</SelectItem>
+                    <SelectItem value="1">仅首个网络</SelectItem>
+                  </SelectContent>
+                </Select>
+                {claimed && share.session_limit !== null && (
+                  <button
+                    type="button"
+                    onClick={() => void releaseSessions()}
+                    disabled={releasing || claimed.active === 0}
+                    className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
+                  >
+                    {releasing
+                      ? "释放中…"
+                      : `已占用 ${claimed.active}/${share.session_limit} · 释放`}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {share.session_limit === null
+                  ? "任何人持链接都能打开（不设名额）。"
+                  : `前 ${share.session_limit} 个点「确认进入」的人占用名额，之后打开的人只看到提示、拿不到内容。${
+                      claimed && claimed.ips.length > 0
+                        ? `已进入的网络：${claimed.ips.join("、")}`
+                        : ""
+                    }`}
+              </p>
+            </div>
+          )}
+
           {share.access_mode === "public_edit" && (
             <p className="text-xs text-destructive">
               任何持此链接者均可编辑本篇内容，可随时改回只读或关闭。

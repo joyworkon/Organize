@@ -12,12 +12,19 @@ interface PublicShareEditorProps {
   noteId: string;
   /** 服务端渲染时的原始内容快照：空房间播种用 */
   seedContent: Record<string, unknown> | null;
+  /**
+   * 082 名额闸门：本设备的会话凭证（服务端从 httpOnly cookie 取出后传入）。
+   * 链接设了 session_limit 时，握手与快照保存都必须带上它，否则被 RPC 按
+   * 「无会话证据」拒掉；没设限的链接传 null 即可（通道不校验会话）。
+   */
+  sessionId: string | null;
 }
 
 /**
  * 匿名可编辑公开链接（Track B 072，分叉 2-B）。
  *
- * - 实时：useNoteCollab 匿名分支（token = share:<token>），与登录用户共享同一房间；
+ * - 实时：useNoteCollab 匿名分支（token = share:<token> 或 share:<token>:<session>），
+ *   与登录用户共享同一房间；
  *   落库双通道 = collab-server 的 CRDT blob + 本组件经 /api/public-share/[token]/save
  *   的节流快照（save_public_note 属主 scope 写）。
  * - 快照乐观锁传 null（节流覆盖写，与协作在线时 v2 的口径一致）：房间里的 Y.Doc
@@ -36,7 +43,12 @@ function docText(node: Record<string, unknown>): string {
   return content.map((c) => docText(c as Record<string, unknown>)).join("");
 }
 
-export default function PublicShareEditor({ token, noteId, seedContent }: PublicShareEditorProps) {
+export default function PublicShareEditor({
+  token,
+  noteId,
+  seedContent,
+  sessionId,
+}: PublicShareEditorProps) {
   const realBackend = process.env.NEXT_PUBLIC_MOCK_BACKEND !== "true";
   const wsConfigured = Boolean(process.env.NEXT_PUBLIC_COLLAB_WS_URL);
   const enabled = realBackend && wsConfigured;
@@ -46,6 +58,8 @@ export default function PublicShareEditor({ token, noteId, seedContent }: Public
     enabled,
     displayName: "访客",
     anonymousToken: token,
+    // 082：设了名额的链接，握手必须带会话凭证（collab-server 透传给判权 RPC）
+    anonymousSessionId: sessionId,
   });
   // collab.user 身份对象必须 memo：useEditor 以 collab?.user 为重建依赖，
   // 内联对象每帧换新会让编辑器无限重建（Maximum update depth 实测）

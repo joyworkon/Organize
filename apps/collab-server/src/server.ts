@@ -65,6 +65,27 @@ interface CollabContext {
   token: string;
   /** 匿名公开链接连接（Track B 072）：token 为分享令牌，读写走 *_by_token RPC */
   anonymous?: boolean;
+  /**
+   * 082 名额闸门：匿名连接的会话凭证。分享设了 session_limit 时，*_by_token RPC
+   * 必须带上它，否则被按「无会话证据」拒掉；不设限的链接恒为 null。
+   */
+  shareSessionId?: string | null;
+}
+
+/**
+ * 解析匿名握手令牌（072 / 082）：`share:<分享令牌>[:<会话凭证>]`。
+ *
+ * 分享令牌是 url-safe base64（`[A-Za-z0-9_-]`，**不含 ':'**），因此按**第一个** ':'
+ * 切分是安全的——不会被令牌内容里的冒号打乱。返回 null = 形状非法（空令牌）。
+ */
+function parseShareToken(token: string): { shareToken: string; sessionId: string | null } | null {
+  const raw = token.slice("share:".length);
+  if (!raw) return null;
+  const sep = raw.indexOf(":");
+  if (sep === -1) return { shareToken: raw, sessionId: null };
+  const shareToken = raw.slice(0, sep);
+  if (!shareToken) return null;
+  return { shareToken, sessionId: raw.slice(sep + 1) || null };
 }
 
 // anon key 仅用于 auth.getUser(token) 验签与携带用户 JWT 调 PostgREST，
@@ -84,13 +105,24 @@ function asUserClient(token: string) {
 // 写者，token 在此仅作 context 缺失时的兜底）
 const rooms = new Map<
   string,
-  { lease: SeedLease; lastWriterToken: string | null; lastWriterAnonymous: boolean }
+  {
+    lease: SeedLease;
+    lastWriterToken: string | null;
+    lastWriterAnonymous: boolean;
+    /** 082：最后写者的会话凭证，与 lastWriterToken 成对使用 */
+    lastWriterShareSessionId: string | null;
+  }
 >();
 
 function roomState(documentName: string) {
   let state = rooms.get(documentName);
   if (!state) {
-    state = { lease: new SeedLease(), lastWriterToken: null, lastWriterAnonymous: false };
+    state = {
+      lease: new SeedLease(),
+      lastWriterToken: null,
+      lastWriterAnonymous: false,
+      lastWriterShareSessionId: null,
+    };
     rooms.set(documentName, state);
   }
   return state;
@@ -133,11 +165,13 @@ async function validateAccess(
   if (!parsed) return null;
 
   if (token.startsWith("share:")) {
-    const shareToken = token.slice("share:".length);
-    if (!shareToken) return null;
+    const parsedShare = parseShareToken(token);
+    if (!parsedShare) return null;
     const { data: role, error: roleError } = await authClient.rpc("resolve_share_access", {
-      p_token: shareToken,
+      p_token: parsedShare.shareToken,
       p_resource_id: parsed.noteId,
+      // 082：设了名额的链接，无有效会话会被判 null（fail-closed，不区分「没名额」与「无权」）
+      p_session_id: parsedShare.sessionId,
     });
     if (roleError) {
       console.log("[validate] share role rpc failed:", roleError.message);
@@ -178,10 +212,12 @@ const server = new Server<CollabContext>({
 
     // 匿名分支（Track B 072）：token 以 "share:" 前缀携带公开分享令牌。
     // 握手限流只在建立时执行（服务端主动发起的重验不是攻击面）。
+    // 限流键用**裸分享令牌**（不含会话凭证）：同一个链接不管换多少个设备/会话，
+    // 都该合计算在同一条 token 总量档里——用带 session 的整串会把总量档拆散
+    const handshakeShare = token.startsWith("share:") ? parseShareToken(token) : null;
     if (token.startsWith("share:")) {
-      const shareToken = token.slice("share:".length);
       const ip = requestHeaders?.get?.("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-      if (!shareToken || !(await anonAuthLimiter.allowed(shareToken, ip))) {
+      if (!handshakeShare || !(await anonAuthLimiter.allowed(handshakeShare.shareToken, ip))) {
         console.log("[auth] anonymous rate limited or empty token");
         throw new Error("unauthorized");
       }
@@ -196,12 +232,14 @@ const server = new Server<CollabContext>({
     connectionConfig.readOnly = identity.role === "viewer";
     console.log("[auth] done, readOnly =", identity.role === "viewer");
 
-    // token 落 context 时匿名剥前缀（onStoreDocument 的 *_by_token RPC 要裸令牌）
+    // token 落 context 时匿名剥前缀（onStoreDocument 的 *_by_token RPC 要裸令牌），
+    // 会话凭证另存一列（082）——两者分别下传给 RPC 的 p_token / p_session_id
     return {
       userId: identity.userId,
       role: identity.role,
       anonymous: identity.anonymous,
-      token: identity.anonymous ? token.slice("share:".length) : token,
+      token: identity.anonymous ? (handshakeShare?.shareToken ?? "") : token,
+      shareSessionId: identity.anonymous ? (handshakeShare?.sessionId ?? null) : null,
     };
   },
 
@@ -214,6 +252,8 @@ const server = new Server<CollabContext>({
       ? await authClient.rpc("get_note_ydoc_by_token", {
           p_token: context.token,
           p_note_id: parsed.noteId,
+          // 082：设了名额的链接，回放同样要过会话闸门
+          p_session_id: context.shareSessionId ?? null,
         })
       : await asUserClient(context.token).rpc("get_note_ydoc", { p_note_id: parsed.noteId });
     if (error) {
@@ -236,6 +276,7 @@ const server = new Server<CollabContext>({
     if (context?.role !== "viewer") {
       state.lastWriterToken = context?.token ?? null;
       state.lastWriterAnonymous = !!context?.anonymous;
+      state.lastWriterShareSessionId = context?.shareSessionId ?? null;
     }
   },
 
@@ -252,6 +293,10 @@ const server = new Server<CollabContext>({
         : null;
     const writerToken = lastIsWriter?.token ?? state.lastWriterToken;
     const writerAnonymous = lastIsWriter ? !!lastIsWriter.anonymous : state.lastWriterAnonymous;
+    // 082：会话凭证必须与 token 成对取——错配会被 RPC 按无会话证据拒掉（fail-closed）
+    const writerShareSessionId = lastIsWriter
+      ? (lastIsWriter.shareSessionId ?? null)
+      : state.lastWriterShareSessionId;
     if (!writerToken) {
       console.log("[ydoc] no writer token, skip persist", documentName);
       return;
@@ -263,6 +308,7 @@ const server = new Server<CollabContext>({
           p_token: writerToken,
           p_note_id: parsed.noteId,
           p_ydoc_b64: b64,
+          p_session_id: writerShareSessionId ?? null,
         })
       : await asUserClient(writerToken).rpc("save_note_ydoc", {
           p_note_id: parsed.noteId,
@@ -312,7 +358,13 @@ const server = new Server<CollabContext>({
     context.userId = decision.identity.userId;
     context.role = decision.identity.role;
     context.anonymous = decision.identity.anonymous;
-    context.token = decision.identity.anonymous ? (token ?? "").replace(/^share:/, "") : token ?? "";
+    // 082：匿名令牌是 "share:<分享令牌>[:<会话凭证>]"，必须用 parseShareToken 切分——
+    // 旧的 replace(/^share:/, "") 只剥前缀，会把 ":<会话>" 留在 token 里，
+    // 既污染 *_by_token 的 p_token，也会丢掉会话凭证
+    const freshShare =
+      decision.identity.anonymous && token?.startsWith("share:") ? parseShareToken(token) : null;
+    context.token = decision.identity.anonymous ? (freshShare?.shareToken ?? "") : token ?? "";
+    context.shareSessionId = decision.identity.anonymous ? (freshShare?.sessionId ?? null) : null;
     connection.readOnly = decision.readOnly;
     if (prevRole !== decision.identity.role) {
       console.log("[reauth] role change", documentName, `${prevRole} -> ${decision.identity.role}`);

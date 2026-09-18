@@ -4,6 +4,38 @@ import { serverError } from "@/lib/api/error";
 import { generateToken } from "@/lib/share/token";
 import type { ShareResourceType } from "@organize/shared";
 
+/** 082 访问限制档位的读写列（POST 复用 / GET 返回 / PATCH 更新共用一份） */
+const SHARE_COLUMNS =
+  "id, token, is_public, expires_at, access_mode, session_limit, ip_limit, created_at";
+
+/** 档位上限：超过这个数量已无「防扩散」意义，只防住手滑填出天文数字 */
+const LIMIT_MAX = 1000;
+
+interface LimitField {
+  /** 请求体是否显式带了这个字段（PATCH 的「不改」与「清成不限」靠它区分） */
+  present: boolean;
+  value: number | null;
+  valid: boolean;
+}
+
+/**
+ * 解析名额/IP 档位（082）：未带 = 不改；null = 不限；>=1 的整数 = 设档。
+ * 0/负数/小数/超上限一律非法——0 的语义是「谁也进不来」，那是撤销分享该干的事，
+ * 不该用「名额」表达（DB 侧 shares_session_limit_bounds 是同一口径的第二道）。
+ */
+function readLimitField(raw: unknown): LimitField {
+  if (raw === undefined) return { present: false, value: null, valid: true };
+  if (raw === null) return { present: true, value: null, valid: true };
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= LIMIT_MAX) {
+    return { present: true, value: raw, valid: true };
+  }
+  return { present: true, value: null, valid: false };
+}
+
+const LIMIT_INVALID_MESSAGE = `名额 / IP 上限必须是 1-${LIMIT_MAX} 的整数，或 null 表示不限`;
+/** ip_limit 单独存在是死配置：没有认领就没有「把 IP 钉进白名单」这个动作 */
+const IP_LIMIT_NEEDS_SESSION_MESSAGE = "IP 上限必须与名额上限同时设置";
+
 // POST /api/share - 创建分享
 // body: { resource_type: "note" | "reading_item", resource_id: string,
 //         expires_at?: string, access_mode?: "public_read" | "public_edit" }
@@ -25,9 +57,18 @@ export async function POST(request: NextRequest) {
   // 改模式走 PATCH。
   const accessMode =
     body?.access_mode === "public_edit" ? "public_edit" : "public_read";
+  // 082 访问限制（可选）：不传 = 不限（存量语义）
+  const sessionLimit = readLimitField(body?.session_limit);
+  const ipLimit = readLimitField(body?.ip_limit);
 
   if (!resourceId) {
     return NextResponse.json({ error: "缺少 resource_id" }, { status: 400 });
+  }
+  if (!sessionLimit.valid || !ipLimit.valid) {
+    return NextResponse.json({ error: LIMIT_INVALID_MESSAGE }, { status: 400 });
+  }
+  if (ipLimit.value !== null && sessionLimit.value === null) {
+    return NextResponse.json({ error: IP_LIMIT_NEEDS_SESSION_MESSAGE }, { status: 400 });
   }
   if (resourceType !== "note" && resourceType !== "reading_item") {
     return NextResponse.json({ error: "resource_type 非法" }, { status: 400 });
@@ -49,34 +90,56 @@ export async function POST(request: NextRequest) {
   // 已存在该资源的公开分享则复用（避免生成一堆 token）
   const { data: existing } = await supabase
     .from("shares")
-    .select("id, token, is_public, expires_at, access_mode, created_at")
+    .select(SHARE_COLUMNS)
     .eq("owner_id", user.id)
     .eq("resource_type", resourceType)
     .eq("resource_id", resourceId)
     .maybeSingle();
 
   if (existing) {
-    // 复用同一 (owner, resource) 的分享行；请求显式带了合法 access_mode 且与现存
-    // 不同时，以请求为准对齐（否则 POST public_edit 会拿回 disabled/只读旧行）
+    // 复用同一 (owner, resource) 的分享行；请求显式带了合法值且与现存不同时，
+    // 以请求为准对齐（否则 POST public_edit 会拿回 disabled/只读旧行）
+    const patch: Record<string, unknown> = {};
     if (
       (body?.access_mode === "public_read" || body?.access_mode === "public_edit") &&
       existing.access_mode !== accessMode
     ) {
-      const { data: updated, error: patchErr } = await supabase
-        .from("shares")
-        // accessMode 归一化后只会是 public_read/public_edit，is_public 必为 true
-        .update({ access_mode: accessMode, is_public: true })
-        .eq("id", existing.id)
-        .eq("owner_id", user.id)
-        .select("id, token, is_public, expires_at, access_mode, created_at")
-        .single();
-      if (patchErr) return serverError(patchErr);
-      return NextResponse.json({ ...updated, url: `/s/${updated.token}` });
+      // accessMode 归一化后只会是 public_read/public_edit，is_public 必为 true
+      patch.access_mode = accessMode;
+      patch.is_public = true;
     }
-    return NextResponse.json({
-      ...existing,
-      url: `/s/${existing.token}`,
-    });
+    if (sessionLimit.present && existing.session_limit !== sessionLimit.value) {
+      patch.session_limit = sessionLimit.value;
+    }
+    if (ipLimit.present && existing.ip_limit !== ipLimit.value) {
+      patch.ip_limit = ipLimit.value;
+    }
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({
+        ...existing,
+        url: `/s/${existing.token}`,
+      });
+    }
+    // 跨字段一致性：按改完之后的组合判——把 session_limit 清成不限却留着 ip_limit
+    // 会让 DB 约束报错（500），这里提前给 400
+    const nextSession =
+      patch.session_limit !== undefined
+        ? (patch.session_limit as number | null)
+        : existing.session_limit;
+    const nextIp =
+      patch.ip_limit !== undefined ? (patch.ip_limit as number | null) : existing.ip_limit;
+    if (nextIp !== null && nextSession === null) {
+      return NextResponse.json({ error: IP_LIMIT_NEEDS_SESSION_MESSAGE }, { status: 400 });
+    }
+    const { data: updated, error: patchErr } = await supabase
+      .from("shares")
+      .update(patch)
+      .eq("id", existing.id)
+      .eq("owner_id", user.id)
+      .select(SHARE_COLUMNS)
+      .single();
+    if (patchErr) return serverError(patchErr);
+    return NextResponse.json({ ...updated, url: `/s/${updated.token}` });
   }
 
   const token = generateToken();
@@ -90,8 +153,10 @@ export async function POST(request: NextRequest) {
       is_public: true,
       expires_at: expiresAt,
       access_mode: accessMode,
+      session_limit: sessionLimit.value,
+      ip_limit: ipLimit.value,
     })
-    .select("id, token, is_public, expires_at, access_mode, created_at")
+    .select(SHARE_COLUMNS)
     .single();
 
   if (error) {
@@ -122,7 +187,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("shares")
-    .select("id, token, is_public, expires_at, access_mode, created_at")
+    .select(SHARE_COLUMNS)
     .eq("owner_id", user.id)
     .eq("resource_type", resourceType)
     .eq("resource_id", resourceId)
@@ -175,7 +240,18 @@ export async function PATCH(request: NextRequest) {
   ) {
     return NextResponse.json({ error: "expires_at 非法" }, { status: 400 });
   }
-  if (body?.access_mode === undefined && body?.expires_at === undefined) {
+  // 082 访问限制（可选）：显式传 null = 清成不限，不传 = 不动
+  const sessionLimit = readLimitField(body?.session_limit);
+  const ipLimit = readLimitField(body?.ip_limit);
+  if (!sessionLimit.valid || !ipLimit.valid) {
+    return NextResponse.json({ error: LIMIT_INVALID_MESSAGE }, { status: 400 });
+  }
+  if (
+    body?.access_mode === undefined &&
+    body?.expires_at === undefined &&
+    !sessionLimit.present &&
+    !ipLimit.present
+  ) {
     return NextResponse.json({ error: "缺少要更新的字段" }, { status: 400 });
   }
 
@@ -188,17 +264,37 @@ export async function PATCH(request: NextRequest) {
   if (body.expires_at !== undefined) {
     updates.expires_at = body.expires_at;
   }
+  if (sessionLimit.present) updates.session_limit = sessionLimit.value;
+  if (ipLimit.present) updates.ip_limit = ipLimit.value;
 
-  let query = supabase.from("shares").update(updates).eq("owner_id", user.id);
-  query = token
-    ? query.eq("token", token)
-    : query.eq("resource_type", resourceType).eq("resource_id", resourceId);
+  // 先定位目标行：跨字段一致性（ip_limit 不能单独存在）要拿改完之后的组合判，
+  // 只看请求体判不出「把 session_limit 清成不限却留着 ip_limit」这种组合
+  let locate = supabase.from("shares").select("id, session_limit, ip_limit").eq("owner_id", user.id);
+  locate = token
+    ? locate.eq("token", token)
+    : locate.eq("resource_type", resourceType).eq("resource_id", resourceId);
+  const { data: current, error: locateErr } = await locate.maybeSingle();
+  if (locateErr) return serverError(locateErr);
+  if (!current) return NextResponse.json({ error: "分享不存在或无权修改" }, { status: 404 });
 
-  const { data, error } = await query
-    .select("id, token, is_public, expires_at, access_mode, resource_type, resource_id")
-    .maybeSingle();
+  const nextSession =
+    updates.session_limit !== undefined
+      ? (updates.session_limit as number | null)
+      : current.session_limit;
+  const nextIp =
+    updates.ip_limit !== undefined ? (updates.ip_limit as number | null) : current.ip_limit;
+  if (nextIp !== null && nextSession === null) {
+    return NextResponse.json({ error: IP_LIMIT_NEEDS_SESSION_MESSAGE }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("shares")
+    .update(updates)
+    .eq("id", current.id)
+    .eq("owner_id", user.id)
+    .select(SHARE_COLUMNS)
+    .single();
   if (error) return serverError(error);
-  if (!data) return NextResponse.json({ error: "分享不存在或无权修改" }, { status: 404 });
 
   return NextResponse.json({ ...data, url: `/s/${data.token}` });
 }

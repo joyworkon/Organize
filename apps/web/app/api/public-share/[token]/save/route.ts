@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { parseSessionId, shareSessionCookieName } from "@/lib/share/session";
 
 const SAVE_RATE_LIMIT = 30; // 每 token+IP 每分钟最多 30 次保存（§6 限流非协商项）
 const SAVE_TOKEN_BACKSTOP = 120; // 单 token 每分钟总量兜底（XFF 可伪造，不可只信 IP）
@@ -83,6 +85,12 @@ export async function POST(
     return NextResponse.json({ error: "title 非法" }, { status: 400 });
   }
 
+  // 082 名额闸门：会话凭证从 httpOnly cookie 现取，不走请求体——凭证不必再经
+  // 客户端一趟，也不给「用别人的 session_id 顶替」留一个显式的输入面。
+  // 不设限的链接 cookie 不存在 → null，RPC 侧不校验会话，行为与 072 一致。
+  const cookieStore = await cookies();
+  const sessionId = parseSessionId(cookieStore.get(shareSessionCookieName(token))?.value);
+
   // 无会话客户端 = anon 角色；save_public_note 是 anon 可调的 DEFINER RPC
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("save_public_note", {
@@ -90,6 +98,7 @@ export async function POST(
     p_content: content,
     p_expected_note_revision: expected_revision ?? null,
     p_title: typeof title === "string" ? title : null,
+    p_session_id: sessionId,
   });
   if (error) return serverError(error);
 
