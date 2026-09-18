@@ -36,8 +36,8 @@ TraeWork 的图标是 671 个单色 SVG（`TraeWork Copy/assets/icons`，`fill="
 - codemod：**131 个文件**的 `from "lucide-react"` 改为 `from "@/components/icons"`。业务代码里的图标名一个都没改，
   所以 diff 里没有"换图标"的语义噪音，只有 import 行变化。
 
-现在 `lucide-react` 在源码里**零引用**（只剩 `package.json` 依赖项与 `components/icons/index.tsx` 里一句说明注释），
-下一个 PR 可以直接从依赖里摘掉。
+现在 `lucide-react` 已**完全摘除**（2026-09-18：源码零引用、`package.json` 依赖项已删），
+只剩 `components/icons/index.tsx` 里一句「不要从 lucide-react 引入」的规则注释。
 
 ## 3. 还没对齐的部分（明确记下来，不当成"已完成"）
 
@@ -54,7 +54,7 @@ TraeWork 的图标是 671 个单色 SVG（`TraeWork Copy/assets/icons`，`fill="
 ## 4. 判定"是否遵循设计系统"的检查清单（下次直接跑）
 
 - [ ] 颜色一律 `hsl(var(--token))`，不写字面色值；改颜色只动 `app/globals.css` 的 token 段与 `hooks/use-theme-color.ts`。
-- [ ] 图标一律 `from "@/components/icons"`；`rg "lucide-react" apps/web --glob '!node_modules'` 应只命中 `package.json`。
+- [ ] 图标一律 `from "@/components/icons"`；`rg "lucide-react" apps/web --glob '!node_modules'` 应零命中（`components/icons/index.tsx` 里的规则注释提及字样属正常）。
 - [ ] 圆角用 `--radius-*`；阴影用 token；不新增局部阴影常量。
 - [ ] 页面标题走 `components/layout/page-header.tsx`；页内搜索走它的 `search` 槽（`components/layout/page-search.tsx`）。
 - [ ] 内容宽度不写死，靠 `.organize-main-content > *` 的标准泳道兜（例外只有两处文档页）。
