@@ -1,0 +1,49 @@
+name: Share spread alert cron
+
+# 分享扩散告警（084）的外部定时触发。
+# 检测逻辑在 /api/cron/share-spread-alerts：认领「出现大量被拒进入尝试」的受限分享，
+# 给属主推一条提醒。窗口是 1 小时、阈值 5 次拒绝，故 30 分钟跑一次足够及时
+# （比窗口密，不会漏；比 15 分钟省一半运行次数）。
+on:
+  schedule:
+    # GitHub Actions 的 schedule 用 UTC
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {} # 手动触发入口，部署后可用来验证配置
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    # 与 task-reminder-cron 同口径：缺配置或接口异常必须红（告警），不静默跳过
+    timeout-minutes: 2
+    steps:
+      - name: Verify configuration
+        run: |
+          if [ -z "${{ vars.TASK_REMINDER_BASE_URL }}" ]; then
+            echo "::error::TASK_REMINDER_BASE_URL 未配置（应用基址，与提醒 cron 共用同一个变量）——扩散告警不会运行。"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET 未配置——接口会返回 401。"
+            exit 1
+          fi
+
+      - name: Dispatch spread alert check
+        run: |
+          http_code=$(curl -sS -o /tmp/spread-alert-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.TASK_REMINDER_BASE_URL }}/api/cron/share-spread-alerts")
+          echo "HTTP ${http_code}"
+          cat /tmp/spread-alert-response.json
+          echo
+          test "$http_code" = "200"
+
+      # 503 = 推送未配置（VAPID 缺失）。此时上面的 test 已经让 job 红，这条只为
+      # 把原因写清楚，避免排查时误以为认证或网络有问题
+      - name: Explain 503
+        if: failure()
+        run: |
+          if grep -q "推送服务未配置" /tmp/spread-alert-response.json 2>/dev/null; then
+            echo "::error::VAPID 推送密钥未配置——扩散告警无法投递。请在部署环境配置 NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT。"
+          fi

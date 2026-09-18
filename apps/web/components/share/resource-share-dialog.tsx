@@ -818,11 +818,16 @@ function limitOptions(current: number | null): { value: string; label: string }[
   return opts;
 }
 
-/** 从 /api/share 的响应里挑出 082 的档位字段（不把 unknown 直接摊进 state） */
-function pickLimits(data: { session_limit?: unknown; ip_limit?: unknown }) {
+/** 从 /api/share 的响应里挑出 082/084 的设置字段（不把 unknown 直接摊进 state） */
+function pickLimits(data: {
+  session_limit?: unknown;
+  ip_limit?: unknown;
+  spread_alert_enabled?: unknown;
+}) {
   return {
     session_limit: typeof data.session_limit === "number" ? data.session_limit : null,
     ip_limit: typeof data.ip_limit === "number" ? data.ip_limit : null,
+    spread_alert_enabled: data.spread_alert_enabled === true,
   };
 }
 
@@ -847,6 +852,7 @@ function PublicLinkSection({
     access_mode: ShareAccessMode;
     session_limit: number | null;
     ip_limit: number | null;
+    spread_alert_enabled: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -991,7 +997,11 @@ function PublicLinkSection({
    * 改名额 / IP 档（082）。两档一起传：ip_limit 不能单独存在，服务端会按
    * 「改完之后的组合」校验并给 400（这里原样透传错误文案，不猜）。
    */
-  const patchLimits = async (next: { session_limit?: number | null; ip_limit?: number | null }) => {
+  const patchLimits = async (next: {
+    session_limit?: number | null;
+    ip_limit?: number | null;
+    spread_alert_enabled?: boolean;
+  }) => {
     if (!share || patching) return;
     setPatching(true);
     setError(null);
@@ -1188,6 +1198,19 @@ function PublicLinkSection({
                   网络限制只作辅助：手机切网就会换 IP，IP 也可被伪造，不当作身份校验。
                 </p>
               )}
+              {/* 084 扩散告警：默认关（推送是侵入性的，未经同意不发） */}
+              <label className="flex items-center gap-2 pt-0.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5"
+                  checked={share.spread_alert_enabled}
+                  // 没设名额就不会有「被挡下」的记录，开了也没东西可提醒
+                  disabled={patching || share.session_limit === null}
+                  onChange={(e) => void patchLimits({ spread_alert_enabled: e.target.checked })}
+                />
+                链接被扩散时通知我
+                {share.session_limit === null && "（需先设置访问名额）"}
+              </label>
             </div>
           )}
 
