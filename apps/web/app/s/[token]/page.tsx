@@ -30,15 +30,25 @@ async function loadShare(token: string) {
   return { share, sessionId };
 }
 
+/**
+ * 分享页一律 noindex（防扩散）。
+ *
+ * robots.txt 只是约定，不守约的爬虫仍在抓；页面级 noindex 是第二道。
+ * 而且 robots.txt 挡不住**已经在公开处出现的链接**被收录——分享链接一旦进搜索
+ * 索引，就等于对所有人公开，与「只发给某个人」的意图相反。
+ */
+const NO_INDEX = { index: false, follow: false } as const;
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
   const { share } = await loadShare(token);
   // 未认领时不回标题：标题也是内容的一部分，不该在名额确认前泄漏给预览爬虫
-  if (share.state !== "active") return { title: "分享内容" };
+  if (share.state !== "active") return { title: "分享内容", robots: NO_INDEX };
 
   return {
     title: share.resource.title || "分享内容",
     description: "通过 Cairn 分享的内容",
+    robots: NO_INDEX,
   };
 }
 
