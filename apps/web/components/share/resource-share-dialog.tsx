@@ -782,12 +782,16 @@ function expiryDateFromChoice(choice: ShareExpiryChoice): string | null {
 
 /* --------- 082 访问限制（名额 / IP 档）--------- */
 
-/** 预设名额：0 无意义（那是撤销分享的事），负数字面上也说不通 */
+/**
+ * 预设名额。**单位是「设备」不是「人」**——这是实测确认过的语义：名额按
+ * 浏览器里的会话凭证算，同一台电脑换浏览器/用隐身窗口会算作新设备并吃掉
+ * 新名额。文案必须如实说「设备」，否则属主会以为在限制人数。
+ */
 const SESSION_LIMIT_PRESETS = [1, 2, 5] as const;
 const SESSION_LIMIT_LABELS: Record<number, string> = {
-  1: "仅首人",
-  2: "2 人",
-  5: "5 人",
+  1: "仅首台设备",
+  2: "2 台设备",
+  5: "5 台设备",
 };
 
 /** 下拉的取值：字符串化的数字，或 "unlimited" */
@@ -805,11 +809,11 @@ function choiceToLimit(choice: string): number | null {
  */
 function limitOptions(current: number | null): { value: string; label: string }[] {
   const opts = [
-    { value: "unlimited", label: "不限" },
+    { value: "unlimited", label: "不限设备" },
     ...SESSION_LIMIT_PRESETS.map((n) => ({ value: String(n), label: SESSION_LIMIT_LABELS[n] })),
   ];
   if (current !== null && !SESSION_LIMIT_PRESETS.includes(current as (typeof SESSION_LIMIT_PRESETS)[number])) {
-    opts.push({ value: String(current), label: `${current} 人` });
+    opts.push({ value: String(current), label: `${current} 台设备` });
   }
   return opts;
 }
@@ -1018,7 +1022,7 @@ function PublicLinkSection({
     if (!share || releasing) return;
     if (
       !confirm(
-        "释放已占用的名额？已进入的人刷新后会重新认领；名额被占满时，这是让新人进来的唯一办法。"
+        "释放已占用的名额？已进入的设备刷新后会重新认领；名额被占满时，这是让新设备进来的唯一办法。"
       )
     ) {
       return;
@@ -1133,7 +1137,7 @@ function PublicLinkSection({
                   }}
                   disabled={patching}
                 >
-                  <SelectTrigger aria-label="访问名额" className="h-8 w-[130px]">
+                  <SelectTrigger aria-label="访问名额（按设备计）" className="h-8 w-[130px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1149,7 +1153,7 @@ function PublicLinkSection({
                   onValueChange={(v) => void patchLimits({ ip_limit: choiceToLimit(v) })}
                   disabled={patching || share.session_limit === null}
                 >
-                  <SelectTrigger aria-label="IP 限制" className="h-8 w-[150px]">
+                  <SelectTrigger aria-label="网络限制（辅助）" className="h-8 w-[150px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1172,13 +1176,18 @@ function PublicLinkSection({
               </div>
               <p className="text-xs text-muted-foreground">
                 {share.session_limit === null
-                  ? "任何人持链接都能打开（不设名额）。"
-                  : `前 ${share.session_limit} 个点「确认进入」的人占用名额，之后打开的人只看到提示、拿不到内容。${
+                  ? "任何人持链接都能打开（不限设备）。"
+                  : `前 ${share.session_limit} 台点「确认进入」的设备占用名额，之后打开的只看到提示、拿不到内容。名额按浏览器算——换设备或换浏览器都会各占一个。${
                       claimed && claimed.ips.length > 0
                         ? `已进入的网络：${claimed.ips.join("、")}`
                         : ""
                     }`}
               </p>
+              {share.ip_limit !== null && (
+                <p className="text-xs text-muted-foreground">
+                  网络限制只作辅助：手机切网就会换 IP，IP 也可被伪造，不当作身份校验。
+                </p>
+              )}
             </div>
           )}
 

@@ -63,7 +63,7 @@ export default function PublicShareGate({ token, accessMode }: PublicShareGatePr
       case "no_quota":
         // 链接被转发给第二个人时的正常结果：名额已被先到的人占用
         setPhase("blocked");
-        setMessage("这个链接的名额已被占用。如果你确实需要访问，请联系分享者重新发放。");
+        setMessage("这个链接的名额已被其他设备占用。如果你确实需要访问，请联系分享者重新发放。");
         return;
       case "ip_mismatch":
         setPhase("blocked");
@@ -88,7 +88,8 @@ export default function PublicShareGate({ token, accessMode }: PublicShareGatePr
       {!blocked && (
         <p className="mb-8 text-sm text-muted-foreground">
           分享者为这条链接设置了访问名额。确认进入后
-          {accessMode === "public_edit" ? "可以参与编辑" : "可以浏览"}，名额将被占用。
+          {accessMode === "public_edit" ? "可以参与编辑" : "可以浏览"}，
+          <strong className="font-medium">这台设备</strong>将占用一个名额。
         </p>
       )}
 

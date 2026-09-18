@@ -71,6 +71,9 @@ export default function PublicShareEditor({
   const lastJsonRef = useRef<Record<string, unknown> | null>(null);
   const savingRef = useRef(false);
   const forbiddenRef = useRef(false);
+  // 083 每日写入额度用尽：与「权限被收回」是两回事——权限还在，只是今天写不动了。
+  // 一旦收到就该停掉后续保存尝试，否则每次编辑都白打一次请求
+  const quotaRef = useRef(false);
   // 播种判定：属主有内容时，快照必须仍包含种子文本才允许落库——协作编辑器在
   // 播种完成前是空文档，期间任何 user 来源事务（链接刷新 dispatch 等）产生的
   // 空/半空文档绝不能写快照（会把 DB 内容清掉）。
@@ -80,10 +83,14 @@ export default function PublicShareEditor({
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [revoked, setRevoked] = useState(false);
+  const [quotaBlocked, setQuotaBlocked] = useState(false);
 
   const shouldSave = useCallback(
     (json: Record<string, unknown> | null): json is Record<string, unknown> =>
-      !!json && !forbiddenRef.current && (!seedText || docText(json).includes(seedText)),
+      !!json &&
+      !forbiddenRef.current &&
+      !quotaRef.current &&
+      (!seedText || docText(json).includes(seedText)),
     [seedText]
   );
 
@@ -105,6 +112,13 @@ export default function PublicShareEditor({
         // 权限已被实时收回（改回只读/关闭/过期）：立即停写并置只读
         forbiddenRef.current = true;
         setRevoked(true);
+        return;
+      }
+      if (data.status === "quota_exceeded") {
+        // 083 每日写入额度用尽。**不能**置只读——权限并未被收回，谎称收回会让
+        // 访客以为分享者关掉了链接。如实提示并停掉后续尝试即可（额度次日重置）
+        quotaRef.current = true;
+        setQuotaBlocked(true);
         return;
       }
       if (!res.ok) {
@@ -185,6 +199,12 @@ export default function PublicShareEditor({
         <Notice
           tone="warning"
           text="分享者已关闭可编辑权限，当前为只读视图。"
+        />
+      ) : null}
+      {quotaBlocked ? (
+        <Notice
+          tone="warning"
+          text="今天的编辑次数已达这条链接的上限，改动暂时无法保存（实时会话内仍可编辑）。明天恢复，或请分享者重新分享。"
         />
       ) : null}
       {!collab.synced && collab.status !== "error" && (
