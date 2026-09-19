@@ -1,3 +1,4 @@
+import { readingSourceLabel } from "@/lib/reading/source";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
@@ -130,7 +131,7 @@ export async function GET() {
   const hostMap = new Map<string, number>();
   for (const item of items) {
     try {
-      const host = new URL(item.url).hostname.replace(/^www\./, "");
+      const host = readingSourceLabel(item.url);
       hostMap.set(host, (hostMap.get(host) || 0) + 1);
     } catch {
       // 无效 URL 跳过

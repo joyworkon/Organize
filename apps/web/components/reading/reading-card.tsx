@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { isMaterialUrl } from "@/lib/reading/source";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "./status-badge";
@@ -136,7 +137,7 @@ export function ReadingCard({
                   </button>
                 )}
                 <FavoriteButton targetType="reading" targetId={item.id} className="h-7 w-7" />
-                <button
+                {!isMaterialUrl(item.url) && <button
                   type="button"
                   onClick={(e) => {
                     stop(e);
@@ -146,7 +147,7 @@ export function ReadingCard({
                   title="打开原文"
                 >
                   <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
+                </button>}
                 <AutoTagDialog
                   resourceType="reading_item"
                   resourceId={item.id}
@@ -183,7 +184,7 @@ export function ReadingCard({
                     {onTogglePin && <DropdownMenuItem onSelect={handleTogglePin}><Pin className="mr-2 h-4 w-4" />{item.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>}
                     <DropdownMenuItem onSelect={() => setMobileDialog("tags")}><Sparkles className="mr-2 h-4 w-4" />自动打标签</DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => setMobileDialog("share")}><Share2 className="mr-2 h-4 w-4" />分享</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => window.open(item.url, "_blank", "noopener,noreferrer")}><ExternalLink className="mr-2 h-4 w-4" />打开原文</DropdownMenuItem>
+                    {!isMaterialUrl(item.url) && <DropdownMenuItem onSelect={() => window.open(item.url, "_blank", "noopener,noreferrer")}><ExternalLink className="mr-2 h-4 w-4" />打开原文</DropdownMenuItem>}
                     {onDelete && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={handleDelete} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />移到垃圾箱</DropdownMenuItem></>}
                   </DropdownMenuContent>
                 </DropdownMenu>

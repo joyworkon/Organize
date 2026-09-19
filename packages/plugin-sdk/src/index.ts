@@ -46,7 +46,7 @@ export interface CommandContribution {
 /** 编辑器文档片段（与 TipTap JSONContent 结构兼容，SDK 不直接依赖 @tiptap/core） */
 export type PluginEditorContent = Record<string, unknown>;
 
-/** 物料整理使用白名单结构；模型不能注入编辑器节点、HTML 或可执行属性。 */
+/** 物料整理使用白名单结构；模型不能注入任意文档节点、HTML 或可执行属性。 */
 export type MaterialBlock =
   | { type: "paragraph" | "heading"; text: string }
   | { type: "bulletList" | "orderedList" | "taskList"; items: string[] }

@@ -22,15 +22,21 @@
  *    已知限制：去重查询与插入非原子，极端并发（多标签页同时提交同一 URL）
  *    可能产生两行；未加部分唯一索引是因为恢复 RPC 为明文插入且历史数据可能
  *    已有同 URL 活跃重复行，会破坏 v4 备份往返合同。
+ * 7. 物料分支：kind=material 的输入先校验并转成安全 HTML，使用内容指纹 URN
+ *    作为去重键，不抓取网络。复用账户校验/8 字段映射/活跃去重/事件语义，
+ *    并追加分类与主题标签；标签失败仅警告，重复保存时补齐标签。
  */
 import { extractFirstUrl } from "@/lib/inbox/batch-import";
 import { scrapeUrl } from "@/lib/scraper/client";
 import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
+import type { MaterialResult } from "@organize/plugin-sdk";
+import { materialResultToArticle } from "@/lib/materials/article";
+import { MATERIAL_URI_PREFIX } from "./source";
 
 export type CollectStatus = "saved" | "saved-link-only" | "duplicate" | "error";
 
-export type CollectErrorReason = "invalid-url" | "unauthenticated" | "save-failed";
+export type CollectErrorReason = "invalid-url" | "invalid-material" | "unauthenticated" | "save-failed";
 
 export interface CollectResult {
   status: CollectStatus;
@@ -43,10 +49,29 @@ export interface CollectResult {
   errorReason?: CollectErrorReason;
   /** error 时用户可读的原因 */
   message?: string;
+  /** 正文已保存、标签部分失败时明确提示，重试导入只补标签不重复建条目。 */
+  warning?: string;
 }
 
-export async function collectReadingItem(rawInput: string, options: { expectedUserId?: string } = {}): Promise<CollectResult> {
-  const normalizedUrl = extractFirstUrl(rawInput ?? "");
+export interface MaterialCollectInput {
+  kind: "material";
+  key: string;
+  result: MaterialResult;
+  sources: string[];
+}
+
+export async function collectReadingItem(rawInput: string | MaterialCollectInput, options: { expectedUserId?: string } = {}): Promise<CollectResult> {
+  let article: ReturnType<typeof materialResultToArticle> | null = null;
+  if (typeof rawInput !== "string") {
+    try {
+      if (rawInput.kind !== "material" || !/^[a-f0-9]{64}$/.test(rawInput.key)) throw new Error("物料标识无效");
+      if (!Array.isArray(rawInput.sources) || !rawInput.sources.length || rawInput.sources.length > 7 || rawInput.sources.some((s) => typeof s !== "string" || s.length > 1000)) throw new Error("物料来源无效");
+      article = materialResultToArticle(rawInput.result, rawInput.sources);
+    } catch (error) {
+      return { status: "error", itemId: null, url: null, title: null, errorReason: "invalid-material", message: error instanceof Error ? error.message : "物料无效" };
+    }
+  }
+  const normalizedUrl = typeof rawInput === "string" ? extractFirstUrl(rawInput ?? "") : `${MATERIAL_URI_PREFIX}${rawInput.key}`;
   if (!normalizedUrl) {
     return {
       status: "error",
@@ -92,19 +117,35 @@ export async function collectReadingItem(rawInput: string, options: { expectedUs
     };
   }
   const existing = existingRows?.[0];
+  const applyMaterialTags = async (itemId: string): Promise<string | undefined> => {
+    if (!article) return;
+    try {
+      for (const name of article.tags) {
+        const { data: tag, error } = await supabase.from("tags").upsert({ user_id: user.id, name }, { onConflict: "user_id,name" }).select("id").single();
+        if (error || !tag) throw new Error("标签保存失败");
+        const linked = await supabase.from("item_tags").upsert({ item_id: itemId, tag_id: tag.id }, { onConflict: "item_id,tag_id" });
+        if (linked.error) throw new Error("标签关联失败");
+      }
+    } catch { return "正文已保存，但部分标签未保存；可重试保存补齐标签"; }
+  };
   if (existing) {
     return {
       status: "duplicate",
       itemId: existing.id,
       url: normalizedUrl,
       title: existing.title ?? normalizedUrl,
+      ...(article ? { warning: await applyMaterialTags(existing.id) } : {}),
     };
   }
 
   // 抓取失败 → 冻结语义：仅存链接，不中断
   let scraped: Awaited<ReturnType<typeof scrapeUrl>> | null = null;
   try {
+    if (article) {
+      scraped = { url: normalizedUrl, title: article.title, content: article.content, excerpt: article.excerpt, cover_image: null, site_name: null, author: null, published_time: null };
+    } else {
     scraped = await scrapeUrl(normalizedUrl);
+    }
   } catch {
     scraped = null;
   }
@@ -135,6 +176,7 @@ export async function collectReadingItem(rawInput: string, options: { expectedUs
     };
   }
 
+  const warning = await applyMaterialTags(inserted.id);
   appEvents.emit("reading:item-created", {
     itemId: inserted.id,
     url: normalizedUrl,
@@ -146,6 +188,7 @@ export async function collectReadingItem(rawInput: string, options: { expectedUs
     itemId: inserted.id,
     url: normalizedUrl,
     title,
+    ...(warning ? { warning } : {}),
   };
 }
 

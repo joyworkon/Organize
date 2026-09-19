@@ -76,7 +76,6 @@ import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
 import { buildEditorExtensions } from "./editor-extensions";
 import { useEditorUpload } from "./use-editor-upload";
-import { MaterialDropzone } from "./material-dropzone";
 import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction, nodeText, replaceAt } from "./block-utils";
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
@@ -1301,7 +1300,6 @@ export function TipTapEditor({
           onToggleFullscreen={() => setTableFullscreen((value) => !value)}
         />
       </BubbleMenu>
-      {editable && <MaterialDropzone editor={editor} insertFiles={insertFiles} />}
       <EditorContent editor={editor} />
       <TableDirectControls editor={editor} />
       <div

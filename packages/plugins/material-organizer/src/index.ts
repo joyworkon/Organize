@@ -4,7 +4,7 @@ export default definePlugin({
   id: "material-organizer",
   name: "智能物料整理",
   version: "0.1.0",
-  description: "把图片、文本和录音拖到笔记顶部：提取文字、恢复排版，或按内容整理为标题、段落、表格和待办。使用设置中接入的大模型，图片需模型支持视觉识别。",
+  description: "把图片、文本和录音拖到稍后读：提取文字、恢复排版，按内容整理并自动添加主题标签，保存为未读条目。使用设置中接入的大模型，图片需模型支持视觉识别。",
   icon: "🗂️",
   author: "Organize",
   extensions: [{

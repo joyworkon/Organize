@@ -1,4 +1,5 @@
 "use client";
+import { readingSourceLabel } from "@/lib/reading/source";
 
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -180,7 +181,7 @@ function truncate(str: string, len: number) {
 
 function getDomainFromUrl(url: string): string {
   try {
-    const hostname = new URL(url).hostname;
+    const hostname = readingSourceLabel(url);
     return hostname.replace(/^www\./, "");
   } catch {
     return "";

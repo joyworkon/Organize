@@ -132,7 +132,7 @@ export function AISettingsSection() {
         <h2 className="text-lg font-semibold">AI 服务</h2>
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        配置 OpenAI 兼容接口后，一处配置全模块生效：笔记「问 AI」「AI 速记」「智能物料整理」、笔记与阅读库的「标签智能推荐」。
+        配置 OpenAI 兼容接口后，一处配置全模块生效：笔记「问 AI」「AI 速记」、稍后读「智能物料整理」、笔记与阅读库的「标签智能推荐」。
       </p>
       <details className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
         <summary className="cursor-pointer select-none font-medium text-foreground">数据与安全说明（点开查看）</summary>

@@ -38,7 +38,7 @@ export function validateMaterialRequest(request: MaterialRequest): void {
   for (const file of request.files) {
     if (!file.size) throw new Error(`「${file.name}」为空文件`);
     const kind = materialKind(file);
-    if (!kind) throw new Error(`暂不支持「${file.name}」：可整理图片、TXT / Markdown / CSV / JSON 和录音；其他格式请作为附件插入`);
+    if (!kind) throw new Error(`暂不支持「${file.name}」：可整理图片、TXT / Markdown / CSV / JSON 和录音；其他格式请先转换为图片或文本`);
     if (kind === "image" && file.size > 8 * 1024 * 1024) throw new Error(`「${file.name}」超过图片 8MB 上限`);
     if (kind === "text" && file.size > 200_000) throw new Error(`「${file.name}」过大，请拆分文本文件`);
   }

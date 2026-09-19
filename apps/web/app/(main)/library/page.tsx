@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
 import { ReadingCard } from "@/components/reading/reading-card";
 import { QuickAddBar } from "@/components/reading/quick-add-bar";
+import { MaterialImport } from "@/components/reading/material-import";
 import { VirtualList } from "@/components/ui/virtual-list";
 import { Button } from "@/components/ui/button";
 import { TagFilter } from "@/components/tags/tag-filter";
@@ -557,6 +558,8 @@ function LibraryPageInner() {
           />
         }
       />
+
+      <MaterialImport onAdded={() => { void fetchItems(false); void fetchStats(); void refreshTags(); }} />
 
       <QuickAddBar
         onAdded={() => {

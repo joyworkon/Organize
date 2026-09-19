@@ -1,4 +1,5 @@
 "use client";
+import { readingSourceLabel } from "@/lib/reading/source";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
@@ -141,7 +142,7 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
                   <ExternalLink className="h-3 w-3 shrink-0" />
                   {(() => {
                     try {
-                      return new URL(readingItem.url).hostname;
+                      return readingSourceLabel(readingItem.url);
                     } catch {
                       return readingItem.url;
                     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { materialKind, parseMaterialResult, validateMaterialRequest, validateMaterialResult } from "./schema";
-import { materialResultToNodes } from "./document";
+import { materialResultToArticle } from "./article";
 
 const result = { title: "会议记录", category: "会议", tags: ["项目"], blocks: [{ type: "paragraph", text: "原文" }] };
 
@@ -27,14 +27,16 @@ describe("material boundaries", () => {
   });
 
   it("preserves literal source text and makes editable lists, tasks and tables without executable content", () => {
-    const nodes = materialResultToNodes(validateMaterialResult({ ...result, blocks: [
+    const article = materialResultToArticle(validateMaterialResult({ ...result, blocks: [
       { type: "paragraph", text: '<img src=x onerror="alert(1)">' },
       { type: "taskList", items: ["跟进项目"] },
       { type: "table", rows: [["事项", "金额"], ["采购", "100"]] },
     ] }), ["会议.txt"]);
-    expect(nodes[2].content?.[0]).toEqual({ type: "text", text: '<img src=x onerror="alert(1)">' });
-    expect(nodes[3].content?.[0]).toMatchObject({ type: "taskItem", attrs: { checked: false } });
-    expect(nodes[4].content?.[0].content?.[0].type).toBe("tableHeader");
-    expect(JSON.stringify(nodes)).toContain("会议.txt");
+    expect(article.content).toContain("&lt;img");
+    expect(article.content).not.toContain("<img");
+    expect(article.content).toContain("<li>☐ 跟进项目</li>");
+    expect(article.content).toContain("<th>事项</th>");
+    expect(article.content).toContain("会议.txt");
+    expect(article.tags).toEqual(["会议", "项目"]);
   });
 });
