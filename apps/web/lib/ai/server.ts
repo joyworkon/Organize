@@ -135,7 +135,11 @@ export function redactSecret(text: string, secret: string): string {
 }
 
 /** 通用聊天补全：所有走 OpenAI 兼容协议的文本 AI 功能复用。 */
-export async function chatCompletion(config: AIConfig, system: string, user: string) {
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export async function chatCompletion(config: AIConfig, system: string, user: string | ChatContentPart[]) {
   if (!config.textModel) throw new Error("缺少文本模型配置，请到「设置 › AI 服务」填写模型名称");
   const response = await request(
     `${config.baseUrl}/chat/completions`,
@@ -153,6 +157,7 @@ export async function chatCompletion(config: AIConfig, system: string, user: str
     }
   );
   const data = JSON.parse(response.text());
+  if (data.choices?.[0]?.finish_reason === "length") throw new Error("模型输出超过长度限制，请减少物料后重试");
   const result = data.choices?.[0]?.message?.content;
   if (typeof result !== "string" || !result.trim()) throw new Error("AI 未返回有效内容");
   return result.trim();

@@ -12,6 +12,9 @@ import { toast } from "@/hooks/use-toast";
 async function loadBuiltinPlugins(): Promise<OrganizePlugin[]> {
   const plugins: OrganizePlugin[] = [];
 
+  const materialOrganizer = await import("@organize/plugin-material-organizer");
+  plugins.push(materialOrganizer.default);
+
   try {
     const aiSummary = await import("@organize/plugin-ai-summary");
     plugins.push(aiSummary.default);

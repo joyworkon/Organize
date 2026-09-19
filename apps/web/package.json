@@ -18,6 +18,7 @@
     "@hocuspocus/provider": "^4.6.0",
     "@mozilla/readability": "^0.6.0",
     "@organize/plugin-ai-summary": "workspace:*",
+    "@organize/plugin-material-organizer": "workspace:*",
     "@organize/plugin-sdk": "workspace:*",
     "@organize/plugin-tag-suggest": "workspace:*",
     "@organize/shared": "workspace:*",
