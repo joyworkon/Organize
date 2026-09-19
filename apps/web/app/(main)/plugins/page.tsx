@@ -15,6 +15,7 @@ const EXTENSION_LABEL: Record<string, string> = {
   "sidebar-panel": "侧边栏",
   "content-processor": "内容处理",
   "ai-action": "AI 操作",
+  "material-processor": "物料整理",
 };
 
 export default function PluginsPage() {

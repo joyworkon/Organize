@@ -4,6 +4,7 @@ const nextConfig = {
     "@organize/shared",
     "@organize/plugin-sdk",
     "@organize/plugin-ai-summary",
+    "@organize/plugin-material-organizer",
     "@organize/plugin-tag-suggest",
   ],
   images: {
