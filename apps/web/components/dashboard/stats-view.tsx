@@ -1,4 +1,5 @@
 "use client";
+import { readingSourceLabel } from "@/lib/reading/source";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -272,7 +273,7 @@ export default function StatsView() {
       const hostMap = new Map<string, number>();
       for (const item of items) {
         try {
-          const host = new URL(item.url).hostname.replace(/^www\./, "");
+          const host = readingSourceLabel(item.url);
           hostMap.set(host, (hostMap.get(host) || 0) + 1);
         } catch {
           // skip invalid URL

@@ -58,6 +58,9 @@ importers:
       '@organize/plugin-ai-summary':
         specifier: workspace:*
         version: link:../../packages/plugins/ai-summary
+      '@organize/plugin-material-organizer':
+        specifier: workspace:*
+        version: link:../../packages/plugins/material-organizer
       '@organize/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
@@ -353,6 +356,16 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
+  packages/plugins/material-organizer:
+    dependencies:
+      '@organize/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
+    devDependencies:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3

@@ -1,4 +1,5 @@
 "use client";
+import { readingSourceLabel } from "@/lib/reading/source";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import Link from "next/link";
@@ -272,7 +273,7 @@ export default function TagsPage() {
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("zh-CN");
   const getHostname = (url: string) => {
-    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+    try { return readingSourceLabel(url); } catch { return ""; }
   };
 
   if (selectedTag) {

@@ -132,7 +132,7 @@ export function AISettingsSection() {
         <h2 className="text-lg font-semibold">AI 服务</h2>
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        配置 OpenAI 兼容接口后，一处配置全模块生效：笔记「问 AI」「AI 速记」、笔记与阅读库的「标签智能推荐」。
+        配置 OpenAI 兼容接口后，一处配置全模块生效：笔记「问 AI」「AI 速记」、稍后读「智能物料整理」、笔记与阅读库的「标签智能推荐」。
       </p>
       <details className="mb-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
         <summary className="cursor-pointer select-none font-medium text-foreground">数据与安全说明（点开查看）</summary>
@@ -140,6 +140,7 @@ export function AISettingsSection() {
           <p><strong className="text-foreground">问 AI</strong>：发送所选笔记文本（最多 2 万字符）和你的指令。</p>
           <p><strong className="text-foreground">AI 速记</strong>：发送录音音频（≤25MB，仅本次转写用完即弃）和转写出的文字。</p>
           <p><strong className="text-foreground">标签智能推荐</strong>：发送笔记或文章的标题与正文、你已有的标签名。</p>
+          <p><strong className="text-foreground">智能物料整理</strong>：发送主动放入整理区的图片、文本或录音（每批最多 6 个文件、20MB，文字合计 4 万字符）。图片由文本模型进行视觉识别，录音先由转写模型转成文字。每分钟最多 5 次。</p>
           <p className="pt-1 border-t">以上内容经本站服务端转发到你配置的服务商，本站不留存 AI 处理结果；各功能均有限流（问 AI / 标签推荐 20 次/分钟，AI 速记 5 次/分钟）。标签推荐在 AI 不可用时自动降级为本地关键词模式。</p>
           <p><strong className="text-foreground">密钥安全</strong>：API 密钥仅保存在你的账户数据中，保存后页面只显示掩码，本站不会再把它下发到浏览器。</p>
           <p><strong className="text-foreground">地址安全</strong>：API 地址只允许公网 HTTP(S) 服务，localhost、内网与云元数据地址会被拒绝（防服务端请求伪造）。</p>
@@ -174,13 +175,14 @@ export function AISettingsSection() {
           </div>
           <div className="organize-field grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ai-text-model">文本模型</Label>
+              <Label htmlFor="ai-text-model">文本 / 视觉模型</Label>
               <Input
                 id="ai-text-model"
                 placeholder="gpt-4o-mini"
                 value={form.text_model}
                 onChange={update("text_model")}
               />
+              <p className="text-xs text-muted-foreground">图片文字提取需填写支持图片输入的模型；普通文本模型仍可整理文字。</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="ai-transcription-model">转写模型（可选）</Label>

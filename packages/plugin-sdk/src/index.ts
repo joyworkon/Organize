@@ -46,6 +46,26 @@ export interface CommandContribution {
 /** 编辑器文档片段（与 TipTap JSONContent 结构兼容，SDK 不直接依赖 @tiptap/core） */
 export type PluginEditorContent = Record<string, unknown>;
 
+/** 物料整理使用白名单结构；模型不能注入任意文档节点、HTML 或可执行属性。 */
+export type MaterialBlock =
+  | { type: "paragraph" | "heading"; text: string }
+  | { type: "bulletList" | "orderedList" | "taskList"; items: string[] }
+  | { type: "table"; rows: string[][] };
+
+export interface MaterialResult {
+  title: string;
+  category: string;
+  tags: string[];
+  blocks: MaterialBlock[];
+}
+
+export interface MaterialRequest {
+  files: File[];
+  text?: string;
+  mode: "extract" | "organize";
+  signal?: AbortSignal;
+}
+
 /**
  * 受限编辑器操作面：插件斜杠命令执行时由宿主注入。
  * 只暴露「读当前块文本 / 替换当前块 / 在块后插入」三个安全操作，
@@ -86,6 +106,8 @@ export interface SlashCommandContribution {
  * 本接口并注入，插件代码跨端零改动。
  */
 export interface PluginDataAccess {
+  /** 宿主代为发送物料到已配置的模型，密钥只在服务端读取。 */
+  organizeMaterials?: (request: MaterialRequest) => Promise<MaterialResult>;
   /**
    * 调用宿主 AI 服务（遵循用户在设置里配置的 AI 提供商）。
    * 失败时抛错，插件自行 catch 并 notify。
@@ -186,7 +208,15 @@ export interface AIActionExtension {
   supports?: ("reading" | "note-block")[];
 }
 
+export interface MaterialProcessorExtension {
+  type: "material-processor";
+  id: string;
+  label: string;
+  handler: (request: MaterialRequest, ctx: PluginContext) => Promise<MaterialResult>;
+}
+
 export type PluginExtension =
+  | MaterialProcessorExtension
   | ToolbarActionExtension
   | SidebarPanelExtension
   | ContentProcessorExtension

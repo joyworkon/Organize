@@ -1,5 +1,7 @@
 "use client";
 
+import { isMaterialUrl, readingSourceLabel } from "@/lib/reading/source";
+
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -631,8 +633,8 @@ export default function ReadingDetailPage() {
               { type: "text", text: "原文链接：" },
               {
                 type: "text",
-                text: item.url,
-                marks: [{ type: "link", attrs: { href: item.url, target: "_blank" } }]
+                text: isMaterialUrl(item.url) ? "查看导入物料" : item.url,
+                marks: [{ type: "link", attrs: { href: isMaterialUrl(item.url) ? `/library/${item.id}` : item.url, target: "_blank" } }]
               }
             ]
           },
@@ -971,12 +973,12 @@ export default function ReadingDetailPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <a href={item.url} target="_blank" rel="noopener noreferrer">
+            {!isMaterialUrl(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm" className="gap-2">
                 <ExternalLink className="h-3.5 w-3.5" />
                 原文
               </Button>
-            </a>
+            </a>}
           </div>
           <div className="mobile-reading-actions hidden">
             <FavoriteButton targetType="reading" targetId={itemId} />
@@ -991,7 +993,7 @@ export default function ReadingDetailPage() {
                 <DropdownMenuItem onSelect={() => setFocusMode(!focusMode)}><Maximize2 className="mr-2 h-4 w-4" />{focusMode ? "退出专注阅读" : "专注阅读"}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={toggleFullWidth}><StretchHorizontal className="mr-2 h-4 w-4" />{fullWidth ? "恢复默认宽度" : "全宽阅读"}</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开原文</a></DropdownMenuItem>
+                {!isMaterialUrl(item.url) && <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开原文</a></DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1013,12 +1015,12 @@ export default function ReadingDetailPage() {
           </h1>
           <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
             <a
-              href={item.url}
+              href={isMaterialUrl(item.url) ? undefined : item.url}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-primary transition-colors"
             >
-              {new URL(item.url).hostname}
+              {readingSourceLabel(item.url)}
             </a>
             <span>·</span>
             <span>{new Date(item.created_at).toLocaleDateString("zh-CN")}</span>
@@ -1080,7 +1082,7 @@ export default function ReadingDetailPage() {
                     {recommendedItem.site_name ||
                       (() => {
                         try {
-                          return new URL(recommendedItem.url).hostname;
+                          return readingSourceLabel(recommendedItem.url);
                         } catch {
                           return "未知来源";
                         }
@@ -1163,12 +1165,12 @@ export default function ReadingDetailPage() {
               </h1>
               <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
                 <a
-                  href={item.url}
+                  href={isMaterialUrl(item.url) ? undefined : item.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-primary transition-colors"
                 >
-                  {new URL(item.url).hostname}
+                  {readingSourceLabel(item.url)}
                 </a>
                 <span>·</span>
                 <span>{new Date(item.created_at).toLocaleDateString("zh-CN")}</span>

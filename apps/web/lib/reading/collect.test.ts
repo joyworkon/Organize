@@ -35,6 +35,7 @@ interface StubRow extends Record<string, unknown> {
 }
 
 interface StubOptions {
+  tagError?: boolean;
   user?: { id: string } | null;
   rows?: StubRow[];
   queryError?: { message: string } | null;
@@ -45,6 +46,8 @@ interface StubOptions {
 function createStubClient(opts: StubOptions = {}) {
   const rows = opts.rows ?? [];
   const insertedPayloads: Record<string, unknown>[] = [];
+  const tagPayloads: Record<string, unknown>[] = [];
+  const tagLinks: Record<string, unknown>[] = [];
   const eqFilters: Array<[string, unknown]> = [];
   let isFilter: Array<[string, unknown]> = [];
 
@@ -53,6 +56,15 @@ function createStubClient(opts: StubOptions = {}) {
       getUser: async () => ({ data: { user: opts.user === undefined ? USER : opts.user }, error: null }),
     },
     from: (table: string) => {
+      if (table === "tags") {
+        const b = {
+          upsert: (p: Record<string, unknown>) => { tagPayloads.push(p); return b; },
+          select: () => b,
+          single: async () => opts.tagError ? { data: null, error: { message: "tag error" } } : { data: { id: `tag-${tagPayloads.length}` }, error: null },
+        };
+        return b;
+      }
+      if (table === "item_tags") return { upsert: async (p: Record<string, unknown>) => { tagLinks.push(p); return { error: null }; } };
       if (table !== "reading_items") throw new Error(`unexpected table: ${table}`);
       let op: "select" | "insert" = "select";
       let payload: Record<string, unknown> | null = null;
@@ -98,7 +110,7 @@ function createStubClient(opts: StubOptions = {}) {
       return builder;
     },
   };
-  return { client, insertedPayloads, eqFilters };
+  return { client, insertedPayloads, eqFilters, tagPayloads, tagLinks };
 }
 
 function registerEventSpy() {
@@ -321,5 +333,43 @@ describe("collectResultToast 统一文案", () => {
         errorReason: "invalid-url",
       })
     ).toEqual({ title: "添加失败，请重试", variant: "destructive" });
+  });
+});
+
+describe("collectReadingItem 物料导入", () => {
+  const material = {
+    kind: "material" as const,
+    key: "a".repeat(64), sources: ["会议.txt"],
+    result: { title: "项目会议", category: "会议", tags: ["项目"], blocks: [{ type: "paragraph" as const, text: "原文 <script> 不执行" }] },
+  };
+  it("通过统一入口保存未读正文、添加分类和主题标签，不抓取也不写笔记", async () => {
+    const stub = createStubClient(); createClientMock.mockReturnValue(stub.client);
+    const { events, off } = registerEventSpy();
+    const result = await collectReadingItem(material, { expectedUserId: USER.id }); off();
+    expect(result.status).toBe("saved");
+    expect(result.warning).toBeUndefined();
+    expect(scrapeMock).not.toHaveBeenCalled();
+    expect(stub.insertedPayloads[0]).toMatchObject({ user_id: USER.id, url: `urn:organize:material:${material.key}`, title: "项目会议", reading_status: "unread", reading_progress: 0 });
+    expect(Object.keys(stub.insertedPayloads[0])).toHaveLength(8);
+    expect(stub.insertedPayloads[0].content).toContain("&lt;script&gt;");
+    expect(stub.tagPayloads.map((t) => t.name)).toEqual(["会议", "项目"]);
+    expect(stub.tagLinks).toHaveLength(2);
+    expect(events).toHaveLength(1);
+  });
+  it("标签失败不伪装整体失败，重试时不重复创建正文并补齐标签", async () => {
+    const failed = createStubClient({ tagError: true }); createClientMock.mockReturnValue(failed.client);
+    expect(await collectReadingItem(material)).toMatchObject({ status: "saved", warning: expect.stringContaining("部分标签") });
+    const retry = createStubClient({ rows: [{ id: "existing", user_id: USER.id, url: `urn:organize:material:${material.key}`, title: "项目会议" }] });
+    createClientMock.mockReturnValue(retry.client);
+    expect(await collectReadingItem(material)).toMatchObject({ status: "duplicate", itemId: "existing", warning: undefined });
+    expect(retry.insertedPayloads).toHaveLength(0);
+    expect(retry.tagLinks).toHaveLength(2);
+  });
+  it("无效结果和处理期间切换账户时不写库，URN 不能冒充网页粘贴入口", async () => {
+    const stub = createStubClient(); createClientMock.mockReturnValue(stub.client);
+    expect(await collectReadingItem({ ...material, key: "bad" })).toMatchObject({ status: "error", errorReason: "invalid-material" });
+    expect(await collectReadingItem(material, { expectedUserId: "other-user" })).toMatchObject({ status: "error", errorReason: "unauthenticated" });
+    expect(await collectReadingItem(`urn:organize:material:${material.key}`)).toMatchObject({ status: "error", errorReason: "invalid-url" });
+    expect(stub.insertedPayloads).toHaveLength(0);
   });
 });
