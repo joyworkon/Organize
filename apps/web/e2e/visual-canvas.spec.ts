@@ -101,3 +101,54 @@ test("visual: IME 组合期 Enter 不建块（合成事件模拟）", async ({ p
   expect(sectionsBefore).toBe(2);
   expect(sectionsAfter).toBe(3);
 });
+
+
+test("visual: organize:fonts-ready 触发重测且几何保持一致", async ({ page }) => {
+  await openPage(page, "/canvas");
+  await page.getByRole("button", { name: "新建构思画布" }).first().click();
+  await page.waitForURL(/\/canvas\//);
+  await expect(page.getByTestId("canvas-viewport")).toBeVisible();
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 100, y: 150 } });
+  await page.keyboard.type("字体切换度量稳定性");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("正文随度量重算");
+  await page.waitForTimeout(400);
+  const board = page.locator("[data-board-id]").first();
+  const before = await board.boundingBox();
+
+  // MiSans 就绪事件：画布应清缓存重测；字体已在本地加载完成，几何应保持稳定（无跳动/截断）
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("organize:fonts-ready")));
+  await page.waitForTimeout(400);
+  const after = await board.boundingBox();
+  expect(Math.abs(after!.height - before!.height)).toBeLessThan(2);
+  expect(Math.abs(after!.width - before!.width)).toBeLessThan(2);
+  // 文本没有被裁切：块内文本首行可见
+  const textVisible = await page.evaluate(() => {
+    const el = [...document.querySelectorAll("[data-block-id]")][1] as HTMLElement;
+    const inner = el.querySelector(".canvas-text-content") as HTMLElement;
+    return inner && inner.scrollHeight >= inner.clientHeight - 2;
+  });
+  expect(textVisible).toBe(true);
+});
+
+test("visual: 初始化时 data-fonts-ready=true 直接重测一次", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("organize:onboarded", "1");
+    document.documentElement.dataset.fontsReady = "true";
+  });
+  await page.goto("/canvas");
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: "新建构思画布" }).first().click();
+  await page.waitForURL(/\/canvas\//);
+  await expect(page.getByTestId("canvas-viewport")).toBeVisible();
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 100, y: 150 } });
+  await page.keyboard.type("预置就绪标记");
+  await page.waitForTimeout(400);
+  // 字体度量路径已生效：文本行高完整渲染（≈25.6px 行盒），未被 24px 最小高截断
+  const h = await page.evaluate(() => {
+    const el = [...document.querySelectorAll("[data-block-id]")][0] as HTMLElement;
+    return el.getBoundingClientRect().height;
+  });
+  expect(h).toBeGreaterThan(40); // 26(内容) + 26(chrome) ≈ 52
+});

@@ -100,20 +100,32 @@ export function useCanvasScene(
   return { scene, measurer };
 }
 
-/** document.fonts.ready 的 React 订阅（字体就绪后重测一次）。 */
+/**
+ * 字体就绪订阅（MiSans VF 自托管，PR #319）。
+ * 优先消费 FontReadyBridge 的 organize:fonts-ready 事件与 data-fonts-ready 标记；
+ * document.fonts.ready 仅作桥未挂载时的兜底。就绪翻转触发画布整体重测。
+ */
 export function useFontsReady(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    if (typeof document === "undefined" || !("fonts" in document)) {
+    if (typeof document === "undefined") return;
+    if (document.documentElement.dataset.fontsReady === "true") {
       setReady(true);
       return;
     }
+    const onReady = () => setReady(true);
+    window.addEventListener("organize:fonts-ready", onReady);
     let cancelled = false;
-    document.fonts.ready.then(() => {
-      if (!cancelled) setReady(true);
-    });
+    if ("fonts" in document) {
+      document.fonts.ready.then(() => {
+        if (!cancelled) setReady(true);
+      });
+    } else {
+      setReady(true);
+    }
     return () => {
       cancelled = true;
+      window.removeEventListener("organize:fonts-ready", onReady);
     };
   }, []);
   return ready;

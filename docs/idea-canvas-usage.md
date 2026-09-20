@@ -36,7 +36,15 @@
 
 从侧栏抽屉进入；列表为标准页面；详情**只读预览**（返回、缩放可用），顶部提示编辑请在桌面进行；底栏仍为五个入口，不新增。
 
-### 数据与备份
+### 主题与字体接入（PR #319 视觉系统）
+
+- 画布根显式声明与全局一致的字体栈：`"MiSans VF", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif`。
+- MiSans 自托管加载完成（`FontReadyBridge` 派发 `organize:fonts-ready`、置 `data-fonts-ready`）后，画布清空文本测量缓存并整体重算场景（文字、节点盒与后续锚点类几何都由场景派生）；初始化时若标记已为 `true` 立即重测一次，避免字体前后布局偏移。
+- 颜色全部使用主题令牌（`--background/--foreground/--card/--primary/--primary-foreground/--primary-text/--muted/--muted-foreground/--accent/--border`），未另建色彩体系；画布色板（--cv-*）仅承载用户给内容挑的语义色，明暗各自解析。
+- 圆角一律取 `--radius-xs…2xl` 变量，并在支持时对画布表面（版面、属性栏、工具条、缩放控件、横幅、自由容器、模块、列表卡）启用 `corner-shape: squircle`。
+- 小号提示文字（占位符等）使用主题校准过的完整 `--muted-foreground`，浅/暗色均满足 WCAG AA。
+
+## 数据与备份
 
 - 独立 `canvas_documents` 表（`content` 为 Board→Section→Column→Block 结构 JSON，`schemaVersion=1` + `revision` 并发修订）。
 - 全局设置页备份导出/恢复自动包含画布（格式 v6，兼容导入 v2–v5 旧备份）；附件打包/恢复会收集并重绑画布内的 `/storage/` 图片引用。

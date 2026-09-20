@@ -293,6 +293,21 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     return () => clearTimeout(t);
   }, [load.phase, fontsReady, store, measurer]);
 
+  // MiSans 加载前后度量不同：字体就绪事件（PR #319 FontReadyBridge）触发后
+  // 清空测量缓存并整体重算场景（文字、节点盒、后续连线锚点都从场景派生）。
+  // 初始化时 data-fonts-ready 已为 true 则立即重测一次。
+  useEffect(() => {
+    const remeasure = () => {
+      measurer.clearCache();
+      store.getState().bumpMeasureEpoch();
+    };
+    if (document.documentElement.dataset.fontsReady === "true") {
+      remeasure();
+    }
+    window.addEventListener("organize:fonts-ready", remeasure);
+    return () => window.removeEventListener("organize:fonts-ready", remeasure);
+  }, [measurer, store]);
+
   // ---------------- 键盘 ----------------
 
   useEffect(() => {

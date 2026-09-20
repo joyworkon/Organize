@@ -68,7 +68,7 @@ function boxStyle(
     padding: `${BLOCK_PADDING}px`,
     boxSizing: "border-box",
     background: style?.background ? `var(--cv-bg-${style.background})` : undefined,
-    borderRadius: `${style?.radius ?? 8}px`,
+    borderRadius: style?.radius != null ? `${style.radius}px` : "var(--radius-lg)",
   };
 }
 

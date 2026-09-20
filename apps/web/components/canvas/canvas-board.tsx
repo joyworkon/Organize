@@ -173,7 +173,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
         width: `${width}px`,
         height: `${sceneBoard.height}px`,
         background: board.style?.background ? `var(--cv-bg-${board.style.background})` : undefined,
-        borderRadius: `${board.style?.radius ?? 12}px`,
+        borderRadius: board.style?.radius != null ? `${board.style.radius}px` : "var(--radius-xl)",
       }}
       data-board-id={board.id}
     >
