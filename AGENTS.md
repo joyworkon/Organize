@@ -87,7 +87,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 - `packages/plugin-sdk` — 插件 SDK：`definePlugin()`、`PluginContext`、扩展点类型定义
 - `packages/plugins/*` — 内置插件（`ai-summary` AI 摘要、`tag-suggest` 标签推荐）
 - `desktop/` — Tauri v2 macOS 桌面壳（ADR 0004：远程加载 web + 托盘常驻 + 关窗驻留；刘海激发器 `notch.rs` 双小窗 + hover 150ms 展开 + ⌘⇧M，web 侧对应 `app/desktop/notch` 路由，见 docs/notch-trigger-plan.md）；`mobile/` — Capacitor 移动端骨架（未完整实现）
-- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–078；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好、速记 memos、数据库越权热修、AI 密钥锁定；063–066 为协作权限模型/只读可见性/保存分权/归属列，067 为协作 CRDT blob 存储 `note_ydocs`——仅 collab-server 经 RPC 读写，不进备份不进 mock，068–070 为归属移交，071–072 分享邀请与公开编辑，073 同步块 revision，074 反链 RPC（保留为回退读路径），075 速记转笔记，076 多实例限流共享计数，077 备份补 list_id，078 为笔记内链派生索引 `note_links` + 触发器维护 + `get_note_backlinks_v2`（B03；派生数据不进备份不进 mock，074 RPC 暂留））
+- `supabase/` — 后端 `config.toml` 与 `migrations/`（当前 001–087；除基础表外已覆盖评论/建议、标签、分享、版本、任务/课程、收藏、阅读生命周期、备份恢复、软删除、笔记页面层级/设置、附件存储 bucket、同步块、数据库块、任务↔笔记双链、任务工作台扩展、倒数日、笔记全文搜索、原子保存、可靠任务提醒、层级子任务、任务依赖、高亮引用、笔记链接状态、阅读全宽偏好、速记 memos、数据库越权热修、AI 密钥锁定；063–066 为协作权限模型/只读可见性/保存分权/归属列，067 为协作 CRDT blob 存储 `note_ydocs`——仅 collab-server 经 RPC 读写，不进备份不进 mock，068–070 为归属移交，071–072 分享邀请与公开编辑，073 同步块 revision，074 反链 RPC（保留为回退读路径），075 速记转笔记，076 多实例限流共享计数，077 备份补 list_id，078 为笔记内链派生索引 `note_links` + 触发器维护 + `get_note_backlinks_v2`（B03；派生数据不进备份不进 mock，074 RPC 暂留）；079–084 为分享配额/扩散告警系列，085–087 为构思画布（`canvas_documents` 表 + RLS/GRANT + `canvas_document_patch` CAS RPC、垃圾箱 RPC 接入、备份恢复链 v6））
 
 `apps/web` 通过 `next.config.mjs` 的 `transpilePackages` 直接编译 workspace 包源码（packages 不预构建）。
 
@@ -108,7 +108,7 @@ git checkout -b feat/<短描述>   # 基于最新 master 建新分支
 自定义 TipTap 扩展在 `components/editor/extensions/`：`callout.ts`（标注）、`math.tsx`（KaTeX 行内 / 区块公式）、`columns.ts`（CSS Grid 列布局）、`table-style.ts`（表格宽度/边框/配色/单元格背景持久化，含 `OrganizeTableCell` / `OrganizeTableHeader`）、`resizable-image.tsx`（图片宽度拖拽手柄）、`file-attachment.tsx`（附件块：视频/音频内联播放、其余文件卡片）；折叠列表用官方 details 三件套。编辑器排版样式集中在 `app/globals.css` 的 `.organize-editor` 作用域下。外部文件可通过拖入 / 粘贴 / 插入菜单「上传附件」进入笔记（`/api/upload` 上传，图片失败回退 base64）。
 
 ### 导航结构
-侧边栏一级导航：工作台 / 稍后读 / 笔记 / 待办 / 速记 / 图谱 / 收藏夹 / 插件 / 垃圾箱 / 设置。「速记」（`/memos`，flomo 式碎片捕捉，055 迁移 `memos` 表 + `/api/memos`，标签 `#tag` 语法解析在 `lib/memos/tags.ts`，API 与 mock shim 共用；mock 下经 api-shim 路由）。「经验」并入待办工作台 tab（`/tasks/lessons`，旧 `/lessons` 重定向兼容深链）；「标签」收进稍后读分组的标签快捷列表（点标签带 `?tags=` 进稍后读，列表内筛选与 URL 双向同步），`/tags` 管理页从分组内「管理标签」或命令面板（G T）进入。Chrome 式笔记标签页条（`components/notes/note-tabs-bar.tsx`）仅在 `/notes` 与 `/notes/[id]` 渲染。手动打标签入口在四处齐全：笔记编辑器正文属性行、文章详情页 `library/[id]`、任务对话框、经验详情页，统一走 `components/tags/use-tags.ts`。
+侧边栏一级导航：工作台 / 稍后读 / 笔记 / **构思画布** / 待办 / 速记 / 图谱 / 收藏夹 / 插件 / 垃圾箱 / 设置。「构思画布」（`/canvas` 列表、`/canvas/[id]` 无限画布，085–087 迁移 + `/api/canvases` + `lib/canvas`、`components/canvas`；双击建版面、Enter 通栏、加号增列/加块、一文一图智能比例、自由容器；手机只读预览；用法与 A01–A17 验收见 docs/idea-canvas-usage.md）。「速记」（`/memos`，flomo 式碎片捕捉，055 迁移 `memos` 表 + `/api/memos`，标签 `#tag` 语法解析在 `lib/memos/tags.ts`，API 与 mock shim 共用；mock 下经 api-shim 路由）。「经验」并入待办工作台 tab（`/tasks/lessons`，旧 `/lessons` 重定向兼容深链）；「标签」收进稍后读分组的标签快捷列表（点标签带 `?tags=` 进稍后读，列表内筛选与 URL 双向同步），`/tags` 管理页从分组内「管理标签」或命令面板（G T）进入。Chrome 式笔记标签页条（`components/notes/note-tabs-bar.tsx`）仅在 `/notes` 与 `/notes/[id]` 渲染。手动打标签入口在四处齐全：笔记编辑器正文属性行、文章详情页 `library/[id]`、任务对话框、经验详情页，统一走 `components/tags/use-tags.ts`。
 
 ### 插件系统
 - 插件用 `definePlugin()` 声明，提供扩展点：`toolbar-action` / `sidebar-panel` / `content-processor`（抓取后处理）/ `ai-action`

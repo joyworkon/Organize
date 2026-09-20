@@ -321,6 +321,16 @@ function fixtureData(): BackupData {
         created_at: timestamp,
       },
     ],
+    canvas_documents: [
+      {
+        id: "c0000000-0000-4000-8000-000000000001",
+        title: "备份往返画布",
+        content: { schemaVersion: 1, boards: [], freeItems: [] },
+        deleted_at: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
   };
 }
 

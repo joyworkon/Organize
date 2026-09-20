@@ -701,6 +701,8 @@ export const mockDb: Record<string, any[]> = {
   lessons,
   lesson_tags: lessonTags,
   memos,
+  // 构思画布（idea-canvas）：mock 内存表，api-shim 按 /api/canvases 真实契约读写
+  canvas_documents: [],
   // P0-03：AI 配置经 /api/ai/settings 受控读写（密钥只回掩码），mock 下空表起步
   user_ai_settings: [],
   // 插件配置演示：内置两个插件各存一行（启用/停用各一），插件页开关有初值

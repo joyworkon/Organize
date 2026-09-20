@@ -64,6 +64,8 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
 
   const createMode = route.section === "library" ? "url" : route.section === "notes" ? "note" : route.section === "tasks" ? "task" : route.section === "memos" ? "memo" : "menu";
   const createLabel = ({ url: "保存链接", note: "新建笔记", task: "添加待办", memo: "新建速记", menu: "新建内容" })[createMode];
+  // 构思画布不显示通用「+ 新建内容」按钮（新建/编辑都发生在画布详情内部）
+  const isCanvasRoute = pathname === "/canvas" || pathname.startsWith("/canvas/");
 
   return (
     <MobileNavigationContext.Provider value={locations}>
@@ -78,9 +80,11 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
             <button type="button" className="mobile-icon-button" aria-label="全局搜索" onClick={() => window.dispatchEvent(new CustomEvent("organize:command-palette"))}>
               <Search className="h-5 w-5" />
             </button>
-            <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createLabel} onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: createMode } }))}>
-              <Plus className="h-5 w-5" />
-            </button>
+            {!isCanvasRoute && (
+              <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createLabel} onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: createMode } }))}>
+                <Plus className="h-5 w-5" />
+              </button>
+            )}
           </header>
         )}
         {children}

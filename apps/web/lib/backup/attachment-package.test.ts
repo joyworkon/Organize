@@ -50,6 +50,7 @@ const emptyData = (): BackupData =>
     memos: [],
     task_item_refs: [],
     memo_notes: [],
+    canvas_documents: [],
   }) as unknown as BackupData;
 
 const imgNode = (src: string) => ({
@@ -195,7 +196,7 @@ describe("buildAttachmentPackage", () => {
 
     const manifest = JSON.parse(Buffer.from(unzipped["manifest.json"]).toString("utf8"));
     expect(manifest.package_version).toBe(1);
-    expect(manifest.backup_version).toBe(5);
+    expect(manifest.backup_version).toBe(6);
     expect(manifest.app_version).toBe("1.2.3");
     expect(manifest.total_bytes).toBe(result.totalBytes);
     expect(manifest.url_map).toEqual(scanned.urlMap);

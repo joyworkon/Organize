@@ -389,6 +389,7 @@ export function remapAttachmentReferences(
     ["reading_items", "content"],
     ["reading_items", "cover_image"],
     ["synced_blocks", "content"],
+    ["canvas_documents", "content"],
     ["tasks", "description"],
   ] as const;
   for (const [table, field] of contentFields) {

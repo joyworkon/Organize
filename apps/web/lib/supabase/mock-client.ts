@@ -42,6 +42,7 @@ const SOFT_DELETE_TABLES = new Set([
   "memos",
   "countdown_days",
   "task_lists",
+  "canvas_documents",
 ]);
 
 // 链式查询构造器：支持 select/insert/update/delete + 常见过滤器，且可 await

@@ -25,6 +25,7 @@ export const GOTO_ROUTES: GotoRoute[] = [
   { sequence: ["g", "i"], path: "/library", label: "稍后读" },
   { sequence: ["g", "l"], path: "/library", label: "稍后读" },
   { sequence: ["g", "n"], path: "/notes", label: "笔记" },
+  { sequence: ["g", "c"], path: "/canvas", label: "构思画布" },
   { sequence: ["g", "d"], path: "/tasks", label: "待办" },
   { sequence: ["g", "e"], path: "/tasks/lessons", label: "经验" },
   { sequence: ["g", "m"], path: "/memos", label: "速记" },

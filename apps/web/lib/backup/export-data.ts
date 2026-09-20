@@ -197,6 +197,13 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     userOwned: true,
     order: ["id"],
   },
+  {
+    // 085（idea-canvas）：构思画布文档（content 为结构 JSON，无跨表引用）
+    table: "canvas_documents",
+    columns: "id, title, content, deleted_at, created_at, updated_at",
+    userOwned: true,
+    order: ["id"],
+  },
 ] as const;
 
 /**

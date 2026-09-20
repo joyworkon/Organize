@@ -24,6 +24,8 @@ const subscribeCommands = (onStoreChange: () => void) => commandRegistry.subscri
 const getCommandsSnapshot = () => commandRegistry.list();
 const getCommandsServerSnapshot = (): readonly CommandDefinition[] => EMPTY_SERVER_SNAPSHOT;
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
+import { createCanvas } from "@/lib/canvas/repository";
+import { CANVAS_SCHEMA_VERSION } from "@/lib/canvas/model";
 import { createClient } from "@/lib/supabase/client";
 import { createNewNote } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
@@ -51,6 +53,7 @@ import {
   HelpCircle,
   Settings,
   Network,
+  LayoutGrid,
 } from "@/components/icons";
 import { resetOnboarding } from "@/components/onboarding";
 import type { Task, ReadingItem, Note, Lesson, Memo, Tag as TagType, TaskStatus, LessonType } from "@organize/shared";
@@ -79,6 +82,7 @@ const NAV_ITEMS = [
   { label: "工作台", path: "/", icon: Home, shortcut: "G H" },
   { label: "稍后读", path: "/library", icon: BookOpen, shortcut: "G L" },
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
+  { label: "构思画布", path: "/canvas", icon: LayoutGrid, shortcut: "G C" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
   { label: "经验", path: "/tasks/lessons", icon: Lightbulb, shortcut: "G E" },
   { label: "速记", path: "/memos", icon: Zap, shortcut: "G M" },
@@ -576,6 +580,24 @@ export function CommandPalette() {
     };
   }, [searchQuery, performSearch]);
 
+  // 构思画布：客户端生成 UUID 幂等创建（规格 §6.3），mock 与真实后端同一契约
+  const handleCreateCanvas = async () => {
+    setOpen(false);
+    try {
+      const result = await createCanvas({
+        id: crypto.randomUUID(),
+        content: { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [] },
+      });
+      if (result.ok) {
+        router.push(`/canvas/${result.row.id}`);
+      } else {
+        toast({ title: "创建画布失败", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "创建画布失败", variant: "destructive" });
+    }
+  };
+
   const handleCreateNote = async () => {
     setOpen(false);
     try {
@@ -857,6 +879,10 @@ export function CommandPalette() {
                 <CommandItem onSelect={handleCreateNote}>
                   <FilePlus className="mr-2 h-4 w-4" />
                   <span>新建笔记</span>
+                </CommandItem>
+                <CommandItem onSelect={handleCreateCanvas}>
+                  <LayoutGrid className="mr-2 h-4 w-4" />
+                  <span>新建构思画布</span>
                 </CommandItem>
               </CommandGroup>
               {pluginCommandSections.size > 0 && <CommandSeparator />}

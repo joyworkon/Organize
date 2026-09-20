@@ -28,6 +28,7 @@ import {
   Lightning,
   Users,
   UsersRound,
+  LayoutGrid,
 } from "@/components/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,8 @@ const navItems = [
   { href: "/", label: "工作台", icon: Home },
   { href: "/library", label: "稍后读", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
+  // 构思画布（idea-canvas）：与笔记同级的一级入口（/canvas，规格 §1）
+  { href: "/canvas", label: "构思画布", icon: LayoutGrid },
   { href: "/tasks", label: "待办", icon: ListChecks },
   { href: "/memos", label: "速记", icon: Feather },
   { href: "/trash", label: "垃圾箱", icon: Trash2 },
@@ -116,7 +119,9 @@ export function Sidebar() {
 // 两个条件入口各自探测，mock 后端恒隐藏）
 const visibleNavItems = useMemo(() => {
   const items = [...navItems];
-  let insertAt = 5; // 速记（index 4）之后 = 辅助组起点
+  // 辅助组起点 = 「速记」之后。用语义锚点定位（此前写死 index 5，
+  // 新增一级入口后会挤进主组中间，把收藏夹推到速记之前）
+  let insertAt = navItems.findIndex((i) => i.href === "/memos") + 1;
   items.splice(insertAt, 0, favoritesNavItem);
   insertAt += 1;
   if (hasSharedNotes) {

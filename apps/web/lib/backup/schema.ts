@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 5;
-/** 备份版本兼容范围：v5 是当前格式（075 起收录 memo_notes），v2/v3/v4 仍可导入（新表按空处理） */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5] as const;
+export const BACKUP_VERSION = 6;
+/** 备份版本兼容范围：v6 是当前格式（087 起收录 canvas_documents），v2–v5 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -39,6 +39,8 @@ export const BACKUP_TABLES = [
   "task_item_refs",
   // 075（R11）：速记转笔记关联
   "memo_notes",
+  // 085（idea-canvas）：构思画布文档（content 为结构 JSON）
+  "canvas_documents",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -453,6 +455,18 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  canvas_documents: {
+    fields: {
+      id: isUuid,
+      title: isString,
+      // 结构 JSON（schemaVersion 校验在应用层 lib/canvas/validation.ts，备份只保证是对象）
+      content: (value) => typeof value === "object" && value !== null && !Array.isArray(value),
+      deleted_at: isNullableTimestamp,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 // 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
@@ -509,18 +523,28 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   if (value.format !== BACKUP_FORMAT) {
     issues.push(issue("INVALID_FORMAT", "$.format", "备份格式标识不匹配"));
   }
-  if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4)) {
+  if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4 | 5 | 6)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2/v3/v4")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v6")
     );
   }
   // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs）；
-  // v4 备份没有 075 的 memo_notes——各自缺键补空数组（B01 实测：075 只补了
-  // counts 兼容漏了 data 补空，真实 v4 文件导入即 INVALID_TABLE）。
-  if ((value.version === 2 || value.version === 3 || value.version === 4) && value.data && typeof value.data === "object") {
+  // v4 备份没有 075 的 memo_notes；v5 备份没有 085 的 canvas_documents——
+  // 各自缺键补空数组（B01 实测：075 只补了 counts 兼容漏了 data 补空，
+  // 真实 v4 文件导入即 INVALID_TABLE）。
+  if (
+    (value.version === 2 || value.version === 3 || value.version === 4 || value.version === 5) &&
+    value.data &&
+    typeof value.data === "object"
+  ) {
     const data = value.data as Record<string, unknown>;
     const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs", "memo_notes"];
-    const fillTables = value.version === 4 ? ["memo_notes"] : v3NewTables;
+    const fillTables =
+      value.version === 4
+        ? ["memo_notes"]
+        : value.version === 5
+          ? ["canvas_documents"]
+          : v3NewTables;
     for (const t of fillTables) {
       if (data[t] === undefined) {
         data[t] = [];
@@ -680,11 +704,14 @@ function validateManifest(
   const v3CompatTables = new Set(["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs", "memo_notes"]);
   // v4 备份没有 075 的 memo_notes，缺键按 0 记
   const v4CompatTables = new Set(["memo_notes"]);
+  // v5 备份没有 085 的 canvas_documents，缺键按 0 记
+  const v5CompatTables = new Set(["canvas_documents"]);
   for (const table of BACKUP_TABLES) {
     const declared = value.counts[table];
     const isLegacyMissing =
       ((version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined) ||
-      (version === 4 && v4CompatTables.has(table) && declared === undefined);
+      (version === 4 && v4CompatTables.has(table) && declared === undefined) ||
+      (version === 5 && v5CompatTables.has(table) && declared === undefined);
     if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(
