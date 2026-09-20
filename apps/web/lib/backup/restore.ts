@@ -52,6 +52,8 @@ export const ID_TABLES = [
   "memos",
   "task_item_refs",
   "memo_notes",
+  // 085（idea-canvas）
+  "canvas_documents",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -264,6 +266,11 @@ export function prepareRestorePayload(
     ...withId(row, maps.memo_notes),
     memo_id: remap(row.memo_id, maps.memos),
     note_id: remap(row.note_id, maps.notes),
+  }));
+
+  // 085（idea-canvas）：画布文档仅重映射自身 ID（content 无跨表引用）
+  data.canvas_documents = (backup.data.canvas_documents || []).map((row) => ({
+    ...withId(row, maps.canvas_documents),
   }));
 
   // tasks 新列的外键重映射（list_id → task_lists）

@@ -6,6 +6,7 @@
 // 数据库块（/api/databases*）、未登录 cron 类接口。
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { validateCanvasContent } from "@/lib/canvas/validation";
 
 type MockHandlerResult = { status?: number; body: unknown; headers?: Record<string, string> };
 type MockHandler = (ctx: {
@@ -398,6 +399,10 @@ const restoreBackup: MockHandler = ({ body }) => {
     mockDb[table] = others.concat(rows.map((row) => ({ ...row, user_id: MOCK_USER.id })));
     counts[table] = rows.length;
   }
+  // 087 真实 RPC 会把画布 revision 复位为 1（备份导出不含 revision 列）
+  for (const row of mockDb.canvas_documents || []) {
+    if (typeof row.revision !== "number") row.revision = 1;
+  }
   return { body: { success: true, counts } };
 };
 
@@ -468,6 +473,111 @@ const deleteSyncedBlock: MockHandler = ({ params }) => {
   return { body: { ok: true } };
 };
 
+// ---- 构思画布（/api/canvases；与真实路由逐字段对齐，CAS 语义同 085 RPC）----
+
+const CANVAS_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const findCanvasRow = (id: string, includeDeleted = false) =>
+  mockDb.canvas_documents?.find(
+    (r: any) => r.id === id && r.user_id === MOCK_USER.id && (includeDeleted || !r.deleted_at)
+  );
+
+const listCanvasesShim: MockHandler = () => {
+  const rows = (mockDb.canvas_documents || [])
+    .filter((r: any) => r.user_id === MOCK_USER.id && !r.deleted_at)
+    .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1))
+    .slice(0, 200)
+    .map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }));
+  return { body: { canvases: rows } };
+};
+
+const createCanvasShim: MockHandler = ({ body }) => {
+  const id = typeof body?.id === "string" && CANVAS_UUID_RE.test(body.id) ? body.id : null;
+  if (!id) return { status: 400, body: { error: "缺少合法的文档 ID" } };
+  // 幂等命中：同用户已有同 ID 行 → 返回既有行
+  const existing = findCanvasRow(id, true);
+  if (existing) return { status: 200, body: existing };
+  const title = typeof body?.title === "string" ? body.title.slice(0, 200) : "";
+  if (body?.content !== undefined) {
+    const validation = validateCanvasContent(body.content, { allowMockImages: true });
+    if (!validation.ok) {
+      return { status: 400, body: { error: "画布内容校验失败", errors: validation.errors } };
+    }
+  }
+  const row: any = {
+    id,
+    user_id: MOCK_USER.id,
+    title,
+    content:
+      body?.content !== undefined ? body.content : { schemaVersion: 1, boards: [], freeItems: [] },
+    revision: 1,
+    deleted_at: null,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+  };
+  mockDb.canvas_documents.push(row);
+  return { status: 201, body: row };
+};
+
+const getCanvasShim: MockHandler = ({ params }) => {
+  const row = findCanvasRow(params.id);
+  if (!row) return { status: 404, body: { error: "文档不存在" } };
+  return {
+    body: {
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      revision: row.revision,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    },
+  };
+};
+
+const patchCanvasShim: MockHandler = ({ body, params }) => {
+  const row = findCanvasRow(params.id);
+  if (!row) return { status: 404, body: { error: "文档不存在" } };
+  if (body?.content !== undefined) {
+    const validation = validateCanvasContent(body.content, { allowMockImages: true });
+    if (!validation.ok) {
+      return { status: 400, body: { error: "画布内容校验失败", errors: validation.errors } };
+    }
+  }
+  const expected =
+    typeof body?.expected_revision === "number" && Number.isFinite(body.expected_revision)
+      ? Math.trunc(body.expected_revision)
+      : null;
+  if (expected !== null && row.revision !== expected) {
+    // 与真实 409 形状一致：current 带服务端当前 revision
+    return {
+      status: 409,
+      body: {
+        error: "画布已被其他标签页或设备修改",
+        current: { revision: row.revision },
+      },
+    };
+  }
+  row.title = typeof body?.title === "string" ? body.title.slice(0, 200) : row.title;
+  if (body?.content !== undefined) row.content = body.content;
+  row.revision = row.revision + 1;
+  row.updated_at = nowIso();
+  return {
+    body: { id: row.id, revision: row.revision, updated_at: row.updated_at },
+  };
+};
+
+const deleteCanvasShim: MockHandler = ({ params }) => {
+  const row = findCanvasRow(params.id);
+  if (!row) return { status: 404, body: { error: "文档不存在" } };
+  row.deleted_at = nowIso();
+  return { body: { success: true, affected: 1 } };
+};
+
 // ---- 垃圾箱（对齐 list_trash / mutate_trash RPC 的返回形状）----
 
 // 真实实现是两个 RPC；mock 下按「表 → 资源类型」映射扫 deleted_at 非空的行。
@@ -479,6 +589,7 @@ const TRASH_SOURCES: Array<{ table: string; type: string; titleOf: (row: any) =>
   { table: "lessons", type: "lesson", titleOf: (r) => r.title || "无标题经验" },
   { table: "countdown_days", type: "countdown", titleOf: (r) => r.title || "无标题倒数日" },
   { table: "memos", type: "memo", titleOf: (r) => (r.content || "").slice(0, 60) || "空速记" },
+  { table: "canvas_documents", type: "canvas_document", titleOf: (r) => r.title || "未命名画布" },
 ];
 
 const listTrash: MockHandler = ({ url }) => {
@@ -592,6 +703,11 @@ const ROUTES: MockRoute[] = [
   { method: "DELETE", pattern: /^\/api\/synced-blocks\/([^/]+)$/, handler: deleteSyncedBlock },
   { method: "GET", pattern: /^\/api\/trash$/, handler: listTrash },
   { method: "POST", pattern: /^\/api\/trash$/, handler: mutateTrash },
+  { method: "GET", pattern: /^\/api\/canvases$/, handler: listCanvasesShim },
+  { method: "POST", pattern: /^\/api\/canvases$/, handler: createCanvasShim },
+  { method: "GET", pattern: /^\/api\/canvases\/([^/]+)$/, handler: getCanvasShim },
+  { method: "PATCH", pattern: /^\/api\/canvases\/([^/]+)$/, handler: patchCanvasShim },
+  { method: "DELETE", pattern: /^\/api\/canvases\/([^/]+)$/, handler: deleteCanvasShim },
   { method: "GET", pattern: /^\/api\/plugins$/, handler: listPlugins },
   { method: "POST", pattern: /^\/api\/plugins$/, handler: upsertPlugin },
   { method: "PATCH", pattern: /^\/api\/plugins\/([^/]+)$/, handler: patchPlugin },

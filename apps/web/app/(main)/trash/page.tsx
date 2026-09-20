@@ -10,6 +10,8 @@ import {
   Loader2,
   MessageSquareText,
   RefreshCw,
+  LayoutTemplate,
+
   RotateCcw,
   Timer,
   Trash2,
@@ -38,6 +40,7 @@ const resourceConfig = {
   database: { label: "数据库", icon: DatabaseIcon },
   countdown: { label: "倒数日", icon: Timer },
   memo: { label: "速记", icon: MessageSquareText },
+  canvas_document: { label: "画布", icon: LayoutTemplate },
 } satisfies Record<
   TrashResourceType,
   { label: string; icon: typeof FileText }
@@ -51,6 +54,7 @@ const filters: { value: TrashFilter; label: string }[] = [
   { value: "lesson", label: "经验" },
   { value: "database", label: "数据库" },
   { value: "countdown", label: "倒数日" },
+  { value: "canvas_document", label: "画布" },
 ];
 
 export default function TrashPage() {

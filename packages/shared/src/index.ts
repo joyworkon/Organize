@@ -511,3 +511,16 @@ export interface Memo {
   created_at: string;
   updated_at: string;
 }
+
+// ---- 构思画布（085 canvas_documents；content 结构见 apps/web/lib/canvas/model.ts）----
+export interface CanvasDocumentRow {
+  id: string;
+  user_id: string;
+  title: string;
+  /** 结构 JSON：Board → Section → Column → Block + freeItems（schemaVersion=1）。 */
+  content: Record<string, unknown>;
+  revision: number;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}

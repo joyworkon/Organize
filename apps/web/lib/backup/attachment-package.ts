@@ -152,6 +152,8 @@ export function scanAttachmentReferences(data: BackupData): ScannedPackage {
     classify(String(row.cover_image ?? ""));
   }
   for (const row of data.synced_blocks) classify(contentString(row.content));
+  // 085（idea-canvas）：画布 content JSON 内的 asset.url（含 /storage/ 图片）
+  for (const row of data.canvas_documents) classify(contentString(row.content));
   for (const row of data.tasks) classify(String(row.description ?? ""));
   // task_attachments 元数据行：bucket/path 即 A 类坐标（URL 形态由恢复侧重映射处理）
   for (const row of data.task_attachments) {
