@@ -489,6 +489,15 @@ export default function SettingsPage() {
               <span className="text-sm text-muted-foreground">版本</span>
               <span className="text-sm font-medium">v{APP_VERSION}</span>
             </div>
+            <div className="flex items-start justify-between gap-4">
+              <span className="text-sm text-muted-foreground">界面字体</span>
+              <span className="text-right text-sm font-medium">
+                MiSans VF
+                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                  小米提供的免费商用嵌入字体
+                </span>
+              </span>
+            </div>
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <HelpCircle className="h-4 w-4" />
               按 <kbd className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded border">?</kbd> 键查看所有快捷键
