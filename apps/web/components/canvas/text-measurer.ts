@@ -67,9 +67,11 @@ export class CanvasTextMeasurer {
     this.cache.clear();
   }
 
-  private static cacheKey(key: string, width: number): string {
-    // 宽度按 0.5px 量化，吸收亚像素抖动
-    return `${key}@${Math.round(width * 2) / 2}`;
+  private static cacheKey(key: string, width: number, text: string): string {
+    // 宽度按 0.5px 量化吸收亚像素抖动；文本必须参与键——
+    // 否则空文本的 24px 最小高会被同宽度的任何内容复用（真实bug）
+    const textTag = text.length <= 64 ? text : `${text.length}:${text.slice(0, 32)}:${text.slice(-16)}`;
+    return `${key}@${Math.round(width * 2) / 2}@${textTag}`;
   }
 
   private buildSample(req: TextMeasureRequest): HTMLDivElement {
@@ -90,7 +92,7 @@ export class CanvasTextMeasurer {
     if (!container) return;
     const pending: { el: HTMLDivElement; cacheKey: string }[] = [];
     for (const req of requests) {
-      const ck = CanvasTextMeasurer.cacheKey(req.key, req.width);
+      const ck = CanvasTextMeasurer.cacheKey(req.key, req.width, req.text);
       if (this.cache.has(ck)) continue;
       const el = this.buildSample(req);
       container.appendChild(el);
@@ -107,7 +109,7 @@ export class CanvasTextMeasurer {
 
   /** 单点测量（优先缓存）。 */
   measure(text: string, key: string, style: ResolvedTextStyle, width: number): number {
-    const ck = CanvasTextMeasurer.cacheKey(key, width);
+    const ck = CanvasTextMeasurer.cacheKey(key, width, text);
     const hit = this.cache.get(ck);
     if (hit !== undefined) return hit;
     this.warm([{ key, text, style, width }]);

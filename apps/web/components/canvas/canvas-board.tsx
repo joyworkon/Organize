@@ -428,9 +428,13 @@ const SectionBody = memo(function SectionBody({
             {column.blocks.map((block, blockIndex) => {
               const box = sceneColumn.blocks[blockIndex];
               if (!box) return null;
+              // 分区内坐标：分区容器已按 (board.padding, sceneSection.y - board.y) 定位，
+              // 块再用世界-版面相对值会双重偏移
+              const secX = board.x + board.padding;
+              const secY = sceneSection.y;
               const common = {
-                x: box.x - board.x,
-                y: box.y - board.y,
+                x: box.x - secX,
+                y: box.y - secY,
                 width: box.width,
                 height: box.height,
                 selected: selectedBlockId === block.id,
@@ -567,7 +571,7 @@ const SectionBody = memo(function SectionBody({
           <div
             key={`divider-${i}`}
             className="canvas-divider"
-            style={{ left: `${sceneSection.columns[i].x - board.x + w + board.gap / 2}px` }}
+            style={{ left: `${sceneSection.columns[i].x - board.x - board.padding + w + board.gap / 2}px` }}
             role="separator"
             aria-label="拖动调整列宽"
             title="拖动调整列宽"
@@ -617,11 +621,13 @@ function PreviewGhost({
 }) {
   const style: CSSProperties = { position: "absolute" };
   if (!preview) return null;
+  const secX = board.x + board.padding;
+  const secY = sceneSection.y;
   if (preview.kind === "column-left") {
     const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
     if (!col) return null;
     Object.assign(style, {
-      left: `${col.x - board.x - avgWidth / 2 - board.gap / 2}px`,
+      left: `${col.x - secX - avgWidth / 2 - board.gap / 2}px`,
       top: "0",
       width: `${avgWidth}px`,
       height: "100%",
@@ -630,7 +636,7 @@ function PreviewGhost({
     const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
     if (!col) return null;
     Object.assign(style, {
-      left: `${col.x - board.x + col.width + board.gap / 2}px`,
+      left: `${col.x - secX + col.width + board.gap / 2}px`,
       top: "0",
       width: `${avgWidth}px`,
       height: "100%",
@@ -640,8 +646,8 @@ function PreviewGhost({
     const box = col?.blocks.find((b) => b.blockId === preview.blockId);
     if (!col || !box) return null;
     Object.assign(style, {
-      left: `${box.x - board.x}px`,
-      top: `${box.y - board.y + box.height + board.gap / 2}px`,
+      left: `${box.x - secX}px`,
+      top: `${box.y - secY + box.height + board.gap / 2}px`,
       width: `${box.width}px`,
       height: "48px",
     });

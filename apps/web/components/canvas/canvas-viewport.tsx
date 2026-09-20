@@ -234,9 +234,14 @@ export function CanvasViewportView({
           );
         })}
       </div>
-      {doc.boards.length === 0 && doc.freeItems.length === 0 && (
+      {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
         <div className="canvas-empty-hint" aria-hidden="true">
           双击画布任意位置，开始你的第一张构思稿
+        </div>
+      )}
+      {!interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
+        <div className="canvas-empty-hint" aria-hidden="true">
+          这张画布还没有内容
         </div>
       )}
     </div>

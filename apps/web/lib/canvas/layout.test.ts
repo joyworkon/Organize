@@ -87,8 +87,9 @@ describe("computeScene", () => {
     expect(sb.width).toBe(BOARD_DEFAULT_WIDTH);
     // 标题分区通栏
     expect(sb.sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2]);
-    // 版面高度 = 标题高 + 间距 + 正文高 + 上下 padding
-    const contentHeight = MIN_TEXT_CONTENT_HEIGHT * 2 + BOARD_GAP;
+    // 版面高度 = (空文本内容高 + 模块 chrome) × 2 + 间距 + 上下 padding
+    const CHROME = 26; // BLOCK_PADDING*2 + 上下边框
+    const contentHeight = (MIN_TEXT_CONTENT_HEIGHT + CHROME) * 2 + BOARD_GAP;
     expect(sb.height).toBeCloseTo(contentHeight + BOARD_PADDING * 2, 6);
   });
 
@@ -143,7 +144,7 @@ describe("分区高度与等高规则（A04/A05）", () => {
     expect(left.blocks).toHaveLength(2);
     expect(left.blocks[0].height).toBeCloseTo(left.blocks[1].height, 6);
     expect(right.blocks[0].height).toBeCloseTo(body.height, 6);
-    // 左列两块 + 间距 = 分区高
+    // 左列两块 + 间距 = 分区高（块盒高含模块 chrome）
     expect(left.blocks[0].height * 2 + BOARD_GAP).toBeCloseTo(body.height, 6);
   });
 
@@ -175,9 +176,9 @@ describe("分区高度与等高规则（A04/A05）", () => {
     expect(right2.blocks[0].height * 2 + BOARD_GAP).toBeCloseTo(body.height, 6);
   });
 
-  it("columnRequiredHeight: n*m + (n-1)*g（规格 §4.1.4 公式）", () => {
-    expect(columnRequiredHeight([40, 40, 40], 16)).toBe(40 * 3 + 16 * 2);
-    expect(columnRequiredHeight([100], 16)).toBe(100);
+  it("columnRequiredHeight: n*(m+chrome) + (n-1)*g（规格 §4.1.4 公式 + 模块自身内外边距）", () => {
+    expect(columnRequiredHeight([40, 40, 40], 16)).toBe((40 + 26) * 3 + 16 * 2);
+    expect(columnRequiredHeight([100], 16)).toBe(100 + 26);
   });
 });
 
@@ -198,7 +199,7 @@ describe("图片布局", () => {
     const scene = computeScene(doc, fakeMeasure);
     const body = scene.boards[0].sections[1];
     const inner = body.columnWidths[0] - BLOCK_PADDING * 2;
-    expect(body.columns[0].blocks[0].height).toBeCloseTo(inner / 2 + 0, 6);
+    expect(body.columns[0].blocks[0].height).toBeCloseTo(inner / 2 + 26, 6);
   });
 
   it("无资产/加载失败：占位高度，不折叠到 0", () => {

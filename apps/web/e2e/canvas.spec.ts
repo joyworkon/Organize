@@ -47,16 +47,20 @@ function boardStyle(page: Page) {
     }));
 }
 
+/** 真实渲染矩形（相对版面左上角）——CSS 等高/通栏必须用渲染结果验证，不能只读 style。 */
 async function blockRect(page: Page, index: number) {
+  const board = page.locator("[data-board-id]").first();
   const el = page.locator("[data-block-id]").nth(index);
   await expect(el).toBeVisible();
-  const style = (await el.getAttribute("style"))!;
-  return {
-    left: Number(/left: (-?[\d.]+)px/.exec(style)![1]),
-    top: Number(/top: (-?[\d.]+)px/.exec(style)![1]),
-    width: Number(/width: (-?[\d.]+)px/.exec(style)![1]),
-    height: Number(/height: (-?[\d.]+)px/.exec(style)![1]),
-  };
+  const rects = await page.evaluate(
+    ([boardEl, blockEl]) => {
+      const b = (boardEl as HTMLElement).getBoundingClientRect();
+      const r = (blockEl as HTMLElement).getBoundingClientRect();
+      return { left: r.left - b.left, top: r.top - b.top, width: r.width, height: r.height };
+    },
+    [await board.elementHandle(), await el.elementHandle()],
+  );
+  return rects;
 }
 
 test.describe("构思画布", () => {

@@ -20,6 +20,9 @@ import {
 /** 测量器：给定块与列内宽（已扣块内边距），返回内容自然高度。 */
 export type CanvasMeasure = (block: CanvasBlock, innerWidth: number) => number;
 
+/** 模块自身 chrome（上下内边距 + 上下 1px 边框）：内容高之外的最小盒高增量。 */
+export const BLOCK_CHROME = BLOCK_PADDING * 2 + 2;
+
 export interface SceneBlockBox {
   blockId: string;
   /** 世界坐标。 */
@@ -144,13 +147,14 @@ export function computeSmartWeights(args: {
   return [textOuter, clamped];
 }
 
-/** 单列需要的高度：n 个等高块 + (n-1) 个纵距（规格 §4.1.4）。 */
+/** 单列需要的高度：n 个等高块（内容 m + 模块 chrome）+ (n-1) 个纵距（规格 §4.1.4）。 */
 export function columnRequiredHeight(
   naturalHeights: number[],
   gap: number,
+  chrome: number = BLOCK_CHROME,
 ): number {
   if (naturalHeights.length === 0) return 0;
-  const m = Math.max(...naturalHeights);
+  const m = Math.max(...naturalHeights) + chrome;
   return naturalHeights.length * m + (naturalHeights.length - 1) * gap;
 }
 
@@ -214,12 +218,12 @@ function freeItemHeight(
 ): number {
   const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
   if (item.block.type === "image") {
-    return imageNaturalHeight(item.block, inner) + BLOCK_PADDING * 2;
+    return imageNaturalHeight(item.block, inner) + BLOCK_CHROME;
   }
   const natural = item.block.text.trim()
     ? measure(item.block, inner)
     : MIN_TEXT_CONTENT_HEIGHT;
-  return natural + BLOCK_PADDING * 2;
+  return natural + BLOCK_CHROME;
 }
 
 /** 计算整张场景的世界坐标几何。 */
