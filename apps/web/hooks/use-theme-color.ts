@@ -28,14 +28,14 @@ export interface BrandColorConfig {
 }
 
 export const BRAND_COLOR: BrandColorConfig = {
-  primary: '215 32% 44.5%',
+  primary: '3 82% 46%',
   primaryFg: '0 0% 100%',
-  ring: '215 32% 44.5%',
-  primaryText: '215 32% 44.5%',
-  primaryDark: '215 29% 58%',
+  ring: '3 82% 46%',
+  primaryText: '3 75% 42%',
+  primaryDark: '5 89% 68%',
   primaryFgDark: '220 10% 10%',
-  primaryTextDark: '215 29% 58%',
-  ringDark: '215 29% 58%',
+  primaryTextDark: '5 89% 72%',
+  ringDark: '5 89% 68%',
 };
 
 /**

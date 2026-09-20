@@ -100,7 +100,10 @@ self.addEventListener("fetch", (event) => {
   // 2) 构建产物（URL 带内容哈希，天然版本隔离）：cache-first。caches.match 不限定
   //    缓存名，跨版本命中——未刷新的旧标签页仍能取到旧版本缓存里的旧 chunk。
   //    404 等错误响应原样透传，不伪造成功。
-  if (url.pathname.startsWith("/_next/static/")) {
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/fonts/")
+  ) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>

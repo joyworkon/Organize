@@ -46,6 +46,7 @@ import { BlockMultiSelect } from "./extensions/block-multi-select";
 import { BlockStyle } from "./extensions/block-style";
 import { TaskItemLinked } from "./extensions/task-item-linked";
 import { TaskItemToggleGuard } from "./extensions/task-item-toggle-guard";
+import { SectionCardDecorations } from "./extensions/section-card-decorations";
 import { BLOCK_ID_TYPES } from "./block-utils";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 
@@ -163,6 +164,7 @@ export function buildEditorExtensions(options: {
     }),
     TransformedBlockSelection,
     BlockMultiSelect,
+    SectionCardDecorations,
     BlockStyle,
     ListBackspaceFix,
     uniqueId,
@@ -177,4 +179,3 @@ export function buildEditorExtensions(options: {
       : []),
   ];
 }
-

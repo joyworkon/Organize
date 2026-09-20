@@ -2,13 +2,12 @@ import { NavigateBridge } from "@/components/desktop/navigate-bridge";
 import { MemoSyncBridge } from "@/components/desktop/memo-sync-bridge";
 import { NotificationNavigate } from "@/components/platform/notification-navigate";
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import "./misans.css";
 import "./globals.css";
 import "./mobile.css";
 import { ServiceWorkerRegistrar } from "@/components/layout/sw-registrar";
 import { WebViewCompat } from "@/components/platform/webview-compat";
-
-const inter = Inter({ subsets: ["latin"] });
+import { FontReadyBridge } from "@/components/platform/font-ready-bridge";
 
 export const metadata: Metadata = {
   title: "Cairn - 智能笔记工具",
@@ -29,12 +28,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body>
         {children}
         <WebViewCompat />
         <NavigateBridge />
         <NotificationNavigate />
         <MemoSyncBridge />
+        <FontReadyBridge />
         <ServiceWorkerRegistrar />
       </body>
     </html>
