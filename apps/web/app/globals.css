@@ -27,7 +27,8 @@
     --secondary: 211 68% 96%;
     --secondary-foreground: 220 10% 14%;
     --muted: 210 32% 96%;
-    --muted-foreground: 220 6% 44%;
+    /* 蓝色画布上的次要正文仍须达到 WCAG AA（14px 文字至少 4.5:1）。 */
+    --muted-foreground: 220 6% 40%;
     --accent: 211 63% 94%;
     --accent-foreground: 220 10% 14%;
     --destructive: 4 76% 40%;
@@ -182,9 +183,10 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity 120ms ease;
-  /* 全值 muted-foreground：/0.85 叠在页面底色上仅 3.9:1（axe color-contrast），
-     hover/focus-within 显示时对键盘用户可见，须 ≥4.5:1（C02 第四轮） */
-  color: hsl(var(--muted-foreground));
+  /* 红色标题区里的小号操作用白色实体胶囊承载，避免小字直接落在亮红底上。 */
+  border: 1px solid hsl(var(--card) / 0.72);
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
 }
 .note-page-title-zone:hover .note-page-icon-actions .note-page-add-btn,
 .note-page-title-zone:focus-within .note-page-icon-actions .note-page-add-btn {
@@ -224,7 +226,7 @@
     height: 2rem;
     padding: 0 0.5rem;
     font-size: 0.75rem;
-    opacity: 0.75;
+    opacity: 1;
   }
   .note-page-icon-actions {
     min-height: 56px;
