@@ -42,29 +42,6 @@ test("visual: 搭建完整骨架并截图", async ({ page }) => {
   await page.keyboard.type("底部通栏说明——海报、卡片与演示页面的快速原型。");
 
   await page.waitForTimeout(800);
-  const audit = await page.evaluate(() => {
-    const board = document.querySelector("[data-board-id]") as HTMLElement;
-    const sections = [...document.querySelectorAll("[data-section-id]")].map((el) => {
-      const s = (el as HTMLElement).style;
-      return `top=${s.top} h=${s.height}`;
-    });
-    const blocks = [...document.querySelectorAll("[data-block-id]")].map((el) => {
-      const s = (el as HTMLElement).style;
-      return `top=${s.top} h=${s.height}`;
-    });
-    return { boardH: board.style.height, sections, blocks };
-  });
-  console.log("AUDIT3:", JSON.stringify(audit));
-  const rects = await page.evaluate(() => {
-    const board = document.querySelector("[data-board-id]")!.getBoundingClientRect();
-    const world = document.querySelector(".canvas-world")!.getBoundingClientRect();
-    const blocks = [...document.querySelectorAll("[data-block-id]")].map((el) => {
-      const r = el.getBoundingClientRect();
-      return { t: Math.round(r.top - board.top), b: Math.round(r.bottom - board.top), text: (el.textContent || "").slice(0, 8) };
-    });
-    return { boardH: Math.round(board.height), worldTop: Math.round(world.top), blocks };
-  });
-  console.log("RECTS:", JSON.stringify(rects));
   await page.screenshot({ path: "/tmp/canvas-editor-light.png" });
 
   // 暗色主题
