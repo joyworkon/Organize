@@ -50,13 +50,18 @@ export interface CanvasTextBlock {
 
 /** 图片必须保存原始尺寸；ratio = naturalWidth / naturalHeight（规格 §4.2）。 */
 export interface CanvasImageAsset {
-  /** 持久资源地址（真实：/storage/...；mock：mock-image:<key>）。禁止 blob: 进文档。 */
+  /**
+   * 持久资源地址（真实：/storage/... 或 https；mock：mock-image:<key>）。
+   * pending/failed 资产允许为空串（占位），但绝不保存 blob: 短期地址。
+   */
   url: string;
   naturalWidth: number;
   naturalHeight: number;
   name?: string;
   /** pending/failed = 仅本机预览或上传失败，未持久化（规格 §6.4）。 */
   uploadStatus?: "saved" | "pending" | "failed";
+  /** pending 资产的本机 Blob 键（IndexedDB，按账号隔离），供刷新后恢复/重试。 */
+  localKey?: string;
 }
 
 export type CanvasImageFit = "contain" | "cover";

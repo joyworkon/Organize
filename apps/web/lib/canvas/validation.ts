@@ -112,15 +112,24 @@ function validateBlock(
         return true;
       }
       const a = b.asset as Record<string, unknown>;
-      if (typeof a.url !== "string" || a.url.length === 0 || a.url.length > CANVAS_LIMITS.maxAssetUrlLength) {
+      const status = typeof a.uploadStatus === "string" ? a.uploadStatus : "saved";
+      if (typeof a.url !== "string" || a.url.length > CANVAS_LIMITS.maxAssetUrlLength) {
         errors.push(`${path}.asset.url 非法`);
+      } else if (a.url === "") {
+        // pending/failed 占位允许空 url；saved 状态必须有持久地址
+        if (status === "saved" || status === undefined) {
+          errors.push(`${path}.asset.url 已保存资产不允许为空`);
+        }
       } else {
         const persistable =
           /^https?:\/\//.test(a.url) || a.url.startsWith("/storage/");
         const mockOk = options.allowMockImages === true && a.url.startsWith("mock-image:");
         if (!persistable && !mockOk) {
-          errors.push(`${path}.asset.url 不是可持久化资源（禁止 blob:/data:/mock 之外的前缀）`);
+          errors.push(`${path}.asset.url 不是可持久化资源（禁止 blob:/data: 等短期地址）`);
         }
+      }
+      if (a.localKey !== undefined && (typeof a.localKey !== "string" || a.localKey.length > 128)) {
+        errors.push(`${path}.asset.localKey 非法`);
       }
       if (!isFiniteNumber(a.naturalWidth) || a.naturalWidth <= 0 || a.naturalWidth > CANVAS_LIMITS.maxDimension) {
         errors.push(`${path}.asset.naturalWidth 非法`);
