@@ -25,6 +25,11 @@ export function mobileRoute(pathname: string, params = new URLSearchParams()) {
     detail = (pathname !== "/tasks" && !taskTools.has(pathname)) || Boolean(params.get("task"));
   } else if (pathname === "/memos") { section = "memos"; title = "速记"; }
   else if (pathname === "/graph") { section = "notes"; title = "知识图谱"; }
+  else if (pathname === "/canvas") { section = null; title = "构思画布"; }
+  else if (pathname.startsWith("/canvas/")) {
+    // 画布详情：手机只读预览（规格 §1），detail=true 隐藏底栏，由页面提供返回/缩放
+    section = null; title = "构思画布"; detail = true;
+  }
   else if (pathname === "/tags") { section = "library"; title = "标签管理"; }
   else if (pathname === "/lessons" || pathname.startsWith("/lessons/")) { section = "tasks"; title = "经验"; }
   else {
