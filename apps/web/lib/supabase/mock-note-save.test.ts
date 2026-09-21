@@ -27,6 +27,7 @@ describe("mock save_note_with_tasks", () => {
       full_width: true,
       font_family: "mono",
       small_font: true,
+      page_template: "red-blue",
     };
     const result = await client.rpc("save_note_with_tasks", {
       p_note_id: "note-1",

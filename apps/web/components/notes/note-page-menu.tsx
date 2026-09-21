@@ -25,11 +25,13 @@ import {
   Paperclip,
 } from "@/components/icons";
 import type { DsIconComponent } from "@/components/icons";
-import type { NoteFont } from "@organize/shared";
+import type { NoteFont, NoteTemplate } from "@organize/shared";
 
 interface NotePageMenuProps {
   /** N03：只读角色隐藏会写库的设置/动作（全宽/字体/移动/副本/删除等） */
   readOnly?: boolean;
+  pageTemplate?: NoteTemplate;
+  onTemplateChange?: (template: NoteTemplate) => void;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
   font: NoteFont;
@@ -105,6 +107,8 @@ function commandMatches(item: MenuItem, query: string): boolean {
 
 export function NotePageMenu({
   readOnly = false,
+  pageTemplate = "default",
+  onTemplateChange,
   fullWidth,
   onToggleFullWidth,
   font,
@@ -134,6 +138,17 @@ export function NotePageMenu({
 
   /** 构建菜单项数据（每次渲染从 props 派生，确保回调和 checked 状态是最新的） */
   const sections: MenuSection[] = useMemo(() => [
+    ...(onTemplateChange ? [{
+      label: "笔记模板",
+      items: ([{ value: "default", label: "默认 · 简洁笔记" }, { value: "red-blue", label: "红蓝 · 圆角卡片" }] as const).map((option) => ({
+        id: `template-${option.value}`,
+        type: "radio" as const,
+        label: option.label,
+        keywords: ["template", "模板", "样式"],
+        checked: pageTemplate === option.value,
+        onSelect: () => onTemplateChange(option.value),
+      })),
+    }] : []),
     {
       label: "页面显示",
       labelIcon: Maximize2,
@@ -253,7 +268,7 @@ export function NotePageMenu({
         }] : []),
       ],
     },
-  ], [font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onOpenAttachments, onExport, onDelete]);
+  ], [pageTemplate, onTemplateChange, font, smallFont, fullWidth, tocOpen, onFontChange, onToggleSmallFont, onToggleFullWidth, onToggleToc, onCopyLink, onCopyContent, onDuplicate, onMove, onShowHistory, onOpenAttachments, onExport, onDelete]);
 
   // N03：只读角色隐藏会变更持久内容的条目（页面显示设置/字体/移动/副本/删除）；
   // 拷贝、目录、附件与历史查看等只读动作保留
@@ -262,7 +277,7 @@ export function NotePageMenu({
       ? sections
           .map((section) => ({
             ...section,
-            items: section.items.filter((item) => !MUTATING_ITEM_IDS.has(item.id)),
+            items: section.items.filter((item) => !MUTATING_ITEM_IDS.has(item.id) && !item.id.startsWith("template-")),
           }))
           .filter((section) => section.items.length > 0)
       : sections,

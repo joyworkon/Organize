@@ -7,7 +7,7 @@ import UniqueID from "@tiptap/extension-unique-id";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
-import { NodeSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import type { EditorView } from "@tiptap/pm/view";
 import type { JSONContent } from "@tiptap/core";
@@ -110,6 +110,7 @@ import { createCollabSeedController } from "./collab-seeding";
 export type { TransactionSource };
 
 interface EditorProps {
+  pageTemplate?: "default" | "red-blue";
   noteId: string;
   noteTitle?: string;
   content: Record<string, unknown>;
@@ -148,6 +149,129 @@ interface EditorProps {
   } | null;
 }
 
+interface SectionHeadingOverlay {
+  pos: number;
+  value: string;
+  top: number;
+  right: number;
+  height: number;
+}
+
+/** Editable labels live outside ProseMirror's managed DOM so an empty heading
+ * remains safe for IME input and template toggles cannot invalidate DOM anchors. */
+function SectionHeadingLabels({
+  editor,
+  rootRef,
+  enabled,
+  editable,
+}: {
+  editor: Editor;
+  rootRef: { current: HTMLDivElement | null };
+  enabled: boolean;
+  editable: boolean;
+}) {
+  const [items, setItems] = useState<SectionHeadingOverlay[]>([]);
+
+  const measure = useCallback(() => {
+    const root = rootRef.current;
+    if (!enabled || !root || editor.isDestroyed) {
+      setItems([]);
+      return;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const next = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        ".organize-editor.prose > h1.organize-section-card-first"
+      )
+    ).flatMap((heading) => {
+      const pos = editor.view.posAtDOM(heading, 0) - 1;
+      const node = editor.state.doc.nodeAt(pos);
+      if (!node || node.type.name !== "heading" || node.attrs.level !== 1) return [];
+      const rect = heading.getBoundingClientRect();
+      const style = getComputedStyle(heading);
+      const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+      const paddingInline = Number.parseFloat(style.paddingLeft) || 0;
+      const lineHeight = Number.parseFloat(style.lineHeight) || 38;
+      const textRange = document.createRange();
+      textRange.selectNodeContents(heading);
+      const textRect = textRange.getBoundingClientRect();
+      const hasMeasuredText = Boolean(heading.textContent?.trim()) && textRect.height > 0;
+      return [{
+        pos,
+        value: node.attrs.sectionLabel || "Title",
+        top: hasMeasuredText
+          ? textRect.top - rootRect.top
+          : rect.top - rootRect.top + paddingTop,
+        right: rootRect.right - rect.right + paddingInline,
+        // Keep the arrow baseline with the last rendered title line when a
+        // narrow canvas wraps the heading, while preserving one-line layout.
+        height: hasMeasuredText ? Math.max(lineHeight, textRect.height) : lineHeight,
+      }];
+    });
+    setItems(next);
+  }, [editor, enabled, rootRef]);
+
+  useEffect(() => {
+    measure();
+    if (!enabled) return;
+    const schedule = () => requestAnimationFrame(measure);
+    editor.on("update", schedule);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    const observer = new ResizeObserver(schedule);
+    if (rootRef.current) observer.observe(rootRef.current);
+    return () => {
+      editor.off("update", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      observer.disconnect();
+    };
+  }, [editor, enabled, measure, rootRef]);
+
+  return (
+    <div
+      className="note-section-label-layer"
+      aria-hidden={!enabled || !editable}
+      hidden={!enabled || items.length === 0}
+    >
+      {items.map((item) => (
+        <div
+          key={`${item.pos}-${item.value}`}
+          className="organize-section-heading-suffix"
+          style={{ top: item.top, right: item.right, height: item.height }}
+        >
+          <input
+            className="organize-section-heading-label"
+            aria-label="章节英文标题"
+            defaultValue={item.value}
+            maxLength={40}
+            readOnly={!editable}
+            tabIndex={editable ? 0 : -1}
+            onBlur={(event) => {
+              if (!editable) return;
+              const node = editor.state.doc.nodeAt(item.pos);
+              if (!node || node.type.name !== "heading") return;
+              const value = event.currentTarget.value.trim() || "Title";
+              editor.view.dispatch(editor.state.tr.setNodeMarkup(item.pos, undefined, {
+                ...node.attrs,
+                sectionLabel: value,
+              }));
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== "Escape") return;
+              event.preventDefault();
+              if (event.key === "Escape") event.currentTarget.value = item.value;
+              event.currentTarget.blur();
+              editor.commands.focus();
+            }}
+          />
+          <span className="organize-section-heading-arrow" aria-hidden="true">←</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 // B04（R09 续）：气泡工具栏与块交互纯函数层拆出（纯移动；keydown 提为可单测工厂）
 import { BubbleToolbar } from "./bubble-toolbar";
@@ -172,6 +296,7 @@ import {
 export function TipTapEditor({
   noteId,
   noteTitle = "",
+  pageTemplate = "default",
   content,
   onUpdate,
   onEditorReady,
@@ -182,6 +307,8 @@ export function TipTapEditor({
   /** 匿名可编辑公开链接（072）：true 时拦截本端 taskItem 勾选（远端同步不受影响） */
   disableTaskItemToggle = false,
 }: EditorProps) {
+  const pageTemplateRef = useRef(pageTemplate);
+  pageTemplateRef.current = pageTemplate;
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -228,6 +355,7 @@ export function TipTapEditor({
       buildEditorExtensions({
         collab,
         disableTaskItemToggle,
+        sectionCardsEnabled: () => pageTemplateRef.current === "red-blue",
         getInternalLinkStates: () => internalLinkStatesRef.current,
       }),
     [collab, disableTaskItemToggle]
@@ -1262,6 +1390,11 @@ export function TipTapEditor({
     return () => observer.disconnect();
   }, [editor]);
 
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false));
+  }, [editor, pageTemplate]);
+
   if (!editor) return null;
 
   return (
@@ -1272,6 +1405,27 @@ export function TipTapEditor({
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
       data-table-fullscreen={tableFullscreen ? "true" : "false"}
     >
+      <SectionHeadingLabels
+        editor={editor}
+        rootRef={rootRef}
+        enabled={pageTemplate === "red-blue"}
+        editable={editable}
+      />
+      <button
+        type="button"
+        className="note-new-section"
+        hidden={pageTemplate !== "red-blue" || !editable}
+        tabIndex={pageTemplate === "red-blue" && editable ? 0 : -1}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          const pos = editor.state.doc.content.size;
+          const paragraph = editor.schema.nodes.paragraph.create({ sectionStart: true });
+          const transaction = editor.state.tr.insert(pos, paragraph);
+          transaction.setSelection(TextSelection.near(transaction.doc.resolve(pos + 1), 1));
+          editor.view.dispatch(transaction.scrollIntoView());
+          editor.view.focus();
+        }}
+      >＋ 新背景块</button>
       <BubbleMenu
         editor={editor}
         shouldShow={shouldShowTextToolbar}

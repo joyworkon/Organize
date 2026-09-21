@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -21,9 +21,9 @@ const NOTE_ID_RE = /^\/notes\/([^/]+)/;
 
 /**
  * 桌面端顶部笔记标签页条（Chrome 式）：
- * - 只在打开某篇笔记（/notes/[id]）且确有标签时显示；笔记列表页 /notes 不渲染
+ * - 只在打开某篇笔记（/notes/[id]）时显示；笔记列表页 /notes 不渲染
  *   （原来在列表页也挂一条带前进/后退/「+」的空壳条，那里既没有"上一篇"语义也与页头动作重复）
- * - 不再提供浏览器式前进/后退与条上「+」：前者与浏览器/侧栏导航重复，后者与页头「新建笔记」重复
+ * - 不提供浏览器式前进/后退；右侧常驻「+」创建笔记并打开标签页
  * - 访问 /notes/[id] 自动开标签，标题/图标由笔记页经 organize:note-tab 事件回填
  * - 点标签切换、X 或中键关闭，关闭当前标签后聚焦左侧邻位（无则右侧/回列表）
  * - 右侧「+」新建笔记；标签持久化，刷新后恢复
@@ -34,6 +34,7 @@ export function NoteTabsBar() {
   const isNoteDetailRoute = pathname.startsWith("/notes/");
   const router = useRouter();
   const tabs = useOpenTabsStore((state) => state.tabs);
+  const ownerId = useOpenTabsStore((state) => state.ownerId);
   const openTab = useOpenTabsStore((state) => state.openTab);
   const updateMeta = useOpenTabsStore((state) => state.updateMeta);
   const removeTab = useOpenTabsStore((state) => state.removeTab);
@@ -49,13 +50,38 @@ export function NoteTabsBar() {
     setMounted(true);
   }, []);
 
+  const supabase = useMemo(() => createClient(), []);
+  const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
+  const handleNewNote = async () => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
+    setCreating(true);
+    try {
+      const result = await createNewNote(supabase);
+      if (result.status === "failed" || result.status === "unauthenticated") {
+        toast({ title: describeCreateNoteResult(result), variant: "destructive" });
+        return;
+      }
+      if (result.status === "queued") toast({ title: describeCreateNoteResult(result) });
+      openTab({ id: result.noteId, title: "", icon: null });
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      router.push(`/notes/${result.noteId}`);
+    } catch {
+      toast({ title: "新建笔记失败，请重试", variant: "destructive" });
+    } finally {
+      creatingRef.current = false;
+      setCreating(false);
+    }
+  };
+
   const activeId = pathname.match(NOTE_ID_RE)?.[1] ?? null;
 
   // 路由进入某篇笔记 → 确保它有标签页（标题先占位，笔记页加载后事件回填）
   useEffect(() => {
-    if (!activeId) return;
+    if (!activeId || !ownerId) return;
     openTab({ id: activeId, title: "", icon: null });
-  }, [activeId, openTab]);
+  }, [activeId, ownerId, openTab]);
 
   // 笔记页加载/标题变更 → 回填标签页与最近列表的展示
   useEffect(() => {
@@ -87,9 +113,9 @@ export function NoteTabsBar() {
     router.push(neighborId ? `/notes/${neighborId}` : "/notes");
   };
 
-  // 非笔记详情页 / 无标签时不渲染（hooks 已全部声明完毕，事件监听保持挂载以便回填 store）
+  // 非笔记详情页不渲染（hooks 已全部声明完毕，事件监听保持挂载以便回填 store）
   if (!isNoteDetailRoute) return null;
-  if (mounted && tabs.length === 0) return null;
+  // Keep the new-note control reachable while the account-bound tabs hydrate.
 
   return (
     <>
@@ -158,6 +184,11 @@ export function NoteTabsBar() {
             );
           })}
       </div>
+      <button type="button" aria-label="新建笔记并打开标签页" title="新建笔记" disabled={creating}
+        onClick={() => void handleNewNote()}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">
+        {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+      </button>
     </div>
     </>
   );

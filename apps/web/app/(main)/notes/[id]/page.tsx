@@ -22,6 +22,7 @@ import {
   type NoteSaveSession,
 } from "@/lib/notes/note-save-session";
 import { enqueueNoteDelete } from "@/lib/offline/note-delete-queue";
+import type { NoteTemplate } from "@organize/shared";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
 import type { NoteFont, Tag } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
@@ -132,6 +133,7 @@ export default function NoteEditorPage() {
   /** 加载失败原因：not-found=在线确认不存在；offline=离线导致查询失败（服务器可能有数据） */
   const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | null>(null);
   const [fullWidth, setFullWidth] = useState(false);
+  const [pageTemplate, setPageTemplate] = useState<NoteTemplate>("default");
   const [font, setFont] = useState<NoteFont>("default");
   const [smallFont, setSmallFont] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -212,6 +214,7 @@ export default function NoteEditorPage() {
     full_width: false,
     font_family: "default",
     small_font: false,
+    page_template: "default",
   });
   const userIdRef = useRef<string | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -321,6 +324,7 @@ export default function NoteEditorPage() {
       noteRoleRef.current = null;
       setNoteRole(null);
       setSeedContent(null);
+      setPageTemplate("default");
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
       // 时 getUser 会返回 null，导致队列回退初始化与草稿持久化（userIdRef）都不执行
       const {
@@ -365,6 +369,7 @@ export default function NoteEditorPage() {
         setFullWidth(dbFullWidth);
         setFont(dbFont);
         setSmallFont(dbSmallFont);
+        setPageTemplate(data.page_template === "red-blue" ? "red-blue" : "default");
         setLoadedRevision({ noteId, revision: Number(data.content_revision ?? 0) });
         const remoteDraft: NoteDraft = {
           title: loadedTitle,
@@ -376,6 +381,7 @@ export default function NoteEditorPage() {
           full_width: dbFullWidth,
           font_family: dbFont,
           small_font: dbSmallFont,
+          page_template: data.page_template === "red-blue" ? "red-blue" : "default",
         };
         draftRef.current = remoteDraft;
         appEvents.emit("note:opened", { noteId, title: loadedTitle });
@@ -432,6 +438,7 @@ export default function NoteEditorPage() {
           const initContent =
             (pendingNote.content as Record<string, unknown> | null) ||
             { type: "doc", content: [{ type: "paragraph" }] };
+          setPageTemplate("default");
           setTitle(initTitle);
           setContent(initContent);
           setSeedContent(initContent);
@@ -447,6 +454,7 @@ export default function NoteEditorPage() {
             full_width: false,
             font_family: "default",
             small_font: false,
+            page_template: "default",
           };
         } else if (!isOnline()) {
           // 离线打开一篇服务器上已有的笔记：查询失败≠笔记不存在，
@@ -619,6 +627,7 @@ export default function NoteEditorPage() {
     setFullWidth(draft.full_width);
     setFont(draft.font_family);
     setSmallFont(draft.small_font);
+    setPageTemplate(draft.page_template ?? "default");
     // 就地合并（保持草稿对象身份——保存会话按身份绑定归属；整体替换会被视为切稿）
     Object.assign(draftRef.current, draft);
     editorRef.current?.commands.setContent(
@@ -816,6 +825,13 @@ export default function NoteEditorPage() {
     queueSave();
   };
 
+  const changePageTemplate = (next: NoteTemplate) => {
+    if (!capabilities.canEdit) return;
+    setPageTemplate(next);
+    draftRef.current.page_template = next;
+    queueSave();
+  };
+
   const changeFont = (next: NoteFont) => {
     setFont(next);
     draftRef.current.font_family = next;
@@ -984,6 +1000,7 @@ export default function NoteEditorPage() {
           full_width: fullWidth,
           font_family: font,
           small_font: smallFont,
+          page_template: pageTemplate,
         })
         .select()
         .single();
@@ -1010,6 +1027,7 @@ export default function NoteEditorPage() {
     fullWidth,
     font,
     smallFont,
+    pageTemplate,
   ]);
 
   /** 导出当前页为 Markdown：点击瞬间捕获本地快照，不依赖网络保存成功。
@@ -1271,6 +1289,7 @@ export default function NoteEditorPage() {
       <div
         className={cn(
           "note-page organize-lane-full mx-auto max-w-none",
+          pageTemplate === "red-blue" && "note-template-red-blue",
           font === "serif" && "note-page-serif",
           font === "mono" && "note-page-mono",
           smallFont && "note-page-small",
@@ -1351,6 +1370,8 @@ export default function NoteEditorPage() {
             </Button>
             <NotePageMenu
               readOnly={capabilities.isViewer}
+              pageTemplate={pageTemplate}
+              onTemplateChange={changePageTemplate}
               fullWidth={fullWidth}
               onToggleFullWidth={toggleFullWidth}
               font={font}
@@ -1509,6 +1530,7 @@ export default function NoteEditorPage() {
             key={noteId}
             noteId={noteId}
             noteTitle={title}
+            pageTemplate={pageTemplate}
             content={content}
             editable={capabilities.canEdit && collabResolved}
             collab={editorCollab}

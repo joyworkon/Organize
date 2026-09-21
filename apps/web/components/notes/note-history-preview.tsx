@@ -37,6 +37,7 @@ import { Mermaid } from "@/components/editor/extensions/mermaid-node";
 import { Embed } from "@/components/editor/extensions/embed";
 import { SyncedBlock } from "@/components/editor/extensions/synced-block";
 import { DatabaseBlock } from "@/components/editor/extensions/database-block";
+import { SectionCardDecorations } from "@/components/editor/extensions/section-card-decorations";
 import { BLOCK_ID_TYPES } from "@/components/editor/block-utils";
 
 /**
@@ -84,6 +85,7 @@ const previewExtensions = [
   SyncedBlock,
   DatabaseBlock,
   BlockStyle,
+  SectionCardDecorations,
   UniqueID.configure({ types: BLOCK_ID_TYPES }),
 ];
 
