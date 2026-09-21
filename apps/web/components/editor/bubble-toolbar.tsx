@@ -445,7 +445,7 @@ export function BubbleToolbar({
   };
 
   return (
-    <div className="flex items-center gap-0.5 rounded-lg border bg-popover px-1.5 py-1 shadow-lg">
+    <div className="organize-bubble-toolbar flex items-center gap-0.5 rounded-lg border bg-popover px-1.5 py-1 shadow-lg">
       {/* 块类型选择器（二级菜单） */}
       <Dropdown
         trigger={(open) => (

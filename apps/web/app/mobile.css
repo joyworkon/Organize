@@ -110,6 +110,13 @@
   .mobile-task-scope button { min-height: 44px; }
   /* U-layout 第四步：待办移动工具行（筛选面板 + 视图开关）统一 44px 触控高 */
   .mobile-task-tools button { min-height: 44px; }
+  .organize-bubble-toolbar {
+    max-width: calc(100vw - 16px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .organize-bubble-toolbar::-webkit-scrollbar { display: none; }
   [data-mobile-detail="true"] .task-workspace-tabs { display: none; }
   [data-mobile-detail="true"] .organize-task-screen { height: calc(100dvh - var(--mobile-content-top) - env(safe-area-inset-bottom, 0px) - 16px); }
   [data-mobile-detail="true"] .task-workspace { gap: 0; }
