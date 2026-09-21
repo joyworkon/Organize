@@ -110,7 +110,8 @@
   body {
     @apply bg-background text-foreground;
     font-family: "MiSans VF", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    font-variation-settings: "wght" 330;
+    /* Use font-weight so bold/headings can select their own variable-font weight. */
+    font-weight: 330;
   }
   a {
     color: inherit;
@@ -5431,262 +5432,209 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   .notch-panel-in, .notch-panel-out, .organize-capture-panel * { animation: none !important; transition: none !important; }
 }
 
-/* --------------------------------------------------------------------------
-   MiSans red / powder-blue visual system and chapter-card note theme
-   -------------------------------------------------------------------------- */
-
+/* Notes keep the original neutral page; red/blue is an explicit per-note template. */
 .note-page {
+  --background: 0 0% 98%;
+  --muted: 220 10% 96%;
+  --accent: 220 13% 94%;
+  --primary: 215 32% 44.5%;
+  --primary-text: 215 32% 44.5%;
+  background: hsl(var(--background));
+}
+.dark .note-page {
+  --background: 220 8% 10%;
+  --muted: 220 7% 16%;
+  --accent: 220 8% 20%;
+  --primary: 215 29% 58%;
+  --primary-text: 215 29% 58%;
+}
+/* The page owns the canvas. Outer layout padding caused a frame on all four sides. */
+.organize-main-content:has(> .note-page) { padding: 0; }
+.organize-main-content > .note-page {
+  margin: 0;
+  min-height: calc(100dvh - 40px);
+}
+.note-page-title-zone .note-page-icon-actions .note-page-add-btn {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.note-template-red-blue {
   --note-canvas: #dcedff;
-  --note-brand: #ff2b22;
+  --note-brand: #d92d25;
   --note-card: #ffffff;
-  --note-panel: #f3f4f6;
+  --note-panel: #f0f1f3;
   --note-ink: #272b31;
+  --note-card-padding: clamp(1.25rem, 3vw, 2rem);
+  --note-card-end-padding: clamp(1.25rem, 3vw, 2.25rem);
   background: var(--note-canvas);
-}
-
-.note-page-title-zone {
-  position: relative;
-  overflow: clip;
-  background: var(--note-brand);
-  color: #fff;
-}
-
-.note-page-title-zone::after {
-  content: "";
-  position: absolute;
-  right: clamp(1.5rem, 5vw, 5rem);
-  bottom: 1.4rem;
-  width: 5.5rem;
-  height: 0.35rem;
-  border-radius: 999px;
-  background: #fff;
-  opacity: 0.92;
-}
-
-.note-page-title-zone .note-title {
-  color: #fff;
-  font-weight: 700;
-  letter-spacing: -0.035em;
-}
-
-.note-page-title-zone .note-title::placeholder,
-.note-page-title-zone .note-page-add-btn,
-.note-page-title-zone .note-add-action {
-  color: rgb(255 255 255 / 0.74);
-}
-
-.note-page-title-zone .note-page-add-btn:hover,
-.note-page-title-zone .note-page-add-btn:focus-visible,
-.note-page-title-zone .note-page-icon:hover {
-  color: #fff;
-  background: rgb(255 255 255 / 0.14);
-}
-
-.note-page-body {
   color: var(--note-ink);
-  padding-bottom: clamp(2rem, 6vw, 5rem);
 }
-
-.note-page .organize-editor-shell {
-  margin-top: 0.5rem;
-}
-
-.note-page .organize-editor.prose {
-  padding-top: 0.5rem !important;
-  padding-bottom: 1rem !important;
-}
-
-/* Each top-level H1 starts a visually joined card. Decorations provide the
-   boundaries while the ProseMirror document remains ordinary headings/blocks. */
-.note-page .organize-editor.prose > .organize-section-card {
+.note-template-red-blue .note-page-title-zone { background: transparent; }
+.note-template-red-blue .note-title { color: var(--note-ink); }
+.note-template-red-blue .note-page-body { padding-bottom: 4rem; }
+.note-template-red-blue .note-title,
+.note-template-red-blue .note-meta-row { padding-inline: var(--note-card-padding); }
+.note-template-red-blue .organize-editor-shell { margin-top: 0.5rem; padding-bottom: 3rem; }
+/* Symmetric padding: never extend just the left side into the editor's marker gutter. */
+.note-template-red-blue .organize-editor.prose { padding: 0.5rem 0 1rem !important; }
+.note-template-red-blue .organize-editor.prose > .organize-section-card,
+.note-template-red-blue .organize-editor.prose > .tableWrapper:has(> table.organize-section-card) {
   box-sizing: border-box;
-  width: calc(100% + var(--organize-gutter));
-  max-width: none;
-  margin-top: 0 !important;
-  margin-right: 0 !important;
-  margin-bottom: 0 !important;
-  margin-left: calc(-1 * var(--organize-gutter)) !important;
-  padding: 0.34rem clamp(1rem, 3vw, 2rem) !important;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 !important;
+  padding: 0.5rem var(--note-card-padding) !important;
   border-radius: 0;
-  background: var(--note-card);
+  background-color: var(--note-card);
   background-clip: padding-box;
 }
-
-.note-page .organize-editor.prose > .organize-section-card-first {
-  margin-top: clamp(1rem, 3vw, 2rem) !important;
-  padding-top: clamp(1.25rem, 3vw, 2.25rem) !important;
-  border-start-start-radius: 28px;
-  border-start-end-radius: 28px;
+.note-template-red-blue .organize-editor.prose > .organize-section-card-first,
+.note-template-red-blue .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-first) {
+  margin-top: 1.5rem !important;
+  padding-top: var(--note-card-end-padding) !important;
+  border-start-start-radius: 24px;
+  border-start-end-radius: 24px;
 }
-
-.note-page .organize-editor.prose > .organize-section-card-last {
-  margin-bottom: clamp(1rem, 3vw, 2rem) !important;
-  padding-bottom: clamp(1.25rem, 3vw, 2.25rem) !important;
-  border-end-start-radius: 28px;
-  border-end-end-radius: 28px;
+.note-template-red-blue .organize-editor.prose > .organize-section-card-last,
+.note-template-red-blue .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-last) {
+  padding-bottom: var(--note-card-end-padding) !important;
+  border-end-start-radius: 24px;
+  border-end-end-radius: 24px;
 }
-
-/* TipTap's table NodeView inserts a wrapper around the decorated table node. */
-.note-page .organize-editor.prose > .tableWrapper:has(> table.organize-section-card) {
-  box-sizing: border-box;
-  width: calc(100% + var(--organize-gutter));
-  max-width: none;
-  margin: 0 0 0 calc(-1 * var(--organize-gutter)) !important;
-  padding: 0.5rem clamp(1rem, 3vw, 2rem) !important;
-  border: 0;
-  border-radius: 0;
-  background: var(--note-card);
-}
-
-.note-page .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-first) {
-  margin-top: clamp(1rem, 3vw, 2rem) !important;
-  padding-top: clamp(1.25rem, 3vw, 2.25rem) !important;
-  border-start-start-radius: 28px;
-  border-start-end-radius: 28px;
-}
-
-.note-page .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-last) {
-  margin-bottom: clamp(1rem, 3vw, 2rem) !important;
-  padding-bottom: clamp(1.25rem, 3vw, 2.25rem) !important;
-  border-end-start-radius: 28px;
-  border-end-end-radius: 28px;
-}
-
-@supports (corner-shape: squircle) {
-  .note-page .organize-editor.prose > .organize-section-card-first,
-  .note-page .organize-editor.prose > .organize-section-card-last,
-  .note-page .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-first),
-  .note-page .organize-editor.prose > .tableWrapper:has(> table.organize-section-card-last),
-  .note-page .organize-editor .tableWrapper,
-  .note-page .organize-editor :is(th, td) {
-    corner-shape: squircle;
-  }
-}
-
-.note-page .organize-editor.prose > h1.organize-section-card-first {
-  display: flex;
-  align-items: baseline;
-  gap: 0.35em;
+.note-template-red-blue .organize-editor.prose > h1.organize-section-card-first {
+  position: relative;
+  display: block;
+  padding-right: calc(var(--note-card-padding) + 5.5rem) !important;
   color: var(--note-brand);
   font-size: clamp(1.65rem, 4vw, 2.5rem);
   font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: -0.035em;
-}
-
-.note-page .organize-editor.prose > h1.organize-section-card-first::before {
-  content: "{";
-  flex: 0 0 auto;
-}
-
-.organize-section-heading-suffix {
-  display: contents;
-}
-
-.organize-section-heading-brace {
-  flex: 0 0 auto;
-}
-
-.organize-section-heading-label {
-  margin-left: auto;
-  color: var(--note-brand);
-  font-size: 0.72rem;
-  font-weight: 650;
   line-height: 1.2;
-  letter-spacing: 0.09em;
-  white-space: nowrap;
+  letter-spacing: -0.025em;
+  min-height: calc(var(--note-card-end-padding) + 1.2em + 0.5rem);
 }
-
-.note-page .organize-editor.prose > :is(h2, h3, h4).organize-section-card {
-  color: var(--note-brand);
-  font-weight: 650;
+.note-template-red-blue .organize-editor.prose > h1.organize-section-card-last {
+  min-height: calc(2 * var(--note-card-end-padding) + 1.2em);
 }
-
-/* Three-level rounded-square bullets. Task lists retain their real controls. */
-.note-page .organize-editor.prose ul:not([data-type="taskList"]) {
-  list-style: none !important;
-}
-
-.note-page .organize-editor.prose ul:not([data-type="taskList"]) > li {
-  position: relative;
-}
-
-.note-page .organize-editor.prose ul:not([data-type="taskList"]) > li::before {
-  content: "";
+.organize-section-heading-suffix {
   position: absolute;
-  top: 0.62em;
-  left: -1.05rem;
-  width: 0.58rem;
-  height: 0.58rem;
-  border: 1.5px solid var(--note-brand);
-  border-radius: 3px;
-  background: var(--note-brand);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  width: 5rem;
+  color: var(--note-brand);
+  user-select: none;
+  pointer-events: auto;
+  z-index: 4;
 }
-
-.note-page .organize-editor.prose ul ul:not([data-type="taskList"]) > li::before {
-  border-color: #a9afb8;
-  background: #a9afb8;
+.note-section-label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
 }
-
-.note-page .organize-editor.prose ul ul ul:not([data-type="taskList"]) > li::before {
-  border-color: #8e959f;
-  background: transparent;
-}
-
-/* Rounded-card table defaults; explicit user cell backgrounds still win. */
-.note-page .organize-editor .tableWrapper {
-  padding: 8px;
+.organize-section-heading-label {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
   border: 0;
-  border-radius: 18px;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  text-align: right;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.organize-section-heading-label:focus { outline: 1px solid currentColor; outline-offset: 3px; }
+.organize-section-heading-arrow { font-size: 1.5rem; line-height: 0.7; }
+@media (max-width: 480px) {
+  .note-template-red-blue .organize-editor.prose > h1.organize-section-card-first {
+    padding-right: calc(var(--note-card-padding) + 4.75rem) !important;
+  }
+  .note-template-red-blue .organize-section-heading-suffix { width: 4.5rem; }
+  .note-template-red-blue .organize-section-heading-label { font-size: 0.625rem; }
+}
+.note-template-red-blue .organize-editor.prose > :is(h2, h3, h4) { color: var(--note-brand); }
+/* Real content gets its own neutral surface inside the white card. */
+.note-template-red-blue .organize-editor.prose blockquote { border-left-color: #aeb4bd; font-style: normal; }
+.note-template-red-blue .organize-editor.prose blockquote > * {
+  background: var(--note-panel);
+  padding: 0.6rem 0.85rem;
+  border-radius: 6px;
+}
+.note-template-red-blue .organize-editor.prose pre { color: var(--note-ink); }
+.note-template-red-blue .organize-editor.prose pre code {
+  display: block;
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 8px;
+  background: var(--note-panel);
+  color: inherit;
+}
+/* Marker lane stays inside each card, including nested/task lists. */
+.note-template-red-blue .organize-editor.prose > :is(ul, ol).organize-section-card {
+  padding-left: calc(var(--note-card-padding) + 1.5rem) !important;
+}
+.note-template-red-blue .organize-editor.prose ul:not([data-type="taskList"]) > li::marker { color: var(--note-brand); }
+.note-template-red-blue .organize-editor .tableWrapper { border-radius: 12px; }
+.note-template-red-blue .organize-editor table { border-collapse: separate; border-spacing: 6px; }
+.note-template-red-blue .organize-editor :is(th, td) {
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
   background: var(--note-panel);
 }
-
-.note-page .organize-editor table {
-  border-collapse: separate;
-  border-spacing: 8px;
-}
-
-.note-page .organize-editor :is(th, td) {
-  border: 0;
-  border-radius: 10px;
-  padding: 0.7rem 0.85rem;
-  vertical-align: middle;
-  background: #f7f7f7;
-}
-
-.note-page .organize-editor table[data-table-color="default"] th {
+.note-template-red-blue .organize-editor table[data-table-color="default"] th {
   background: var(--note-brand);
   color: #fff;
-  text-align: center;
   font-weight: 700;
 }
-
-.dark .note-page {
+.note-new-section {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.6rem 1rem;
+  border: 1px dashed #879db5;
+  border-radius: 8px;
+  color: var(--note-ink);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+.note-new-section:hover, .note-new-section:focus-visible { background: var(--note-card); }
+.dark .note-template-red-blue {
   --note-canvas: #182331;
-  --note-brand: #ff5d54;
+  --note-brand: #ff7770;
   --note-card: #222c39;
-  --note-panel: #17202b;
+  --note-panel: #344050;
   --note-ink: #edf2f8;
 }
-
-.dark .note-page .organize-editor :is(td, th) {
-  background: #2a3543;
-}
-
-.dark .note-page .organize-editor table[data-table-color="default"] th {
-  background: var(--note-brand);
-  color: #17191c;
-}
-
-@media (max-width: 639px) {
-  .note-page-title-zone::after { display: none; }
-
-  .organize-section-heading-label {
-    display: none;
+.dark .note-template-red-blue .organize-editor table[data-table-color="default"] th { color: #17191c; }
+@media (max-width: 767px) {
+  .organize-main-content > .note-page { min-height: calc(100dvh - 3.5rem); }
+  .note-page-title-zone .note-page-icon-actions .note-page-add-btn { visibility: visible; opacity: 1; }
+  /* 空白笔记的三个入口在窄屏上等宽排列，避免内层按钮组只拿到剩余宽度后溢出。 */
+  .note-page-icon-actions.no-icon {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding-left: 0;
   }
-
-  .note-page .organize-editor.prose > .organize-section-card {
-    padding-inline: 1rem !important;
+  .note-page-icon-actions.no-icon > .note-page-add-btn {
+    width: 100%;
+  }
+  .note-page-icon-actions.no-icon > .note-page-add-actions {
+    display: contents;
+  }
+  .note-page-icon-actions.no-icon .note-page-add-btn {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    gap: 4px;
+    padding-inline: 0.25rem;
   }
 }
 

@@ -57,6 +57,7 @@ export async function PATCH(
     full_width,
     font_family,
     small_font,
+    page_template,
   } = body;
 
   const updateData: Record<string, unknown> = {};
@@ -125,6 +126,7 @@ export async function PATCH(
     updateData.font_family = font_family;
   }
   if (typeof small_font === "boolean") updateData.small_font = small_font;
+  if (page_template === "default" || page_template === "red-blue") updateData.page_template = page_template;
 
   // PATCH 会改动编辑器保存快照里的字段（标题/图标/父页面/排版等）。
   // 不递增 content_revision 的话，另一个标签页里打开本笔记的编辑器仍持有

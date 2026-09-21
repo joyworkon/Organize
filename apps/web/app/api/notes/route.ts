@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     full_width,
     font_family,
     small_font,
+    page_template,
   } = body;
 
   const { data, error } = await supabase
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
       full_width: typeof full_width === "boolean" ? full_width : false,
       font_family:
         font_family === "serif" || font_family === "mono" ? font_family : "default",
+      page_template: page_template === "red-blue" ? "red-blue" : "default",
       small_font: typeof small_font === "boolean" ? small_font : false,
     })
     .select()

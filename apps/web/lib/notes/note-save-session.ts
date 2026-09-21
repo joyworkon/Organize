@@ -667,6 +667,7 @@ export function createSupabaseNoteSaveTransport(
               ? (remote.font_family as "serif" | "mono")
               : "default",
           small_font: remote.small_font === true,
+          page_template: remote.page_template === "red-blue" ? "red-blue" : "default",
         },
         lastEditBy: (remote.last_edit_by as string | null) ?? null,
         contentRevision: Number(remote.content_revision ?? 0),

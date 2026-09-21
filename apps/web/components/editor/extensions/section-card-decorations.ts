@@ -2,86 +2,66 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-
-interface TopLevelBlock {
-  node: ProseMirrorNode;
-  pos: number;
-}
+import { BLOCK_ID_TYPES } from "../block-utils";
 
 function isChapterHeading(node: ProseMirrorNode) {
   return node.type.name === "heading" && node.attrs.level === 1;
 }
 
-/** Derive visual chapter cards without changing the serialized note JSON. */
+/** Visual grouping only: existing headings and content never get rewritten. */
 export function buildSectionCardDecorations(doc: ProseMirrorNode): DecorationSet {
-  const blocks: TopLevelBlock[] = [];
-  doc.forEach((node, offset) => blocks.push({ node, pos: offset }));
-  if (!blocks.length) return DecorationSet.empty;
-
-  const starts = blocks.reduce<number[]>((result, block, index) => {
-    if (index === 0 || isChapterHeading(block.node)) result.push(index);
+  const blocks: { node: ProseMirrorNode; pos: number }[] = [];
+  doc.forEach((node, pos) => blocks.push({ node, pos }));
+  const starts = blocks.reduce<number[]>((result, { node }, index) => {
+    if (index === 0 || isChapterHeading(node) || node.attrs.sectionStart) result.push(index);
     return result;
   }, []);
   const decorations: Decoration[] = [];
-
-  starts.forEach((startIndex, chapterIndex) => {
-    const endIndex = (starts[chapterIndex + 1] ?? blocks.length) - 1;
-    for (let index = startIndex; index <= endIndex; index += 1) {
-      const block = blocks[index];
-      const first = index === startIndex;
-      const last = index === endIndex;
-      decorations.push(
-        Decoration.node(block.pos, block.pos + block.node.nodeSize, {
-          class: [
-            "organize-section-card",
-            first ? "organize-section-card-first" : "",
-            last ? "organize-section-card-last" : "",
-          ].filter(Boolean).join(" "),
-          "data-section-index": String(chapterIndex),
-        })
-      );
-
-      if (first && isChapterHeading(block.node)) {
-        decorations.push(
-          Decoration.widget(
-            block.pos + block.node.nodeSize - 1,
-            () => {
-              const suffix = document.createElement("span");
-              suffix.className = "organize-section-heading-suffix";
-              suffix.contentEditable = "false";
-              suffix.setAttribute("aria-hidden", "true");
-
-              const brace = document.createElement("span");
-              brace.className = "organize-section-heading-brace";
-              brace.textContent = "}";
-
-              const label = document.createElement("span");
-              label.className = "organize-section-heading-label";
-              label.textContent = "INTRODUCTION  ↗";
-
-              suffix.append(brace, label);
-              return suffix;
-            },
-            { key: `section-heading-${block.pos}`, side: 1 }
-          )
-        );
-      }
+  starts.forEach((start, chapterIndex) => {
+    const end = (starts[chapterIndex + 1] ?? blocks.length) - 1;
+    for (let index = start; index <= end; index++) {
+      const { node, pos } = blocks[index];
+      decorations.push(Decoration.node(pos, pos + node.nodeSize, {
+        class: ["organize-section-card", index === start && "organize-section-card-first", index === end && "organize-section-card-last"].filter(Boolean).join(" "),
+        "data-section-index": String(chapterIndex),
+      }));
     }
   });
-
   return DecorationSet.create(doc, decorations);
 }
 
-export const SectionCardDecorations = Extension.create({
+export const SectionCardDecorations = Extension.create<{ enabled: () => boolean }>({
   name: "organizeSectionCardDecorations",
-
-  addProseMirrorPlugins() {
+  addOptions() { return { enabled: () => false }; },
+  addGlobalAttributes() {
     return [
-      new Plugin({
-        props: {
-          decorations: (state) => buildSectionCardDecorations(state.doc),
+      {
+        types: [...BLOCK_ID_TYPES, "bulletList", "orderedList", "taskList"],
+        attributes: {
+          sectionStart: {
+            default: false,
+            keepOnSplit: false,
+            parseHTML: (element) => element.hasAttribute("data-section-start"),
+            renderHTML: (attrs) => attrs.sectionStart ? { "data-section-start": "true" } : {},
+          },
         },
-      }),
+      },
+      {
+        types: ["heading"],
+        attributes: {
+          sectionLabel: {
+            default: "Title",
+            keepOnSplit: false,
+            parseHTML: (element) => element.getAttribute("data-section-label") || "Title",
+            renderHTML: (attrs) => attrs.sectionLabel !== "Title" ? { "data-section-label": attrs.sectionLabel } : {},
+          },
+        },
+      },
     ];
+  },
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      props: { decorations: (state) => this.options.enabled() ? buildSectionCardDecorations(state.doc) : DecorationSet.empty },
+    })];
   },
 });

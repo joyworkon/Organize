@@ -148,13 +148,14 @@ export function replaceBlock(editor: Editor, pos: number, content: JSONContent) 
   const node = editor.state.doc.nodeAt(pos);
   if (!node) return;
   const replacement = buildBlockReplacement(node, content);
+  if (node.attrs.sectionStart) replacement.attrs = { ...replacement.attrs, sectionStart: true };
   const replacementNode = editor.schema.nodeFromJSON(replacement);
   const tr = editor.state.tr
     .replaceWith(pos, pos + node.nodeSize, replacementNode)
     .scrollIntoView();
   // 替换出的列表若与前后相邻列表同类型，合并成一个列表，
   // 否则「转换成列表」会造出两个紧挨着却各自独立的列表（渲染成两段、编号断裂）
-  if (JOINABLE_LIST_TYPES.has(replacementNode.type.name)) {
+  if (JOINABLE_LIST_TYPES.has(replacementNode.type.name) && !replacementNode.attrs.sectionStart) {
     const $pos = tr.doc.resolve(pos);
     if ($pos.depth === 0 && $pos.nodeBefore && $pos.nodeBefore.type.name === replacementNode.type.name) {
       tr.join(pos);
@@ -164,7 +165,7 @@ export function replaceBlock(editor: Editor, pos: number, content: JSONContent) 
     if (merged) {
       const end = pos + merged.nodeSize;
       const $end = tr.doc.resolve(end);
-      if ($end.depth === 0 && $end.nodeAfter && $end.nodeAfter.type.name === merged.type.name) {
+      if ($end.depth === 0 && $end.nodeAfter && !$end.nodeAfter.attrs.sectionStart && $end.nodeAfter.type.name === merged.type.name) {
         tr.join(end);
       }
     }
@@ -419,6 +420,21 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
         ],
       }),
   })),
+  {
+    id: "section-card",
+    label: "新背景块",
+    description: "从这里开始新的圆角卡片（红蓝模板）",
+    category: "布局",
+    icon: PanelTop,
+    keywords: ["card", "section", "背景", "圆角", "分块"],
+    supportedContexts: TOP_ONLY_CONTEXTS,
+    run: (editor, pos) => {
+      const node = editor.state.doc.nodeAt(pos);
+      if (!node) return;
+      editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, sectionStart: true }));
+      editor.commands.focus();
+    },
+  },
   {
     id: "divider",
     label: "分隔线",

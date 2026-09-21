@@ -57,7 +57,7 @@ export function NoteHierarchyBar({
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           {index === path.length - 1 ? (
             <span className="note-hierarchy-current" title={note.title || "无标题笔记"}>
-              <span>{note.icon || "📄"}</span>
+              <span>{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
               {note.title || "无标题笔记"}
             </span>
           ) : (
@@ -66,7 +66,7 @@ export function NoteHierarchyBar({
               className="note-hierarchy-link"
               title={note.title || "无标题笔记"}
             >
-              <span>{note.icon || "📄"}</span>
+              <span>{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
               {note.title || "无标题笔记"}
             </Link>
           )}
@@ -99,7 +99,7 @@ export function NoteHierarchyBar({
               className={cn(!parentNoteId && "is-active")}
               onClick={() => onParentChange?.(null)}
             >
-              <span>📄</span>
+              <FileText className="h-4 w-4 text-muted-foreground" />
               <span>顶层笔记</span>
               {!parentNoteId && <Check className="h-4 w-4" />}
             </button>
@@ -110,7 +110,7 @@ export function NoteHierarchyBar({
                 className={cn(parentNoteId === note.id && "is-active")}
                 onClick={() => onParentChange?.(note.id)}
               >
-                <span>{note.icon || "📄"}</span>
+                <span>{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
                 <span>{note.title || "无标题笔记"}</span>
                 {parentNoteId === note.id && <Check className="h-4 w-4" />}
               </button>

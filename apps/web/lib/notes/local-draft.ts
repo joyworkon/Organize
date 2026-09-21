@@ -1,4 +1,4 @@
-import type { NoteFont } from "@organize/shared";
+import type { NoteFont, NoteTemplate } from "@organize/shared";
 
 export interface NoteDraftSnapshot {
   title: string;
@@ -10,6 +10,7 @@ export interface NoteDraftSnapshot {
   full_width: boolean;
   font_family: NoteFont;
   small_font: boolean;
+  page_template?: NoteTemplate;
 }
 
 export interface StoredNoteDraft {
@@ -48,6 +49,7 @@ function isNoteDraftSnapshot(value: unknown): value is NoteDraftSnapshot {
     && typeof draft.full_width === "boolean"
     && (draft.font_family === "default" || draft.font_family === "serif" || draft.font_family === "mono")
     && typeof draft.small_font === "boolean"
+    && (draft.page_template === undefined || draft.page_template === "default" || draft.page_template === "red-blue")
   );
 }
 
@@ -172,5 +174,6 @@ export function clearLocalNoteDraftForNote(storage: DraftStorage, noteId: string
 }
 
 export function areNoteDraftsEqual(left: NoteDraftSnapshot, right: NoteDraftSnapshot): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify({ ...left, page_template: left.page_template ?? "default" })
+    === JSON.stringify({ ...right, page_template: right.page_template ?? "default" });
 }

@@ -67,6 +67,7 @@ export interface EditorCollabBinding {
 export function buildEditorExtensions(options: {
   collab: EditorCollabBinding | null;
   disableTaskItemToggle: boolean;
+  sectionCardsEnabled?: () => boolean;
   getInternalLinkStates: () => Record<string, InternalLinkStateRow>;
 }) {
   const { collab, disableTaskItemToggle, getInternalLinkStates } = options;
@@ -164,7 +165,7 @@ export function buildEditorExtensions(options: {
     }),
     TransformedBlockSelection,
     BlockMultiSelect,
-    SectionCardDecorations,
+    SectionCardDecorations.configure({ enabled: options.sectionCardsEnabled ?? (() => false) }),
     BlockStyle,
     ListBackspaceFix,
     uniqueId,

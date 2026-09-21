@@ -22,6 +22,8 @@ export interface ReadingItem {
   full_width?: boolean;
 }
 
+export type NoteTemplate = "default" | "red-blue";
+
 // 笔记字体选项
 export type NoteFont = "default" | "serif" | "mono";
 
@@ -39,6 +41,7 @@ export interface Note {
   full_width?: boolean;
   font_family?: NoteFont;
   small_font?: boolean;
+  page_template?: NoteTemplate;
   deleted_at?: string | null;
   created_at: string;
   updated_at: string;
