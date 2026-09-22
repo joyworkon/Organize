@@ -3,7 +3,8 @@
 /**
  * 右侧属性栏（docs/idea-canvas-plan.md §5）：按选中对象显示紧凑属性。
  * 文本：角色/字号档/加粗/颜色/对齐/背景/圆角；图片：完整显示 vs 铺满裁切；
- * 版面：宽度/背景/圆角；自由容器：层级。不含无效占位控件。
+ * 版面：宽度/背景/圆角；自由容器：文本样式/图片显示与容器比例/层级/圆角。
+ * 不含无效占位控件。
  */
 
 import { useCallback } from "react";
@@ -33,6 +34,8 @@ import {
   textStyleKey,
   type ResolvedTextStyle,
 } from "@/lib/canvas/text-styles";
+import { canSmartRecompute } from "@/lib/canvas/layout";
+import type { CanvasImageRatio } from "@/lib/canvas/model";
 import type { CanvasStore } from "./canvas-store";
 import { useCanvasSelector } from "./use-canvas-selector";
 
@@ -130,23 +133,104 @@ export function CanvasPropertyBar({
 
   if (target.kind === "free") {
     const item = target.item;
+    const freeText = item.block.type === "text" ? item.block : null;
+    const freeImage = item.block.type === "image" ? item.block : null;
     return (
       <div className="canvas-property-bar" aria-label="自由容器属性">
-        <h3 className="canvas-prop-title">自由容器</h3>
+        <h3 className="canvas-prop-title">{freeText ? "自由文本" : "自由图片"}</h3>
         <p className="text-xs text-muted-foreground">自由定位，不参与自动排版。</p>
-        {item.block.type === "image" && (
-          <ModeRow
-            value={item.block.fit}
-            options={[
-              { value: "contain", label: "完整显示" },
-              { value: "cover", label: "铺满裁切" },
-            ]}
-            onChange={(fit) =>
-              store.getState().apply("切换图片显示", (d) =>
-                updateFreeItemBlock(d, { itemId: item.id, fit: fit as "contain" | "cover" }),
-              )
-            }
-          />
+        {freeText && (
+          <>
+            <ModeRow
+              value={freeText.role}
+              options={[
+                { value: "title", label: "标题" },
+                { value: "body", label: "正文" },
+              ]}
+              onChange={(role) =>
+                store.getState().apply("切换角色", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, role: role as "title" | "body" }),
+                )
+              }
+            />
+            <ModeRow
+              value={(freeText.style?.fontSize ?? (freeText.role === "title" ? "lg" : "md")) as CanvasFontSizeTier}
+              options={(Object.keys(FONT_SIZE_LABELS) as CanvasFontSizeTier[]).map((tier) => ({
+                value: tier,
+                label: FONT_SIZE_LABELS[tier],
+              }))}
+              onChange={(tier) =>
+                store.getState().apply("字号", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, style: { fontSize: tier } }),
+                )
+              }
+            />
+            <ModeRow
+              value={freeText.style?.align ?? "left"}
+              options={[
+                { value: "left", label: "左对齐" },
+                { value: "center", label: "居中" },
+                { value: "right", label: "右对齐" },
+              ]}
+              onChange={(align) =>
+                store.getState().apply("对齐", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, style: { align: align as "left" | "center" | "right" } }),
+                )
+              }
+            />
+            <label className="canvas-prop-row">
+              <span className="canvas-prop-label">加粗</span>
+              <input
+                type="checkbox"
+                checked={freeText.style?.bold ?? freeText.role === "title"}
+                onChange={(e) =>
+                  store.getState().apply("加粗", (d) =>
+                    updateFreeItemBlock(d, { itemId: item.id, style: { bold: e.target.checked } }),
+                  )
+                }
+              />
+            </label>
+            <SwatchRow
+              label="文字色"
+              keys={CANVAS_COLOR_KEYS}
+              value={freeText.style?.color ?? ""}
+              onPick={(key) =>
+                store.getState().apply("文字颜色", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, style: { color: key } }),
+                )
+              }
+            />
+          </>
+        )}
+        {freeImage && (
+          <>
+            <ModeRow
+              value={freeImage.fit}
+              options={[
+                { value: "contain", label: "完整显示" },
+                { value: "cover", label: "铺满裁切" },
+              ]}
+              onChange={(fit) =>
+                store.getState().apply("切换图片显示", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, fit: fit as "contain" | "cover" }),
+                )
+              }
+            />
+            <ModeRow
+              value={freeImage.ratio ?? "auto"}
+              options={[
+                { value: "auto", label: "原始比例" },
+                { value: "1:1", label: "1:1" },
+                { value: "4:3", label: "4:3" },
+                { value: "16:9", label: "16:9" },
+              ]}
+              onChange={(ratio) =>
+                store.getState().apply("容器比例", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, ratio: ratio as CanvasImageRatio }),
+                )
+              }
+            />
+          </>
         )}
         <div className="canvas-prop-row canvas-prop-actions">
           <button
@@ -170,7 +254,7 @@ export function CanvasPropertyBar({
             下移一层
           </button>
         </div>
-        <RadiusControl store={store} blockId={item.block.id} />
+        <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />
         <button
           type="button"
           className="canvas-prop-danger"
@@ -267,9 +351,8 @@ export function CanvasPropertyBar({
         }
       />
       <RadiusControl store={store} blockId={block.id} />
-      {section.columns.length === 2 &&
-        section.columns.some((c) => c.blocks.some((b) => b.type === "image")) && (
-          <div className="canvas-prop-row canvas-prop-actions">
+      {canSmartRecompute(section) && (
+        <div className="canvas-prop-row canvas-prop-actions">
             <button
               type="button"
               className="canvas-prop-btn"
@@ -367,9 +450,20 @@ function SwatchRow({
   );
 }
 
-function RadiusControl({ store, blockId }: { store: CanvasStore; blockId: string }) {
+function RadiusControl({
+  store,
+  blockId,
+  itemId,
+}: {
+  store: CanvasStore;
+  blockId: string;
+  /** 自由容器 id：传入时圆角写回自由块（findBlockLocation 只遍历 boards）。 */
+  itemId?: string;
+}) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
-  const block = findBlockLocation(doc, blockId)?.block;
+  const located = findBlockLocation(doc, blockId)?.block;
+  const free = itemId ? findFreeItem(doc, itemId)?.block : undefined;
+  const block = located ?? free;
   if (!block) return null;
   return (
     <label className="canvas-prop-row">
@@ -380,7 +474,11 @@ function RadiusControl({ store, blockId }: { store: CanvasStore; blockId: string
         max={32}
         value={block.style?.radius ?? 8}
         onChange={(e) =>
-          store.getState().apply("圆角", (d) => updateBlockStyle(d, { blockId, style: { radius: Number(e.target.value) } }))
+          store.getState().apply("圆角", (d) =>
+            itemId
+              ? updateFreeItemBlock(d, { itemId, style: { radius: Number(e.target.value) } })
+              : updateBlockStyle(d, { blockId, style: { radius: Number(e.target.value) } }),
+          )
         }
       />
     </label>

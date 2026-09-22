@@ -94,4 +94,24 @@ describe("validateCanvasContent", () => {
     );
     expect(validateCanvasContent(doc).errors.some((e) => e.includes("text"))).toBe(true);
   });
+
+  it("图片容器比例 ratio：合法值放行，非法值拒绝（A5）", () => {
+    const mk = (ratio: unknown) => {
+      const doc = validDoc();
+      doc.boards[0].sections[1].columns[0].blocks[0] = {
+        id: "img1",
+        type: "image",
+        asset: { url: "https://example.com/a.png", naturalWidth: 100, naturalHeight: 50 },
+        fit: "contain",
+        ratio,
+      } as never;
+      return doc;
+    };
+    for (const ratio of ["auto", "1:1", "4:3", "16:9", undefined, null]) {
+      expect(validateCanvasContent(mk(ratio)).ok).toBe(true);
+    }
+    const bad = validateCanvasContent(mk("2:1"));
+    expect(bad.ok).toBe(false);
+    expect(bad.errors.some((e) => e.includes("ratio"))).toBe(true);
+  });
 });

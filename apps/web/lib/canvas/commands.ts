@@ -10,6 +10,7 @@ import {
   BOARD_DEFAULT_WIDTH,
   BOARD_MAX_WIDTH,
   BOARD_MIN_WIDTH,
+  BLOCK_PADDING,
   CANVAS_SCHEMA_VERSION,
   CanvasBlock,
   CanvasBoard,
@@ -20,9 +21,11 @@ import {
   CanvasIdGenerator,
   CanvasImageAsset,
   CanvasImageBlock,
+  CanvasImageRatio,
   CanvasSectionWidthMode,
   CanvasTextBlock,
   CanvasTextRole,
+  MIN_TEXT_CONTENT_HEIGHT,
   defaultIdGenerator,
   createBoardShape,
   createColumn,
@@ -33,9 +36,10 @@ import {
   findBoard,
   findFreeItem,
   findSection,
+  imageNaturalHeight,
   normalizeBoardAfterDeletion,
 } from "./model";
-import { manualWeightsFromDrag } from "./layout";
+import { BLOCK_CHROME, manualWeightsFromDrag } from "./layout";
 
 /**
  * 深拷贝后在草稿上应用变更，保证命令无副作用（历史快照同源）。
@@ -78,13 +82,75 @@ export function createBoard(
   });
 }
 
-/** 工具栏「新建版面」：放在默认网格位（避开已有版面）。 */
+/** 工具栏「新建版面」：视口世界矩形内网格扫描（真实包围盒重叠检测）。 */
+export interface CanvasViewportRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 新版面初始包围盒估算高（标题 + 正文最小内容高，足够做重叠判定）。 */
+const AUTO_PLACE_BOARD_HEIGHT = 240;
+
+function autoPlaceFreeItemHeight(item: CanvasFreeItem): number {
+  const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
+  if (item.block.type === "image") {
+    return imageNaturalHeight(item.block, inner) + BLOCK_CHROME;
+  }
+  return MIN_TEXT_CONTENT_HEIGHT + BLOCK_CHROME;
+}
+
+function rectsOverlap(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+  );
+}
+
+/**
+ * 工具栏「新建版面」：优先落在当前视口世界矩形内。
+ * 从矩形左上角按固定网格扫描，候选位与现有版面/自由容器做包围盒重叠检测；
+ * 矩形内找不到空位时落在视口中心（允许重叠，但保证在视口内）。
+ * 无视口信息（如调用方拿不到容器尺寸）时退回原点网格（旧行为）。
+ */
 export function createBoardAutoPlace(
   doc: CanvasDoc,
+  viewport?: CanvasViewportRect | null,
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasCommandResult {
   const step = BOARD_DEFAULT_WIDTH + 80;
-  const occupied = new Set(doc.boards.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`));
+  const boardW = BOARD_DEFAULT_WIDTH;
+  const boardH = AUTO_PLACE_BOARD_HEIGHT;
+  const occupied = [
+    ...doc.boards.map((b) => ({ x: b.x, y: b.y, width: b.width, height: AUTO_PLACE_BOARD_HEIGHT })),
+    ...doc.freeItems.map((f) => ({
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: autoPlaceFreeItemHeight(f),
+    })),
+  ];
+  if (viewport && viewport.width >= boardW && viewport.height >= boardH) {
+    const perRow = Math.max(1, Math.floor((viewport.width - boardW) / step) + 1);
+    const rowStep = step + 60;
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const x = viewport.x + (attempt % perRow) * step;
+      const y = viewport.y + Math.floor(attempt / perRow) * rowStep;
+      if (y + boardH > viewport.y + viewport.height) break; // 超出视口下缘，更靠后的行只会更低
+      const candidate = { x, y, width: boardW, height: boardH };
+      if (!occupied.some((o) => rectsOverlap(candidate, o))) {
+        return createBoard(doc, { x, y }, newId);
+      }
+    }
+    // 视口被占满：落在视口中心（允许与现有对象重叠，但必须在视口内）
+    const cx = viewport.x + Math.max(0, (viewport.width - boardW) / 2);
+    const cy = viewport.y + Math.max(0, (viewport.height - boardH) / 2);
+    return createBoard(doc, { x: cx, y: cy }, newId);
+  }
+  const occupiedAt = new Set(doc.boards.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`));
   let x = 0;
   let y = 0;
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -92,7 +158,7 @@ export function createBoardAutoPlace(
     const row = Math.floor(attempt / 4);
     x = col * step;
     y = row * (step + 60);
-    if (!occupied.has(`${x},${y}`)) break;
+    if (!occupiedAt.has(`${x},${y}`)) break;
   }
   return createBoard(doc, { x, y }, newId);
 }
@@ -231,7 +297,8 @@ export function insertBlockBelow(
       columnId: loc.column.id,
       blockId: block.id,
       caret: "end",
-      edit: true,
+      // 仅文本块需要聚焦编辑；图片块只选中不进入编辑态
+      edit: block.type === "text",
     } satisfies CanvasFocus;
   });
 }
@@ -506,6 +573,8 @@ export function updateFreeItemBlock(
     text?: string;
     asset?: CanvasImageAsset | null;
     fit?: "contain" | "cover";
+    ratio?: CanvasImageRatio;
+    role?: CanvasTextRole;
     style?: Record<string, unknown>;
   },
 ): CanvasCommandResult {
@@ -515,6 +584,15 @@ export function updateFreeItemBlock(
     if (args.text !== undefined && item.block.type === "text") item.block.text = args.text;
     if (args.asset !== undefined && item.block.type === "image") item.block.asset = args.asset;
     if (args.fit !== undefined && item.block.type === "image") item.block.fit = args.fit;
+    if (args.ratio !== undefined && item.block.type === "image") item.block.ratio = args.ratio;
+    if (args.role !== undefined && item.block.type === "text") {
+      item.block.role = args.role;
+      // 角色切换重置字号/字重为角色默认（清掉显式覆盖），与 updateTextRole 一致。
+      if (item.block.style) {
+        delete item.block.style.fontSize;
+        delete item.block.style.bold;
+      }
+    }
     if (args.style) {
       item.block.style = { ...(item.block.style ?? {}), ...args.style };
     }
@@ -527,6 +605,53 @@ export function deleteFreeItem(doc: CanvasDoc, args: { itemId: string }): Canvas
     draft.freeItems = draft.freeItems.filter((f) => f.id !== args.itemId);
     return null;
   });
+}
+
+/**
+ * 版面末尾追加通栏图片块（工具条图片入口选中版面时）。
+ * 插入后选中新块（焦点 block 不带 edit——图片块无编辑态）。
+ */
+export function appendImageSection(
+  doc: CanvasDoc,
+  args: { boardId: string; asset?: CanvasImageAsset | null },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const column = createColumn([createImageBlock(args.asset ?? null, newId)], newId);
+    const section = createSection([column], newId);
+    board.sections.push(section);
+    const block = column.blocks[0];
+    return {
+      kind: "block",
+      boardId: board.id,
+      sectionId: section.id,
+      columnId: column.id,
+      blockId: block.id,
+    } satisfies CanvasFocus;
+  });
+}
+
+/**
+ * 工具条图片入口的插入目标判定（A9）：选中模块 → 该块所在列其后插入；
+ * 选中版面 → 版面末尾通栏；选中自由容器或无选中 → 自由图片。
+ */
+export type CanvasImageInsertPlan =
+  | { kind: "block"; blockId: string }
+  | { kind: "board"; boardId: string }
+  | { kind: "free" };
+
+export function planImageInsertTarget(
+  selection:
+    | { kind: "block"; blockId: string }
+    | { kind: "board"; boardId: string }
+    | { kind: "free"; itemId: string }
+    | null,
+): CanvasImageInsertPlan {
+  if (selection?.kind === "block") return { kind: "block", blockId: selection.blockId };
+  if (selection?.kind === "board") return { kind: "board", boardId: selection.boardId };
+  return { kind: "free" };
 }
 
 function nextZIndex(doc: CanvasDoc): number {

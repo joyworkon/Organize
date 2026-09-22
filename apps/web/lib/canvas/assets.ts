@@ -92,12 +92,14 @@ export async function uploadCanvasImage(
   }
 }
 
-/** 重试一个 pending 资产：从本机取 Blob 重新走上传链路。 */
+/** 重试一个 pending 资产：从本机取 Blob 重新走上传链路。
+ *  已持久化（saved）的资产无需重试，直接返回 null 由调用方跳过。 */
 export async function retryPendingAsset(
   asset: CanvasImageAsset,
   localKey: string,
   userId: string,
 ): Promise<CanvasUploadOutcome | null> {
+  if (asset.uploadStatus === "saved") return null;
   const { getBlob } = await import("./draft");
   const blob = await getBlob(userId, localKey);
   if (!blob) return null;

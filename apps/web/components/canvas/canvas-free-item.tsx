@@ -20,7 +20,7 @@ import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
 import { displayKey } from "./canvas-block";
-import { uploadCanvasImage } from "@/lib/canvas/assets";
+import { retryPendingAsset, uploadCanvasImage } from "@/lib/canvas/assets";
 import { toast } from "@/hooks/use-toast";
 
 export interface CanvasFreeItemViewProps {
@@ -159,6 +159,40 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
     }
   };
 
+  // 同块原位重试：pending/failed 资产从本机取回重新上传，不新增容器
+  const handleRetry = async () => {
+    const pending = asset;
+    if (!pending?.localKey || pending.uploadStatus === "saved") {
+      pickFile();
+      return;
+    }
+    try {
+      const outcome = await retryPendingAsset(pending, pending.localKey, userId);
+      if (!outcome) {
+        toast({
+          title: "图片重试失败",
+          description: "本机原图缺失或已上传，请重新选择图片",
+          variant: "destructive",
+        });
+        return;
+      }
+      store.getState().apply("重试上传图片", (d) =>
+        updateFreeItemBlock(d, { itemId: item.id, asset: outcome.asset }),
+      );
+      if (outcome.previewUrl) {
+        store.getState().setAssetUrl(displayKey(item.id, outcome.asset), outcome.previewUrl);
+      }
+    } catch (error) {
+      toast({
+        title: "图片重试失败",
+        description: error instanceof Error ? error.message : "请重试",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const canRetry = !!asset?.localKey && asset.uploadStatus !== "saved";
+
   return (
     <div
       className={`canvas-free-item ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
@@ -218,6 +252,27 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           style={{ objectFit: imageBlock?.fit ?? "contain" }}
           draggable={false}
         />
+      ) : canRetry ? (
+        <div className="canvas-image-retry" role="group" aria-label="图片待上传">
+          <button
+            type="button"
+            className="canvas-image-retry-btn"
+            onClick={interactive ? () => void handleRetry() : undefined}
+            disabled={!interactive}
+            aria-label="重试上传"
+          >
+            重试上传
+          </button>
+          <button
+            type="button"
+            className="canvas-image-retry-btn"
+            onClick={interactive ? pickFile : undefined}
+            disabled={!interactive}
+            aria-label="重新选择图片"
+          >
+            重新选择
+          </button>
+        </div>
       ) : (
         <button
           type="button"

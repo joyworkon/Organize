@@ -66,11 +66,23 @@ export interface CanvasImageAsset {
 
 export type CanvasImageFit = "contain" | "cover";
 
+/** 自由图片容器比例：auto = 按图片自然比例（默认，等同现状）；其余为容器宽高比。 */
+export type CanvasImageRatio = "auto" | "1:1" | "4:3" | "16:9";
+
+/** 容器比例 → 宽/高倍数（1:1 = 宽 1 份高 1 份）。 */
+export const IMAGE_RATIO_WIDTH_PER_HEIGHT: Record<Exclude<CanvasImageRatio, "auto">, number> = {
+  "1:1": 1,
+  "4:3": 4 / 3,
+  "16:9": 16 / 9,
+};
+
 export interface CanvasImageBlock {
   id: string;
   type: "image";
   asset: CanvasImageAsset | null;
   fit: CanvasImageFit;
+  /** 容器比例（仅自由图片容器布局使用）；缺省 = auto。 */
+  ratio?: CanvasImageRatio;
   style?: CanvasBlockStyle;
 }
 

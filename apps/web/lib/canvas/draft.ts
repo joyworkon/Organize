@@ -64,7 +64,6 @@ function reqAsPromise<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 export async function saveDraft(draft: CanvasDraft): Promise<void> {
-  console.log("[canvas-dbg] saveDraft enter", draft.docId, draft.localSeq);
   const db = await openDb();
   if (!db) {
     memoryDrafts ??= new Map();
@@ -75,7 +74,6 @@ export async function saveDraft(draft: CanvasDraft): Promise<void> {
     const tx = db.transaction(DRAFT_STORE, "readwrite");
     await reqAsPromise(tx.objectStore(DRAFT_STORE).put(draft, draftKey(draft.userId, draft.docId)));
   } catch (error) {
-    console.log("[canvas-dbg] saveDraft FAILED", String(error));
     console.warn("[canvas] 草稿写入 IndexedDB 失败，回退内存", error);
     memoryDrafts ??= new Map();
     memoryDrafts.set(draftKey(draft.userId, draft.docId), draft);

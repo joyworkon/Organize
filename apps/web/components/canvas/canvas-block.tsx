@@ -29,7 +29,7 @@ import {
 import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
-import { MAX_CANVAS_IMAGE_BYTES, isAllowedImageType, uploadCanvasImage } from "@/lib/canvas/assets";
+import { MAX_CANVAS_IMAGE_BYTES, isAllowedImageType, retryPendingAsset, uploadCanvasImage } from "@/lib/canvas/assets";
 import { toast } from "@/hooks/use-toast";
 
 export interface CanvasBlockViewProps {
@@ -277,7 +277,42 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
     [block.id, store, userId],
   );
 
+  const handleRetry = useCallback(async () => {
+    const pending = block.asset;
+    if (!pending?.localKey) {
+      pickFile();
+      return;
+    }
+    setUploading(true);
+    try {
+      const outcome = await retryPendingAsset(pending, pending.localKey, userId);
+      if (!outcome) {
+        toast({
+          title: "图片重试失败",
+          description: "本机原图缺失或已上传，请重新选择图片",
+          variant: "destructive",
+        });
+        return;
+      }
+      // 同块原位重试：更新同一块的 asset，不新增块
+      store.getState().apply("重试上传图片", (doc) => setImageAsset(doc, { blockId: block.id, asset: outcome.asset }));
+      if (outcome.previewUrl) {
+        store.getState().setAssetUrl(displayKey(block.id, outcome.asset), outcome.previewUrl);
+      }
+      store.getState().requestSmartRecompute();
+    } catch (error) {
+      toast({
+        title: "图片重试失败",
+        description: error instanceof Error ? error.message : "请重试",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  }, [block.asset, block.id, pickFile, store, userId]);
+
   const showPlaceholder = !resolvedUrl;
+  const canRetry = !!asset?.localKey && asset.uploadStatus !== "saved";
   return (
     <div
       className={`canvas-block canvas-block-image group ${selected ? "is-selected" : ""}`}
@@ -302,25 +337,48 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
       }
     >
       {showPlaceholder ? (
-        <button
-          type="button"
-          className="canvas-image-placeholder"
-          onClick={interactive ? pickFile : undefined}
-          disabled={!interactive || uploading}
-          aria-label="选择图片"
-          title={asset?.uploadStatus === "pending" ? "图片未上传，点击重试" : "选择图片"}
-        >
-          {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
-          <span className="text-xs">
-            {uploading
-              ? "上传中…"
-              : asset?.uploadStatus === "pending"
-                ? "图片未上传，点击重试"
-                : asset
-                  ? "图片加载失败，点击重选"
-                  : "选择图片"}
-          </span>
-        </button>
+        canRetry ? (
+          <div className="canvas-image-retry" role="group" aria-label="图片待上传">
+            {uploading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="canvas-image-retry-btn"
+                  onClick={interactive ? () => void handleRetry() : undefined}
+                  disabled={!interactive}
+                  aria-label="重试上传"
+                >
+                  重试上传
+                </button>
+                <button
+                  type="button"
+                  className="canvas-image-retry-btn"
+                  onClick={interactive ? pickFile : undefined}
+                  disabled={!interactive}
+                  aria-label="重新选择图片"
+                >
+                  重新选择
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="canvas-image-placeholder"
+            onClick={interactive ? pickFile : undefined}
+            disabled={!interactive || uploading}
+            aria-label="选择图片"
+            title={asset ? "图片加载失败，点击重选" : "选择图片"}
+          >
+            {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
+            <span className="text-xs">
+              {uploading ? "上传中…" : asset ? "图片加载失败，点击重选" : "选择图片"}
+            </span>
+          </button>
+        )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -332,9 +390,15 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
         />
       )}
       {asset?.uploadStatus === "pending" && resolvedUrl && (
-        <span className="canvas-image-pending-badge" title="图片仅保存在本机，尚未上传">
+        <button
+          type="button"
+          className="canvas-image-pending-badge"
+          title="图片仅保存在本机，尚未上传，点击重试"
+          onClick={interactive && canRetry ? () => void handleRetry() : undefined}
+          disabled={!interactive || !canRetry}
+        >
           待上传
-        </span>
+        </button>
       )}
       <input
         ref={inputRef}

@@ -8,7 +8,9 @@ import {
 import {
   applyColumnDrag,
   applySmartWeights,
+  appendImageSection,
   createBoard,
+  createBoardAutoPlace,
   createFreeImage,
   createFreeText,
   deleteBlock,
@@ -17,6 +19,7 @@ import {
   insertBlockBelow,
   insertColumn,
   insertSectionAfter,
+  planImageInsertTarget,
   resizeBoard,
   setSectionWidthMode,
   setImageAsset,
@@ -24,6 +27,7 @@ import {
   splitTextToSection,
   updateBlockStyle,
   updateFreeItem,
+  updateFreeItemBlock,
   updateTextBlock,
   updateTextRole,
 } from "./commands";
@@ -366,5 +370,108 @@ describe("结构完整性", () => {
       .toEqual(before);
     // padding 不变（BOARD_PADDING 只被引用一次避免 import 报错）
     expect(nb.padding).toBe(BOARD_PADDING);
+  });
+});
+
+describe("createBoardAutoPlace（A4 视口内落位）", () => {
+  const viewport = { x: 5000, y: 5000, width: 1200, height: 800 };
+
+  it("空画布：新版面落在视口矩形左上角", () => {
+    const res = createBoardAutoPlace(emptyDoc(), viewport, counterIds());
+    const b = res.doc.boards[0];
+    expect(b.x).toBe(5000);
+    expect(b.y).toBe(5000);
+  });
+
+  it("平移到远处：新版面仍落在视口矩形内", () => {
+    // 原点已有版面——旧实现会落在 (720,0)，远离当前视口
+    const base = createBoard(emptyDoc(), { x: 0, y: 0 }, counterIds()).doc;
+    const res = createBoardAutoPlace(base, viewport, counterIds());
+    const b = res.doc.boards[1];
+    expect(b.x).toBeGreaterThanOrEqual(viewport.x);
+    expect(b.y).toBeGreaterThanOrEqual(viewport.y);
+    expect(b.x + b.width).toBeLessThanOrEqual(viewport.x + viewport.width);
+    expect(b.y).toBeLessThanOrEqual(viewport.y + viewport.height);
+  });
+
+  it("视口第一格被自由容器占据：包围盒重叠检测后顺延到下一格", () => {
+    const doc = emptyDoc();
+    doc.freeItems.push({
+      id: "f1",
+      x: 5000,
+      y: 5000,
+      width: 320,
+      zIndex: 1,
+      block: { id: "fb1", type: "text", text: "占位", role: "body" },
+    });
+    const res = createBoardAutoPlace(doc, viewport, counterIds());
+    const b = res.doc.boards[0];
+    expect([b.x, b.y]).not.toEqual([5000, 5000]);
+    expect(b.x).toBeGreaterThanOrEqual(viewport.x);
+    expect(b.y).toBeGreaterThanOrEqual(viewport.y);
+  });
+
+  it("视口被占满：落在视口中心（允许重叠，但必须在视口内）", () => {
+    // 700×400 视口只容一个网格格位，用一张版面占住
+    const small = { x: 5000, y: 5000, width: 700, height: 400 };
+    const base = createBoard(emptyDoc(), { x: 5000, y: 5000 }, counterIds()).doc;
+    const res = createBoardAutoPlace(base, small, counterIds());
+    const b = res.doc.boards[1];
+    expect(b.x).toBeCloseTo(5000 + (700 - BOARD_DEFAULT_WIDTH) / 2, 6);
+    expect(b.y).toBeCloseTo(5000 + (400 - 240) / 2, 6);
+    expect(b.x).toBeGreaterThanOrEqual(small.x);
+    expect(b.y).toBeGreaterThanOrEqual(small.y);
+  });
+
+  it("无视口信息：退回原点网格（旧行为）", () => {
+    const base = createBoard(emptyDoc(), { x: 0, y: 0 }, counterIds()).doc;
+    const res = createBoardAutoPlace(base, null, counterIds());
+    expect([res.doc.boards[1].x, res.doc.boards[1].y]).toEqual([720, 0]);
+  });
+});
+
+describe("工具条图片插入路由（A9）", () => {
+  it("planImageInsertTarget：模块/版面/自由/无选中四类目标", () => {
+    expect(planImageInsertTarget({ kind: "block", blockId: "b" })).toEqual({ kind: "block", blockId: "b" });
+    expect(planImageInsertTarget({ kind: "board", boardId: "bd" })).toEqual({ kind: "board", boardId: "bd" });
+    expect(planImageInsertTarget({ kind: "free", itemId: "f" })).toEqual({ kind: "free" });
+    expect(planImageInsertTarget(null)).toEqual({ kind: "free" });
+  });
+
+  it("appendImageSection：版面末尾追加通栏图片块并选中新块（不带编辑态）", () => {
+    const { doc, board } = docWithBoard();
+    const asset = { url: "https://example.com/a.png", naturalWidth: 100, naturalHeight: 50 };
+    const res = appendImageSection(doc, { boardId: board.id, asset }, counterIds());
+    const b2 = res.doc.boards[0];
+    expect(b2.sections).toHaveLength(3);
+    const appended = b2.sections[2];
+    expect(appended.columns).toHaveLength(1);
+    const block = appended.columns[0].blocks[0];
+    expect(block).toMatchObject({ type: "image", asset, fit: "contain" });
+    expect(res.focus).toMatchObject({ kind: "block", blockId: block.id });
+    expect(res.focus).not.toMatchObject({ edit: true });
+  });
+
+  it("insertBlockBelow 插入图片块：选中但不进入编辑态", () => {
+    const { doc, board } = docWithBoard();
+    const body = board.sections[1];
+    const res = insertBlockBelow(
+      doc,
+      { blockId: body.columns[0].blocks[0].id, block: { id: "img", type: "image", asset: null, fit: "contain" } },
+      counterIds(),
+    );
+    expect(res.doc.boards[0].sections[1].columns[0].blocks[1]).toMatchObject({ type: "image" });
+    expect(res.focus).toMatchObject({ blockId: "img" });
+    expect(res.focus).not.toMatchObject({ edit: true });
+  });
+
+  it("updateFreeItemBlock：容器比例 ratio 写入（A5 命令层）", () => {
+    const newId = counterIds();
+    const doc = createFreeImage(emptyDoc(), { x: 0, y: 0 }, newId).doc;
+    const itemId = doc.freeItems[0].id;
+    const res = updateFreeItemBlock(doc, { itemId, ratio: "16:9" });
+    const block = res.doc.freeItems[0].block;
+    expect(block.type).toBe("image");
+    if (block.type === "image") expect(block.ratio).toBe("16:9");
   });
 });
