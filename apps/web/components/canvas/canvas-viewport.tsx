@@ -20,6 +20,9 @@ import {
 import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
+import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
+import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
+import { hitTestInsertPosition } from "./canvas-hit-test";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasBoardView } from "./canvas-board";
 import { CanvasFreeItemView } from "./canvas-free-item";
@@ -33,7 +36,7 @@ export function clampZoom(z: number): number {
 
 /** 世界坐标 → 屏幕坐标（视口内相对坐标）。 */
 export function worldToScreen(wx: number, wy: number, vp: { x: number; y: number; zoom: number }) {
-  return { x: wx * vp.zoom + vp.x, y: wy * vp.zoom + vp.y };
+  return toScreen(wx, wy, vp);
 }
 
 export interface CanvasViewportProps {
@@ -52,6 +55,17 @@ export interface CanvasViewportProps {
   /** B1 空态明确入口：新建空白页面 / 宣传落地页骨架。 */
   onCreateBlank?: () => void;
   onCreateLanding?: () => void;
+  /** 图片替换（B2 统一上传入口）。 */
+  onReplaceImage?: (blockId: string, file: File) => void;
+  /**
+   * 拖入/粘贴文件（B2）：explicit = 指针命中的列/区块（可能为 null = 走常规解析），
+   * at = 指针世界坐标（空白处落文件时可就地建页面）。
+   */
+  onInsertFiles?: (
+    files: File[],
+    explicit: ExplicitInsertPosition | null,
+    at: { x: number; y: number },
+  ) => void;
 }
 
 export function CanvasViewportView({
@@ -66,11 +80,15 @@ export function CanvasViewportView({
   assetUrls,
   onCreateBlank,
   onCreateLanding,
+  onReplaceImage,
+  onInsertFiles,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [panning, setPanning] = useState(false);
   const vp = useStoreViewport(store);
+  /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
+  const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // ---- 缩放与平移 ----
 
@@ -79,17 +97,16 @@ export function CanvasViewportView({
       const rect = viewportRef.current?.getBoundingClientRect();
       if (!rect) return;
       const state = store.getState();
-      const { x: px, y: py, zoom } = state.viewport;
+      const { zoom } = state.viewport;
       const nextZoom = clampZoom(zoom * factor);
       if (nextZoom === zoom) return;
       const relX = clientX - rect.left;
       const relY = clientY - rect.top;
-      const worldX = (relX - px) / zoom;
-      const worldY = (relY - py) / zoom;
+      const before = screenToWorld(clientX, clientY, rect, state.viewport);
       store.getState().setViewport({
         zoom: nextZoom,
-        x: relX - worldX * nextZoom,
-        y: relY - worldY * nextZoom,
+        x: relX - before.x * nextZoom,
+        y: relY - before.y * nextZoom,
       });
     },
     [store],
@@ -158,14 +175,65 @@ export function CanvasViewportView({
       }
       const rect = viewportRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const state = store.getState();
-      const wx = (e.clientX - rect.left - state.viewport.x) / state.viewport.zoom;
-      const wy = (e.clientY - rect.top - state.viewport.y) / state.viewport.zoom;
+      const at = screenToWorld(e.clientX, e.clientY, rect, store.getState().viewport);
       store.getState().apply("新建空白页面", (d) =>
-        createBoardSkeleton(d, { at: { x: wx, y: wy }, variant: "blank" }),
+        createBoardSkeleton(d, { at, variant: "blank" }),
       );
     },
     [interactive, store],
+  );
+
+  /** 指针世界坐标（相对视口 rect）。 */
+  const pointerWorld = useCallback((clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return screenToWorld(clientX, clientY, rect, store.getState().viewport);
+  }, [store]);
+
+  // ---- 拖入 / 粘贴图片（B2 统一图片入口：指针命中列/区块 → explicit 目标） ----
+
+  const onDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!interactive || !onInsertFiles) return;
+      if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+    },
+    [interactive, onInsertFiles],
+  );
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!interactive || !onInsertFiles) return;
+      const files = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (files.length === 0) return;
+      e.preventDefault();
+      const at = pointerWorld(e.clientX, e.clientY);
+      if (!at) return;
+      const explicit = hitTestInsertPosition(doc, scene, at.x, at.y);
+      lastPointerWorldRef.current = at;
+      onInsertFiles(files, explicit, at);
+    },
+    [interactive, onInsertFiles, pointerWorld, doc, scene],
+  );
+
+  const onPaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!interactive || !onInsertFiles) return;
+      // 输入控件内粘贴交给控件本身（工作区 isTypingTarget 同规则）
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (files.length === 0) return;
+      e.preventDefault();
+      const at = lastPointerWorldRef.current;
+      const explicit = hitTestInsertPosition(doc, scene, at.x, at.y);
+      onInsertFiles(files, explicit, at);
+    },
+    [interactive, onInsertFiles, doc, scene],
   );
 
   const onPointerDownBackground = useCallback(
@@ -195,9 +263,17 @@ export function CanvasViewportView({
         beginPan(e);
         onPointerDownBackground(e);
       }}
-      onPointerMove={onPanMove}
+      onPointerMove={(e) => {
+        // 记录指针世界坐标（粘贴落点）；命中测试交给拖入事件本身
+        const at = pointerWorld(e.clientX, e.clientY);
+        if (at) lastPointerWorldRef.current = at;
+        onPanMove(e);
+      }}
       onPointerUp={endPan}
       onDoubleClick={onDoubleClick}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onPaste={onPaste}
     >
       <div
         className="canvas-world"
@@ -227,6 +303,7 @@ export function CanvasViewportView({
               }
               selectedBlockId={selection?.kind === "block" ? selection.blockId : null}
               editingBlockId={editingBlockId}
+              onReplaceImage={onReplaceImage}
             />
           );
         })}

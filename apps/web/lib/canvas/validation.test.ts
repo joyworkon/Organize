@@ -199,3 +199,115 @@ describe("schemaVersion 2 规则（B1）", () => {
     expect(res.errors.some((e) => e.includes("schemaVersion"))).toBe(true);
   });
 });
+
+describe("B2 新块类型校验", () => {
+  it("list 角色文本块合法", () => {
+    const doc = validDoc();
+    const column = doc.boards[0].regions[0].sections[0].columns[0];
+    column.blocks.push({ id: "l1", type: "text", text: "甲\n乙", role: "list" });
+    const res = validateCanvasContent(doc);
+    expect(res.errors).toEqual([]);
+    expect(res.ok).toBe(true);
+  });
+
+  it("divider 块合法（style.align 校验走通用 style 规则）", () => {
+    const doc = validDoc();
+    const column = doc.boards[0].regions[0].sections[0].columns[0];
+    column.blocks.push({ id: "d1", type: "divider" });
+    column.blocks.push({ id: "d2", type: "divider", style: { align: "center" } });
+    expect(validateCanvasContent(doc).ok).toBe(true);
+
+    const bad = validDoc();
+    bad.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "d3",
+      type: "divider",
+      style: { align: "diagonal" },
+    } as never);
+    expect(validateCanvasContent(bad).errors.some((e) => e.includes("style.align"))).toBe(true);
+  });
+
+  it("button 块：合法 http(s) 通过；javascript: 等非法协议拒绝", () => {
+    const doc = validDoc();
+    const column = doc.boards[0].regions[0].sections[0].columns[0];
+    column.blocks.push({
+      id: "b1",
+      type: "button",
+      label: "了解更多",
+      href: "https://example.com",
+      align: "center",
+      variant: "secondary",
+    });
+    column.blocks.push({ id: "b2", type: "button", label: "未设置", href: "", align: "left", variant: "primary" });
+    expect(validateCanvasContent(doc).ok).toBe(true);
+
+    const bad = validDoc();
+    bad.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "b3",
+      type: "button",
+      label: "x",
+      href: "javascript:alert(1)",
+      align: "left",
+      variant: "primary",
+    });
+    const res = validateCanvasContent(bad);
+    expect(res.ok).toBe(false);
+    expect(res.errors.some((e) => e.includes(".href") && e.includes("http"))).toBe(true);
+  });
+
+  it("button 块：variant/label 非法拒绝", () => {
+    const bad = validDoc();
+    bad.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "b4",
+      type: "button",
+      label: "x",
+      href: "",
+      align: "left",
+      variant: "ghost",
+    } as never);
+    expect(validateCanvasContent(bad).errors.some((e) => e.includes(".variant"))).toBe(true);
+  });
+
+  it("未知块类型保留语义不变：保留数据 + 报 unknownBlockIds + 禁止保存", () => {
+    const doc = validDoc();
+    doc.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "future-1",
+      type: "database",
+    } as never);
+    const res = validateCanvasContent(doc);
+    expect(res.unknownBlockIds).toEqual(["future-1"]);
+    expect(res.doc?.boards[0].regions[0].sections[0].columns[0].blocks.some((b) => b.id === "future-1")).toBe(true);
+    expect(isDocSavable(res)).toBe(false);
+  });
+
+  it("image.alt 合法/非法", () => {
+    const doc = validDoc();
+    const column = doc.boards[0].regions[0].sections[0].columns[0];
+    column.blocks.push({ id: "i1", type: "image", asset: null, fit: "contain", alt: "示意图" });
+    expect(validateCanvasContent(doc).ok).toBe(true);
+
+    const bad = validDoc();
+    bad.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "i2",
+      type: "image",
+      asset: null,
+      fit: "contain",
+      alt: 42,
+    } as never);
+    expect(validateCanvasContent(bad).errors.some((e) => e.includes(".alt"))).toBe(true);
+  });
+
+  it("section.gap / verticalAlign 合法与非法", () => {
+    const doc = validDoc();
+    doc.boards[0].regions[0].sections[0].gap = 24;
+    doc.boards[0].regions[0].sections[0].verticalAlign = "middle";
+    expect(validateCanvasContent(doc).ok).toBe(true);
+
+    const bad = validDoc();
+    bad.boards[0].regions[0].sections[0].gap = 999;
+    expect(validateCanvasContent(bad).errors.some((e) => e.includes(".gap"))).toBe(true);
+
+    const bad2 = validDoc();
+    bad2.boards[0].regions[0].sections[0].verticalAlign = "diagonal" as never;
+    expect(validateCanvasContent(bad2).errors.some((e) => e.includes(".verticalAlign"))).toBe(true);
+  });
+});

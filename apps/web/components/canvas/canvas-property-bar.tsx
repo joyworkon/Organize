@@ -8,7 +8,7 @@
  * 不含无效占位控件。
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Trash2 } from "@/components/icons";
 import {
   attachFreeItemToRegion,
@@ -16,14 +16,23 @@ import {
   deleteBoard,
   deleteFreeItem,
   duplicateBlock,
+  insertColumn,
   moveBlock,
+  removeColumn,
   renameBoard,
+  renameRegion,
   resizeBoard,
+  setColumnWeights,
   setImageFit,
   updateBlockStyle,
+  updateBoardPadding,
   updateBoardStyle,
+  updateButtonBlock,
   updateFreeItem,
   updateFreeItemBlock,
+  updateImageBlock,
+  updateRegionStyle,
+  updateSectionLayout,
   updateTextRole,
   setSectionWidthMode,
   applySmartWeights,
@@ -31,8 +40,11 @@ import {
 import {
   findBlockLocation,
   findFreeItem,
+  findRegion,
   type CanvasFontSizeTier,
   type CanvasDoc,
+  type CanvasImageRatio,
+  type CanvasSectionVerticalAlign,
 } from "@/lib/canvas/model";
 import { computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
 import {
@@ -45,7 +57,6 @@ import {
   type ResolvedTextStyle,
 } from "@/lib/canvas/text-styles";
 import { canSmartRecompute } from "@/lib/canvas/layout";
-import type { CanvasImageRatio } from "@/lib/canvas/model";
 import type { CanvasStore } from "./canvas-store";
 import { useCanvasSelector } from "./use-canvas-selector";
 import {
@@ -63,9 +74,12 @@ interface MeasurerLike {
 export function CanvasPropertyBar({
   store,
   measurer,
+  onReplaceImage,
 }: {
   store: CanvasStore;
   measurer: MeasurerLike;
+  /** 图片「替换图片」（B2 统一上传入口）：块原位更新，失败保留旧图。 */
+  onReplaceImage?: (blockId: string, file: File) => void;
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
@@ -81,6 +95,12 @@ export function CanvasPropertyBar({
     if (selection.kind === "free") {
       const item = findFreeItem(doc, selection.itemId);
       return item ? { kind: "free" as const, item } : null;
+    }
+    if (selection.kind === "region") {
+      const found = findRegion(doc, selection.regionId);
+      return found && found.board.id === selection.boardId
+        ? { kind: "region" as const, board: found.board, region: found.region }
+        : null;
     }
     const board = doc.boards.find((b) => b.id === selection.boardId);
     return board ? { kind: "board" as const, board } : null;
@@ -130,6 +150,23 @@ export function CanvasPropertyBar({
             className="canvas-prop-input"
           />
         </label>
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">内边距</span>
+          <input
+            type="number"
+            min={0}
+            max={128}
+            step={4}
+            value={board.padding}
+            aria-label="页面内边距"
+            onChange={(e) =>
+              store.getState().apply("页面内边距", (d) =>
+                updateBoardPadding(d, { boardId: board.id, padding: Number(e.target.value) || 0 }),
+              )
+            }
+            className="canvas-prop-input"
+          />
+        </label>
         <SwatchRow
           label="背景"
           keys={CANVAS_BG_KEYS}
@@ -161,6 +198,101 @@ export function CanvasPropertyBar({
         >
           <Trash2 className="h-3.5 w-3.5" /> 删除页面
         </button>
+      </div>
+    );
+  }
+
+  // 选中区块（B2）：名称/背景/内边距/行间距/边框
+  if (target.kind === "region") {
+    const { board, region } = target;
+    return (
+      <div className="canvas-property-bar" aria-label="区块属性">
+        <h3 className="canvas-prop-title">区块</h3>
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">名称</span>
+          <input
+            className="canvas-prop-input"
+            style={{ width: 132 }}
+            value={region.name}
+            aria-label="区块名"
+            onChange={(e) =>
+              store.getState().apply("重命名区块", (d) =>
+                renameRegion(d, { boardId: board.id, regionId: region.id, name: e.target.value }),
+              )
+            }
+          />
+        </label>
+        <SwatchRow
+          label="背景"
+          keys={CANVAS_BG_KEYS}
+          value={region.style?.background ?? ""}
+          onPick={(key) =>
+            store.getState().apply("区块背景", (d) =>
+              updateRegionStyle(d, { boardId: board.id, regionId: region.id, style: { background: key || null } }),
+            )
+          }
+        />
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">内边距</span>
+          <input
+            type="number"
+            min={0}
+            max={128}
+            step={2}
+            value={region.style?.padding ?? 0}
+            aria-label="区块内边距"
+            onChange={(e) =>
+              store.getState().apply("区块内边距", (d) =>
+                updateRegionStyle(d, {
+                  boardId: board.id,
+                  regionId: region.id,
+                  style: { padding: Math.min(128, Math.max(0, Number(e.target.value) || 0)) },
+                }),
+              )
+            }
+            className="canvas-prop-input"
+          />
+        </label>
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">行间距</span>
+          <input
+            type="number"
+            min={0}
+            max={128}
+            step={2}
+            value={region.style?.rowGap ?? board.gap}
+            aria-label="区块行间距"
+            onChange={(e) =>
+              store.getState().apply("区块行间距", (d) =>
+                updateRegionStyle(d, {
+                  boardId: board.id,
+                  regionId: region.id,
+                  style: { rowGap: Math.min(128, Math.max(0, Number(e.target.value) || 0)) },
+                }),
+              )
+            }
+            className="canvas-prop-input"
+          />
+        </label>
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">边框</span>
+          <input
+            type="checkbox"
+            checked={region.style?.border === true}
+            aria-label="区块装饰边框"
+            onChange={(e) =>
+              store.getState().apply("区块边框", (d) =>
+                updateRegionStyle(d, {
+                  boardId: board.id,
+                  regionId: region.id,
+                  style: { border: e.target.checked },
+                }),
+              )
+            }
+          />
+          <span className="text-xs text-muted-foreground">装饰边框</span>
+        </label>
+        <p className="text-xs text-muted-foreground">区块的上移/下移/复制/删除在左侧「结构」分组。</p>
       </div>
     );
   }
@@ -316,9 +448,29 @@ export function CanvasPropertyBar({
 
   // 选中模块
   const { block, section, board } = target;
+  const blockTitle =
+    block.type === "text"
+      ? block.role === "title"
+        ? "标题模块"
+        : block.role === "list"
+          ? "列表模块"
+          : "文本模块"
+      : block.type === "image"
+        ? "图片模块"
+        : block.type === "divider"
+          ? "分隔线"
+          : "行动按钮";
+  const ratio = block.type === "image" ? (block.ratio ?? "auto") : "auto";
+  const canRemoveColumn =
+    section.columns.length > 1 && section.columns[section.columns.length - 1].blocks.length === 0;
+  const isTwoCols = section.columns.length === 2;
+  const leftShare = isTwoCols
+    ? Math.round((section.columnWeights[0] / (section.columnWeights[0] + section.columnWeights[1])) * 100)
+    : 50;
+
   return (
     <div className="canvas-property-bar" aria-label="模块属性">
-      <h3 className="canvas-prop-title">{block.type === "text" ? "文本模块" : "图片模块"}</h3>
+      <h3 className="canvas-prop-title">{blockTitle}</h3>
       {block.type === "text" && (
         <>
           <ModeRow
@@ -326,10 +478,11 @@ export function CanvasPropertyBar({
             options={[
               { value: "title", label: "标题" },
               { value: "body", label: "正文" },
+              { value: "list", label: "列表" },
             ]}
             onChange={(role) =>
               store.getState().apply("切换角色", (d) =>
-                updateTextRole(d, { blockId: block.id, role: role as "title" | "body" }),
+                updateTextRole(d, { blockId: block.id, role: role as "title" | "body" | "list" }),
               )
             }
           />
@@ -379,16 +532,125 @@ export function CanvasPropertyBar({
         </>
       )}
       {block.type === "image" && (
+        <>
+          <ModeRow
+            value={ratio}
+            options={[
+              { value: "auto", label: "原始比例" },
+              { value: "1:1", label: "1:1" },
+              { value: "4:3", label: "4:3" },
+              { value: "16:9", label: "16:9" },
+            ]}
+            onChange={(next) =>
+              store.getState().apply("容器比例", (d) =>
+                updateImageBlock(d, { blockId: block.id, ratio: next as CanvasImageRatio }),
+              )
+            }
+          />
+          {/* 定比例容器才显示 fit：auto 时块高随原比例，cover 视觉等价 contain，
+              显示该控件会让用户误以为「没作用」（B2） */}
+          {ratio !== "auto" && (
+            <ModeRow
+              value={block.fit}
+              options={[
+                { value: "contain", label: "完整显示" },
+                { value: "cover", label: "铺满裁切" },
+              ]}
+              onChange={(fit) =>
+                store.getState().apply("切换图片显示", (d) => setImageFit(d, { blockId: block.id, fit: fit as "contain" | "cover" }))
+              }
+            />
+          )}
+          <ReplaceImageRow onReplaceImage={onReplaceImage} blockId={block.id} />
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">说明</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.alt ?? ""}
+              placeholder="图片说明（alt）"
+              aria-label="图片说明"
+              onChange={(e) =>
+                store.getState().apply("图片说明", (d) =>
+                  updateImageBlock(d, { blockId: block.id, alt: e.target.value }),
+                )
+              }
+            />
+          </label>
+        </>
+      )}
+      {block.type === "divider" && (
         <ModeRow
-          value={block.fit}
+          value={block.style?.align ?? "left"}
           options={[
-            { value: "contain", label: "完整显示" },
-            { value: "cover", label: "铺满裁切" },
+            { value: "left", label: "左对齐" },
+            { value: "center", label: "居中" },
+            { value: "right", label: "右对齐" },
           ]}
-          onChange={(fit) =>
-            store.getState().apply("切换图片显示", (d) => setImageFit(d, { blockId: block.id, fit: fit as "contain" | "cover" }))
+          onChange={(align) =>
+            store.getState().apply("对齐", (d) =>
+              updateBlockStyle(d, { blockId: block.id, style: { align: align as "left" | "center" | "right" } }),
+            )
           }
         />
+      )}
+      {block.type === "button" && (
+        <>
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">文案</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.label}
+              aria-label="按钮文案"
+              onChange={(e) =>
+                store.getState().apply("按钮文案", (d) =>
+                  updateButtonBlock(d, { blockId: block.id, label: e.target.value }),
+                )
+              }
+            />
+          </label>
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">链接</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.href}
+              placeholder="https://…"
+              aria-label="按钮链接"
+              onChange={(e) =>
+                store.getState().apply("按钮链接", (d) =>
+                  updateButtonBlock(d, { blockId: block.id, href: e.target.value }),
+                )
+              }
+            />
+          </label>
+          <ModeRow
+            value={block.align}
+            options={[
+              { value: "left", label: "左对齐" },
+              { value: "center", label: "居中" },
+              { value: "right", label: "右对齐" },
+            ]}
+            onChange={(align) =>
+              store.getState().apply("对齐", (d) =>
+                updateButtonBlock(d, { blockId: block.id, align: align as "left" | "center" | "right" }),
+              )
+            }
+          />
+          <ModeRow
+            value={block.variant}
+            options={[
+              { value: "primary", label: "主要" },
+              { value: "secondary", label: "次要" },
+            ]}
+            onChange={(variant) =>
+              store.getState().apply("按钮样式", (d) =>
+                updateButtonBlock(d, { blockId: block.id, variant: variant as "primary" | "secondary" }),
+              )
+            }
+          />
+        </>
       )}
       <SwatchRow
         label="背景"
@@ -399,33 +661,159 @@ export function CanvasPropertyBar({
         }
       />
       <RadiusControl store={store} blockId={block.id} />
-      {canSmartRecompute(section) && (
-        <div className="canvas-prop-row canvas-prop-actions">
-            <button
-              type="button"
-              className="canvas-prop-btn"
-              onClick={() =>
-                store.getState().apply("等分列宽", (d) =>
-                  setSectionWidthMode(d, { boardId: board.id, sectionId: section.id, mode: "equal" }),
-                )
-              }
-            >
-              等分
-            </button>
-            <button
-              type="button"
-              className="canvas-prop-btn"
-              onClick={() => {
-                store.getState().apply("智能比例", (d) =>
-                  setSectionWidthMode(d, { boardId: board.id, sectionId: section.id, mode: "smart" }),
-                );
-                recomputeSmartSection(store, measurer, section.id);
-              }}
-            >
-              智能比例
-            </button>
-          </div>
+      <h3 className="canvas-prop-subtitle">所在行</h3>
+      <div className="canvas-prop-row canvas-prop-actions">
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          title="在右侧添加一列"
+          onClick={() =>
+            store.getState().apply("添加列", (d) =>
+              insertColumn(d, {
+                boardId: board.id,
+                sectionId: section.id,
+                columnId: section.columns[section.columns.length - 1].id,
+                side: "right",
+              }),
+            )
+          }
+        >
+          加列
+        </button>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          disabled={!canRemoveColumn}
+          title={canRemoveColumn ? "删除最后一列（仅空列）" : "仅可删除空列，且至少保留一列"}
+          onClick={() =>
+            store.getState().apply("减列", (d) =>
+              removeColumn(d, {
+                boardId: board.id,
+                sectionId: section.id,
+                columnId: section.columns[section.columns.length - 1].id,
+              }),
+            )
+          }
+        >
+          减列
+        </button>
+      </div>
+      <div className="canvas-prop-row canvas-prop-actions">
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          onClick={() =>
+            store.getState().apply("等分列宽", (d) =>
+              setSectionWidthMode(d, { boardId: board.id, sectionId: section.id, mode: "equal" }),
+            )
+          }
+        >
+          等分
+        </button>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          disabled={!isTwoCols}
+          title={isTwoCols ? "左列占 1/3" : "仅两列可用"}
+          onClick={() =>
+            store.getState().apply("列宽 1:2", (d) =>
+              setColumnWeights(d, { boardId: board.id, sectionId: section.id, weights: [1, 2] }),
+            )
+          }
+        >
+          1:2
+        </button>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          disabled={!isTwoCols}
+          title={isTwoCols ? "左列占 2/3" : "仅两列可用"}
+          onClick={() =>
+            store.getState().apply("列宽 2:1", (d) =>
+              setColumnWeights(d, { boardId: board.id, sectionId: section.id, weights: [2, 1] }),
+            )
+          }
+        >
+          2:1
+        </button>
+        {canSmartRecompute(section) && (
+          <button
+            type="button"
+            className="canvas-prop-btn"
+            title="一文一图智能比例"
+            onClick={() => {
+              store.getState().apply("智能比例", (d) =>
+                setSectionWidthMode(d, { boardId: board.id, sectionId: section.id, mode: "smart" }),
+              );
+              recomputeSmartSection(store, measurer, section.id);
+            }}
+          >
+            智能
+          </button>
         )}
+      </div>
+      {isTwoCols && (
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">列宽</span>
+          <input
+            type="range"
+            min={20}
+            max={80}
+            value={leftShare}
+            aria-label="左列宽度占比"
+            onChange={(e) => {
+              const share = Number(e.target.value);
+              store.getState().apply(
+                "自定义列宽",
+                (d) => setColumnWeights(d, { boardId: board.id, sectionId: section.id, weights: [share, 100 - share] }),
+                { coalesceKey: `colw:${section.id}` },
+              );
+            }}
+          />
+          <span className="text-xs text-muted-foreground">{leftShare}%</span>
+        </label>
+      )}
+      <ModeRow
+        value={section.verticalAlign ?? "stretch"}
+        options={[
+          { value: "stretch", label: "拉伸" },
+          { value: "top", label: "顶对齐" },
+          { value: "middle", label: "居中" },
+          { value: "bottom", label: "底对齐" },
+        ]}
+        onChange={(align) =>
+          store.getState().apply("垂直对齐", (d) =>
+            updateSectionLayout(d, {
+              boardId: board.id,
+              sectionId: section.id,
+              verticalAlign: align as CanvasSectionVerticalAlign,
+            }),
+          )
+        }
+      />
+      <label className="canvas-prop-row">
+        <span className="canvas-prop-label">间距</span>
+        <input
+          type="range"
+          min={0}
+          max={64}
+          value={section.gap ?? board.gap}
+          aria-label="行内间距"
+          onChange={(e) =>
+            store.getState().apply(
+              "行内间距",
+              (d) =>
+                updateSectionLayout(d, {
+                  boardId: board.id,
+                  sectionId: section.id,
+                  gap: Number(e.target.value),
+                }),
+              { coalesceKey: `secgap:${section.id}` },
+            )
+          }
+        />
+        <span className="text-xs text-muted-foreground">{section.gap ?? board.gap}px</span>
+      </label>
       <div className="canvas-prop-row canvas-prop-actions">
         <button
           type="button"
@@ -458,6 +846,42 @@ export function CanvasPropertyBar({
       >
         <Trash2 className="h-3.5 w-3.5" /> 删除模块
       </button>
+    </div>
+  );
+}
+
+/** 图片块「替换图片」：走统一上传入口，保留块位置/ratio/fit/样式，失败保留旧图。 */
+function ReplaceImageRow({
+  onReplaceImage,
+  blockId,
+}: {
+  onReplaceImage?: (blockId: string, file: File) => void;
+  blockId: string;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  return (
+    <div className="canvas-prop-row">
+      <span className="canvas-prop-label">图片</span>
+      <button
+        type="button"
+        className="canvas-prop-btn"
+        style={{ flex: 1 }}
+        onClick={() => inputRef.current?.click()}
+      >
+        替换图片…
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+        className="hidden"
+        aria-label="选择替换图片"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && onReplaceImage) onReplaceImage(blockId, file);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }

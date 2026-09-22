@@ -44,7 +44,7 @@ export interface CanvasBlockStyle {
   radius?: number | null;
 }
 
-export type CanvasTextRole = "title" | "body";
+export type CanvasTextRole = "title" | "body" | "list";
 
 export interface CanvasTextBlock {
   id: string;
@@ -53,6 +53,39 @@ export interface CanvasTextBlock {
   role: CanvasTextRole;
   style?: CanvasBlockStyle;
 }
+
+/**
+ * 分隔线块（阶段 B2）：无文本，渲染一条 token 色细线；
+ * style 仅 align 有意义（线在块宽内的对齐）。
+ */
+export interface CanvasDividerBlock {
+  id: string;
+  type: "divider";
+  style?: CanvasBlockStyle;
+}
+
+/** 行动按钮变体：primary = 主按钮实底，secondary = 描边次按钮。 */
+export type CanvasButtonVariant = "primary" | "secondary";
+
+/**
+ * 行动按钮块（阶段 B2）：纯链接，不承载任何脚本能力。
+ * href 仅允许 http(s) 或空串（校验 + 渲染双重把关，非法渲染为禁用态）。
+ */
+export interface CanvasButtonBlock {
+  id: string;
+  type: "button";
+  label: string;
+  href: string;
+  align: CanvasTextAlign;
+  variant: CanvasButtonVariant;
+  style?: CanvasBlockStyle;
+}
+
+/** 分隔线内容高（线盒本身，不含块 chrome）。 */
+export const DIVIDER_CONTENT_HEIGHT = 8;
+
+/** 行动按钮默认文案（属性栏可改）。 */
+export const BUTTON_DEFAULT_LABEL = "按钮文字";
 
 /** 图片必须保存原始尺寸；ratio = naturalWidth / naturalHeight（规格 §4.2）。 */
 export interface CanvasImageAsset {
@@ -87,12 +120,14 @@ export interface CanvasImageBlock {
   type: "image";
   asset: CanvasImageAsset | null;
   fit: CanvasImageFit;
-  /** 容器比例（仅自由图片容器布局使用）；缺省 = auto。 */
+  /** 容器比例（自由图片与版面图片块通用）；缺省 = auto（按原比例自适应高）。 */
   ratio?: CanvasImageRatio;
+  /** 说明文字（持久化，渲染为 img alt）。 */
+  alt?: string;
   style?: CanvasBlockStyle;
 }
 
-export type CanvasBlock = CanvasTextBlock | CanvasImageBlock;
+export type CanvasBlock = CanvasTextBlock | CanvasImageBlock | CanvasDividerBlock | CanvasButtonBlock;
 
 export interface CanvasColumn {
   id: string;
@@ -105,8 +140,13 @@ export interface CanvasColumn {
  * - smart：一文一图智能比例；权重由测量触发点写入，编辑期间不重算（规格 §4.2）
  * - manual：用户拖过列分隔线，自动计算不再覆盖
  * columnWeights 恒与 columns 等长且为正数。
+ *
+ * verticalAlign（B2）：行内列的垂直放置策略——
+ * - stretch（缺省）：列内所有块等高拉伸（v1 语义，几何不变）
+ * - top / middle / bottom：块保持各自自然高，按列对齐放置
  */
 export type CanvasSectionWidthMode = "equal" | "manual" | "smart";
+export type CanvasSectionVerticalAlign = "stretch" | "top" | "middle" | "bottom";
 
 /** 行（v1 的 Section 结构原样保留，v2 起挂到 Region 下）。 */
 export interface CanvasSection {
@@ -114,6 +154,9 @@ export interface CanvasSection {
   widthMode: CanvasSectionWidthMode;
   columnWeights: number[];
   columns: CanvasColumn[];
+  /** 行内列/块间距覆盖；缺省继承区块行距（regionGap）。 */
+  gap?: number;
+  verticalAlign?: CanvasSectionVerticalAlign;
 }
 
 /** 区块装饰样式；padding/rowGap 缺省语义见 regionPadding/regionRowGap。 */
@@ -235,6 +278,25 @@ export function createImageBlock(
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasImageBlock {
   return { id: newId(), type: "image", asset, fit: "contain" };
+}
+
+export function createDividerBlock(
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasDividerBlock {
+  return { id: newId(), type: "divider" };
+}
+
+export function createButtonBlock(
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasButtonBlock {
+  return {
+    id: newId(),
+    type: "button",
+    label: BUTTON_DEFAULT_LABEL,
+    href: "",
+    align: "left",
+    variant: "primary",
+  };
 }
 
 export function createColumn(
@@ -509,7 +571,7 @@ export function countNodes(doc: CanvasDoc): {
   return { boards: doc.boards.length, regions, sections, columns, blocks, freeItems: doc.freeItems.length };
 }
 
-/** 块的生效样式：显式样式优先，否则按角色给默认（标题大号加粗）。 */
+/** 块的生效样式：显式样式优先，否则按角色给默认（标题大号加粗；列表等同正文）。 */
 export function effectiveTextStyle(block: CanvasTextBlock): Required<
   Pick<CanvasBlockStyle, "fontSize" | "bold" | "align">
 > & { color: string } {
@@ -520,6 +582,14 @@ export function effectiveTextStyle(block: CanvasTextBlock): Required<
     align: style.align ?? "left",
     color: style.color ?? "",
   };
+}
+
+/**
+ * 行动按钮 href 安全判定（B2）：仅允许 http(s) 链接或空串
+ * （空串 = 未设置，渲染为禁用态）。校验与渲染共用，非法一律不渲染为可点链接。
+ */
+export function isSafeButtonHref(href: string): boolean {
+  return href === "" || /^https?:\/\//i.test(href);
 }
 
 /** 图片自然高度（含模块内边距）：宽度/比例，加载失败或无资产时给占位高。 */

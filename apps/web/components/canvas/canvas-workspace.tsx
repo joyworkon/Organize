@@ -20,25 +20,29 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Eye,
-  Image as ImageIcon,
-  LayoutTemplate,
-  ListTree,
   Loader2,
   Maximize2,
   Minus,
   MousePointerClick,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Redo2,
-  Rows3,
-  Type as TypeIcon,
   Undo2,
 } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
-import { isTypingTarget } from "@/lib/hooks/use-hotkey";
+import { hasOpenDialog, isTypingTarget } from "@/lib/hooks/use-hotkey";
 import { createClient } from "@/lib/supabase/client";
-import { CANVAS_SCHEMA_VERSION, createImageBlock, ensureCanvasDocV2, findBlockLocation, type CanvasDoc } from "@/lib/canvas/model";
 import {
-  appendImageSection,
+  CANVAS_SCHEMA_VERSION,
+  createButtonBlock,
+  createDividerBlock,
+  createTextBlock,
+  ensureCanvasDocV2,
+  type CanvasBlock,
+  type CanvasDoc,
+} from "@/lib/canvas/model";
+import {
   applyCanvasTemplate,
   createBoardSkeleton,
   createFreeImage,
@@ -46,10 +50,17 @@ import {
   deleteBlock,
   deleteFreeItem,
   deleteRegion,
-  insertBlockBelow,
-  planImageInsertTarget,
+  insertBlockAtTarget,
   type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
+import {
+  describeInsertTarget,
+  resolveInsertTarget,
+  type ExplicitInsertPosition,
+  type InsertTarget,
+} from "@/lib/canvas/insert-target";
+import { replaceImage, startImageInsert } from "@/lib/canvas/image-insert";
+import { worldCenter, worldViewportRect } from "@/lib/canvas/coords";
 import {
   duplicateCanvas,
   getCanvas,
@@ -64,7 +75,8 @@ import { createCanvasStore } from "./canvas-store";
 import { useCanvasScene, useFontsReady } from "./use-canvas-scene";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
-import { CanvasOutlinePanel } from "./canvas-outline-panel";
+import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
+import { useIsNarrowViewport } from "./use-is-narrow-viewport";
 import { displayKey } from "./canvas-block";
 import { useCanvasSelector } from "./use-canvas-selector";
 import {
@@ -84,6 +96,23 @@ export interface CanvasWorkspaceProps {
 interface LoadState {
   phase: "loading" | "ready" | "not-found" | "unauthorized";
 }
+
+/** 添加面板「非图片」五项的块工厂与事务标签（模块级常量，避免每次渲染重建）。 */
+const ADD_BLOCK_FACTORY: Record<Exclude<AddBlockKind, "image">, () => CanvasBlock> = {
+  title: () => createTextBlock("title"),
+  body: () => createTextBlock("body"),
+  list: () => createTextBlock("list"),
+  divider: () => createDividerBlock(),
+  button: () => createButtonBlock(),
+};
+const ADD_BLOCK_LABEL: Record<AddBlockKind, string> = {
+  title: "插入标题",
+  body: "插入正文",
+  image: "插入图片",
+  list: "插入列表",
+  divider: "插入分隔线",
+  button: "插入行动按钮",
+};
 
 /** 保存用序列化：pending 资产不带临时地址（占位）；已保存资产不带本机键。 */
 function serializeDocForSave(doc: CanvasDoc): CanvasDoc {
@@ -120,8 +149,14 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
   const [userId, setUserId] = useState("");
-  const [outlineOpen, setOutlineOpen] = useState(false);
+  const narrow = useIsNarrowViewport();
+  /** 左侧面板折叠（窄空间可折叠，默认展开）。 */
+  const [panelOpen, setPanelOpen] = useState(true);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  /** 自由放置「自由图片」的独立选择器（显式次级入口）。 */
   const freeImageInputRef = useRef<HTMLInputElement | null>(null);
+  /** 「图片」按钮点击瞬间的目标快照：文件选择器打开后选区变化不影响在途目标。 */
+  const imageTargetSnapshotRef = useRef<InsertTarget | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
 
   const store = useMemo(
@@ -148,9 +183,17 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const editingBlockId = useCanvasSelector(store, useCallback((s) => s.editingBlockId, []));
   const assetUrls = useCanvasSelector(store, useCallback((s) => s.assetUrls, []));
   const localSeq = useCanvasSelector(store, useCallback((s) => s.localSeq, []));
+  const lastActiveTarget = useCanvasSelector(store, useCallback((s) => s.lastActiveTarget, []));
   const canUndo = store.getState().history.canUndo;
   const canRedo = store.getState().history.canRedo;
   void localSeq;
+
+  /** 统一插入目标（目标提示 + 各入口共用解析）。 */
+  const insertTarget = useMemo(
+    () => resolveInsertTarget(doc, selection, null, lastActiveTarget),
+    [doc, selection, lastActiveTarget],
+  );
+  const insertHint = describeInsertTarget(doc, insertTarget);
 
   const autosaveRef = useRef<AutosaveController | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -337,13 +380,18 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-        // 统一撤销/重做：同时阻止 textarea 原生 undo 与文档撤销打架
+        // 目标是否为画布块内文本域（受控 textarea）：画布统一撤销接管，
+        // 防止与文档撤销打架；普通输入框（页面名/属性栏/搜索等）走原生，不抢。
+        const target = e.target as HTMLElement | null;
+        const isCanvasTextarea =
+          !!target && target.tagName === "TEXTAREA" && !!target.closest("[data-block-id], [data-free-item-id]");
+        if (isTypingTarget(e) && !isCanvasTextarea) return;
         e.preventDefault();
         if (e.shiftKey) s.redo();
         else s.undo();
         return;
       }
-      // 输入控件内（区块名编辑/对话框）不触发画布快捷键
+      // 输入控件内（区块名编辑/属性栏输入框/对话框）不触发画布快捷键
       if (isTypingTarget(e)) return;
       if (s.editingBlockId || s.readOnly || s.previewMode) return;
       if (e.code === "Space") {
@@ -351,6 +399,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         return;
       }
       if (e.key === "Escape") {
+        // 弹层打开时 Esc 让位给弹层自身关闭（属性栏对话框等）
+        if (hasOpenDialog()) return;
         s.select(null);
         return;
       }
@@ -394,47 +444,59 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
 
   // ---------------- 工具条动作 ----------------
 
-  const worldCenter = useCallback(() => {
+  const worldCenterNow = useCallback(() => {
     const rect = shellRef.current?.getBoundingClientRect();
     const vp = store.getState().viewport;
-    return {
-      x: rect ? (rect.width / 2 - vp.x) / vp.zoom : 0,
-      y: rect ? (rect.height / 2 - vp.y) / vp.zoom : 0,
-    };
+    return rect ? worldCenter(rect, vp) : { x: 0, y: 0 };
+  }, [store]);
+
+  /** 当前视口的世界矩形（新建页面自动落位用；拿不到容器尺寸时返回 null）。 */
+  const worldViewportRectNow = useCallback(() => {
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return worldViewportRect(rect, store.getState().viewport);
   }, [store]);
 
   const addFreeText = useCallback(() => {
-    const at = worldCenter();
+    const at = worldCenterNow();
     store.getState().apply("新建自由文本", (d) => createFreeText(d, at));
     const sel = store.getState().selection;
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
-  }, [store, worldCenter]);
+  }, [store, worldCenterNow]);
 
-  /** 当前视口的世界矩形（新建页面自动落位用；拿不到容器尺寸时返回 null）。 */
-  const worldViewportRect = useCallback(() => {
-    const rect = shellRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const vp = store.getState().viewport;
-    return {
-      x: -vp.x / vp.zoom,
-      y: -vp.y / vp.zoom,
-      width: rect.width / vp.zoom,
-      height: rect.height / vp.zoom,
-    };
-  }, [store]);
+  /**
+   * 统一解析插入目标（B2）：explicit 为拖入/粘贴的指针命中位置。
+   * 完全空白时先自动建空白页面（视口落位），再二次解析——保证新内容
+   * 一定进入页面区块，不默认创建自由内容。
+   */
+  const resolveInsertTargetNow = useCallback(
+    (explicit?: ExplicitInsertPosition | null): InsertTarget => {
+      const s = store.getState();
+      let target = resolveInsertTarget(s.doc, s.selection, explicit ?? null, s.lastActiveTarget);
+      if ("create" in target) {
+        s.apply("新建空白页面", (d) =>
+          createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "blank" }),
+        );
+        const s2 = store.getState();
+        target = resolveInsertTarget(s2.doc, s2.selection, null, s2.lastActiveTarget);
+      }
+      return target;
+    },
+    [store, worldViewportRectNow],
+  );
 
   // B1 新建入口：空白页面 / 宣传落地页骨架（落位走 A4 视口逻辑，首标题聚焦）
   const addBlankBoard = useCallback(() => {
     store.getState().apply("新建空白页面", (d) =>
-      createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "blank" }),
+      createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "blank" }),
     );
-  }, [store, worldViewportRect]);
+  }, [store, worldViewportRectNow]);
 
   const addLandingBoard = useCallback(() => {
     store.getState().apply("新建宣传落地页骨架", (d) =>
-      createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "landing" }),
+      createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "landing" }),
     );
-  }, [store, worldViewportRect]);
+  }, [store, worldViewportRectNow]);
 
   /** 选中并把对象平移到视口中央（不改缩放）。 */
   const revealTarget = useCallback(
@@ -461,61 +523,157 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     [scene, store],
   );
 
-  /** 模板插入当前选中页面；无选中页面时先新建空白页面（两次可撤销事务）。 */
-  const applyTemplate = useCallback(
-    (template: CanvasTemplateKind) => {
-      const s = store.getState();
-      const sel = s.selection;
-      let boardId: string | null =
-        sel?.kind === "board" || sel?.kind === "region"
-          ? sel.boardId
-          : sel?.kind === "block"
-            ? (findBlockLocation(s.doc, sel.blockId)?.board.id ?? null)
-            : null;
-      if (!boardId) boardId = s.doc.boards[s.doc.boards.length - 1]?.id ?? null;
-      if (!boardId) {
-        s.apply("新建空白页面", (d) =>
-          createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "blank" }),
-        );
-        const boards = store.getState().doc.boards;
-        boardId = boards[boards.length - 1]?.id ?? null;
-        if (!boardId) return;
+  /** 目标在视口内则不跳动；平移远离后新建/插入会把目标带回可视区（B2）。 */
+  const revealIfNeeded = useCallback(
+    (target: { kind: "board"; boardId: string } | { kind: "region"; boardId: string; regionId: string }) => {
+      const rect = shellRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const sb = scene.boards.find((b) => b.boardId === target.boardId);
+      if (!sb) return;
+      let top: number;
+      let height: number;
+      if (target.kind === "region") {
+        const sr = sb.regions.find((r) => r.regionId === target.regionId);
+        if (!sr) return;
+        top = sr.y;
+        height = sr.height;
+      } else {
+        top = sb.y;
+        height = sb.height;
       }
-      store.getState().apply("插入模板", (d) => applyCanvasTemplate(d, { boardId, template }));
-      store.getState().requestSmartRecompute();
-      revealTarget({ kind: "board", boardId });
+      const vp = store.getState().viewport;
+      const viewTop = -vp.y / vp.zoom;
+      const viewBottom = viewTop + rect.height / vp.zoom;
+      // 与视口有任意重叠即视为可见，不跳动
+      if (top + height > viewTop && top < viewBottom) return;
+      revealTarget(target);
     },
-    [store, worldViewportRect, revealTarget],
+    [scene, store, revealTarget],
   );
 
+  /** 模板插入当前选中页面（统一解析：无选中 → lastActive → 自动建页面）。 */
+  const applyTemplate = useCallback(
+    (template: CanvasTemplateKind) => {
+      const target = resolveInsertTargetNow();
+      if ("create" in target) return;
+      store.getState().apply("插入模板", (d) => applyCanvasTemplate(d, { boardId: target.boardId, template }));
+      store.getState().requestSmartRecompute();
+      revealTarget({ kind: "board", boardId: target.boardId });
+    },
+    [store, resolveInsertTargetNow, revealTarget],
+  );
+
+  /** 添加面板六项（B2）：统一解析目标后落块。 */
+  const addBlock = useCallback(
+    (kind: AddBlockKind) => {
+      if (kind === "image") {
+        // 打开文件选择器前固定目标快照（选择期间选区变化不影响在途目标）
+        imageTargetSnapshotRef.current = resolveInsertTargetNow();
+        imageInputRef.current?.click();
+        return;
+      }
+      const target = resolveInsertTargetNow();
+      if ("create" in target) return;
+      const block = ADD_BLOCK_FACTORY[kind]();
+      store.getState().apply(ADD_BLOCK_LABEL[kind], (d) => insertBlockAtTarget(d, target, block));
+      // 平移远离后插入：把目标区块带回可视区（视口内则不跳动）
+      revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+    },
+    [store, resolveInsertTargetNow, revealIfNeeded],
+  );
+
+  /** 图片统一插入编排（面板/拖入/粘贴三入口共用）。 */
+  const runImageInsert = useCallback(
+    async (files: File[], target: InsertTarget) => {
+      const outcome = await startImageInsert({
+        store,
+        target,
+        files,
+        upload: uploadCanvasImage,
+        userId: userId || "anonymous",
+        fallbackPosition: worldCenterNow,
+        onInvalidFile: (_file, reason) =>
+          toast({ title: "无法插入文件", description: reason, variant: "destructive" }),
+        onOrphaned: (name) =>
+          toast({
+            title: "图片已上传，但插入位置已被删除",
+            description: `${name} 已转为「待重新放置」的自由图片，可在属性栏「移入区块…」归位。`,
+          }),
+        onUploaded: () => store.getState().requestSmartRecompute(),
+      });
+      void outcome;
+      // 面板按钮入口（lastActive 可能已不在可视区）：把目标区块带回视野
+      if (!("create" in target)) {
+        revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+      }
+    },
+    [store, userId, worldCenterNow, revealIfNeeded],
+  );
+
+  /** 「图片」面板按钮回调：目标已在点击瞬间快照。 */
+  const onImageFilesPicked = useCallback(
+    async (files: File[] | undefined) => {
+      const list = Array.from(files ?? []);
+      if (list.length === 0) return;
+      const target = imageTargetSnapshotRef.current;
+      imageTargetSnapshotRef.current = null;
+      if (!target) return;
+      if ("create" in target) return; // 解析时已经建过页面，不应出现
+      await runImageInsert(list, target);
+    },
+    [runImageInsert],
+  );
+
+  /** 拖入 / 粘贴（B2）：指针命中列/区块 → explicit；空白处就地建页面。 */
+  const onInsertFiles = useCallback(
+    (files: File[], explicit: ExplicitInsertPosition | null, at: { x: number; y: number }) => {
+      if (files.length === 0) return;
+      const s = store.getState();
+      let target = resolveInsertTarget(s.doc, s.selection, explicit, s.lastActiveTarget);
+      if ("create" in target) {
+        s.apply("新建空白页面", (d) => createBoardSkeleton(d, { at, variant: "blank" }));
+        const s2 = store.getState();
+        target = resolveInsertTarget(s2.doc, s2.selection, null, s2.lastActiveTarget);
+        if ("create" in target) return;
+      }
+      void runImageInsert(files, target);
+    },
+    [store, runImageInsert],
+  );
+
+  /** 图片块「替换图片」（占位点击 / 属性栏共用同一入口）。 */
+  const onReplaceImage = useCallback(
+    (blockId: string, file: File) => {
+      void replaceImage({
+        store,
+        blockId,
+        file,
+        upload: uploadCanvasImage,
+        userId: userId || "anonymous",
+        onReplaced: () => store.getState().requestSmartRecompute(),
+      }).catch((error: unknown) => {
+        toast({
+          title: "替换图片失败",
+          description: error instanceof Error ? error.message : "请重试",
+          variant: "destructive",
+        });
+      });
+    },
+    [store, userId],
+  );
+
+  /** 自由放置「自由图片」：显式次级入口，上传成功后自由定位。 */
   const onFreeImageFile = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
       try {
         const outcome = await uploadCanvasImage(file, userId || "anonymous");
-        const plan = planImageInsertTarget(store.getState().selection);
-        if (plan.kind === "block") {
-          store.getState().apply("插入图片", (d) =>
-            insertBlockBelow(d, {
-              blockId: plan.blockId,
-              block: createImageBlock(outcome.asset),
-            }),
-          );
-        } else if (plan.kind === "board") {
-          store.getState().apply("插入图片", (d) =>
-            appendImageSection(d, { boardId: plan.boardId, asset: outcome.asset }),
-          );
-        } else {
-          const at = worldCenter();
-          store.getState().apply("新建自由图片", (d) => createFreeImage(d, { ...at, asset: outcome.asset }));
-        }
-        // apply 已把 selection 同步到新对象；previewUrl 键到正确 id（A1/A9）
+        const at = worldCenterNow();
+        store.getState().apply("新建自由图片", (d) => createFreeImage(d, { ...at, asset: outcome.asset }));
         const sel = store.getState().selection;
-        const keyId = sel?.kind === "block" ? sel.blockId : sel?.kind === "free" ? sel.itemId : null;
-        if (keyId && outcome.previewUrl) {
-          store.getState().setAssetUrl(displayKey(keyId, outcome.asset), outcome.previewUrl);
+        if (sel?.kind === "free" && outcome.previewUrl) {
+          store.getState().setAssetUrl(displayKey(sel.itemId, outcome.asset), outcome.previewUrl);
         }
-        // 插入列内图片可能形成一文一图形态，触发智能比例
         store.getState().requestSmartRecompute();
       } catch (error) {
         toast({
@@ -525,7 +683,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         });
       }
     },
-    [store, userId, worldCenter],
+    [store, userId, worldCenterNow],
   );
 
   // ---------------- 渲染 ----------------
@@ -707,69 +865,74 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         </div>
       )}
 
-      {/* 左侧工具条 */}
-      {interactive && (
-        <div className="canvas-toolbar" role="toolbar" aria-label="画布工具">
+      {/* 左侧添加面板（B2：分组文字面板，替代孤立图标工具条） */}
+      {interactive &&
+        (panelOpen ? (
+          <div className="canvas-add-panel-wrap">
+            <div className="canvas-add-panel-topbar">
+              <button
+                type="button"
+                className="canvas-tool-btn"
+                title="选择（点击空白取消选择）"
+                aria-label="选择工具"
+                onClick={() => {
+                  store.getState().select(null);
+                  store.getState().stopEdit();
+                }}
+              >
+                <MousePointerClick className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="canvas-tool-btn"
+                title="折叠添加面板"
+                aria-label="折叠添加面板"
+                onClick={() => setPanelOpen(false)}
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </div>
+            <CanvasAddPanel
+              store={store}
+              hint={insertHint}
+              narrow={narrow}
+              onAddBlock={addBlock}
+              onAddBlankBoard={addBlankBoard}
+              onAddLandingBoard={addLandingBoard}
+              onAddFreeText={addFreeText}
+              onAddFreeImage={() => {
+                // 自由放置入口同样固定「视口中心」语义：选择文件前先点按钮
+                freeImageInputRef.current?.click();
+              }}
+              onApplyTemplate={applyTemplate}
+              onReveal={revealTarget}
+            />
+          </div>
+        ) : (
           <button
             type="button"
-            className="canvas-tool-btn"
-            title="选择（点击空白取消选择）"
-            aria-label="选择工具"
-            onClick={() => {
-              store.getState().select(null);
-              store.getState().stopEdit();
-            }}
+            className="canvas-tool-btn canvas-add-panel-expand"
+            title="展开添加面板"
+            aria-label="展开添加面板"
+            onClick={() => setPanelOpen(true)}
           >
-            <MousePointerClick className="h-4 w-4" />
+            <PanelLeftOpen className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            className="canvas-tool-btn"
-            title="结构 / 模板面板"
-            aria-label="结构与模板面板"
-            aria-pressed={outlineOpen}
-            onClick={() => setOutlineOpen((v) => !v)}
-          >
-            <ListTree className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="canvas-tool-btn"
-            title="新建空白页面（一个默认区块 + 标题块）"
-            aria-label="新建空白页面"
-            onClick={addBlankBoard}
-          >
-            <LayoutTemplate className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="canvas-tool-btn"
-            title="新建宣传落地页骨架（头部 / 中部 / 底部三个区块）"
-            aria-label="新建宣传落地页骨架"
-            onClick={addLandingBoard}
-          >
-            <Rows3 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="canvas-tool-btn"
-            title="自由文本（Enter 只换行）"
-            aria-label="新建自由文本"
-            onClick={addFreeText}
-          >
-            <TypeIcon className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="canvas-tool-btn"
-            title="插入图片（选中模块插在其后，选中版面追加通栏，否则新建自由图片）"
-            aria-label="插入图片"
-            onClick={() => freeImageInputRef.current?.click()}
-          >
-            <ImageIcon className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+        ))}
+      {/* 统一图片文件选择器：「添加→图片」的目标在点击按钮瞬间已快照 */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+        multiple
+        className="hidden"
+        data-testid="canvas-image-input"
+        onChange={(e) => {
+          void onImageFilesPicked(e.target.files ? Array.from(e.target.files) : undefined);
+          e.target.value = "";
+        }}
+      />
+      {/* 自由放置「自由图片」文件选择器（显式次级入口） */}
       <input
         ref={freeImageInputRef}
         type="file"
@@ -780,15 +943,6 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           e.target.value = "";
         }}
       />
-
-      {/* 左侧「结构 / 模板」面板（B1） */}
-      {interactive && outlineOpen && (
-        <CanvasOutlinePanel
-          store={store}
-          onReveal={revealTarget}
-          onApplyTemplate={applyTemplate}
-        />
-      )}
 
       {/* 视口 */}
       <div ref={shellRef} className="canvas-shell" data-testid="canvas-shell">
@@ -804,11 +958,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           assetUrls={assetUrls}
           onCreateBlank={addBlankBoard}
           onCreateLanding={addLandingBoard}
+          onReplaceImage={onReplaceImage}
+          onInsertFiles={onInsertFiles}
         />
       </div>
 
       {/* 右侧属性栏 */}
-      {interactive && <CanvasPropertyBar store={store} measurer={measurer} />}
+      {interactive && <CanvasPropertyBar store={store} measurer={measurer} onReplaceImage={onReplaceImage} />}
 
       {/* 缩放控件 */}
       <div className="canvas-zoom" role="group" aria-label="缩放">

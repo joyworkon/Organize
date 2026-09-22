@@ -5783,8 +5783,8 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   border-color: hsl(var(--primary));
 }
 
-/* 左侧工具条 */
-.canvas-toolbar {
+/* 左侧添加面板（B2：分组文字面板，替代孤立图标工具条） */
+.canvas-add-panel-wrap {
   position: absolute;
   left: 12px;
   top: 64px;
@@ -5792,12 +5792,85 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: calc(100% - 148px);
+}
+.canvas-add-panel-topbar {
+  display: flex;
+  gap: 4px;
   padding: 4px;
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  align-self: flex-start;
 }
+.canvas-add-panel {
+  width: 208px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  font-size: 13px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.canvas-add-panel-expand {
+  position: absolute;
+  left: 12px;
+  top: 64px;
+  z-index: 40;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.canvas-add-hint {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.5);
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-add-group { display: flex; flex-direction: column; gap: 4px; }
+.canvas-add-group-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  padding: 2px 4px;
+}
+.canvas-add-group-title.is-static { cursor: default; }
+button.canvas-add-group-title { width: 100%; text-align: left; }
+button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
+.canvas-add-group-body { display: flex; flex-direction: column; gap: 4px; }
+.canvas-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.canvas-add-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+}
+.canvas-add-item:hover { color: hsl(var(--primary)); border-color: hsl(var(--primary) / 0.7); background: hsl(var(--accent)); }
+.canvas-add-item:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 1px; }
+.canvas-add-note { margin: 0; font-size: 11px; color: hsl(var(--muted-foreground)); padding: 0 4px; }
 
 /* 视口与世界容器 */
 .canvas-shell { position: relative; flex: 1; overflow: hidden; }
@@ -5926,6 +5999,59 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   font-size: 14px;
 }
 
+/* 列表角色：逐行项目符号（悬挂缩进，换行与首行对齐；B2） */
+.canvas-text-content.is-list { padding-left: 16px; }
+.canvas-list-line { position: relative; }
+.canvas-list-line::before {
+  content: "•";
+  position: absolute;
+  left: -14px;
+  color: hsl(var(--muted-foreground));
+}
+
+/* 分隔线块（B2）：token 色细线 */
+.canvas-block-divider { cursor: default; }
+.canvas-divider-line {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: hsl(var(--border));
+}
+.canvas-divider-line.is-center { margin-inline: auto; }
+.canvas-divider-line.is-right { margin-left: auto; }
+
+/* 行动按钮块（B2）：纯链接渲染，编辑态不可点 */
+.canvas-block-button { display: flex; align-items: center; }
+.canvas-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 16px;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  cursor: pointer;
+  max-width: 100%;
+}
+.canvas-btn.is-primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border: 1px solid hsl(var(--primary));
+}
+.canvas-btn.is-secondary {
+  background: transparent;
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+}
+.canvas-btn.is-secondary:hover { border-color: hsl(var(--primary) / 0.7); color: hsl(var(--primary)); }
+.canvas-btn.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
 /* 图片 */
 .canvas-image-placeholder {
   width: 100%;
@@ -5991,6 +6117,22 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
 .canvas-image-retry-btn:hover { border-color: hsl(var(--primary) / 0.6); }
 .canvas-image-retry-btn:disabled { opacity: 0.5; cursor: default; }
 
+/* 上传中占位（B2 统一图片流程）：就地转圈，完成后原地更新 */
+.canvas-image-uploading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.4);
+  border: 1.5px dashed hsl(var(--border));
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
 /* 加号与插入预览 */
 .canvas-plus {
   /* 高于版面改宽手柄(34)与顶栏手柄(35)：加号是主操作，右缘重合时加号优先 */
@@ -6026,6 +6168,28 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   pointer-events: none;
   z-index: 25;
   box-sizing: border-box;
+}
+
+/* 区块间隙「＋」（B2）：两个区块之间的热区与插入预览 */
+.canvas-region-gap {
+  position: absolute;
+  z-index: 33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.canvas-plus-region {
+  position: relative;
+  flex-shrink: 0;
+}
+.canvas-region-insert-preview {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 96px;
+  width: auto;
 }
 .canvas-divider {
   position: absolute;
@@ -6129,6 +6293,14 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 .canvas-prop-title { font-size: 13px; font-weight: 600; }
+.canvas-prop-subtitle {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
 .canvas-prop-row { display: flex; align-items: center; gap: 6px; min-height: 24px; }
 .canvas-prop-row input[type="range"] { flex: 1; accent-color: hsl(var(--primary)); }
 .canvas-prop-label { width: 44px; flex-shrink: 0; font-size: 12px; color: hsl(var(--muted-foreground)); }
@@ -6151,6 +6323,8 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   color: hsl(var(--muted-foreground));
 }
 .canvas-prop-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.canvas-prop-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.canvas-prop-btn:disabled:hover { color: hsl(var(--muted-foreground)); background: transparent; }
 .canvas-seg {
   flex: 1;
   padding: 3px 0;
@@ -6343,31 +6517,7 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   pointer-events: none;
 }
 
-/* 左侧「结构 / 模板」面板（B1，位于工具条右侧，不破坏工具条布局） */
-.canvas-outline-panel {
-  position: absolute;
-  left: 56px;
-  top: 64px;
-  z-index: 40;
-  width: 216px;
-  max-height: calc(100% - 160px);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  font-size: 12px;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-xl);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.canvas-outline-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-  margin: 2px 2px 0;
-}
+/* 结构树（B1 内容；B2 起作为添加面板「结构」折叠区的主体，不再单独成面板） */
 .canvas-outline-tree {
   display: flex;
   flex-direction: column;
@@ -6493,14 +6643,14 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   .canvas-board,
   .canvas-free-item,
   .canvas-property-bar,
-  .canvas-toolbar,
+  .canvas-add-panel,
   .canvas-zoom,
   .canvas-banner,
   .canvas-block,
   .canvas-insert-preview,
   .canvas-list-card,
   .canvas-region,
-  .canvas-outline-panel {
+  .canvas-outline-tree {
     corner-shape: squircle;
   }
 }

@@ -23,6 +23,7 @@ import {
   CanvasDoc,
   CanvasRegion,
   CanvasSection,
+  DIVIDER_CONTENT_HEIGHT,
   IMAGE_RATIO_WIDTH_PER_HEIGHT,
   MIN_TEXT_CONTENT_HEIGHT,
   imageNaturalHeight,
@@ -217,47 +218,50 @@ export function columnRequiredHeight(
 }
 
 /**
- * 分区内每列每块的最终盒子（先定列宽，再测自然高，最后拉伸）。
+ * 分区内每列每块的最终盒子（先定列宽，再测自然高，最后按垂直对齐放置）。
  * @param contentX 行内容区左上角世界 x（= 区块内容区左缘）
  * @param contentWidth 行内容宽（区块内宽）
- * @param gap 列/块间距（区块行距）
+ * @param regionGap 区块行距（列/块间距缺省值；行级 section.gap 优先）
  */
 function layoutSection(
   section: CanvasSection,
   contentX: number,
   contentWidth: number,
-  gap: number,
+  regionGap: number,
   sectionY: number,
   measure: CanvasMeasure,
 ): SceneSection {
+  const gap = section.gap ?? regionGap;
   const columnWidths = computeColumnWidthsForContent(contentWidth, gap, section);
   const naturalPerColumn: number[][] = section.columns.map((column, i) =>
-    column.blocks.map((block) => {
-      const inner = Math.max(1, columnWidths[i] - BLOCK_PADDING * 2);
-      if (block.type === "image") {
-        return imageNaturalHeight(block, inner);
-      }
-      return Math.max(MIN_TEXT_CONTENT_HEIGHT, measure(block, inner));
-    }),
+    column.blocks.map((block) => blockContentNaturalHeight(block, Math.max(1, columnWidths[i] - BLOCK_PADDING * 2), measure)),
   );
-  const columnHeights = naturalPerColumn.map((heights) => columnRequiredHeight(heights, gap));
-  const sectionHeight = columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
+  const naturalColumnHeights = naturalPerColumn.map((heights) =>
+    heights.reduce((sum, h) => sum + h + BLOCK_CHROME, 0) + Math.max(0, heights.length - 1) * gap,
+  );
+  const stretchColumnHeights = naturalPerColumn.map((heights) => columnRequiredHeight(heights, gap));
+  const sectionHeight =
+    stretchColumnHeights.length > 0 ? Math.max(...stretchColumnHeights) : 0;
+  const align = section.verticalAlign ?? "stretch";
 
   let x = contentX;
   const columns: SceneColumn[] = section.columns.map((column, i) => {
     const width = columnWidths[i];
     const n = column.blocks.length;
     const blockHeight = n > 0 ? (sectionHeight - (n - 1) * gap) / n : 0;
-    let y = sectionY;
-    const blocks: SceneBlockBox[] = column.blocks.map((block) => {
-      const box: SceneBlockBox = {
-        blockId: block.id,
-        x,
-        y,
-        width,
-        height: blockHeight,
-      };
-      y += blockHeight + gap;
+    // 非拉伸对齐：块保持各自自然高，块串在列内按 align 放置（B2）。
+    const naturalStack = naturalColumnHeights[i] ?? 0;
+    const lead =
+      align === "middle"
+        ? (sectionHeight - naturalStack) / 2
+        : align === "bottom"
+          ? sectionHeight - naturalStack
+          : 0;
+    let y = sectionY + (align === "stretch" ? 0 : Math.max(0, lead));
+    const blocks: SceneBlockBox[] = column.blocks.map((block, bi) => {
+      const height = align === "stretch" ? blockHeight : (naturalPerColumn[i][bi] ?? blockHeight) + BLOCK_CHROME;
+      const box: SceneBlockBox = { blockId: block.id, x, y, width, height };
+      y += height + gap;
       return box;
     });
     const sceneColumn: SceneColumn = { columnId: column.id, x, y: sectionY, width, height: sectionHeight, blocks };
@@ -272,6 +276,32 @@ function layoutSection(
     columnWidths,
     columns,
   };
+}
+
+/**
+ * 块的内容自然高（不含块 chrome）：
+ * - 图片：定比例容器锁高（ratio≠auto），否则按原比例（宽度/比例）；
+ * - 分隔线：固定线盒高；
+ * - 行动按钮：与文本同走测量（块拉伸时垂直居中由渲染层处理）；
+ * - 文本：测量值夹到最小内容高。
+ */
+export function blockContentNaturalHeight(
+  block: CanvasBlock,
+  innerWidth: number,
+  measure: CanvasMeasure,
+): number {
+  if (block.type === "image") {
+    const ratio = block.ratio;
+    if (ratio && ratio !== "auto") {
+      return innerWidth / IMAGE_RATIO_WIDTH_PER_HEIGHT[ratio];
+    }
+    return imageNaturalHeight(block, innerWidth);
+  }
+  if (block.type === "divider") return DIVIDER_CONTENT_HEIGHT;
+  if (block.type === "button") {
+    return Math.max(MIN_TEXT_CONTENT_HEIGHT, measure(block, innerWidth));
+  }
+  return Math.max(MIN_TEXT_CONTENT_HEIGHT, measure(block, innerWidth));
 }
 
 /** 区块内每行的最终盒子（含区块内边距与行距，B1）。 */

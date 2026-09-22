@@ -15,6 +15,7 @@ import {
   CANVAS_SCHEMA_VERSION,
   CanvasBlock,
   CanvasBoard,
+  CanvasButtonVariant,
   CanvasCommandResult,
   CanvasDoc,
   CanvasFocus,
@@ -24,7 +25,9 @@ import {
   CanvasImageBlock,
   CanvasImageRatio,
   CanvasRegion,
+  CanvasSectionVerticalAlign,
   CanvasSectionWidthMode,
+  CanvasTextAlign,
   CanvasTextBlock,
   CanvasTextRole,
   MIN_TEXT_CONTENT_HEIGHT,
@@ -662,6 +665,207 @@ export function setImageFit(
   });
 }
 
+/** 图片块容器比例与说明文字（B2）；undefined = 保持原值。 */
+export function updateImageBlock(
+  doc: CanvasDoc,
+  args: { blockId: string; ratio?: CanvasImageRatio; alt?: string },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (loc && loc.block.type === "image") {
+      if (args.ratio !== undefined) loc.block.ratio = args.ratio;
+      if (args.alt !== undefined) loc.block.alt = args.alt;
+    }
+    return null;
+  });
+}
+
+/** 行动按钮属性更新（B2）；undefined = 保持原值。href 不做安全校验
+ * （校验在输入边界与 validation 层；渲染层另有 isSafeButtonHref 兜底）。 */
+export function updateButtonBlock(
+  doc: CanvasDoc,
+  args: {
+    blockId: string;
+    label?: string;
+    href?: string;
+    align?: CanvasTextAlign;
+    variant?: CanvasButtonVariant;
+  },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (loc && loc.block.type === "button") {
+      if (args.label !== undefined) loc.block.label = args.label.slice(0, 200);
+      if (args.href !== undefined) loc.block.href = args.href.slice(0, 2048);
+      if (args.align !== undefined) loc.block.align = args.align;
+      if (args.variant !== undefined) loc.block.variant = args.variant;
+    }
+    return null;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 统一插入目标（B2）：所有添加入口经 resolveInsertTarget 解析后走 insertBlockAtTarget
+// ---------------------------------------------------------------------------
+
+/**
+ * 统一块插入（B2）：按 resolveInsertTarget 的解析结果落块。
+ * - column：afterBlockId 存在 → 插在该块之后；否则追加到该列末尾；
+ * - region-end：在区块末尾追加一行（首列放块）；区块缺行/缺失时自动建行/建区块；
+ * - create:"page" 由调用方先建页面再二次解析（命令层不隐式建页面）。
+ * 文本块聚焦编辑；其余块只选中。
+ */
+export function insertBlockAtTarget(
+  doc: CanvasDoc,
+  target:
+    | { kind: "column"; boardId: string; regionId: string; sectionId: string; columnId: string; afterBlockId?: string }
+    | { kind: "region-end"; boardId: string; regionId: string },
+  block: CanvasBlock,
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, target.boardId);
+    if (!board) return null;
+    let region = board.regions.find((r) => r.id === target.regionId) ?? null;
+    if (!region) {
+      region = createRegion([], newId);
+      board.regions.push(region);
+    }
+    if (target.kind === "region-end") {
+      const column = createColumn([block], newId);
+      const section = createSection([column], newId);
+      region.sections.push(section);
+      return focusBlock(board, region, section.id, column.id, block, {
+        caret: "end",
+        edit: block.type === "text",
+      });
+    }
+    const section = region.sections.find((s) => s.id === target.sectionId);
+    const column = section?.columns.find((c) => c.id === target.columnId);
+    if (!section || !column) {
+      // 锚点行/列已被删：兜底追加到区块末尾（调用方正常会重新解析目标，
+      // 这里保证命令自身对过期 target 也不丢块）
+      const newColumn = createColumn([block], newId);
+      const newSection = createSection([newColumn], newId);
+      region.sections.push(newSection);
+      return focusBlock(board, region, newSection.id, newColumn.id, block, {
+        caret: "end",
+        edit: block.type === "text",
+      });
+    }
+    if (target.afterBlockId) {
+      const index = column.blocks.findIndex((b) => b.id === target.afterBlockId);
+      if (index >= 0) {
+        column.blocks.splice(index + 1, 0, block);
+      } else {
+        column.blocks.push(block);
+      }
+    } else {
+      column.blocks.push(block);
+    }
+    return focusBlock(board, region, section.id, column.id, block, {
+      caret: "end",
+      edit: block.type === "text",
+    });
+  });
+}
+
+/**
+ * 区块间隙「＋」：在指定区块之后插入新区块（含一个可输入空正文行）。
+ * regionId 缺省 = 追加到页面末尾。聚焦新区块首块并进入编辑。
+ */
+export function insertRegionAfter(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId?: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const column = createColumn([createTextBlock("body", "", newId)], newId);
+    const region = createRegion([createSection([column], newId)], newId);
+    const index = args.regionId ? board.regions.findIndex((r) => r.id === args.regionId) : -1;
+    if (index >= 0) board.regions.splice(index + 1, 0, region);
+    else board.regions.push(region);
+    return focusBlock(board, region, region.sections[0].id, column.id, column.blocks[0], {
+      caret: "end",
+      edit: true,
+    });
+  });
+}
+
+/**
+ * 减列（B2 属性栏）：仅允许删除空列（无任何块）；非空列为 no-op
+ * （避免块被静默删除）。删除后权重同步收缩并归一 equal；版面至少保留一列。
+ */
+export function removeColumn(
+  doc: CanvasDoc,
+  args: { boardId: string; sectionId: string; columnId: string },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const found = findSection(draft, args.sectionId);
+    if (!found || found.board.id !== args.boardId) return null;
+    const section = found.section;
+    if (section.columns.length <= 1) return null;
+    const index = section.columns.findIndex((c) => c.id === args.columnId);
+    if (index < 0) return null;
+    if (section.columns[index].blocks.length > 0) return null;
+    section.columns.splice(index, 1);
+    section.columnWeights.splice(index, 1);
+    if (section.columnWeights.length === 0) section.columnWeights = [1];
+    if (section.widthMode === "smart") section.widthMode = "equal";
+    return null;
+  });
+}
+
+/** 行级布局覆盖（B2）：行内间距 gap / 垂直对齐 verticalAlign；undefined = 保持。 */
+export function updateSectionLayout(
+  doc: CanvasDoc,
+  args: {
+    boardId: string;
+    sectionId: string;
+    gap?: number;
+    verticalAlign?: CanvasSectionVerticalAlign;
+  },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const found = findSection(draft, args.sectionId);
+    if (!found || found.board.id !== args.boardId) return null;
+    if (args.gap !== undefined) found.section.gap = Math.min(128, Math.max(0, Math.round(args.gap)));
+    if (args.verticalAlign !== undefined) found.section.verticalAlign = args.verticalAlign;
+    return null;
+  });
+}
+
+/** 直接设定列权重（B2 属性栏自定义滑杆）：写 manual 权重数组（恒与列等长、正数）。 */
+export function setColumnWeights(
+  doc: CanvasDoc,
+  args: { boardId: string; sectionId: string; weights: number[] },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const found = findSection(draft, args.sectionId);
+    if (!found || found.board.id !== args.boardId) return null;
+    const section = found.section;
+    if (args.weights.length !== section.columns.length) return null;
+    if (!args.weights.every((w) => Number.isFinite(w) && w > 0)) return null;
+    section.columnWeights = [...args.weights];
+    section.widthMode = "manual";
+    return null;
+  });
+}
+
+/** 页面内边距（B2 属性栏）。 */
+export function updateBoardPadding(
+  doc: CanvasDoc,
+  args: { boardId: string; padding: number },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (board) board.padding = Math.min(128, Math.max(0, Math.round(args.padding)));
+    return { kind: "board", boardId: args.boardId };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 列宽策略（规格 §4.2：拖动后 manual，可恢复智能/等分）
 // ---------------------------------------------------------------------------
@@ -819,29 +1023,6 @@ export function deleteFreeItem(doc: CanvasDoc, args: { itemId: string }): Canvas
 }
 
 /**
- * 版面末尾（最后一个区块的末尾）追加通栏图片块（工具条图片入口选中版面时）。
- * 插入后选中新块（焦点 block 不带 edit——图片块无编辑态）。
- */
-export function appendImageSection(
-  doc: CanvasDoc,
-  args: { boardId: string; asset?: CanvasImageAsset | null },
-  newId: CanvasIdGenerator = defaultIdGenerator,
-): CanvasCommandResult {
-  return edit(doc, (draft) => {
-    const board = findBoard(draft, args.boardId);
-    if (!board) return null;
-    if (board.regions.length === 0) {
-      board.regions = [createRegion([], newId)];
-    }
-    const region = board.regions[board.regions.length - 1];
-    const column = createColumn([createImageBlock(args.asset ?? null, newId)], newId);
-    const section = createSection([column], newId);
-    region.sections.push(section);
-    return focusBlock(board, region, section.id, column.id, column.blocks[0]);
-  });
-}
-
-/**
  * 自由对象移入区块（B1）：块内容迁入目标区块——给了 sectionId+columnId 则追加到
  * 该列末尾；只给 sectionId 则在该行加一列；都不给则区块末尾新建一行。
  * 自由对象从 freeItems 移除；整个操作一个命令、进历史可撤销。
@@ -992,28 +1173,6 @@ export function applyCanvasTemplate(
     board.regions.push(region);
     return { kind: "region", boardId: board.id, regionId: region.id };
   });
-}
-
-/**
- * 工具条图片入口的插入目标判定（A9）：选中模块 → 该块所在列其后插入；
- * 选中版面 → 版面末尾通栏；选中自由容器或无选中 → 自由图片。
- */
-export type CanvasImageInsertPlan =
-  | { kind: "block"; blockId: string }
-  | { kind: "board"; boardId: string }
-  | { kind: "free" };
-
-export function planImageInsertTarget(
-  selection:
-    | { kind: "block"; blockId: string }
-    | { kind: "board"; boardId: string }
-    | { kind: "free"; itemId: string }
-    | { kind: "region"; boardId: string; regionId: string }
-    | null,
-): CanvasImageInsertPlan {
-  if (selection?.kind === "block") return { kind: "block", blockId: selection.blockId };
-  if (selection?.kind === "board") return { kind: "board", boardId: selection.boardId };
-  return { kind: "free" };
 }
 
 function nextZIndex(doc: CanvasDoc): number {

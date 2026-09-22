@@ -111,3 +111,36 @@ describe("region 焦点同步（B1）", () => {
     expect(store.getState().editingBlockId).toBeNull();
   });
 });
+
+describe("lastActiveTarget 最近有效落点（B2 统一插入规则 6）", () => {
+  it("apply 块焦点后记录页面+区块", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
+    const boardId = store.getState().doc.boards[0].id;
+    const regionId = store.getState().doc.boards[0].regions[0].id;
+    expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId });
+  });
+
+  it("select 选中区块/页面/块时更新；选中自由容器不改变", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
+    const boardId = store.getState().doc.boards[0].id;
+    const regionId = store.getState().doc.boards[0].regions[0].id;
+
+    store.getState().apply("插入模板", (d) =>
+      applyCanvasTemplate(d, { boardId, template: "blank-structure" }, counterIds()),
+    );
+    const region2 = store.getState().doc.boards[0].regions[1].id;
+    store.getState().select({ kind: "region", boardId, regionId: region2 });
+    expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId: region2 });
+
+    store.getState().apply("新建自由文本", (d) => createFreeText(d, { x: 0, y: 0 }, counterIds()));
+    store.getState().select({ kind: "free", itemId: store.getState().doc.freeItems[0].id });
+    // 自由容器选区不改变页面/区块记忆
+    expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId: region2 });
+
+    const blockId = store.getState().doc.boards[0].regions[0].sections[0].columns[0].blocks[0].id;
+    store.getState().select({ kind: "block", blockId });
+    expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId });
+  });
+});
