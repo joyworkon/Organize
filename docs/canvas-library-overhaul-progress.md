@@ -27,7 +27,7 @@
 | A 画布缺陷修复 | feat/canvas-defect-fixes → **PR #322 已合并**（master `e27ff22`） | ✅ 完成 | tsc 通过；vitest 全量 182 文件/1374 例；lib/canvas 86 例（新增 24 例先红后绿）；canvas e2e 7/7；CI 5 job 全绿（verify/e2e/sw-e2e/collab-e2e/db-test） |
 | B1 页面/区块结构 | feat/canvas-regions → **PR #323 已合并**（master `9e3da84`） | ✅ 完成 | tsc 通过；vitest 全量 183 文件/1410 例（lib/canvas 149 例：新增迁移 7 例、命令 21 例、布局 5 例、校验 6 例、store 1 例）；`next build --turbopack` 成功；canvas e2e 14/14；CI 5 job 全绿 |
 | B2 插入/图片/属性栏 | feat/canvas-insert-and-props → **PR #324 已合并**（master `5f3d4cf`） | ✅ 完成 | tsc 通过；vitest 全量 185 文件/1458 例（新增 insert-target 14 例、image-insert 12 例、B2 命令 9 例、布局 6 例、校验 7 例、store 3 例）；e2e 26/26；CI 5 job 全绿 |
-| C 资料库统一 | feat/library-unified（本分支） | 进行中 | tsc 通过；vitest 全量 188 文件/1495 例；主 e2e 44 过 1 修后全过（library-unified 9/9）；highlight-deep-link flake 已专项加固（3/3 稳定） |
+| C 资料库统一 | feat/library-unified → **PR #325 已合并**（master `71f530a`） | ✅ 完成 | tsc 通过；vitest 全量 188 文件/1495 例；主 e2e 44 过；library-unified 9/9；CI 5 job 全绿（verify/e2e/sw-e2e/collab-e2e/db-test）；089 pgTAP 20 例 |
 | D 文件导入 | — | 未开始 | — |
 | E 联动+回归 | — | 未开始 | — |
 
@@ -40,6 +40,15 @@
 ## 变更决策记录
 
 （随阶段推进追加：旧行为 → 新规则 → 替代覆盖）
+
+### C（2026-09-22，feat/library-unified → PR #325）
+
+- **不并表**：reading_items 与 memos 仍是各自内容真源；统一的是产品入口与查询接口。新增 089 `library_items` RPC（security invoker + UNION ALL），execute 仅授 authenticated（anon 显式 revoke，pgTAP 负例锁定 42501）。
+- **排序与游标（择一记录）**：`created_at DESC, source_type ASC, id ASC`。同刻度时 source_type 升序 ⇒ `'memo' < 'reading'`，**memo 在前**（pgTAP 用例 4、mock shim、RPC 三处一致；首轮 pgTAP 曾把期望写成 reading 在前，与升序语义矛盾，已按实现修正用例而非改实现）。
+- **统一输入框分流**（`lib/library/classify-capture.ts` 纯函数 + 测试）：单 URL→稍后读收集链路（复用 `collectReadingItem`）；多 URL（空白分隔）→逐项收集、toast 逐项结果；文字夹带 URL→完整文字存速记 + toast「另存其中链接」（不静默丢上下文）；>5000 字→文本物料（`lib/materials/text-material.ts`，不截断）；文件→阶段 D 导入流程。速记原有 #标签/IME 防误提交/草稿/离线队列/转笔记全部保留（memos-view 内联）。
+- **旧入口兼容**：`/memos`（compose=1 → 聚焦统一输入；`?memo=<id>` → 速记视图高亮目标）、`/inbox`、`/library` 旧链接与 `?view=`/`?tags=` 筛选参数保留；命令面板（G M→资料库）、全局快捷键、移动导航、工作台今日视图、批量导入全部改接新入口。
+- **移除** quick-add-bar.tsx；五个收集入口统一为 `collectReadingItem` 薄壳，UI 不再直插 reading_items。
+- **e2e 适配与加固**：smoke/highlight-deep-link/sw-update 改走「资料库统一输入」入口；highlight-deep-link 程序化选区 flake 专项加固（等正文渲染 + 选区重试≤5 次直至菜单可见，断言未放宽）。
 
 ### B2（2026-09-22，feat/canvas-insert-and-props）
 
