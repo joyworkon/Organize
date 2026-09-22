@@ -10,7 +10,7 @@
  * - 「自由放置」次级折叠区：自由文本 / 自由图片，明确标注「自由定位，不随页面排版」
  *  （默认添加**不**创建脱离页面的自由内容）；
  * - 「结构」「模板」折叠区：复用 B1 大纲树与四项模板；
- * - 未实现的「资料」组不放任何占位按钮（E 阶段再加）；
+ * - 「资料」折叠区（E 阶段）：由工作区注入资料搜索面板（引用卡片/摘录/图片）；
  * - 窄空间可折叠（默认展开）；手机只读模式由工作区整体隐藏本面板。
  */
 
@@ -54,6 +54,8 @@ export interface CanvasAddPanelProps {
   onAddFreeText: () => void;
   onAddFreeImage: () => void;
   onApplyTemplate: (template: CanvasTemplateKind) => void;
+  /** 资料面板（E 阶段接入）：由工作区提供，渲染在「资料」折叠组。 */
+  material?: ReactNode;
   onReveal: (
     target:
       | { kind: "board"; boardId: string }
@@ -98,6 +100,7 @@ export function CanvasAddPanel({
   onAddFreeText,
   onAddFreeImage,
   onApplyTemplate,
+  material,
   onReveal,
 }: CanvasAddPanelProps) {
   return (
@@ -180,6 +183,12 @@ export function CanvasAddPanel({
       <DetailsGroup title="模板" defaultOpen={!narrow}>
         <CanvasTemplateList onApplyTemplate={onApplyTemplate} />
       </DetailsGroup>
+
+      {material && (
+        <DetailsGroup title="资料">
+          {material}
+        </DetailsGroup>
+      )}
 
       <DetailsGroup title="结构">
         <CanvasOutlineTree store={store} onReveal={onReveal} />

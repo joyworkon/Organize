@@ -19,6 +19,7 @@ import {
   ensureCanvasDocV2,
   isSafeButtonHref,
 } from "./model";
+import { validateSourceRefField } from "./source-ref";
 
 export const CANVAS_LIMITS = {
   maxBoards: 50,
@@ -134,6 +135,7 @@ function validateBlock(
     if (b.role !== "title" && b.role !== "body" && b.role !== "list") {
       errors.push(`${path}.role 非法`);
     }
+    if (b.sourceRef !== undefined) validateSourceRefField(b.sourceRef, errors, path);
     validateStyle(b.style, errors, path);
     return true;
   }
@@ -208,6 +210,18 @@ function validateBlock(
     if (b.alt !== undefined && (typeof b.alt !== "string" || b.alt.length > 200)) {
       errors.push(`${path}.alt 非法`);
     }
+    if (b.sourceRef !== undefined) validateSourceRefField(b.sourceRef, errors, path);
+    validateStyle(b.style, errors, path);
+    return true;
+  }
+  if (b.type === "materialCard") {
+    if (typeof b.title !== "string" || b.title.length > CANVAS_LIMITS.maxTitleLength) {
+      errors.push(`${path}.title 超长或非法`);
+    }
+    if (typeof b.text !== "string" || b.text.length > CANVAS_LIMITS.maxTextLength) {
+      errors.push(`${path}.text 超长或非法`);
+    }
+    validateSourceRefField(b.sourceRef, errors, path);
     validateStyle(b.style, errors, path);
     return true;
   }

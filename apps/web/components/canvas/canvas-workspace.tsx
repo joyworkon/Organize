@@ -37,6 +37,8 @@ import {
   CANVAS_SCHEMA_VERSION,
   createButtonBlock,
   createDividerBlock,
+  createImageBlock,
+  createMaterialCardBlock,
   createTextBlock,
   ensureCanvasDocV2,
   type CanvasBlock,
@@ -51,6 +53,7 @@ import {
   deleteFreeItem,
   deleteRegion,
   insertBlockAtTarget,
+  updateMaterialSnapshot,
   type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
 import {
@@ -73,6 +76,16 @@ import { isMockBackend, resolveAssetUrl, uploadCanvasImage } from "@/lib/canvas/
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { createCanvasStore } from "./canvas-store";
 import { useCanvasScene, useFontsReady } from "./use-canvas-scene";
+import { useSourceStatus } from "./use-source-status";
+import { CanvasMaterialPanel } from "./canvas-material-panel";
+import {
+  excerptSnapshot,
+  fetchImageBlob,
+  fetchReadingSnapshot,
+  fetchSourceSnapshot,
+  sourceRefFromLibraryItem,
+} from "@/lib/library/material-source";
+import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
@@ -171,6 +184,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const doc = useCanvasSelector(store, useCallback((s) => s.doc, []));
   const measureEpoch = useCanvasSelector(store, useCallback((s) => s.measureEpoch, []));
   const { scene, measurer } = useCanvasScene(doc, { measureEpoch, fontsReady });
+  /** 资料来源可达性（E）：文档内 sourceRef 的 missing 角标。 */
+  const sourceStatuses = useSourceStatus(doc);
 
   // 顶层订阅（避免条件 hooks）
   const title = useCanvasSelector(store, useCallback((s) => s.title, []));
@@ -686,6 +701,147 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     [store, userId, worldCenterNow],
   );
 
+  // ---------------- 资料插入画布（阶段 E，统一插入目标解析） ----------------
+
+  /** 引用整条资料：快照卡片（materialCard）插入统一解析目标。 */
+  const insertMaterialCard = useCallback(
+    (item: LibraryItem) => {
+      const target = resolveInsertTargetNow();
+      if ("create" in target) return;
+      const sourceRef = sourceRefFromLibraryItem(item);
+      const block = createMaterialCardBlock({
+        title: sourceRef.title,
+        text: excerptSnapshot(sourceRef.excerpt ?? ""),
+        sourceRef,
+      });
+      store.getState().apply("引用资料卡片", (d) => insertBlockAtTarget(d, target, block));
+      revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+    },
+    [store, resolveInsertTargetNow, revealIfNeeded],
+  );
+
+  /** 插入文字摘录：正文块（快照副本）+ 来源引用；无选区时取完整摘要。 */
+  const insertMaterialExcerpt = useCallback(
+    (item: LibraryItem, text: string) => {
+      const target = resolveInsertTargetNow();
+      if ("create" in target) return;
+      const block: CanvasBlock = {
+        ...createTextBlock("body", excerptSnapshot(text)),
+        sourceRef: sourceRefFromLibraryItem(item),
+      };
+      store.getState().apply("插入资料摘录", (d) => insertBlockAtTarget(d, target, block));
+      revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+    },
+    [store, resolveInsertTargetNow, revealIfNeeded],
+  );
+
+  /**
+   * 插入来源图片：读取 reading 正文第一张图 → 复制上传为画布自有资产
+   * （资产生命周期与源解耦：删源不误删画布图）→ 图片块 + 来源引用。
+   */
+  const insertMaterialImage = useCallback(
+    async (item: LibraryItem) => {
+      try {
+        const supabase = createClient();
+        const snapshot = await fetchReadingSnapshot(supabase, item.id);
+        if (!snapshot) {
+          toast({ title: "来源不可用", description: "资料已删除或无权限，无法读取图片。", variant: "destructive" });
+          return;
+        }
+        if (!snapshot.imageSrc) {
+          toast({ title: "正文中没有可用图片", variant: "destructive" });
+          return;
+        }
+        const blob = await fetchImageBlob(snapshot.imageSrc);
+        const file = new File([blob], snapshot.imageAlt || "source-image", { type: blob.type || "image/png" });
+        const outcome = await uploadCanvasImage(file, userId || "anonymous");
+        const target = resolveInsertTargetNow();
+        if ("create" in target) return;
+        const imageBlock = createImageBlock(outcome.asset);
+        imageBlock.alt = snapshot.imageAlt ?? undefined;
+        imageBlock.sourceRef = snapshot.sourceRef;
+        const block: CanvasBlock = imageBlock;
+        store.getState().apply("插入资料图片", (d) => insertBlockAtTarget(d, target, block));
+        if (outcome.previewUrl) {
+          store.getState().setAssetUrl(displayKey(block.id, outcome.asset), outcome.previewUrl);
+        }
+        store.getState().requestSmartRecompute();
+        revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+      } catch (error) {
+        toast({
+          title: "插入资料图片失败",
+          description: error instanceof Error ? error.message : "请重试",
+          variant: "destructive",
+        });
+      }
+    },
+    [store, userId, resolveInsertTargetNow, revealIfNeeded],
+  );
+
+  /**
+   * 「更新快照」（属性栏）：按来源当前内容重建块内副本（一次可撤销事务）。
+   * 来源不可达时保留旧快照并提示——快照永不因来源消失而丢失。
+   */
+  const refreshMaterialSnapshot = useCallback(
+    async (blockId: string) => {
+      const state = store.getState();
+      const block = state.doc.boards
+        .flatMap((b) => b.regions)
+        .flatMap((r) => r.sections)
+        .flatMap((s) => s.columns)
+        .flatMap((c) => c.blocks)
+        .find((bl) => bl.id === blockId);
+      const ref =
+        block && (block.type === "materialCard" || block.type === "text" || block.type === "image")
+          ? block.sourceRef
+          : undefined;
+      if (!block || !ref) return;
+      try {
+        const supabase = createClient();
+        const snapshot = await fetchSourceSnapshot(supabase, ref);
+        if (!snapshot) {
+          toast({ title: "来源已删除或无权限", description: "已保留画布中的快照内容。", variant: "destructive" });
+          return;
+        }
+        if (block.type === "image") {
+          // 图片来源快照：重新复制来源图（旧画布资产保留，由存储生命周期管理）
+          if (!snapshot.imageSrc) {
+            toast({ title: "来源正文中已没有图片，快照保留不变", variant: "destructive" });
+            return;
+          }
+          const blob = await fetchImageBlob(snapshot.imageSrc);
+          const file = new File([blob], snapshot.imageAlt || "source-image", { type: blob.type || "image/png" });
+          const outcome = await uploadCanvasImage(file, userId || "anonymous");
+          store.getState().apply("更新快照", (d) =>
+            updateMaterialSnapshot(d, { blockId, asset: outcome.asset, alt: snapshot.imageAlt ?? undefined, sourceRef: snapshot.sourceRef }),
+          );
+          if (outcome.previewUrl) {
+            store.getState().setAssetUrl(displayKey(blockId, outcome.asset), outcome.previewUrl);
+          }
+          store.getState().requestSmartRecompute();
+          toast({ title: "快照已更新" });
+          return;
+        }
+        store.getState().apply("更新快照", (d) =>
+          updateMaterialSnapshot(d, {
+            blockId,
+            title: snapshot.title,
+            text: snapshot.text,
+            sourceRef: snapshot.sourceRef,
+          }),
+        );
+        toast({ title: "快照已更新" });
+      } catch (error) {
+        toast({
+          title: "更新快照失败",
+          description: error instanceof Error ? error.message : "请重试",
+          variant: "destructive",
+        });
+      }
+    },
+    [store, userId],
+  );
+
   // ---------------- 渲染 ----------------
 
   const interactive = !readOnly && !previewMode;
@@ -905,6 +1061,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
                 freeImageInputRef.current?.click();
               }}
               onApplyTemplate={applyTemplate}
+              material={
+                <CanvasMaterialPanel
+                  onInsertCard={insertMaterialCard}
+                  onInsertExcerpt={insertMaterialExcerpt}
+                  onInsertImage={(item) => void insertMaterialImage(item)}
+                />
+              }
               onReveal={revealTarget}
             />
           </div>
@@ -956,6 +1119,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           selection={selection}
           editingBlockId={editingBlockId}
           assetUrls={assetUrls}
+          sourceStatuses={sourceStatuses}
           onCreateBlank={addBlankBoard}
           onCreateLanding={addLandingBoard}
           onReplaceImage={onReplaceImage}
@@ -964,7 +1128,15 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       </div>
 
       {/* 右侧属性栏 */}
-      {interactive && <CanvasPropertyBar store={store} measurer={measurer} onReplaceImage={onReplaceImage} />}
+      {interactive && (
+        <CanvasPropertyBar
+          store={store}
+          measurer={measurer}
+          onReplaceImage={onReplaceImage}
+          sourceStatuses={sourceStatuses}
+          onRefreshSource={(blockId) => void refreshMaterialSnapshot(blockId)}
+        />
+      )}
 
       {/* 缩放控件 */}
       <div className="canvas-zoom" role="group" aria-label="缩放">

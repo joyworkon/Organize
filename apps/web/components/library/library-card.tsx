@@ -10,6 +10,7 @@ import { isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
 import { cn } from "@/lib/utils";
 import type { LibraryItem } from "@organize/shared";
 import { Feather, Globe, Link2, PackageOpen } from "@/components/icons";
+import { AddToCanvasButton } from "./add-to-canvas-dialog";
 
 function sourceBadge(item: LibraryItem): { label: string; Icon: typeof Globe } {
   if (item.source_type === "memo") return { label: "速记", Icon: Feather };
@@ -66,6 +67,9 @@ export function LibraryCard({ item }: { item: LibraryItem }) {
                 #{tag}
               </span>
             ))}
+            <span className="ml-auto" onClick={(e) => e.preventDefault()}>
+              <AddToCanvasButton item={item} />
+            </span>
           </div>
         </CardContent>
       </Card>

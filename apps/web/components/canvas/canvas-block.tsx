@@ -20,6 +20,8 @@ import {
   type CanvasButtonBlock,
   type CanvasDividerBlock,
   type CanvasImageBlock,
+  type CanvasMaterialCardBlock,
+  type CanvasSourceRef,
   type CanvasTextBlock,
 } from "@/lib/canvas/model";
 import {
@@ -536,6 +538,94 @@ export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
           {block.label}
         </span>
       )}
+      {children}
+    </div>
+  );
+});
+
+/** 来源状态徽章（E）：快照继续可见，仅标注来源不可达。 */
+export function SourceStatusBadge({
+  sourceRef,
+  status,
+}: {
+  sourceRef: CanvasSourceRef;
+  status: "ok" | "missing";
+}) {
+  if (status === "ok") return null;
+  return (
+    <span
+      className="canvas-source-missing-badge"
+      role="status"
+      aria-label={`来源${sourceRef.kind === "memo" ? "速记" : "资料"}不可用（已删除或无权限）`}
+      title={`来源已删除或无权限；快照仍保留（${sourceRef.title}）`}
+    >
+      来源不可用
+    </span>
+  );
+}
+
+/**
+ * 资料引用卡片块（阶段 E）：整条资料的快照卡片。
+ * title/text 是独立副本（属性栏可编辑，不回写来源）；底部来源行显示
+ * 类型 + 快照时间 + 状态（不可达时标注，快照继续可见）。
+ */
+export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlockView({
+  block,
+  x,
+  y,
+  width,
+  height,
+  selected,
+  store,
+  interactive,
+  sourceStatus,
+  children,
+}: CanvasBlockViewProps & {
+  block: CanvasMaterialCardBlock;
+  /** 来源可达性（use-source-status；未探测完成按 ok）。 */
+  sourceStatus: "ok" | "missing";
+}) {
+  return (
+    <div
+      className={`canvas-block canvas-block-material group ${selected ? "is-selected" : ""}`}
+      style={boxStyle(x, y, width, height, block.style)}
+      data-block-id={block.id}
+      data-block-type="materialCard"
+      role="button"
+      tabIndex={interactive ? 0 : -1}
+      aria-label={`资料卡片：${block.title || "未命名"}`}
+      onPointerDown={
+        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+      }
+      onDoubleClick={
+        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+      }
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                store.getState().select({ kind: "block", blockId: block.id });
+              }
+            }
+          : undefined
+      }
+    >
+      <div className="canvas-material-card">
+        <div className="canvas-material-card-title">{block.title || "未命名资料"}</div>
+        {block.text.trim() && <div className="canvas-material-card-text">{block.text}</div>}
+        <div className="canvas-material-card-source">
+          <span className="canvas-material-card-kind">
+            {block.sourceRef.kind === "memo" ? "速记" : "资料"}
+          </span>
+          {block.sourceRef.updatedAt && (
+            <span className="canvas-material-card-time">
+              快照 {new Date(block.sourceRef.updatedAt).toLocaleDateString("zh-CN")}
+            </span>
+          )}
+          <SourceStatusBadge sourceRef={block.sourceRef} status={sourceStatus} />
+        </div>
+      </div>
       {children}
     </div>
   );
