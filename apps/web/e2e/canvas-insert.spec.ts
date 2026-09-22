@@ -161,15 +161,12 @@ test.describe("构思画布 B2：统一插入", () => {
         b.x + b.width > v.x
       );
     };
-    // 平移到远处（中键拖拽平移；不同平台单轮拖拽生效距离有差异，循环直到版面确实移出视口）
-    for (let round = 0; round < 4 && (await intersects()); round += 1) {
-      await page.mouse.move(600, 400);
-      await page.mouse.down({ button: "middle" });
-      for (let i = 1; i <= 12; i += 1) {
-        await page.mouse.move(600, 400 + i * 80);
-        await page.waitForTimeout(20);
-      }
-      await page.mouse.up({ button: "middle" });
+    // 平移到远处（滚轮平移，与应用内触控板平移同路径；Linux CI 下合成中键拖拽不生效，
+    // 故不用中键。单轮距离有环境差异，循环直到版面确实移出视口）
+    const vbox = (await viewportEl.boundingBox())!;
+    await page.mouse.move(vbox.x + vbox.width / 2, vbox.y + vbox.height / 2);
+    for (let round = 0; round < 6 && (await intersects()); round += 1) {
+      await page.mouse.wheel(0, 960);
       await page.waitForTimeout(100);
     }
     // 已平出视口（与视口无交叠）
