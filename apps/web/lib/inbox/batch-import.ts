@@ -17,12 +17,37 @@ export interface BatchItem {
   note?: string;
 }
 
-const EXPLICIT_HTTP_URL = /https?:\/\/[^\s<>"'，。；！？、）】》]+/gi;
+export const EXPLICIT_HTTP_URL = /https?:\/\/[^\s<>"'，。；！？、）】》]+/gi;
 const TRAILING_URL_PUNCTUATION = /[\])}>.,;!?，。；！？、）】》]+$/;
 
 /** 从链接或平台分享文案中提取第一个 URL。 */
 export function extractFirstUrl(raw: string): string | null {
   return parseBatchUrls(raw)[0] || null;
+}
+
+/**
+ * 提取文本中出现的全部 http(s) URL（不依赖空白分隔，正文夹带的链接也能提取）。
+ * 复用 parseBatchUrls 的规范化逻辑（协议白名单、剥尾部标点、去重保序）。
+ */
+export function extractAllUrls(raw: string): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of raw.match(EXPLICIT_HTTP_URL) ?? []) {
+    const cleaned = candidate.replace(TRAILING_URL_PUNCTUATION, "");
+    try {
+      const parsed = new URL(cleaned);
+      if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname.includes(".")) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    result.push(cleaned);
+  }
+  return result;
 }
 
 /**

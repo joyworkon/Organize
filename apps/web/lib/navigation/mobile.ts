@@ -2,10 +2,11 @@ export type MobileSection = "home" | "library" | "notes" | "tasks" | "memos";
 
 export const MOBILE_DESTINATIONS = [
   { key: "home", href: "/", label: "首页" },
-  { key: "library", href: "/library", label: "阅读" },
+  // 阶段 C：稍后读 + 速记融合为「资料库」（/library；速记视图 ?view=memos）
+  { key: "library", href: "/library", label: "资料库" },
   { key: "notes", href: "/notes", label: "笔记" },
   { key: "tasks", href: "/tasks?scope=all", label: "待办" },
-  { key: "memos", href: "/memos", label: "速记" },
+  { key: "memos", href: "/library?view=memos", label: "速记" },
 ] as const;
 
 const taskTools = new Set(["/tasks/calendar", "/tasks/countdown", "/tasks/lessons", "/tasks/search"]);
@@ -16,8 +17,11 @@ export function mobileRoute(pathname: string, params = new URLSearchParams()) {
   let title = "Cairn";
   let detail = false;
   if (pathname === "/") section = "home";
-  else if (pathname === "/library" || pathname.startsWith("/library/")) {
-    section = "library"; title = "稍后读"; detail = pathname !== "/library";
+  else if (pathname === "/library" && params.get("view") === "memos") {
+    // 资料库速记视图 = 底栏「速记」项（阶段 C；/memos 旧路由重定向到这里）
+    section = "memos"; title = "速记";
+  } else if (pathname === "/library" || pathname.startsWith("/library/")) {
+    section = "library"; title = "资料库"; detail = pathname !== "/library";
   } else if (pathname === "/notes" || pathname.startsWith("/notes/")) {
     section = "notes"; title = "笔记"; detail = pathname !== "/notes";
   } else if (pathname === "/tasks" || pathname.startsWith("/tasks/")) {
@@ -60,7 +64,7 @@ export function readMobileLocations(raw: string | null): MobileLocations {
       const value = (input as Record<string, unknown>)[key];
       if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) continue;
       const url = new URL(value, "https://organize.invalid");
-      if (url.origin !== "https://organize.invalid" || mobileRoute(url.pathname).section !== key) continue;
+      if (url.origin !== "https://organize.invalid" || mobileRoute(url.pathname, url.searchParams).section !== key) continue;
       const location = collectionLocation(url.pathname, url.searchParams);
       if (location) result[key] = location;
     }

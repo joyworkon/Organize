@@ -8,6 +8,7 @@ import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
+import { decodeLibraryCursor, encodeLibraryCursor } from "@/lib/library/cursor";
 
 type MockHandlerResult = { status?: number; body: unknown; headers?: Record<string, string> };
 type MockHandler = (ctx: {
@@ -372,6 +373,117 @@ const deleteMemo: MockHandler = ({ params }) => {
   return { body: { success: true } };
 };
 
+// ---- 资料库统一查询（089 library_items RPC 的 mock 对齐实现）----
+// 与真实路由逐字段对齐：view/limit/q/tags/cursor 语义 + 排序 + 响应形状 { items, nextCursor }。
+// 排序 created_at DESC, source_type ASC, id ASC；游标三元组同规则过滤（见 lib/library/cursor.ts）。
+const listLibraryItems: MockHandler = ({ url }) => {
+  const viewRaw = url.searchParams.get("view") ?? "all";
+  const view = viewRaw === "memos" ? "memo" : viewRaw;
+  if (!["all", "reading", "memo"].includes(view)) {
+    return { status: 400, body: { error: "view 无效（all|reading|memo）" } };
+  }
+  const limitParam = Number(url.searchParams.get("limit"));
+  const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 100) : 30;
+  const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+  const tags = (url.searchParams.get("tags") ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+  let cursor = null;
+  try {
+    cursor = decodeLibraryCursor(url.searchParams.get("cursor"));
+  } catch {
+    return { status: 400, body: { error: "cursor 无效" } };
+  }
+
+  const tagNameById = new Map(
+    (mockDb.tags || []).map((t: any) => [t.id as string, t.name as string])
+  );
+  const readingTags = (itemId: string): string[] =>
+    (mockDb.item_tags || [])
+      .filter((link: any) => link.item_id === itemId)
+      .map((link: any) => tagNameById.get(link.tag_id))
+      .filter((name): name is string => Boolean(name))
+      .sort();
+
+  const readingRows =
+    view === "memo"
+      ? []
+      : (mockDb.reading_items || [])
+          .filter((r: any) => !r.deleted_at)
+          .map((r: any) => ({
+            id: r.id,
+            source_type: "reading",
+            title: r.title ?? null,
+            excerpt: r.excerpt ? String(r.excerpt).slice(0, 280) : null,
+            url: r.url ?? null,
+            tags: readingTags(r.id),
+            reading_status: r.reading_status ?? null,
+            is_pinned: Boolean(r.is_pinned),
+            reading_progress: typeof r.reading_progress === "number" ? r.reading_progress : null,
+            is_link_only: !r.content && !(r.url ?? "").startsWith("urn:organize:material:"),
+            created_at: r.created_at,
+            // 仅搜索用：真实 RPC 命中 title/excerpt/content，mock 侧用全量正文对齐
+            _searchText: [r.title, r.excerpt, r.content].filter(Boolean).join("\n"),
+          }));
+  const memoRows =
+    view === "reading"
+      ? []
+      : (mockDb.memos || [])
+          .filter((m: any) => !m.deleted_at)
+          .map((m: any) => ({
+            id: m.id,
+            source_type: "memo",
+            title: null,
+            excerpt: String(m.content ?? "").slice(0, 280),
+            url: null,
+            tags: [...((m.tags as string[] | undefined) ?? [])],
+            reading_status: null,
+            is_pinned: false,
+            reading_progress: null,
+            is_link_only: false,
+            created_at: m.created_at,
+            _searchText: String(m.content ?? ""),
+          }));
+
+  const filtered = [...readingRows, ...memoRows]
+    .filter((row) => {
+      if (q) {
+        const haystack = (row as any)._searchText.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (tags.length) {
+        // 两侧同一语义：标签名任一命中（reading 经 item_tags 归一为名称数组后与 memos.tags 一致）
+        if (!(row.tags as string[]).some((t) => tags.includes(t))) return false;
+      }
+      if (cursor) {
+        if (row.created_at > cursor.created_at) return false;
+        if (row.created_at === cursor.created_at) {
+          if (row.source_type < cursor.source_type) return false;
+          if (row.source_type === cursor.source_type && row.id <= cursor.id) return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+      if (a.source_type !== b.source_type) return a.source_type < b.source_type ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+
+  const items = filtered.slice(0, limit).map(({ ...row }) => {
+    delete (row as any)._searchText;
+    return row;
+  });
+  const last = items[items.length - 1];
+  const nextCursor =
+    items.length === limit && last
+      ? encodeLibraryCursor({
+          created_at: last.created_at,
+          source_type: last.source_type,
+          id: last.id,
+        })
+      : null;
+  return { body: { items, nextCursor } };
+};
+
 // ---- 备份恢复（P2-01 smoke 需要；与真实 /api/backup/restore 同形状）----
 // 真实语义：仅允许恢复到空账户（非空 409）；整体替换写入。
 // mock 下按 payload 逐表替换 MOCK_USER 的行（smoke 级往返，不做服务端深校验——
@@ -699,6 +811,7 @@ const ROUTES: MockRoute[] = [
   { method: "PATCH", pattern: /^\/api\/notes\/([^/]+)\/suggestions$/, handler: patchSuggestion },
   { method: "POST", pattern: /^\/api\/notes\/([^/]+)\/move-block$/, handler: moveBlock },
   { method: "GET", pattern: /^\/api\/memos$/, handler: listMemos },
+  { method: "GET", pattern: /^\/api\/library\/items$/, handler: listLibraryItems },
   { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
   { method: "GET", pattern: /^\/api\/memos\/tags$/, handler: listMemoTags },
   { method: "GET", pattern: /^\/api\/memos\/([^/]+)$/, handler: getMemo },

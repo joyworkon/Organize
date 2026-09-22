@@ -25,11 +25,17 @@
 | 阶段 | 分支/PR | 状态 | 证据 |
 |---|---|---|---|
 | A 画布缺陷修复 | feat/canvas-defect-fixes → **PR #322 已合并**（master `e27ff22`） | ✅ 完成 | tsc 通过；vitest 全量 182 文件/1374 例；lib/canvas 86 例（新增 24 例先红后绿）；canvas e2e 7/7；CI 5 job 全绿（verify/e2e/sw-e2e/collab-e2e/db-test） |
-| B1 页面/区块结构 | feat/canvas-regions（本分支，未 push） | ✅ 完成 | tsc 通过；vitest 全量 183 文件/1410 例（lib/canvas 149 例：新增迁移 7 例、命令 21 例、布局 5 例、校验 6 例、store 1 例）；`next build --turbopack` 成功；canvas e2e 14/14（新增骨架入口、结构面板 2 例） |
-| B2 插入/图片/属性栏 | feat/canvas-insert-and-props（本分支，未 push） | ✅ 完成 | tsc 通过；vitest 全量 185 文件/1458 例（新增 insert-target 14 例、image-insert 12 例、B2 命令 9 例、布局 6 例、校验 7 例、store 3 例）；`next build --turbopack`（mock）成功；canvas e2e 26/26 = canvas.spec 9 + **canvas-insert.spec 12（新增）** + visual-canvas 5（含在途行为、多缩放预览、行动按钮 popup） |
-| C 资料库统一 | — | 未开始 | — |
+| B1 页面/区块结构 | feat/canvas-regions → **PR #323 已合并**（master `9e3da84`） | ✅ 完成 | tsc 通过；vitest 全量 183 文件/1410 例（lib/canvas 149 例：新增迁移 7 例、命令 21 例、布局 5 例、校验 6 例、store 1 例）；`next build --turbopack` 成功；canvas e2e 14/14；CI 5 job 全绿 |
+| B2 插入/图片/属性栏 | feat/canvas-insert-and-props → **PR #324 已合并**（master `5f3d4cf`） | ✅ 完成 | tsc 通过；vitest 全量 185 文件/1458 例（新增 insert-target 14 例、image-insert 12 例、B2 命令 9 例、布局 6 例、校验 7 例、store 3 例）；e2e 26/26；CI 5 job 全绿 |
+| C 资料库统一 | feat/library-unified（本分支） | 进行中 | tsc 通过；vitest 全量 188 文件/1495 例；主 e2e 44 过 1 修后全过（library-unified 9/9）；highlight-deep-link flake 已专项加固（3/3 稳定） |
 | D 文件导入 | — | 未开始 | — |
 | E 联动+回归 | — | 未开始 | — |
+
+### CI flake 观察（2026-09-22）
+
+- PR #324：`e2e/canvas-insert.spec.ts` 平移用例两轮失败——Linux CI 下合成中键拖拽不生效（本地 macOS 生效），改走滚轮平移路径（与触控板同路径，CI 可靠）后通过；断言未放宽（移出/带回视口语义不变）。
+- `e2e/highlight-deep-link.spec.ts`「转为任务」在 PR #324 第三轮 CI 偶发一次 60s 超时（该用例在前两个 PR 与本地均稳定通过，rerun 即绿）。判定为既有 flake，记入观察清单；若再出现需专项加固（程序化选区→菜单出现的等待条件）。
+- **已专项加固（2026-09-22，阶段 C）**：根因是程序化选区→高亮菜单出现无等待条件，单次不触发即挂到测试超时。改为「等正文渲染稳定 + 选区重试至多 5 次直至菜单可见」，`--repeat-each=3` 三连过。断言未放宽（菜单可见性仍是硬断言）。同文件顺手完成阶段 C 入口迁移（旧「快速添加链接」输入框已删除 → 改走统一输入框 `资料库统一输入`+回车）。
 
 ## 变更决策记录
 

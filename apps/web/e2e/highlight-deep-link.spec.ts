@@ -22,35 +22,48 @@ async function openPage(page: Page, path: string) {
 test("任务关联阅读深链 ?hl= 定位到来源高亮", async ({ page }) => {
   await openPage(page, "/library");
 
-  // 保存一篇 mock 抓取文章（标题由 slug 生成，首字母大写）
-  await page.getByLabel("快速添加链接").fill("https://example.com/hl-deep-link-article");
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  // 保存一篇 mock 抓取文章（标题由 slug 生成，首字母大写）；阶段 C 起经统一输入框
+  await page.getByLabel("资料库统一输入").fill("https://example.com/hl-deep-link-article");
+  await page.keyboard.press("Enter");
   await expect(page.getByText("Hl deep link article").first()).toBeVisible();
 
   // 打开阅读页
   await page.getByText("Hl deep link article").first().click();
   await page.waitForURL(/\/library\/[^/?#]+$/);
+  // 等正文渲染稳定，避免首段布局未就绪时选区矩形为零
+  await expect(page.locator(".reader-content p").first()).toBeVisible();
 
-  // 程序化选中文本触发高亮菜单，直接点「转为任务」（创建高亮 + 幂等转换 + 跳转任务页）
-  const selectedText = await page.evaluate(() => {
-    const container = document.querySelector(".reader-content");
-    if (!container) return null;
-    for (const p of Array.from(container.querySelectorAll("p"))) {
-      const textNode = Array.from(p.childNodes).find(
-        (n) => n.nodeType === 3 && (n.nodeValue?.trim().length ?? 0) >= 12
-      ) as Text | undefined;
-      if (!textNode) continue;
-      const range = document.createRange();
-      range.selectNodeContents(textNode);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-      return textNode.textContent;
-    }
-    return null;
-  });
-  expect(selectedText).not.toBeNull();
+  // 程序化选中文本触发高亮菜单，直接点「转为任务」（创建高亮 + 幂等转换 + 跳转任务页）。
+  // 既有 flake：程序化选区→菜单出现偶发不触发（PR #324 观察记录），重试至多 5 次直至菜单可见。
+  let selectedText: string | null = null;
+  let menuVisible = false;
+  for (let attempt = 0; attempt < 5 && !menuVisible; attempt++) {
+    selectedText = await page.evaluate(() => {
+      const container = document.querySelector(".reader-content");
+      if (!container) return null;
+      for (const p of Array.from(container.querySelectorAll("p"))) {
+        const textNode = Array.from(p.childNodes).find(
+          (n) => n.nodeType === 3 && (n.nodeValue?.trim().length ?? 0) >= 12
+        ) as Text | undefined;
+        if (!textNode) continue;
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        return textNode.textContent;
+      }
+      return null;
+    });
+    expect(selectedText).not.toBeNull();
+    await page.waitForTimeout(300);
+    menuVisible = await page
+      .getByTitle("转为任务")
+      .isVisible()
+      .catch(() => false);
+  }
+  expect(menuVisible).toBe(true);
 
   await page.getByTitle("转为任务").click();
   await page.waitForURL(/\/tasks\/[^/?#]+$/);

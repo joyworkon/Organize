@@ -515,6 +515,31 @@ export interface Memo {
   updated_at: string;
 }
 
+// ---- 资料库统一查询（089 library_items RPC；reading_items 与 memos 不并表，
+// 统一的是入口与查询接口，两张表仍是各自内容真源）----
+export type LibrarySourceType = "reading" | "memo";
+
+export interface LibraryItem {
+  id: string;
+  source_type: LibrarySourceType;
+  /** reading 取条目标题；memo 恒为 null（正文首行即标题，见 excerpt） */
+  title: string | null;
+  /** reading 取摘要（≤280 字）；memo 取正文前 280 字 */
+  excerpt: string | null;
+  /** memo 恒为 null；material URN 见 lib/reading/source.ts */
+  url: string | null;
+  /** 标签名数组（reading 来自 item_tags join tags；memo 为 memos.tags） */
+  tags: string[];
+  /** 仅 reading 有；memo 恒为 null */
+  reading_status: ReadingStatus | null;
+  is_pinned: boolean;
+  /** 仅 reading 有；memo 恒为 null */
+  reading_progress: number | null;
+  /** 仅存链接（抓取失败降级的阅读条目）；memo 恒为 false */
+  is_link_only: boolean;
+  created_at: string;
+}
+
 // ---- 构思画布（085 canvas_documents；content 结构见 apps/web/lib/canvas/model.ts）----
 export interface CanvasDocumentRow {
   id: string;

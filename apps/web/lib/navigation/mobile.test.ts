@@ -14,6 +14,13 @@ describe("mobile navigation routes", () => {
     expect(collectionLocation("/tasks", params)).toBe("/tasks?scope=list&list=design");
     expect(params.get("task")).toBe("one");
   });
+  it("maps the library memos view and legacy /memos to the memos section", () => {
+    expect(mobileRoute("/library", new URLSearchParams("view=memos"))).toMatchObject({ section: "memos", title: "速记", detail: false });
+    expect(mobileRoute("/memos")).toMatchObject({ section: "memos", title: "速记" });
+    expect(mobileRoute("/library")).toMatchObject({ section: "library", title: "资料库" });
+    expect(collectionLocation("/library", new URLSearchParams("view=memos"))).toBe("/library?view=memos");
+    expect(mobileRoute("/library/item-1")).toMatchObject({ section: "library", detail: true });
+  });
   it("does not accidentally classify similarly named routes", () => {
     expect(mobileRoute("/notes-archive").section).toBeNull();
     expect(mobileRoute("/tasks-old").section).toBeNull();
@@ -37,6 +44,10 @@ describe("restoring mobile locations", () => {
   });
   it("retains the selected task list but removes a stale detail selection", () => {
     expect(readMobileLocations(JSON.stringify({ tasks: "/tasks?scope=list&list=design&task=old" }))).toEqual({ tasks: "/tasks?scope=list&list=design" });
+  });
+  it("阶段 C：底栏速记项落在资料库速记视图；旧 /memos 位置经重定向仍可用", () => {
+    expect(readMobileLocations(JSON.stringify({ memos: "/library?view=memos" }))).toEqual({ memos: "/library?view=memos" });
+    expect(readMobileLocations(JSON.stringify({ memos: "/memos" }))).toEqual({ memos: "/memos" });
   });
 });
 
