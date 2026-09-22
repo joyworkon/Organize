@@ -33,12 +33,10 @@ test("登录：邮箱密码登录后进入阅读库", async ({ page }) => {
   await expect(page).toHaveURL(/\/library/);
 });
 
-test("稍后读保存：粘贴链接回车保存，列表出现抓取标题", async ({ page }) => {
+test("稍后读保存：统一输入框粘贴链接回车保存，列表出现抓取标题", async ({ page }) => {
   await openPage(page, "/library");
-  await page.getByLabel("快速添加链接").fill("https://example.com/playwright-smoke-article");
-  const save = page.getByRole("button", { name: "保存", exact: true });
-  await expect(save).toBeEnabled();
-  await save.click();
+  await page.getByLabel("资料库统一输入").fill("https://example.com/playwright-smoke-article");
+  await page.keyboard.press("Enter");
   // mock 抓取从 slug 生成标题（Playwright smoke article）
   await expect(page.getByText("Playwright smoke article").first()).toBeVisible();
   await expect(page.getByText("已保存到稍后读").first()).toBeVisible();

@@ -24,7 +24,6 @@ import {
   ChevronRight,
   Loader2,
   Network,
-  Feather,
   Lightning,
   Users,
   UsersRound,
@@ -51,20 +50,21 @@ import { useHasTeamWorkspaces } from "@/hooks/use-workspaces";
 
 // 侧边栏可见的一级导航（D06 迁移表落地）：图谱收进笔记页页头「更多」菜单、插件收进设置页
 // 「插件管理」入口——原一级入口移除，旧 URL 保留可达。
-// 「经验」「标签」已降级：经验并入待办工作台，标签收进稍后读分组。
+// 「经验」「标签」已降级：经验并入待办工作台，标签收进资料库分组。
+// 阶段 C：「稍后读」「速记」融合为「资料库」（/library，?view=reading|memos 切换视图），
+// 速记一级入口移除（/memos 重定向兼容），行内「+」移到资料库行（聚焦统一输入框）。
 const navItems = [
   { href: "/", label: "工作台", icon: Home },
-  { href: "/library", label: "稍后读", icon: Library },
+  { href: "/library", label: "资料库", icon: Library },
   { href: "/notes", label: "笔记", icon: FileText },
   // 构思画布（idea-canvas）：与笔记同级的一级入口（/canvas，规格 §1）
   { href: "/canvas", label: "构思画布", icon: LayoutGrid },
   { href: "/tasks", label: "待办", icon: ListChecks },
-  { href: "/memos", label: "速记", icon: Feather },
   { href: "/trash", label: "垃圾箱", icon: Trash2 },
   { href: "/settings", label: "设置", icon: Settings },
 ];
 
-// 辅助组（D06）：收藏夹移入此处，与「与我共享 / 协作空间」同组，插在「速记」之后。
+// 辅助组（D06）：收藏夹移入此处，与「与我共享 / 协作空间」同组，插在「资料库」之后。
 const favoritesNavItem = { href: "/favorites", label: "收藏夹", icon: Star };
 
 // 「与我共享」条件入口：有共享笔记才出现在「笔记」之后（useHasSharedNotes，mock 恒隐藏）
@@ -107,7 +107,7 @@ export function Sidebar() {
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
-  // 稍后读分组下的标签快捷列表：展开时拉取，标签增删经 organize:tags-changed 事件刷新
+  // 资料库分组下的标签快捷列表：展开时拉取，标签增删经 organize:tags-changed 事件刷新
   const { tags: sidebarTags, refresh: refreshSidebarTags } = useAllTags();
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
@@ -115,13 +115,13 @@ export function Sidebar() {
   useThemeColor();
   const hasSharedNotes = useHasSharedNotes();
   const hasTeamWorkspaces = useHasTeamWorkspaces();
-// 一级导航 = 静态项 + 条件项（与我共享 / 协作空间，插在「笔记」之后成组；
+// 一级导航 = 静态项 + 条件项（与我共享 / 协作空间，插在「资料库」之后成组；
 // 两个条件入口各自探测，mock 后端恒隐藏）
 const visibleNavItems = useMemo(() => {
   const items = [...navItems];
-  // 辅助组起点 = 「速记」之后。用语义锚点定位（此前写死 index 5，
-  // 新增一级入口后会挤进主组中间，把收藏夹推到速记之前）
-  let insertAt = navItems.findIndex((i) => i.href === "/memos") + 1;
+  // 辅助组起点 = 「资料库」之后。用语义锚点定位（此前写死 index 5，
+  // 新增一级入口后会挤进主组中间，把收藏夹推到锚点之前）
+  let insertAt = navItems.findIndex((i) => i.href === "/library") + 1;
   items.splice(insertAt, 0, favoritesNavItem);
   insertAt += 1;
   if (hasSharedNotes) {
@@ -219,7 +219,7 @@ const visibleNavItems = useMemo(() => {
     localStorage.setItem("organize-sidebar-library-expanded", String(next));
   };
 
-  // 展开稍后读分组时拉标签；其他处增删标签后经事件同步
+  // 展开资料库分组时拉标签；其他处增删标签后经事件同步
   useEffect(() => {
     if (libraryExpanded) void refreshSidebarTags();
   }, [libraryExpanded, refreshSidebarTags]);
@@ -446,7 +446,7 @@ const visibleNavItems = useMemo(() => {
             ? pathname === "/"
             : pathname.startsWith(item.href);
           if (item.href === "/library" && !compact) {
-            // 稍后读分组：主体入口 + 可展开的标签快捷列表（点标签 = 带筛选进稍后读）
+            // 资料库分组：主体入口 + 行内「+」（速记/链接/长文统一输入框）+ 可展开的标签快捷列表
             const activeTagId = searchParams.get("tags");
             return (
               <div key={item.href}>
@@ -464,8 +464,26 @@ const visibleNavItems = useMemo(() => {
                     className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
                   >
                     <Library className="h-4 w-4 shrink-0" />
-                    <span className="truncate">稍后读</span>
+                    <span className="truncate">资料库</span>
                   </Link>
+                  {/* 行内「+」（阶段 C 从速记行移入）：已在本页时聚焦统一输入框，
+                      否则带 ?compose=1 过去（页面负责聚焦后抹参数） */}
+                  <button
+                    type="button"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
+                    title="快速记录"
+                    aria-label="快速记录"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      if (pathname === "/library") {
+                        window.dispatchEvent(new CustomEvent("organize:memo-compose"));
+                        return;
+                      }
+                      router.push("/library?compose=1");
+                    }}
+                  >
+                    <Lightning className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     type="button"
                     className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
@@ -491,7 +509,8 @@ const visibleNavItems = useMemo(() => {
                         return (
                           <Link
                             key={tag.id}
-                            href={`/library?tags=${tag.id}`}
+                            // 标签快捷列表语义 = 稍后读标签筛选（阶段 C 起带 view=reading 直达该视图）
+                            href={`/library?view=reading&tags=${tag.id}`}
                             onClick={() => setMobileOpen(false)}
                             className={cn(
                               "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
@@ -641,49 +660,6 @@ const visibleNavItems = useMemo(() => {
                     )}
                   </div>
                 )}
-              </div>
-            );
-          }
-          if (item.href === "/memos" && !compact) {
-            // 速记：与笔记一致的行内「+」——已在速记页时直接聚焦输入框，
-            // 否则带 ?compose=1 过去，由页面负责聚焦（刷新即失效，不留状态）
-            return (
-              <div
-                key={item.href}
-                className={cn(
-                  "group flex min-w-0 items-center rounded-md text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <Link
-                  href="/memos"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
-                >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-                {/* 「+」换成设计系统单色闪电（flash-2）：速记是"闪念捕捉"，
-                    加号语义太泛；位置也从"与笔记的 + 同列"改到最右列，
-                    与顶部收起箭头、笔记/待办的展开箭头同一条中心线上（mr-1） */}
-                <button
-                  type="button"
-                  className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded hover:bg-background/20"
-                  title="快速新建速记"
-                  aria-label="快速新建速记"
-                  onClick={() => {
-                    setMobileOpen(false);
-                    if (pathname === "/memos") {
-                      window.dispatchEvent(new CustomEvent("organize:memo-compose"));
-                      return;
-                    }
-                    router.push("/memos?compose=1");
-                  }}
-                >
-                  <Lightning className="h-3.5 w-3.5" />
-                </button>
               </div>
             );
           }

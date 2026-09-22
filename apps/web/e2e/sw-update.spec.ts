@@ -180,7 +180,8 @@ test.describe.serial("SW 跨版本更新与离线边界", () => {
 
     // SPA 导航到 /library：其 chunk 进 runtime 缓存（SPA 导航不产生 navigate 请求，
     // HTML 只在整页加载时进 static 缓存——这是 SW 的既定行为）
-    await page!.getByRole("link", { name: /稍后读|Library/ }).first().click();
+    // 阶段 C 起侧栏主入口为「资料库」（/library 不变）
+    await page!.getByRole("link", { name: /资料库|Library/ }).first().click();
     await page!.waitForURL(/\/library/);
     await page!.waitForTimeout(2000);
     const runtimeCount = await page!.evaluate(async (cacheName) => {

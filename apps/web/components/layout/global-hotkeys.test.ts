@@ -69,4 +69,13 @@ describe("全局键位清单一致性", () => {
       expect(new Set(keys).size).toBe(keys.length);
     }
   });
+
+  // 阶段 C：速记并入资料库。g m 旧行为 → /memos（现为兼容重定向），
+  // 新行为 → /library?view=memos 直达速记视图；g i/g l 同指资料库。
+  it("g m 直达资料库速记视图，g i/g l 指向资料库", () => {
+    const bySeq = (seq: string) => GOTO_ROUTES.find((r) => r.sequence.join(" ") === seq);
+    expect(bySeq("g m")).toMatchObject({ path: "/library?view=memos", label: "速记" });
+    expect(bySeq("g i")).toMatchObject({ path: "/library", label: "资料库" });
+    expect(bySeq("g l")).toMatchObject({ path: "/library", label: "资料库" });
+  });
 });

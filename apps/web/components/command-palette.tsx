@@ -80,12 +80,13 @@ const SEARCH_LIMIT = 8;
 
 const NAV_ITEMS = [
   { label: "工作台", path: "/", icon: Home, shortcut: "G H" },
-  { label: "稍后读", path: "/library", icon: BookOpen, shortcut: "G L" },
+  { label: "资料库", path: "/library", icon: BookOpen, shortcut: "G L" },
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "构思画布", path: "/canvas", icon: LayoutGrid, shortcut: "G C" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
   { label: "经验", path: "/tasks/lessons", icon: Lightbulb, shortcut: "G E" },
-  { label: "速记", path: "/memos", icon: Zap, shortcut: "G M" },
+  // 速记并入资料库（阶段 C）：/memos 重定向兼容，直达速记视图
+  { label: "速记", path: "/library?view=memos", icon: Zap, shortcut: "G M" },
   { label: "图谱", path: "/graph", icon: Network, shortcut: "G G" },
   { label: "标签", path: "/tags", icon: Tag, shortcut: "G T" },
   { label: "回顾", path: "/?view=review", icon: CalendarDays, shortcut: "G R" },
@@ -153,8 +154,8 @@ function getItemPath(type: SearchResult["type"], id: string) {
     case "tag":
       return `/tags`;
     case "memo":
-      // F05：?memo= 定位 + 按 ID 补取 + 滚动高亮
-      return `/memos?memo=${id}`;
+      // F05：?memo= 定位 + 按 ID 补取 + 滚动高亮（阶段 C 起指向资料库速记视图）
+      return `/library?view=memos&memo=${id}`;
   }
 }
 

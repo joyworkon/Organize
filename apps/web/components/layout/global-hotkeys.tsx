@@ -21,14 +21,15 @@ export interface GotoRoute {
 
 export const GOTO_ROUTES: GotoRoute[] = [
   { sequence: ["g", "h"], path: "/", label: "首页" },
-  // g i 是整合前「收集箱」的肌肉记忆，与 g l 同指向稍后读
-  { sequence: ["g", "i"], path: "/library", label: "稍后读" },
-  { sequence: ["g", "l"], path: "/library", label: "稍后读" },
+  // g i 是整合前「收集箱」的肌肉记忆，与 g l 同指向资料库（原稍后读）
+  { sequence: ["g", "i"], path: "/library", label: "资料库" },
+  { sequence: ["g", "l"], path: "/library", label: "资料库" },
   { sequence: ["g", "n"], path: "/notes", label: "笔记" },
   { sequence: ["g", "c"], path: "/canvas", label: "构思画布" },
   { sequence: ["g", "d"], path: "/tasks", label: "待办" },
   { sequence: ["g", "e"], path: "/tasks/lessons", label: "经验" },
-  { sequence: ["g", "m"], path: "/memos", label: "速记" },
+  // 速记并入资料库（阶段 C）：/memos 重定向兼容，直达速记视图
+  { sequence: ["g", "m"], path: "/library?view=memos", label: "速记" },
   { sequence: ["g", "g"], path: "/graph", label: "图谱" },
   { sequence: ["g", "f"], path: "/favorites", label: "收藏夹" },
   { sequence: ["g", "t"], path: "/tags", label: "标签" },
@@ -72,7 +73,7 @@ export const PAGE_SHORTCUTS = [
     items: [{ keys: "⌘S / Ctrl+S", desc: "立即保存" }],
   },
   {
-    page: "稍后读",
+    page: "资料库",
     items: [
       { keys: "/", desc: "聚焦搜索框" },
       { keys: "Esc", desc: "退出多选 / 清空搜索" },

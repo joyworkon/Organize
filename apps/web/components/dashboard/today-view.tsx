@@ -550,7 +550,8 @@ export default function TodayView({ search = "" }: { search?: string } = {}) {
                   <Feather className="h-3.5 w-3.5" />
                   最近速记
                 </h3>
-                <Link href="/memos" className="dashboard-section-link">
+                {/* 阶段 C：速记入口并入资料库（?view=memos），/memos 重定向兼容 */}
+                <Link href="/library?view=memos" className="dashboard-section-link">
                   全部
                   <ChevronRight className="h-3 w-3" />
                 </Link>
@@ -562,8 +563,8 @@ export default function TodayView({ search = "" }: { search?: string } = {}) {
                   {visibleMemos.map((memo) => (
                     <Link
                       key={memo.id}
-                      // F05：沿用 ?memo= 深链合同，搜索/工作台/外链定位同一目标
-                      href={`/memos?memo=${memo.id}`}
+                      // F05：沿用 ?memo= 深链合同（阶段 C 起指向资料库速记视图），搜索/工作台/外链定位同一目标
+                      href={`/library?view=memos&memo=${memo.id}`}
                       className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
                     >
                       <p className="text-sm line-clamp-2">{memo.content}</p>

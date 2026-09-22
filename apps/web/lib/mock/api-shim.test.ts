@@ -315,3 +315,76 @@ describe("mock api shim", () => {
     expect(originalFetchRef).toHaveBeenCalledWith("https://example.com/other", undefined);
   });
 });
+
+describe("mock api shim：/api/library/items 资料库统一查询", () => {
+  it("view=all 返回双源统一形状（memo 行 title/url/status 为 null），按时间倒序", async () => {
+    const { status, body } = await call("/api/library/items?view=all&limit=100");
+    expect(status).toBe(200);
+    const items = body.items as Array<Record<string, unknown>>;
+    // 种子：7 篇 reading_items + 4 条活跃 memos（1 条已软删）
+    expect(items).toHaveLength(11);
+    expect(String(items[0].created_at) >= String(items[items.length - 1].created_at)).toBe(true);
+    const memo = items.find((i) => i.source_type === "memo");
+    expect(memo).toMatchObject({ title: null, url: null, reading_status: null, is_pinned: false, reading_progress: null, is_link_only: false });
+    expect(Array.isArray(memo!.tags)).toBe(true);
+    expect(typeof memo!.excerpt).toBe("string");
+    const reading = items.find((i) => i.source_type === "reading");
+    expect(reading).toMatchObject({ is_pinned: true });
+    expect(typeof reading!.reading_status).toBe("string");
+    expect(body.nextCursor).toBeNull();
+    expect(Object.keys(reading!).sort()).toEqual(
+      ["created_at", "excerpt", "id", "is_link_only", "is_pinned", "reading_progress", "reading_status", "source_type", "tags", "title", "url"]
+    );
+  });
+
+  it("view=reading / memo / memos(别名) 视图过滤", async () => {
+    const reading = await call("/api/library/items?view=reading&limit=100");
+    expect(reading.body.items.every((i: any) => i.source_type === "reading")).toBe(true);
+    const memo = await call("/api/library/items?view=memo&limit=100");
+    expect(memo.body.items.every((i: any) => i.source_type === "memo")).toBe(true);
+    const memos = await call("/api/library/items?view=memos&limit=100");
+    expect(memos.body.items).toEqual(memo.body.items);
+    expect(memo.body.items.find((i: any) => i.id === "mock-memo-deleted-1")).toBeUndefined();
+  });
+
+  it("q 命中两侧正文，tags 按名称命中两侧", async () => {
+    const q = await call(`/api/library/items?q=${encodeURIComponent("速记的入口")}`);
+    expect(q.status).toBe(200);
+    expect(q.body.items).toHaveLength(1);
+    expect(q.body.items[0]).toMatchObject({ source_type: "memo", id: "mock-memo-2" });
+
+    const tags = await call(`/api/library/items?tags=${encodeURIComponent("阅读方法")}`);
+    expect(tags.body.items.length).toBeGreaterThan(0);
+    expect(tags.body.items.every((i: any) => i.tags.includes("阅读方法"))).toBe(true);
+  });
+
+  it("游标翻页：limit=2 连翻取全，无重复无遗漏", async () => {
+    const first = await call("/api/library/items?view=all&limit=2");
+    expect(first.body.items).toHaveLength(2);
+    expect(first.body.nextCursor).toBeTruthy();
+
+    const seen = [...first.body.items.map((i: any) => i.id)];
+    let cursor = first.body.nextCursor as string;
+    let guard = 0;
+    while (cursor && guard < 20) {
+      const page = await call(`/api/library/items?view=all&limit=2&cursor=${encodeURIComponent(cursor)}`);
+      seen.push(...page.body.items.map((i: any) => i.id));
+      cursor = page.body.nextCursor;
+      guard += 1;
+    }
+    expect(guard).toBeLessThan(20);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen).toHaveLength(11);
+    // 与全量一致（集合相等）
+    const full = await call("/api/library/items?view=all&limit=100");
+    expect(new Set(seen)).toEqual(new Set(full.body.items.map((i: any) => i.id)));
+  });
+
+  it("坏 view / 坏 cursor 返回 400", async () => {
+    const badView = await call("/api/library/items?view=notes");
+    expect(badView.status).toBe(400);
+    const badCursor = await call("/api/library/items?cursor=lib9.corrupt");
+    expect(badCursor.status).toBe(400);
+    expect(badCursor.body.error).toContain("cursor");
+  });
+});

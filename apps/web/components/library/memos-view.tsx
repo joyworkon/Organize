@@ -1,0 +1,695 @@
+"use client";
+
+// 资料库「速记」视图（阶段 C）：原 /memos 页能力整体搬入——
+// 输入框（与页级统一输入框并存、同一条提交链路）、按日分组时间流、#标签 筛选、
+// 编辑/删除/转笔记、?memo= 深链定位、organize:memos-synced 事件契约。
+// compose=1 / organize:memo-compose 由页级统一输入框接管（资料库统一入口语义）。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { parseMemoTags } from "@/lib/memos/tags";
+import { filterByPageSearch } from "@/lib/search/page-search";
+import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
+import { submitMemo, MEMO_MAX_LENGTH } from "@/lib/memos/save-memo";
+import { isImeComposing } from "@/lib/input/submit-guard";
+import { emitDataChanged, subscribeDataChanged } from "@/lib/desktop/notch";
+import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import type { Memo } from "@organize/shared";
+import { Feather, Loader2, Pencil, FileText, Trash2 } from "@/components/icons";
+
+function dateLabel(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOf(today) - startOf(date)) / 86400000);
+  if (diffDays === 0) return "今天";
+  if (diffDays === 1) return "昨天";
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+}
+
+// 按 #标签 高亮渲染内容，点标签即筛选
+function renderContent(content: string, onTagClick: (tag: string) => void) {
+  return content.split(/(#[^\s#]+)/g).map((part, index) => {
+    if (!part.startsWith("#")) return <span key={index}>{part}</span>;
+    const tag = parseMemoTags(part)[0];
+    return (
+      <button
+        key={index}
+        type="button"
+        onClick={() => tag && onTagClick(tag)}
+        className="text-primary hover:underline"
+      >
+        {part}
+      </button>
+    );
+  });
+}
+
+export interface MemosViewProps {
+  /** 页头 PageSearch 的输入（本视图按客户端口径过滤已加载列表） */
+  search: string;
+}
+
+export function MemosView({ search }: MemosViewProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = useMemo(() => createClient(), []);
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  // F04：服务端全量总数与游标加载
+  const [total, setTotal] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [input, setInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [filterTag, setFilterTag] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
+  // F02：草稿按 用户+入口 隔离；userId 到位后恢复一次
+  const [userId, setUserId] = useState<string | null>(null);
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  const inputRef = useRef("");
+  const draftRestoredRef = useRef(false);
+
+  inputRef.current = input;
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserId(session?.user?.id ?? null);
+    });
+    // F01：触屏设备 Enter 用于换行（保存按钮始终可见）；桌面 Enter 保存
+    setCoarsePointer(window.matchMedia("(pointer: coarse)").matches);
+  }, [supabase]);
+
+  // F02：恢复本机草稿（只恢复一次；用户已开始输入时不覆盖）
+  useEffect(() => {
+    if (!userId || draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    const draft = loadMemoDraft(localStorage, userId, "main");
+    if (draft && !inputRef.current) setInput(draft);
+  }, [userId]);
+
+  const updateInput = useCallback(
+    (value: string) => {
+      setInput(value);
+      if (userId) saveMemoDraft(localStorage, userId, "main", value);
+    },
+    [userId]
+  );
+
+  /** 仅当当前输入仍是被确认保存的版本时才清空（保存期间续写的内容保留） */
+  const clearInputIfSame = useCallback(
+    (submitted: string) => {
+      if (inputRef.current !== submitted) return;
+      setInput("");
+      if (userId) clearMemoDraft(localStorage, userId, "main");
+    },
+    [userId]
+  );
+
+  // R11：速记 → 关联笔记状态（memo_notes join notes 含软删，用于状态展示）
+  const [conversions, setConversions] = useState<
+    Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>
+  >(new Map());
+
+  const loadConversions = useCallback(async () => {
+    try {
+      // 两次普通查询（不依赖关联嵌入 select；mock 与真实后端行为一致）
+      const { data: links } = await supabase
+        .from("memo_notes")
+        .select("memo_id, note_id");
+      const noteIds = ((links || []) as Array<{ note_id: string }>).map((l) => l.note_id);
+      const notesById = new Map<string, { title: string | null; deleted_at: string | null }>();
+      if (noteIds.length > 0) {
+        const { data: linkedNotes } = await supabase
+          .from("notes")
+          .select("id, title, deleted_at")
+          .in("id", noteIds);
+        for (const n of (linkedNotes || []) as Array<{ id: string; title: string | null; deleted_at: string | null }>) {
+          notesById.set(n.id, { title: n.title, deleted_at: n.deleted_at });
+        }
+      }
+      const next = new Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>();
+      for (const link of (links || []) as Array<{ memo_id: string; note_id: string }>) {
+        const note = notesById.get(link.note_id);
+        next.set(link.memo_id, {
+          noteId: link.note_id,
+          noteTitle: note?.title ?? null,
+          noteDeleted: note?.deleted_at != null,
+        });
+      }
+      setConversions(next);
+    } catch (e) {
+      console.error("[loadConversions]", e);
+    }
+  }, [supabase]);
+
+  const fetchMemos = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/memos", { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      setMemos((await res.json()) as Memo[]);
+      setTotal(Number(res.headers.get("X-Total-Count") || "0"));
+      setLoadError(false);
+    } catch {
+      // F03：失败保留旧列表并显式报错，不把失败渲染成「还没有速记」
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /** F04：游标分页加载更早一页（不重复不遗漏：created_at+id 稳定排序） */
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    const last = memos[memos.length - 1];
+    if (!last) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/memos?before=${encodeURIComponent(last.created_at)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      const older = (await res.json()) as Memo[];
+      const seen = new Set(memos.map((m) => m.id));
+      setMemos((prev) => [...prev, ...older.filter((m) => !seen.has(m.id))]);
+    } catch {
+      toast({ title: "加载更多失败", variant: "destructive" });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [memos, loadingMore]);
+
+  const fetchMemosRef = useRef<(() => void) | null>(null);
+  fetchMemosRef.current = fetchMemos;
+
+  useEffect(() => {
+    const synced = () => void fetchMemosRef.current?.();
+    window.addEventListener("organize:memos-synced", synced);
+    return () => window.removeEventListener("organize:memos-synced", synced);
+  }, []);
+
+  // K03：刘海面板新增/编辑速记后，主窗口列表即时跟随（忽略自己发的广播）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void subscribeDataChanged((payload) => {
+      if (payload.origin !== "notch-panel") return;
+      if (payload.topic === "memos") void fetchMemosRef.current?.();
+    }).then((off) => { unlisten = off; });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
+    fetchMemos();
+    void loadConversions();
+  }, [fetchMemos, loadConversions]);
+
+  // F05：?memo=<id> 深链定位——列表内滚动高亮；不在列表（分页外/已删）时按 ID 补取
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    const memoParam = searchParams.get("memo");
+    if (!memoParam || loading) return;
+    const inList = memos.some((m) => m.id === memoParam);
+    if (inList) {
+      setHighlightId(memoParam);
+      document.getElementById(`memo-${memoParam}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const timer = setTimeout(() => setHighlightId(null), 3000);
+      return () => clearTimeout(timer);
+    }
+    void (async () => {
+      try {
+        const res = await fetch(`/api/memos/${memoParam}`, { cache: "no-store" });
+        if (res.status === 404) {
+          toast({ title: "该速记已删除或不存在", description: "可从列表继续浏览其他速记" });
+          return;
+        }
+        if (!res.ok) return;
+        const memo = (await res.json()) as Memo;
+        setMemos((prev) => (prev.some((m) => m.id === memo.id) ? prev : [memo, ...prev]));
+        setHighlightId(memoParam);
+        requestAnimationFrame(() =>
+          document.getElementById(`memo-${memoParam}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+        );
+        setTimeout(() => setHighlightId(null), 3000);
+      } catch {
+        // 网络失败静默：列表仍是完整可用状态
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, memos, loading]);
+
+  // F04：标签计数来自服务端全量聚合（此前由前 500 条本地统计，大数量下失真）
+  const [tagCounts, setTagCounts] = useState<Array<[string, number]>>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/memos/tags", { cache: "no-store" });
+        if (!res.ok) return;
+        const rows = (await res.json()) as Array<{ tag: string; count: number }>;
+        setTagCounts(rows.map((r) => [r.tag, r.count]));
+      } catch {
+        // 聚合失败时退回本地统计（旧逻辑），保底可用
+        const map = new Map<string, number>();
+        for (const memo of memos) {
+          for (const tag of memo.tags || []) map.set(tag, (map.get(tag) || 0) + 1);
+        }
+        setTagCounts(Array.from(map.entries()).sort((a, b) => b[1] - a[1]));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const visible = useMemo(() => {
+    const byTag = filterTag ? memos.filter((m) => m.tags?.includes(filterTag)) : memos;
+    // 速记没有标题，正文首行即标题；页内搜索口径 = 正文 + #标签
+    return filterByPageSearch(byTag, search, (memo) => ({
+      title: memo.content,
+      tags: memo.tags,
+    }));
+  }, [memos, filterTag, search]);
+
+  const grouped = useMemo(() => {
+    const groups: { label: string; items: Memo[] }[] = [];
+    for (const memo of visible) {
+      const label = dateLabel(memo.created_at);
+      const last = groups[groups.length - 1];
+      if (last?.label === label) last.items.push(memo);
+      else groups.push({ label, items: [memo] });
+    }
+    return groups;
+  }, [visible]);
+
+  const inputTags = parseMemoTags(input);
+
+  /** F01/F02：统一提交入口（lib/memos/save-memo.ts，与页级统一输入框同一链路） */
+  const handleSave = async () => {
+    const rawInput = inputRef.current;
+    if (!rawInput.trim() || saving) return;
+    if (rawInput.trim().length > MEMO_MAX_LENGTH) {
+      toast({
+        title: "内容超出长度限制",
+        description: `速记最多 ${MEMO_MAX_LENGTH} 字，当前 ${rawInput.trim().length} 字`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await submitMemo({ content: rawInput, userId });
+      if (result.status === "error") {
+        toast({ title: "保存失败", description: result.message, variant: "destructive" });
+        return;
+      }
+      if (result.status === "queued") {
+        setMemos((prev) => [result.memo, ...prev]);
+        clearInputIfSame(rawInput);
+        toast(
+          result.persisted
+            ? { title: "当前离线，已本地保存，联网后自动同步" }
+            : { title: "本地存储不可用，离线创建可能丢失", variant: "destructive" }
+        );
+        return;
+      }
+      setMemos((prev) => [result.memo, ...prev.filter((m) => m.id !== result.clientId)]);
+      clearInputIfSame(rawInput);
+      void emitDataChanged({ topic: "memos", origin: "main" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditSave = async (id: string) => {
+    const content = editContent.trim();
+    if (!content || editSaving) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/memos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as Memo;
+        setMemos((prev) => prev.map((m) => (m.id === id ? updated : m)));
+        setEditingId(null);
+        void emitDataChanged({ topic: "memos", origin: "main" });
+      } else {
+        const data = await res.json().catch(() => null);
+        toast({
+          title: "编辑失败",
+          description: data?.error || "请稍后重试，输入已保留",
+          variant: "destructive",
+        });
+      }
+    } catch {
+      toast({ title: "编辑失败", description: "网络异常，输入已保留", variant: "destructive" });
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("删除这条速记？")) return;
+    try {
+      const res = await fetch(`/api/memos/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setMemos((prev) => prev.filter((m) => m.id !== id));
+        void emitDataChanged({ topic: "memos", origin: "main" });
+        toast({ title: "已删除" });
+      } else {
+        toast({ title: "删除失败", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "删除失败", description: "网络异常，请稍后重试", variant: "destructive" });
+    }
+  };
+
+  // R11 转为笔记：服务端单事务（笔记+关联+标签映射），幂等——已转换过=打开既有笔记
+  const handleConvert = async (memo: Memo) => {
+    if (convertingId) return;
+    setConvertingId(memo.id);
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc("convert_memo_to_note", {
+        p_memo_id: memo.id,
+      });
+      if (rpcError) throw rpcError;
+      const result = rpcData as { status?: string; note_id?: string } | null;
+      if (result?.status === "not_found") {
+        toast({ title: "速记不存在或已删除", variant: "destructive" });
+        return;
+      }
+      if (!result?.note_id) {
+        toast({ title: "转为笔记失败", variant: "destructive" });
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      toast({
+        title: result.status === "exists" ? "已打开关联笔记" : "已转为笔记，速记保留原处",
+      });
+      void loadConversions();
+      router.push(`/notes/${result.note_id}`);
+    } catch (error) {
+      toast({
+        title: "转为笔记失败",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setConvertingId(null);
+    }
+  };
+
+  return (
+    <div className="w-full space-y-5">
+      {/* 输入区：与页级统一输入框并存，同一提交链路（#标签/草稿/离线/幂等）。
+          桌面 Enter / Cmd+Ctrl+Enter 保存，Shift+Enter 与触屏 Enter 换行 */}
+      <div className="memo-composer rounded-lg border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary">
+        <textarea
+          value={input}
+          onChange={(e) => updateInput(e.target.value)}
+          onKeyDown={(e) => {
+            // F01：输入法组合态（中文选字）的 Enter 不作提交
+            if (isImeComposing(e)) return;
+            if (e.key === "Enter") {
+              const submit = !e.shiftKey && (e.metaKey || e.ctrlKey || !coarsePointer);
+              if (!submit) return; // Shift+Enter / 触屏 Enter：换行
+              e.preventDefault();
+              void handleSave();
+            }
+          }}
+          placeholder="此刻有什么想法？用 #标签 标记主题"
+          aria-label="速记内容"
+          rows={3}
+          className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+        />
+        <div className="mt-1 flex items-center justify-between">
+          <div className="flex flex-wrap items-center gap-1">
+            {inputTags.map((tag) => (
+              <span key={tag} className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+                #{tag}
+              </span>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* F03：服务端 5,000 字限制的前端计数提示 */}
+            {input.length > MEMO_MAX_LENGTH * 0.9 && (
+              <span
+                className={cn(
+                  "text-[11px]",
+                  input.length > MEMO_MAX_LENGTH ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {input.length}/{MEMO_MAX_LENGTH}
+              </span>
+            )}
+            <Button
+              size="sm"
+              onClick={() => void handleSave()}
+              disabled={!input.trim() || saving || input.length > MEMO_MAX_LENGTH}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 标签筛选 */}
+      {tagCounts.length > 0 && (
+        <div className="mobile-filter-strip flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setFilterTag(null)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs transition-colors",
+              !filterTag
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            全部
+          </button>
+          {tagCounts.map(([tag, count]) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => setFilterTag(filterTag === tag ? null : tag)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-xs transition-colors",
+                filterTag === tag
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground"
+              )}
+            >
+              #{tag}
+              <span className="ml-1 opacity-70">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* F04：游标分页加载更早的速记（列表底部分批追加，不再一次拉全量） */}
+      {total !== null && memos.length < total && !loading && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+          >
+            {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : "加载更早的速记"}
+          </Button>
+        </div>
+      )}
+
+      {loadError && memos.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <span className="text-xs text-destructive">刷新失败，当前显示的是上次内容</span>
+          <Button size="sm" variant="ghost" onClick={() => void fetchMemos()}>重试</Button>
+        </div>
+      )}
+      {loading && memos.length === 0 ? (
+        <div className="space-y-2" aria-busy="true" aria-label="速记加载中">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-16 animate-pulse rounded-lg bg-muted/60" />
+          ))}
+        </div>
+      ) : loadError && memos.length === 0 ? (
+        <EmptyState
+          icon={Feather}
+          title="速记加载失败"
+          description="网络或服务暂时不可用，之前的列表不会因此清空"
+          action={
+            <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => void fetchMemos()}>
+              重试
+            </button>
+          }
+        />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          icon={Feather}
+          title={
+            search.trim()
+              ? "没有匹配的速记"
+              : filterTag
+                ? `没有带 #${filterTag} 的速记`
+                : "还没有速记"
+          }
+          description={search.trim() ? "换个关键词或标签试试" : "想到什么就记下来，别让灵感溜走"}
+          action={
+            search.trim() ? (
+              <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => window.dispatchEvent(new CustomEvent("organize:page-search-clear"))}>
+                清空搜索
+              </button>
+            ) : filterTag ? (
+              <button type="button" className={cn(buttonVariants({ variant: "outline" }))} onClick={() => setFilterTag(null)}>
+                查看全部
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <div className="space-y-5">
+          {grouped.map((group) => (
+            <div key={group.label}>
+              <div className="mb-1.5 text-xs font-medium text-muted-foreground">{group.label}</div>
+              <div className="space-y-2">
+                {group.items.map((memo) => (
+                  <div
+                    key={memo.id}
+                    id={`memo-${memo.id}`}
+                    className={cn(
+                      "group rounded-lg border bg-card p-3 shadow-sm transition-shadow",
+                      highlightId === memo.id && "ring-2 ring-primary border-primary"
+                    )}
+                  >
+                    {editingId === memo.id ? (
+                      <div>
+                        <textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            // F01：组合态 Enter 不提交
+                            if (isImeComposing(e)) return;
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void handleEditSave(memo.id);
+                            }
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          rows={3}
+                          className="w-full resize-none bg-transparent text-sm outline-none"
+                        />
+                        <div className="mt-1 flex justify-end gap-1.5">
+                          <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>
+                            取消
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => void handleEditSave(memo.id)}
+                            disabled={editSaving}
+                          >
+                            {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存"}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                          {renderContent(memo.content, setFilterTag)}
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <span className="text-[11px] text-muted-foreground">
+                            {new Date(memo.created_at).toLocaleTimeString("zh-CN", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          <div className="organize-touch-visible flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            {(() => {
+                              const conversion = conversions.get(memo.id);
+                              // R11：已关联笔记软删除 → 显示状态（恢复走垃圾箱；不默默当没转换过）
+                              if (conversion?.noteDeleted) {
+                                return (
+                                  <span
+                                    className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed px-2 text-xs text-muted-foreground"
+                                    title="关联笔记已移入垃圾箱，可在垃圾箱恢复"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    关联笔记已删除
+                                  </span>
+                                );
+                              }
+                              if (conversion) {
+                                return (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-xs"
+                                    onClick={() => router.push(`/notes/${conversion.noteId}`)}
+                                    title="打开关联笔记"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    打开笔记
+                                  </Button>
+                                );
+                              }
+                              return (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 px-2 text-xs"
+                                  onClick={() => void handleConvert(memo)}
+                                  disabled={convertingId === memo.id}
+                                  title="转为笔记"
+                                >
+                                  {convertingId === memo.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <FileText className="h-3 w-3" />
+                                  )}
+                                  转为笔记
+                                </Button>
+                              );
+                            })()}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => {
+                                setEditingId(memo.id);
+                                setEditContent(memo.content);
+                              }}
+                              title="编辑"
+                              aria-label="编辑这条速记"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => void handleDelete(memo.id)}
+                              title="删除"
+                              aria-label="删除这条速记"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
