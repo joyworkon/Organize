@@ -5,8 +5,9 @@ import { useEffect, useRef, useCallback } from "react";
 /**
  * 判断按键事件是否发生在输入元素中（input/textarea/contentEditable），
  * 这种情况下的按键不应该触发全局快捷键。
+ * （画布区块名编辑输入框复用本判定，见 components/canvas/canvas-workspace.tsx）
  */
-function isTypingTarget(e: KeyboardEvent): boolean {
+export function isTypingTarget(e: KeyboardEvent): boolean {
   const target = e.target as HTMLElement | null;
   if (!target) return false;
   const tag = target.tagName;

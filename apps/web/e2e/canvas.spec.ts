@@ -168,11 +168,62 @@ test.describe("构思画布", () => {
     expect(await sections()).toBe(before - 2);
   });
 
+  test("工具条新建入口：空白页面与宣传落地页骨架（B1）", async ({ page }) => {
+    await openNewCanvas(page);
+    // 空白页面：视口内落位 + 首标题聚焦
+    await page.getByRole("button", { name: "新建空白页面" }).click();
+    const board = page.locator("[data-board-id]").first();
+    await expect(board).toBeVisible();
+    const title = page.locator("[data-block-type='text'] textarea").first();
+    await expect(title).toBeFocused();
+    await page.keyboard.type("第一页");
+    // 宣传落地页骨架：头部/中部/底部三区块
+    await page.getByRole("button", { name: "新建宣传落地页骨架" }).click();
+    await expect(page.locator("[data-region-id]")).toHaveCount(4); // 1 + 3
+    await expect(page.locator("[data-region-name]").nth(1)).toContainText("头部");
+    await expect(page.locator("[data-region-name]").nth(2)).toContainText("中部");
+    await expect(page.locator("[data-region-name]").nth(3)).toContainText("底部");
+    // 骨架首标题（占位提示文字）聚焦可输入（同一时刻仅一个编辑态 textarea）
+    const skeletonTitle = page.locator("[data-block-type='text'] textarea").first();
+    await expect(skeletonTitle).toBeFocused();
+    await expect(skeletonTitle).toHaveValue("点击输入标题");
+    await page.keyboard.type("落地页标题");
+  });
+
+  test("结构面板：页面→区块树操作（B1）", async ({ page }) => {
+    await openNewCanvas(page);
+    await page.getByRole("button", { name: "新建宣传落地页骨架" }).click();
+    await page.getByRole("button", { name: "结构与模板面板" }).click();
+    const panel = page.locator(".canvas-outline-panel");
+    await expect(panel).toBeVisible();
+    // 页面 → 区块树
+    await expect(panel.getByRole("button", { name: /^页面：/ })).toHaveCount(1);
+    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
+    // 重命名区块（铅笔按钮）
+    await panel.getByRole("button", { name: "重命名区块 头部" }).click();
+    const input = panel.locator("input[aria-label='区块名称']");
+    await expect(input).toBeVisible();
+    await input.fill("头图区");
+    await input.press("Enter");
+    await expect(panel.getByRole("button", { name: /^区块：头图区/ })).toBeVisible();
+    // 下移区块：头部变第二行
+    await panel.getByRole("button", { name: "下移区块 头图区" }).click();
+    await expect(panel.locator(".canvas-outline-row.is-region").first()).toContainText("中部");
+    // 复制区块：4 个区块
+    await panel.getByRole("button", { name: "复制区块 中部" }).click();
+    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(4);
+    // 删除区块回到 3 个
+    await panel.getByRole("button", { name: "删除区块 中部" }).nth(1).click();
+    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
+  });
+
   test("mock 保存与草稿恢复：远端缺失时本机草稿可另存为新画布（A15 可自动化部分）", async ({ page }) => {
     // Playwright 的 Chromium 上下文里 IndexedDB 不跨 reload 持久化（实测），
     // 因此用 addInitScript 在文档创建时注入草稿（写入侧由 draft.test.ts 单测覆盖），
     // 然后直接打开一个不存在的文档 ID：远端 404 + 草稿领先 → 恢复链路。
     const missingId = "00000000-0000-4000-8000-00000000dead";
+    // B1：草稿 fixture 有意保留 v1 结构——加载路径统一走 ensureCanvasDocV2，
+    // 该用例顺带验证「旧版本草稿 → 自动迁移 → 内容完整恢复」链路。
     await page.addInitScript(() => {
       window.localStorage.setItem("organize:onboarded", "1");
     });

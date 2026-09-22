@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
 import { validateCanvasContent } from "@/lib/canvas/validation";
-import type { CanvasDoc } from "@/lib/canvas/model";
+import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
 
 /**
  * GET  /api/canvases — 画布文档列表（只读元数据，不拉取大 JSON）。
@@ -62,7 +62,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(existing.data, { status: 200 });
   }
 
-  // 内容校验（客户端同一契约先行检查；未知块结构拒绝落库）
+  // 内容校验（客户端同一契约先行检查；未知块结构拒绝落库）。
+  // B1：校验先经 ensureCanvasDocV2 迁移，插入一律写 v2（旧客户端 v1 写入自动升级）。
+  let content: CanvasDoc = {
+    schemaVersion: CANVAS_SCHEMA_VERSION,
+    boards: [],
+    freeItems: [],
+  };
   if (input.content !== undefined) {
     const validation = validateCanvasContent(input.content);
     if (!validation.ok) {
@@ -71,13 +77,8 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    content = validation.doc as CanvasDoc;
   }
-  const content: CanvasDoc =
-    (input.content !== undefined ? (input.content as CanvasDoc) : {
-      schemaVersion: 1,
-      boards: [],
-      freeItems: [],
-    });
 
   const { data, error } = await supabase
     .from("canvas_documents")

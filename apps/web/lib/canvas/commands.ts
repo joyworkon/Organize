@@ -1,9 +1,10 @@
 /**
- * 构思画布结构命令（docs/idea-canvas-plan.md §6.1）。
+ * 构思画布结构命令（docs/idea-canvas-plan.md §6.1，阶段 B1 适配 Region 层）。
  *
  * 全部为纯函数：(doc, args) → { doc, focus }。不触碰 DOM、不发请求、
  * 不进入 setState 更新器——保存与上传由 UI 层在事件处理器中执行。
  * 同一操作就是一个可撤销事务（历史由 components/canvas 的 store 记录）。
+ * 文档永远写 schemaVersion=2（读取侧统一走 ensureCanvasDocV2 迁移）。
  */
 
 import {
@@ -22,6 +23,7 @@ import {
   CanvasImageAsset,
   CanvasImageBlock,
   CanvasImageRatio,
+  CanvasRegion,
   CanvasSectionWidthMode,
   CanvasTextBlock,
   CanvasTextRole,
@@ -30,11 +32,13 @@ import {
   createBoardShape,
   createColumn,
   createImageBlock,
+  createRegion,
   createSection,
   createTextBlock,
   findBlockLocation,
   findBoard,
   findFreeItem,
+  findRegion,
   findSection,
   imageNaturalHeight,
   normalizeBoardAfterDeletion,
@@ -55,8 +59,28 @@ function edit(
   return { doc: draft, focus: focus ?? null };
 }
 
+function focusBlock(
+  board: CanvasBoard,
+  region: CanvasRegion,
+  sectionId: string,
+  columnId: string,
+  block: CanvasBlock,
+  extra?: { caret?: "start" | "end" | "select-all"; edit?: boolean },
+): CanvasFocus {
+  return {
+    kind: "block",
+    boardId: board.id,
+    regionId: region.id,
+    sectionId,
+    columnId,
+    blockId: block.id,
+    caret: extra?.caret,
+    edit: extra?.edit,
+  } satisfies CanvasFocus;
+}
+
 // ---------------------------------------------------------------------------
-// 版面
+// 版面（页面）
 // ---------------------------------------------------------------------------
 
 /** 双击空白：在指针世界坐标建立版面，标题聚焦（规格 §3.1）。 */
@@ -69,16 +93,12 @@ export function createBoard(
     const board = createBoardShape({ x: args.x, y: args.y }, newId);
     if (args.boardId) board.id = args.boardId;
     draft.boards.push(board);
-    const title = board.sections[0].columns[0].blocks[0] as CanvasTextBlock;
-    return {
-      kind: "block",
-      boardId: board.id,
-      sectionId: board.sections[0].id,
-      columnId: board.sections[0].columns[0].id,
-      blockId: title.id,
+    const region = board.regions[0];
+    const title = region.sections[0].columns[0].blocks[0] as CanvasTextBlock;
+    return focusBlock(board, region, region.sections[0].id, region.sections[0].columns[0].id, title, {
       caret: "end",
       edit: true,
-    } satisfies CanvasFocus;
+    });
   });
 }
 
@@ -111,16 +131,15 @@ function rectsOverlap(
 }
 
 /**
- * 工具栏「新建版面」：优先落在当前视口世界矩形内。
- * 从矩形左上角按固定网格扫描，候选位与现有版面/自由容器做包围盒重叠检测；
- * 矩形内找不到空位时落在视口中心（允许重叠，但保证在视口内）。
- * 无视口信息（如调用方拿不到容器尺寸）时退回原点网格（旧行为）。
+ * A 阶段视口落位逻辑（B1 抽出与 createBoardSkeleton 共用）：
+ * 从视口世界矩形左上角按固定网格扫描，候选位与现有版面/自由容器做包围盒重叠检测；
+ * 矩形内找不到空位时落在视口中心（允许重叠，但保证在视口内）；
+ * 无视口信息时退回原点网格。
  */
-export function createBoardAutoPlace(
+export function pickAutoPlacePosition(
   doc: CanvasDoc,
   viewport?: CanvasViewportRect | null,
-  newId: CanvasIdGenerator = defaultIdGenerator,
-): CanvasCommandResult {
+): { x: number; y: number } {
   const step = BOARD_DEFAULT_WIDTH + 80;
   const boardW = BOARD_DEFAULT_WIDTH;
   const boardH = AUTO_PLACE_BOARD_HEIGHT;
@@ -142,13 +161,13 @@ export function createBoardAutoPlace(
       if (y + boardH > viewport.y + viewport.height) break; // 超出视口下缘，更靠后的行只会更低
       const candidate = { x, y, width: boardW, height: boardH };
       if (!occupied.some((o) => rectsOverlap(candidate, o))) {
-        return createBoard(doc, { x, y }, newId);
+        return { x, y };
       }
     }
     // 视口被占满：落在视口中心（允许与现有对象重叠，但必须在视口内）
     const cx = viewport.x + Math.max(0, (viewport.width - boardW) / 2);
     const cy = viewport.y + Math.max(0, (viewport.height - boardH) / 2);
-    return createBoard(doc, { x: cx, y: cy }, newId);
+    return { x: cx, y: cy };
   }
   const occupiedAt = new Set(doc.boards.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`));
   let x = 0;
@@ -160,7 +179,75 @@ export function createBoardAutoPlace(
     y = row * (step + 60);
     if (!occupiedAt.has(`${x},${y}`)) break;
   }
-  return createBoard(doc, { x, y }, newId);
+  return { x, y };
+}
+
+/**
+ * 工具栏「新建版面」：优先落在当前视口世界矩形内（A 阶段逻辑，现抽出共用）。
+ */
+export function createBoardAutoPlace(
+  doc: CanvasDoc,
+  viewport?: CanvasViewportRect | null,
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  const at = pickAutoPlacePosition(doc, viewport);
+  return createBoard(doc, at, newId);
+}
+
+/** 新建页面骨架变体（B1）：blank = 一个默认区块 + 标题块；landing = 头部/中部/底部三区块。 */
+export type CanvasBoardSkeletonVariant = "blank" | "landing";
+
+/** 落地页骨架的占位提示文字（用户可编辑/替换，不伪造宣传事实）。 */
+const LANDING_PLACEHOLDER_TITLE = "点击输入标题";
+const LANDING_PLACEHOLDER_MIDDLE = "点击输入正文";
+const LANDING_PLACEHOLDER_BOTTOM = "点击输入底部内容";
+
+/**
+ * 新建页面骨架（B1）：落位走 A 阶段视口逻辑（可传 at 覆盖，如双击指针坐标）；
+ * 占位块用提示文字。focus 到首个标题块并进入编辑。
+ */
+export function createBoardSkeleton(
+  doc: CanvasDoc,
+  args: { viewportRect?: CanvasViewportRect | null; at?: { x: number; y: number }; variant: CanvasBoardSkeletonVariant },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const at = args.at ?? pickAutoPlacePosition(draft, args.viewportRect ?? null);
+    const board = createBoardShape(at, newId);
+    board.regions = [];
+    if (args.variant === "landing") {
+      const headSection = createSection(
+        [createColumn([createTextBlock("title", LANDING_PLACEHOLDER_TITLE, newId)], newId)],
+        newId,
+      );
+      const middleSection = createSection(
+        [createColumn([createTextBlock("body", LANDING_PLACEHOLDER_MIDDLE, newId)], newId)],
+        newId,
+      );
+      const bottomSection = createSection(
+        [createColumn([createTextBlock("body", LANDING_PLACEHOLDER_BOTTOM, newId)], newId)],
+        newId,
+      );
+      board.regions = [
+        createRegion([headSection], newId, "头部"),
+        createRegion([middleSection], newId, "中部"),
+        createRegion([bottomSection], newId, "底部"),
+      ];
+    } else {
+      const titleSection = createSection(
+        [createColumn([createTextBlock("title", "", newId)], newId)],
+        newId,
+      );
+      board.regions = [createRegion([titleSection], newId)];
+    }
+    draft.boards.push(board);
+    const region = board.regions[0];
+    const title = region.sections[0].columns[0].blocks[0] as CanvasTextBlock;
+    return focusBlock(board, region, region.sections[0].id, region.sections[0].columns[0].id, title, {
+      caret: "end",
+      edit: true,
+    });
+  });
 }
 
 export function moveBoard(
@@ -201,6 +288,21 @@ export function updateBoardStyle(
   });
 }
 
+/** 页面改名（B1）；空名归一为 undefined（不落库空串名）。 */
+export function renameBoard(
+  doc: CanvasDoc,
+  args: { boardId: string; name: string },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (board) {
+      const name = args.name.trim();
+      board.name = name === "" ? undefined : name.slice(0, 100);
+    }
+    return { kind: "board", boardId: args.boardId };
+  });
+}
+
 export function deleteBoard(doc: CanvasDoc, args: { boardId: string }): CanvasCommandResult {
   return edit(doc, (draft) => {
     draft.boards = draft.boards.filter((b) => b.id !== args.boardId);
@@ -209,12 +311,117 @@ export function deleteBoard(doc: CanvasDoc, args: { boardId: string }): CanvasCo
 }
 
 // ---------------------------------------------------------------------------
-// 分区 / 列 / 块（冻结交互 §3.2–§3.4）
+// 区块（Region，B1 新增层）
+// ---------------------------------------------------------------------------
+
+/** 区块改名（B1）；超长截断到上限，空名归一为默认「内容」。 */
+export function renameRegion(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId: string; name: string },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const found = findRegion(draft, args.regionId);
+    if (found) {
+      const name = args.name.trim();
+      found.region.name = (name === "" ? "内容" : name).slice(0, 100);
+    }
+    return { kind: "region", boardId: args.boardId, regionId: args.regionId };
+  });
+}
+
+/** 区块上移/下移：与相邻区块交换位置（B1）。 */
+export function moveRegion(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId: string; direction: "up" | "down" },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const index = board.regions.findIndex((r) => r.id === args.regionId);
+    if (index < 0) return null;
+    const target = args.direction === "up" ? index - 1 : index + 1;
+    if (target < 0 || target >= board.regions.length) {
+      return { kind: "region", boardId: args.boardId, regionId: args.regionId };
+    }
+    const [region] = board.regions.splice(index, 1);
+    board.regions.splice(target, 0, region);
+    return { kind: "region", boardId: args.boardId, regionId: args.regionId };
+  });
+}
+
+/** 深克隆区块并重建全部子对象 ID（region/section/column/block）。 */
+function cloneRegionWithNewIds(region: CanvasRegion, newId: CanvasIdGenerator): CanvasRegion {
+  const clone: CanvasRegion = structuredClone(region);
+  clone.id = newId();
+  for (const section of clone.sections) {
+    section.id = newId();
+    section.columns.forEach((column, i) => {
+      column.id = newId();
+      for (const block of column.blocks) block.id = newId();
+      // columnWeights 与列数等长，无需重建
+      void i;
+    });
+  }
+  return clone;
+}
+
+/** 复制区块：插在原区块之后，全部子对象换新 ID，内容/样式逐字段保留（B1）。 */
+export function duplicateRegion(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const index = board.regions.findIndex((r) => r.id === args.regionId);
+    if (index < 0) return null;
+    const clone = cloneRegionWithNewIds(board.regions[index], newId);
+    board.regions.splice(index + 1, 0, clone);
+    return { kind: "region", boardId: args.boardId, regionId: clone.id };
+  });
+}
+
+/** 删除区块：版面空了保留一个可输入空块（normalize 语义扩展到区块层，B1）。 */
+export function deleteRegion(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    board.regions = board.regions.filter((r) => r.id !== args.regionId);
+    normalizeBoardAfterDeletion(board, newId);
+    return { kind: "board", boardId: args.boardId };
+  });
+}
+
+/** 更新区块装饰样式（B1；undefined 值视为恢复默认，与 updateBlockStyle 一致）。 */
+export function updateRegionStyle(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId: string; style: Record<string, unknown> },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const found = findRegion(draft, args.regionId);
+    if (found) {
+      found.region.style = { ...(found.region.style ?? {}), ...args.style };
+      for (const [key, value] of Object.entries(found.region.style)) {
+        if (value === undefined) delete (found.region.style as Record<string, unknown>)[key];
+      }
+      if (Object.keys(found.region.style).length === 0) found.region.style = undefined;
+    }
+    return { kind: "region", boardId: args.boardId, regionId: args.regionId };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 行 / 列 / 块（冻结交互 §3.2–§3.4；B1 起全部位于某个区块内）
 // ---------------------------------------------------------------------------
 
 /**
- * Enter / 「添加通栏」：在锚点分区之后插入一个通栏分区（单列，正文块）。
- * 已有后续分区顺延；无论当前块位于第几列第几层，都插在整个分区之后。
+ * Enter / 「添加通栏」：在锚点行之后插入一个通栏行（单列，正文块），
+ * 不跨出当前区块；已有后续行顺延；无论当前块位于第几列第几层，都插在整个行之后。
  */
 export function insertSectionAfter(
   doc: CanvasDoc,
@@ -222,28 +429,21 @@ export function insertSectionAfter(
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasCommandResult {
   return edit(doc, (draft) => {
-    const board = findBoard(draft, args.boardId);
-    const found = board ? findSection(draft, args.sectionId) : null;
-    if (!board || !found) return null;
+    const found = findSection(draft, args.sectionId);
+    if (!found || found.board.id !== args.boardId) return null;
     const column = createColumn([createTextBlock("body", args.text ?? "", newId)], newId);
     const section = createSection([column], newId);
-    board.sections.splice(found.sectionIndex + 1, 0, section);
-    const block = column.blocks[0];
-    return {
-      kind: "block",
-      boardId: board.id,
-      sectionId: section.id,
-      columnId: column.id,
-      blockId: block.id,
+    found.region.sections.splice(found.sectionIndex + 1, 0, section);
+    return focusBlock(found.board, found.region, section.id, column.id, column.blocks[0], {
       caret: "end",
       edit: true,
-    } satisfies CanvasFocus;
+    });
   });
 }
 
 /**
- * 左右加号：给当前分区加一列（新列内含一个空正文块并聚焦）。
- * 不影响其他分区的列数；权重插入「平均份额」，所有列重新分配宽度（规格 §3.3）。
+ * 左右加号：给当前行加一列（新列内含一个空正文块并聚焦）。
+ * 不影响其他行的列数；权重插入「平均份额」，所有列重新分配宽度（规格 §3.3）。
  */
 export function insertColumn(
   doc: CanvasDoc,
@@ -251,9 +451,8 @@ export function insertColumn(
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasCommandResult {
   return edit(doc, (draft) => {
-    const board = findBoard(draft, args.boardId);
-    const found = board ? findSection(draft, args.sectionId) : null;
-    if (!board || !found) return null;
+    const found = findSection(draft, args.sectionId);
+    if (!found || found.board.id !== args.boardId) return null;
     const section = found.section;
     const index = section.columns.findIndex((c) => c.id === args.columnId);
     if (index < 0) return null;
@@ -266,16 +465,10 @@ export function insertColumn(
       : 1;
     section.columnWeights.splice(insertAt, 0, avg);
     if (section.widthMode === "smart") section.widthMode = "manual"; // 多列不再受一文一图约束
-    const block = column.blocks[0];
-    return {
-      kind: "block",
-      boardId: board.id,
-      sectionId: section.id,
-      columnId: column.id,
-      blockId: block.id,
+    return focusBlock(found.board, found.region, section.id, column.id, column.blocks[0], {
       caret: "end",
       edit: true,
-    } satisfies CanvasFocus;
+    });
   });
 }
 
@@ -290,22 +483,17 @@ export function insertBlockBelow(
     if (!loc) return null;
     const block = args.block ?? createTextBlock("body", "", newId);
     loc.column.blocks.splice(loc.blockIndex + 1, 0, block);
-    return {
-      kind: "block",
-      boardId: loc.board.id,
-      sectionId: loc.section.id,
-      columnId: loc.column.id,
-      blockId: block.id,
+    return focusBlock(loc.board, loc.region, loc.section.id, loc.column.id, block, {
       caret: "end",
       // 仅文本块需要聚焦编辑；图片块只选中不进入编辑态
       edit: block.type === "text",
-    } satisfies CanvasFocus;
+    });
   });
 }
 
 /**
  * Enter 在文本中间：前半段留在原块，选区起点之后的文字（含选区）整体迁入
- * 新通栏首块（规格 §3.2）。不静默丢字。
+ * 当前区块内的新通栏首块（规格 §3.2，B1 起不跨区块）。不静默丢字。
  */
 export function splitTextToSection(
   doc: CanvasDoc,
@@ -320,27 +508,18 @@ export function splitTextToSection(
     const head = text.slice(0, start);
     const tail = text.slice(start);
     loc.block.text = head;
-    const board = draft.boards.find((b) => b.id === loc.board.id);
-    const section = board?.sections.find((s) => s.id === loc.section.id);
-    if (!board || !section) return null;
     const column = createColumn([createTextBlock("body", tail, newId)], newId);
     const newSection = createSection([column], newId);
-    board.sections.splice(loc.sectionIndex + 1, 0, newSection);
-    const block = column.blocks[0];
-    return {
-      kind: "block",
-      boardId: board.id,
-      sectionId: newSection.id,
-      columnId: column.id,
-      blockId: block.id,
+    loc.region.sections.splice(loc.sectionIndex + 1, 0, newSection);
+    return focusBlock(loc.board, loc.region, newSection.id, column.id, column.blocks[0], {
       caret: "end",
       edit: true,
-    } satisfies CanvasFocus;
+    });
   });
 }
 
 /**
- * 删除块：删空列 → 删空分区 → 版面保留可输入空块（规格 §6.1）。
+ * 删除块：删空列 → 删空行 → 删空区块 → 版面保留可输入空块（规格 §6.1）。
  * 焦点回到相邻块（前一块优先，其次后一块/前一列）。
  */
 export function deleteBlock(
@@ -364,15 +543,47 @@ export function deleteBlock(
     if (!target) return null;
     const t = findBlockLocation(draft, target.id);
     if (!t) return null;
-    return {
-      kind: "block",
-      boardId: t.board.id,
-      sectionId: t.section.id,
-      columnId: t.column.id,
-      blockId: t.block.id,
+    return focusBlock(t.board, t.region, t.section.id, t.column.id, t.block, {
       caret: "end",
       edit: t.block.type === "text" && (t.block as CanvasTextBlock).text === "",
-    } satisfies CanvasFocus;
+    });
+  });
+}
+
+/** 复制块：同列原位其后插入深克隆（新 ID），文本块进入编辑（B1 补齐块级能力）。 */
+export function duplicateBlock(
+  doc: CanvasDoc,
+  args: { blockId: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc) return null;
+    const clone = structuredClone(loc.block) as CanvasBlock;
+    clone.id = newId();
+    loc.column.blocks.splice(loc.blockIndex + 1, 0, clone);
+    return focusBlock(loc.board, loc.region, loc.section.id, loc.column.id, clone, {
+      caret: "end",
+      edit: clone.type === "text",
+    });
+  });
+}
+
+/** 块上移/下移：列内与相邻块交换位置（B1 补齐块级能力；越界为 no-op）。 */
+export function moveBlock(
+  doc: CanvasDoc,
+  args: { blockId: string; direction: "up" | "down" },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc) return null;
+    const target = args.direction === "up" ? loc.blockIndex - 1 : loc.blockIndex + 1;
+    if (target < 0 || target >= loc.column.blocks.length) {
+      return focusBlock(loc.board, loc.region, loc.section.id, loc.column.id, loc.block);
+    }
+    const [block] = loc.column.blocks.splice(loc.blockIndex, 1);
+    loc.column.blocks.splice(target, 0, block);
+    return focusBlock(loc.board, loc.region, loc.section.id, loc.column.id, block);
   });
 }
 
@@ -471,7 +682,7 @@ export function setSectionWidthMode(
   });
 }
 
-/** 拖列分隔线提交：两列相邻像素宽 → manual 权重（本分区独立，不影响标题）。 */
+/** 拖列分隔线提交：两列相邻像素宽 → manual 权重（本行独立，不影响标题）。 */
 export function applyColumnDrag(
   doc: CanvasDoc,
   args: {
@@ -493,7 +704,7 @@ export function applyColumnDrag(
 }
 
 /** 智能比例计算结果提交（UI 在图片加载/版面宽变/文本编辑结束等触发点调用）。
- *  manual 分区不生效——手调比例不被自动重算覆盖（规格 §4.2）。 */
+ *  manual 行不生效——手调比例不被自动重算覆盖（规格 §4.2）。 */
 export function applySmartWeights(
   doc: CanvasDoc,
   args: { boardId: string; sectionId: string; weights: [number, number] },
@@ -608,7 +819,7 @@ export function deleteFreeItem(doc: CanvasDoc, args: { itemId: string }): Canvas
 }
 
 /**
- * 版面末尾追加通栏图片块（工具条图片入口选中版面时）。
+ * 版面末尾（最后一个区块的末尾）追加通栏图片块（工具条图片入口选中版面时）。
  * 插入后选中新块（焦点 block 不带 edit——图片块无编辑态）。
  */
 export function appendImageSection(
@@ -619,17 +830,167 @@ export function appendImageSection(
   return edit(doc, (draft) => {
     const board = findBoard(draft, args.boardId);
     if (!board) return null;
+    if (board.regions.length === 0) {
+      board.regions = [createRegion([], newId)];
+    }
+    const region = board.regions[board.regions.length - 1];
     const column = createColumn([createImageBlock(args.asset ?? null, newId)], newId);
     const section = createSection([column], newId);
-    board.sections.push(section);
-    const block = column.blocks[0];
-    return {
-      kind: "block",
-      boardId: board.id,
-      sectionId: section.id,
-      columnId: column.id,
-      blockId: block.id,
-    } satisfies CanvasFocus;
+    region.sections.push(section);
+    return focusBlock(board, region, section.id, column.id, column.blocks[0]);
+  });
+}
+
+/**
+ * 自由对象移入区块（B1）：块内容迁入目标区块——给了 sectionId+columnId 则追加到
+ * 该列末尾；只给 sectionId 则在该行加一列；都不给则区块末尾新建一行。
+ * 自由对象从 freeItems 移除；整个操作一个命令、进历史可撤销。
+ */
+export function attachFreeItemToRegion(
+  doc: CanvasDoc,
+  args: {
+    freeItemId: string;
+    boardId: string;
+    regionId: string;
+    sectionId?: string;
+    columnId?: string;
+  },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const item = findFreeItem(draft, args.freeItemId);
+    const board = findBoard(draft, args.boardId);
+    const region = board?.regions.find((r) => r.id === args.regionId);
+    if (!item || !board || !region) return null;
+    const block = structuredClone(item.block) as CanvasBlock;
+    draft.freeItems = draft.freeItems.filter((f) => f.id !== args.freeItemId);
+
+    let sectionId: string;
+    let columnId: string;
+    if (args.sectionId) {
+      const section = region.sections.find((s) => s.id === args.sectionId);
+      if (!section) return null;
+      if (args.columnId) {
+        const column = section.columns.find((c) => c.id === args.columnId);
+        if (!column) return null;
+        column.blocks.push(block);
+        sectionId = section.id;
+        columnId = column.id;
+      } else {
+        const column = createColumn([block], newId);
+        section.columns.push(column);
+        const avg = section.columnWeights.length
+          ? section.columnWeights.reduce((s, w) => s + w, 0) / section.columnWeights.length
+          : 1;
+        section.columnWeights.push(avg);
+        if (section.widthMode === "smart") section.widthMode = "manual";
+        sectionId = section.id;
+        columnId = column.id;
+      }
+    } else {
+      const column = createColumn([block], newId);
+      const section = createSection([column], newId);
+      region.sections.push(section);
+      sectionId = section.id;
+      columnId = column.id;
+    }
+    return focusBlock(board, region, sectionId, columnId, block);
+  });
+}
+
+/** 模板类型（B1 左侧「模板」面板四项）。 */
+export type CanvasTemplateKind = "blank-structure" | "image-text" | "three-columns" | "cta";
+
+/** 模板占位提示文字（用户可编辑/替换）。 */
+const TEMPLATE_PLACEHOLDER_TITLE = "点击输入标题";
+const TEMPLATE_PLACEHOLDER_BODY = "点击输入正文";
+const TEMPLATE_PLACEHOLDER_CTA = "点击输入行动号召文字";
+
+/**
+ * 把模板作为新区块追加到指定页面末尾（B1）：
+ * - blank-structure：一个空正文块；
+ * - image-text：双列（左文右图占位）；
+ * - three-columns：三列，各一标题 + 正文；
+ * - cta：居中单文本块。
+ * 占位块全部为提示文字；插入后选中新区块。
+ */
+export function applyCanvasTemplate(
+  doc: CanvasDoc,
+  args: { boardId: string; template: CanvasTemplateKind; name?: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const text = (role: CanvasTextRole, t: string, style?: Record<string, unknown>) => {
+      const block = createTextBlock(role, t, newId);
+      if (style) block.style = style as CanvasTextBlock["style"];
+      return block;
+    };
+    let region: CanvasRegion;
+    switch (args.template) {
+      case "blank-structure":
+        region = createRegion(
+          [createSection([createColumn([text("body", "")], newId)], newId)],
+          newId,
+          args.name ?? "空白结构",
+        );
+        break;
+      case "image-text":
+        region = createRegion(
+          [
+            createSection(
+              [
+                createColumn([text("body", TEMPLATE_PLACEHOLDER_BODY)], newId),
+                createColumn([createImageBlock(null, newId)], newId),
+              ],
+              newId,
+            ),
+          ],
+          newId,
+          args.name ?? "图文介绍",
+        );
+        break;
+      case "three-columns":
+        region = createRegion(
+          [
+            createSection(
+              [
+                createColumn(
+                  [text("title", TEMPLATE_PLACEHOLDER_TITLE), text("body", TEMPLATE_PLACEHOLDER_BODY)],
+                  newId,
+                ),
+                createColumn(
+                  [text("title", TEMPLATE_PLACEHOLDER_TITLE), text("body", TEMPLATE_PLACEHOLDER_BODY)],
+                  newId,
+                ),
+                createColumn(
+                  [text("title", TEMPLATE_PLACEHOLDER_TITLE), text("body", TEMPLATE_PLACEHOLDER_BODY)],
+                  newId,
+                ),
+              ],
+              newId,
+            ),
+          ],
+          newId,
+          args.name ?? "三列卖点",
+        );
+        break;
+      case "cta":
+        region = createRegion(
+          [
+            createSection(
+              [createColumn([text("body", TEMPLATE_PLACEHOLDER_CTA, { align: "center" })], newId)],
+              newId,
+            ),
+          ],
+          newId,
+          args.name ?? "行动区",
+        );
+        break;
+    }
+    board.regions.push(region);
+    return { kind: "region", boardId: board.id, regionId: region.id };
   });
 }
 
@@ -647,6 +1008,7 @@ export function planImageInsertTarget(
     | { kind: "block"; blockId: string }
     | { kind: "board"; boardId: string }
     | { kind: "free"; itemId: string }
+    | { kind: "region"; boardId: string; regionId: string }
     | null,
 ): CanvasImageInsertPlan {
   if (selection?.kind === "block") return { kind: "block", blockId: selection.blockId };

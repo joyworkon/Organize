@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
 import { validateCanvasContent } from "@/lib/canvas/validation";
-import type { CanvasDoc } from "@/lib/canvas/model";
+import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
 
 /**
  * GET    /api/canvases/[id] — 读取单个画布文档（含 content 与 revision）。
  * PATCH  /api/canvases/[id] — 原子乐观锁保存（085 canvas_document_patch）：
  *                             expected_revision 过期返回 409 + current.revision。
  * DELETE /api/canvases/[id] — 软删除（进垃圾箱，走 mutate_trash RPC；恢复也在那里）。
+ *
+ * B1：content 校验先经 ensureCanvasDocV2（v1 自动迁移），落库写迁移后的 v2。
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -58,7 +60,7 @@ export async function PATCH(
 
   const body = await request.json().catch(() => ({}));
   const title = typeof body.title === "string" ? body.title.slice(0, 200) : "";
-  const content = body.content as CanvasDoc | undefined;
+  let content = body.content as CanvasDoc | undefined;
   if (content !== undefined) {
     const validation = validateCanvasContent(content);
     if (!validation.ok) {
@@ -67,6 +69,8 @@ export async function PATCH(
         { status: 400 },
       );
     }
+    // B1：v1 输入迁移后的 v2 落库（validation.doc 恒为 v2）
+    content = validation.doc ?? content;
   }
   if (content === undefined) {
     // 仅改名：也走 CAS，避免与内容保存互相覆盖

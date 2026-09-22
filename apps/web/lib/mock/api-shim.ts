@@ -7,6 +7,7 @@
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
 import { validateCanvasContent } from "@/lib/canvas/validation";
+import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
 
 type MockHandlerResult = { status?: number; body: unknown; headers?: Record<string, string> };
 type MockHandler = (ctx: {
@@ -503,18 +504,23 @@ const createCanvasShim: MockHandler = ({ body }) => {
   const existing = findCanvasRow(id, true);
   if (existing) return { status: 200, body: existing };
   const title = typeof body?.title === "string" ? body.title.slice(0, 200) : "";
+  // B1：v1 输入先迁移再校验，落库一律写迁移后的 v2（防旧客户端写入丢 Region 层级）
+  let content: unknown =
+    body?.content !== undefined
+      ? body.content
+      : { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [] };
   if (body?.content !== undefined) {
     const validation = validateCanvasContent(body.content, { allowMockImages: true });
     if (!validation.ok) {
       return { status: 400, body: { error: "画布内容校验失败", errors: validation.errors } };
     }
+    content = validation.doc;
   }
   const row: any = {
     id,
     user_id: MOCK_USER.id,
     title,
-    content:
-      body?.content !== undefined ? body.content : { schemaVersion: 1, boards: [], freeItems: [] },
+    content,
     revision: 1,
     deleted_at: null,
     created_at: nowIso(),
@@ -531,7 +537,8 @@ const getCanvasShim: MockHandler = ({ params }) => {
     body: {
       id: row.id,
       title: row.title,
-      content: row.content,
+      // B1：读取侧统一走 ensureCanvasDocV2（v1 自动迁移为 v2）
+      content: ensureCanvasDocV2(row.content),
       revision: row.revision,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -542,11 +549,13 @@ const getCanvasShim: MockHandler = ({ params }) => {
 const patchCanvasShim: MockHandler = ({ body, params }) => {
   const row = findCanvasRow(params.id);
   if (!row) return { status: 404, body: { error: "文档不存在" } };
+  let nextContent: unknown;
   if (body?.content !== undefined) {
     const validation = validateCanvasContent(body.content, { allowMockImages: true });
     if (!validation.ok) {
       return { status: 400, body: { error: "画布内容校验失败", errors: validation.errors } };
     }
+    nextContent = validation.doc;
   }
   const expected =
     typeof body?.expected_revision === "number" && Number.isFinite(body.expected_revision)
@@ -563,7 +572,7 @@ const patchCanvasShim: MockHandler = ({ body, params }) => {
     };
   }
   row.title = typeof body?.title === "string" ? body.title.slice(0, 200) : row.title;
-  if (body?.content !== undefined) row.content = body.content;
+  if (body?.content !== undefined) row.content = nextContent;
   row.revision = row.revision + 1;
   row.updated_at = nowIso();
   return {

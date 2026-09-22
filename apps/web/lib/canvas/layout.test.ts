@@ -88,7 +88,7 @@ describe("computeScene", () => {
     expect(sb.y).toBe(60);
     expect(sb.width).toBe(BOARD_DEFAULT_WIDTH);
     // 标题分区通栏
-    expect(sb.sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2]);
+    expect(sb.regions[0].sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2]);
     // 版面高度 = (空文本内容高 + 模块 chrome) × 2 + 间距 + 上下 padding
     const CHROME = 26; // BLOCK_PADDING*2 + 上下边框
     const contentHeight = (MIN_TEXT_CONTENT_HEIGHT + CHROME) * 2 + BOARD_GAP;
@@ -100,7 +100,7 @@ describe("computeScene", () => {
     const b = createBoardShape({ x: 0, y: 0 }, counterIds());
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
-    const [title, body] = scene.boards[0].sections;
+    const [title, body] = scene.boards[0].regions[0].sections;
     expect(title.y).toBe(BOARD_PADDING);
     expect(body.y).toBe(title.y + title.height + BOARD_GAP);
     expect(body.y + body.height + BOARD_PADDING).toBeCloseTo(scene.boards[0].height, 6);
@@ -112,7 +112,7 @@ describe("分区高度与等高规则（A04/A05）", () => {
     const doc = emptyDoc();
     const b = createBoardShape({ x: 0, y: 0 }, counterIds());
     // 只留标题分区；构造一个两列正文分区
-    const section = b.sections[1];
+    const section = b.regions[0].sections[1];
     section.columns.push({
       id: "col-right",
       blocks: [{ id: "blk-right", type: "text", text: "B", role: "body" }],
@@ -126,7 +126,7 @@ describe("分区高度与等高规则（A04/A05）", () => {
   it("左右各一块：分区高 = 两者最大自然高，双方等高拉满（A02 前置）", () => {
     const { doc } = twoColDoc();
     const scene = computeScene(doc, fakeMeasure);
-    const body = scene.boards[0].sections[1];
+    const body = scene.boards[0].regions[0].sections[1];
     const [left, right] = body.columns;
     expect(left.blocks[0].height).toBeCloseTo(right.blocks[0].height, 6);
     expect(body.height).toBeCloseTo(left.height, 6);
@@ -134,14 +134,14 @@ describe("分区高度与等高规则（A04/A05）", () => {
 
   it("左列底部加块：左列两块等高，右列单块跨两层（A04）", () => {
     const { doc } = twoColDoc();
-    doc.boards[0].sections[1].columns[0].blocks.push({
+    doc.boards[0].regions[0].sections[1].columns[0].blocks.push({
       id: "blk-left-2",
       type: "text",
       text: "C",
       role: "body",
     });
     const scene = computeScene(doc, fakeMeasure);
-    const body = scene.boards[0].sections[1];
+    const body = scene.boards[0].regions[0].sections[1];
     const [left, right] = body.columns;
     expect(left.blocks).toHaveLength(2);
     expect(left.blocks[0].height).toBeCloseTo(left.blocks[1].height, 6);
@@ -152,25 +152,25 @@ describe("分区高度与等高规则（A04/A05）", () => {
 
   it("右侧再加一块恢复两列两块；删除左下后左列单块拉高、无空列残留（A05）", () => {
     const { doc } = twoColDoc();
-    doc.boards[0].sections[1].columns[0].blocks.push({
+    doc.boards[0].regions[0].sections[1].columns[0].blocks.push({
       id: "blk-left-2",
       type: "text",
       text: "C",
       role: "body",
     });
-    doc.boards[0].sections[1].columns[1].blocks.push({
+    doc.boards[0].regions[0].sections[1].columns[1].blocks.push({
       id: "blk-right-2",
       type: "text",
       text: "D",
       role: "body",
     });
     let scene = computeScene(doc, fakeMeasure);
-    const [l, r] = scene.boards[0].sections[1].columns;
+    const [l, r] = scene.boards[0].regions[0].sections[1].columns;
     expect(l.height).toBeCloseTo(r.height, 6); // 两列总高一致
 
-    doc.boards[0].sections[1].columns[0].blocks.pop(); // 删除左下 C
+    doc.boards[0].regions[0].sections[1].columns[0].blocks.pop(); // 删除左下 C
     scene = computeScene(doc, fakeMeasure);
-    const body = scene.boards[0].sections[1];
+    const body = scene.boards[0].regions[0].sections[1];
     const [left2, right2] = body.columns;
     expect(left2.blocks).toHaveLength(1);
     // 左列单块拉满整排高度；右列两块 + 间距等于同一总高
@@ -188,7 +188,7 @@ describe("图片布局", () => {
   it("图片块自然高 = 内宽 / 比例，横竖图不同（A07 前置）", () => {
     const doc = emptyDoc();
     const b = createBoardShape({ x: 0, y: 0 }, counterIds());
-    const img = b.sections[1].columns[0];
+    const img = b.regions[0].sections[1].columns[0];
     img.blocks = [
       {
         id: "img1",
@@ -199,7 +199,7 @@ describe("图片布局", () => {
     ];
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
-    const body = scene.boards[0].sections[1];
+    const body = scene.boards[0].regions[0].sections[1];
     const inner = body.columnWidths[0] - BLOCK_PADDING * 2;
     expect(body.columns[0].blocks[0].height).toBeCloseTo(inner / 2 + 26, 6);
   });
@@ -207,10 +207,10 @@ describe("图片布局", () => {
   it("无资产/加载失败：占位高度，不折叠到 0", () => {
     const doc = emptyDoc();
     const b = createBoardShape({ x: 0, y: 0 }, counterIds());
-    b.sections[1].columns[0].blocks = [{ id: "img0", type: "image", asset: null, fit: "contain" }];
+    b.regions[0].sections[1].columns[0].blocks = [{ id: "img0", type: "image", asset: null, fit: "contain" }];
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
-    const body = scene.boards[0].sections[1];
+    const body = scene.boards[0].regions[0].sections[1];
     expect(body.height).toBeGreaterThan(0);
   });
 });
@@ -342,5 +342,102 @@ describe("canSmartRecompute（A7 共享判定）", () => {
     ).toBe(false);
     expect(canSmartRecompute({ columns: [col([textBlock, textBlock]), col([imageBlock])] })).toBe(false);
     expect(canSmartRecompute({ columns: [col([textBlock]), col([textBlock])] })).toBe(false);
+  });
+});
+
+describe("Region 层布局（B1）", () => {
+  function regionDoc(opts?: {
+    regionPadding?: number;
+    rowGap?: number;
+    longText?: boolean;
+  }) {
+    const doc = emptyDoc();
+    const b = createBoardShape({ x: 0, y: 0 }, counterIds());
+    const region = b.regions[0];
+    if (opts?.regionPadding !== undefined) region.style = { ...(region.style ?? {}), padding: opts.regionPadding };
+    if (opts?.rowGap !== undefined) region.style = { ...(region.style ?? {}), rowGap: opts.rowGap };
+    if (opts?.longText) {
+      (region.sections[0].columns[0].blocks[0] as { text: string }).text = "长".repeat(400);
+    }
+    doc.boards.push(b);
+    return doc;
+  }
+
+  it("区块内边距缺省 0：迁移文档行内容宽 = 版面内容宽（几何不变）", () => {
+    const scene = computeScene(regionDoc(), fakeMeasure);
+    const region = scene.boards[0].regions[0];
+    const section = region.sections[0];
+    expect(section.columnWidths[0]).toBeCloseTo(BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2, 6);
+    // 区块外框高 = 行高之和 + 行距
+    const [title, body] = region.sections;
+    expect(region.height).toBeCloseTo(title.height + BOARD_GAP + body.height, 6);
+  });
+
+  it("region.style.padding 生效：行内容区收窄，区块高 = pad×2 + Σ行高 + 行距", () => {
+    const doc = regionDoc({ regionPadding: 20 });
+    const scene = computeScene(doc, fakeMeasure);
+    const region = scene.boards[0].regions[0];
+    const inner = BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2 - 40;
+    expect(region.sections[0].columnWidths[0]).toBeCloseTo(inner, 6);
+    const [title, body] = region.sections;
+    expect(region.height).toBeCloseTo(40 + title.height + BOARD_GAP + body.height, 6);
+    // 行内容区左缘 = 版面 x + padding + regionPadding
+    expect(region.sections[0].columns[0].x).toBeCloseTo(BOARD_PADDING + 20, 6);
+  });
+
+  it("region.style.rowGap 生效：行间距替换版面 gap", () => {
+    const doc = regionDoc({ rowGap: 40 });
+    const scene = computeScene(doc, fakeMeasure);
+    const region = scene.boards[0].regions[0];
+    const [title, body] = region.sections;
+    expect(body.y).toBeCloseTo(title.y + title.height + 40, 6);
+    expect(region.height).toBeCloseTo(title.height + 40 + body.height, 6);
+  });
+
+  it("长文字撑高行 → 区块增高 → 版面总高同步；sceneBounds 覆盖区块外框", () => {
+    const doc = regionDoc({ longText: true });
+    const scene = computeScene(doc, fakeMeasure);
+    const sb = scene.boards[0];
+    const region = sb.regions[0];
+    const [title, body] = region.sections;
+    expect(title.height).toBeGreaterThan(body.height);
+    expect(sb.height).toBeCloseTo(BOARD_PADDING * 2 + region.height, 6);
+    const bounds = sceneBounds(scene)!;
+    expect(bounds.y).toBe(0);
+    expect(bounds.height).toBeCloseTo(sb.height, 6);
+  });
+
+  it("多区块：长文字撑高前一区块，后续区块顺延不重叠", () => {
+    const doc = emptyDoc();
+    const b = createBoardShape({ x: 0, y: 0 }, counterIds());
+    // 把正文行移到第二个区块，并给第一个区块塞一个长文本行
+    const bodySection = b.regions[0].sections[1];
+    b.regions[0].sections = [b.regions[0].sections[0]];
+    b.regions.push({
+      id: "region-2",
+      name: "第二区块",
+      sections: [bodySection],
+    });
+    b.regions[0].sections.push({
+      id: "long-row",
+      widthMode: "equal",
+      columnWeights: [1],
+      columns: [
+        {
+          id: "long-col",
+          blocks: [{ id: "long-block", type: "text", text: "长".repeat(500), role: "body" }],
+        },
+      ],
+    });
+    doc.boards.push(b);
+    const scene = computeScene(doc, fakeMeasure);
+    const [r1, r2] = scene.boards[0].regions;
+    // r2 顺延到 r1 之后（外框不重叠）
+    expect(r2.y).toBeCloseTo(r1.y + r1.height + BOARD_GAP, 6);
+    // 版面总高 = padding×2 + r1 + gap + r2
+    expect(scene.boards[0].height).toBeCloseTo(
+      BOARD_PADDING * 2 + r1.height + BOARD_GAP + r2.height,
+      6,
+    );
   });
 });

@@ -16,8 +16,10 @@ import {
   CanvasTextBlock,
 } from "@/lib/canvas/model";
 import {
-  computeColumnWidths,
+  computeColumnWidthsForContent,
   computeScene,
+  regionGap,
+  regionInnerWidth,
   type CanvasMeasure,
   type Scene,
 } from "@/lib/canvas/layout";
@@ -32,21 +34,25 @@ function collectTextRequests(doc: CanvasDoc) {
     width: number;
   }[] = [];
   for (const board of doc.boards) {
-    for (const section of board.sections) {
-      const widths = computeColumnWidths(board, section);
-      section.columns.forEach((column, i) => {
-        const inner = Math.max(1, (widths[i] ?? 0) - BLOCK_PADDING * 2);
-        for (const block of column.blocks) {
-          if (block.type === "text") {
-            requests.push({
-              block,
-              key: textStyleKey(block),
-              style: resolveTextStyle(block),
-              width: inner,
-            });
+    for (const region of board.regions) {
+      const regionWidth = regionInnerWidth(board, region);
+      const gap = regionGap(board, region);
+      for (const section of region.sections) {
+        const widths = computeColumnWidthsForContent(regionWidth, gap, section);
+        section.columns.forEach((column, i) => {
+          const colInner = Math.max(1, (widths[i] ?? 0) - BLOCK_PADDING * 2);
+          for (const block of column.blocks) {
+            if (block.type === "text") {
+              requests.push({
+                block,
+                key: textStyleKey(block),
+                style: resolveTextStyle(block),
+                width: colInner,
+              });
+            }
           }
-        }
-      });
+        });
+      }
     }
   }
   // 自由文本容器
