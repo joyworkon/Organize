@@ -13,6 +13,7 @@ import {
   CanvasBoard,
   CanvasDoc,
   CanvasSection,
+  IMAGE_RATIO_WIDTH_PER_HEIGHT,
   MIN_TEXT_CONTENT_HEIGHT,
   imageNaturalHeight,
 } from "./model";
@@ -117,6 +118,18 @@ export function canAddColumn(
 }
 
 /**
+ * 一文一图智能比例生效条件（A7）：属性栏按钮显示与 recomputeSmartSection
+ * 重算共用本判定——两列、每列恰一个块、至少一个图片块（一文一图形态）。
+ */
+export function canSmartRecompute(section: {
+  columns: { blocks: { type: string }[] }[];
+}): boolean {
+  if (section.columns.length !== 2) return false;
+  if (!section.columns.every((c) => c.blocks.length === 1)) return false;
+  return section.columns.some((c) => c.blocks[0].type === "image");
+}
+
+/**
  * 一文一图智能比例（规格 §4.2）：确定性算法，一次参考测量定宽，禁止用拉伸后
  * 高度反推宽度。
  *
@@ -211,13 +224,18 @@ function layoutSection(
   };
 }
 
-/** 自由容器高度：文本按测量，图片按宽度/比例（不参与自动增高）。 */
+/** 自由容器高度：文本按测量；图片按容器比例（ratio≠auto）或宽度/自然比例（auto）。 */
 function freeItemHeight(
   item: CanvasDoc["freeItems"][number],
   measure: CanvasMeasure,
 ): number {
   const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
   if (item.block.type === "image") {
+    const ratio = item.block.ratio;
+    if (ratio && ratio !== "auto") {
+      // 容器比例锁高：contain/cover 在该容器内才有裁切空间（A5）。
+      return inner / IMAGE_RATIO_WIDTH_PER_HEIGHT[ratio] + BLOCK_CHROME;
+    }
     return imageNaturalHeight(item.block, inner) + BLOCK_CHROME;
   }
   const natural = item.block.text.trim()

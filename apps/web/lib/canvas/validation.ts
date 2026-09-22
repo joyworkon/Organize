@@ -144,6 +144,13 @@ function validateBlock(
     if (b.fit !== "contain" && b.fit !== "cover") {
       errors.push(`${path}.fit 非法`);
     }
+    if (
+      b.ratio !== undefined &&
+      b.ratio !== null &&
+      !["auto", "1:1", "4:3", "16:9"].includes(String(b.ratio))
+    ) {
+      errors.push(`${path}.ratio 非法`);
+    }
     validateStyle(b.style, errors, path);
     return true;
   }

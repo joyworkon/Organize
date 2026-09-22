@@ -33,13 +33,16 @@ import {
 } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
-import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
+import { CANVAS_SCHEMA_VERSION, createImageBlock, type CanvasDoc } from "@/lib/canvas/model";
 import {
+  appendImageSection,
   createBoardAutoPlace,
   createFreeImage,
   createFreeText,
   deleteBlock,
   deleteFreeItem,
+  insertBlockBelow,
+  planImageInsertTarget,
 } from "@/lib/canvas/commands";
 import {
   duplicateCanvas,
@@ -387,17 +390,52 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
   }, [store, worldCenter]);
 
+  /** 当前视口的世界矩形（新建版面自动落位用；拿不到容器尺寸时返回 null）。 */
+  const worldViewportRect = useCallback(() => {
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const vp = store.getState().viewport;
+    return {
+      x: -vp.x / vp.zoom,
+      y: -vp.y / vp.zoom,
+      width: rect.width / vp.zoom,
+      height: rect.height / vp.zoom,
+    };
+  }, [store]);
+
+  const addBoard = useCallback(() => {
+    store.getState().apply("新建版面", (d) => createBoardAutoPlace(d, worldViewportRect()));
+  }, [store, worldViewportRect]);
+
   const onFreeImageFile = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
       try {
-        const at = worldCenter();
         const outcome = await uploadCanvasImage(file, userId || "anonymous");
-        store.getState().apply("新建自由图片", (d) => createFreeImage(d, { ...at, asset: outcome.asset }));
-        const sel = store.getState().selection;
-        if (sel?.kind === "free" && outcome.previewUrl) {
-          store.getState().setAssetUrl(displayKey(sel.itemId, outcome.asset), outcome.previewUrl);
+        const plan = planImageInsertTarget(store.getState().selection);
+        if (plan.kind === "block") {
+          store.getState().apply("插入图片", (d) =>
+            insertBlockBelow(d, {
+              blockId: plan.blockId,
+              block: createImageBlock(outcome.asset),
+            }),
+          );
+        } else if (plan.kind === "board") {
+          store.getState().apply("插入图片", (d) =>
+            appendImageSection(d, { boardId: plan.boardId, asset: outcome.asset }),
+          );
+        } else {
+          const at = worldCenter();
+          store.getState().apply("新建自由图片", (d) => createFreeImage(d, { ...at, asset: outcome.asset }));
         }
+        // apply 已把 selection 同步到新对象；previewUrl 键到正确 id（A1/A9）
+        const sel = store.getState().selection;
+        const keyId = sel?.kind === "block" ? sel.blockId : sel?.kind === "free" ? sel.itemId : null;
+        if (keyId && outcome.previewUrl) {
+          store.getState().setAssetUrl(displayKey(keyId, outcome.asset), outcome.previewUrl);
+        }
+        // 插入列内图片可能形成一文一图形态，触发智能比例
+        store.getState().requestSmartRecompute();
       } catch (error) {
         toast({
           title: "图片上传失败",
@@ -608,7 +646,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             className="canvas-tool-btn"
             title="新建版面"
             aria-label="新建版面"
-            onClick={() => store.getState().apply("新建版面", (d) => createBoardAutoPlace(d))}
+            onClick={addBoard}
           >
             <LayoutTemplate className="h-4 w-4" />
           </button>
@@ -624,8 +662,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           <button
             type="button"
             className="canvas-tool-btn"
-            title="自由图片"
-            aria-label="新建自由图片"
+            title="插入图片（选中模块插在其后，选中版面追加通栏，否则新建自由图片）"
+            aria-label="插入图片"
             onClick={() => freeImageInputRef.current?.click()}
           >
             <ImageIcon className="h-4 w-4" />

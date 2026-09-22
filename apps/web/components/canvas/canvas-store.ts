@@ -77,7 +77,8 @@ export interface CanvasEditorState {
   setViewport: (viewport: Partial<CanvasViewport>) => void;
   select: (selection: CanvasSelection) => void;
   clearFocus: () => void;
-  startEdit: (blockId: string) => void;
+  /** 进入编辑态：传版面模块 id 或自由容器 id（自由容器选区保持 {kind:"free"}）。 */
+  startEdit: (id: string) => void;
   stopEdit: () => void;
   bumpComposition: () => void;
   setTitle: (title: string) => void;
@@ -151,6 +152,10 @@ export function createCanvasStore(initial?: {
         if (result.focus.edit) {
           set({ editingBlockId: result.focus.blockId });
         }
+      } else if (result.focus?.kind === "free") {
+        set({ selection: { kind: "free", itemId: result.focus.itemId } });
+      } else if (result.focus?.kind === "board") {
+        set({ selection: { kind: "board", boardId: result.focus.boardId } });
       }
     },
 
@@ -193,11 +198,18 @@ export function createCanvasStore(initial?: {
 
     clearFocus: () => set({ focus: null }),
 
-    startEdit: (blockId) =>
-      set((state) => ({
-        editingBlockId: state.readOnly || state.previewMode ? null : blockId,
-        selection: { kind: "block", blockId },
-      })),
+    startEdit: (id) =>
+      set((state) => {
+        if (state.readOnly || state.previewMode) {
+          return { editingBlockId: null };
+        }
+        // 自由容器与版面模块共用本入口：自由容器保持 {kind:"free"} 选区，
+        // 属性栏才能解析到自由容器（findBlockLocation 只遍历 boards）。
+        if (state.doc.freeItems.some((f) => f.id === id)) {
+          return { editingBlockId: id, selection: { kind: "free", itemId: id } };
+        }
+        return { editingBlockId: id, selection: { kind: "block", blockId: id } };
+      }),
 
     stopEdit: () => set({ editingBlockId: null, focus: null }),
 

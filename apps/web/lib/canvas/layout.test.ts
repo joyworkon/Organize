@@ -8,9 +8,11 @@ import {
   MIN_TEXT_CONTENT_HEIGHT,
   createBoardShape,
   emptyDoc,
+  type CanvasImageBlock,
 } from "./model";
 import {
   canAddColumn,
+  canSmartRecompute,
   columnRequiredHeight,
   computeColumnWidths,
   computeScene,
@@ -280,5 +282,65 @@ describe("sceneBounds", () => {
     expect(bounds).not.toBeNull();
     expect(bounds!.x).toBe(-50);
     expect(bounds!.y).toBe(-30);
+  });
+});
+
+describe("自由图片容器比例（A5）", () => {
+  function freeImageDoc(ratio?: "1:1" | "4:3" | "16:9") {
+    const doc = emptyDoc();
+    const block: CanvasImageBlock = {
+      id: "fi1",
+      type: "image",
+      asset: { url: "https://example.com/a.png", naturalWidth: 100, naturalHeight: 50 },
+      fit: "contain",
+      ...(ratio ? { ratio } : {}),
+    };
+    doc.freeItems.push({ id: "f1", x: 0, y: 0, width: 320, zIndex: 1, block });
+    return doc;
+  }
+
+  // BLOCK_CHROME = BLOCK_PADDING*2 + 2 = 26；inner = 320 - 24 = 296
+  const CHROME = 26;
+  const inner = 296;
+
+  it("auto（缺省）：高度 = 内宽 / 图片自然比例（现状回归）", () => {
+    const scene = computeScene(freeImageDoc(), fakeMeasure);
+    expect(scene.freeItems[0].height).toBeCloseTo(inner / 2 + CHROME, 6);
+  });
+
+  it("1:1：容器锁为正方形，cover 才有裁切空间", () => {
+    const scene = computeScene(freeImageDoc("1:1"), fakeMeasure);
+    expect(scene.freeItems[0].height).toBeCloseTo(inner / 1 + CHROME, 6);
+  });
+
+  it("4:3 / 16:9：高度 = 内宽 / 宽高比", () => {
+    expect(computeScene(freeImageDoc("4:3"), fakeMeasure).freeItems[0].height).toBeCloseTo(
+      inner / (4 / 3) + CHROME,
+      6,
+    );
+    expect(computeScene(freeImageDoc("16:9"), fakeMeasure).freeItems[0].height).toBeCloseTo(
+      inner / (16 / 9) + CHROME,
+      6,
+    );
+  });
+});
+
+describe("canSmartRecompute（A7 共享判定）", () => {
+  const col = (blocks: { type: string }[]) => ({ blocks });
+  const textBlock = { type: "text" };
+  const imageBlock = { type: "image" };
+
+  it("两列、每列恰一个块、至少一个图片块：true", () => {
+    expect(canSmartRecompute({ columns: [col([textBlock]), col([imageBlock])] })).toBe(true);
+    expect(canSmartRecompute({ columns: [col([imageBlock]), col([textBlock])] })).toBe(true);
+  });
+
+  it("非两列 / 某列多块 / 无图片块：false", () => {
+    expect(canSmartRecompute({ columns: [col([textBlock])] })).toBe(false);
+    expect(
+      canSmartRecompute({ columns: [col([textBlock]), col([textBlock]), col([imageBlock])] }),
+    ).toBe(false);
+    expect(canSmartRecompute({ columns: [col([textBlock, textBlock]), col([imageBlock])] })).toBe(false);
+    expect(canSmartRecompute({ columns: [col([textBlock]), col([textBlock])] })).toBe(false);
   });
 });
