@@ -4,7 +4,7 @@
 --   1. 鉴权：匿名调用拒绝（42501）
 --   2. 视图过滤：all 返回双源；reading/memo 各只回一侧；返回列形状（memo 行 title/url/status 为 null）
 --   3. 活跃过滤：两表软删除行都不出现
---   4. 排序：created_at DESC，同刻度 source_type ASC（reading 在 memo 前）
+--   4. 排序：created_at DESC，同刻度 source_type ASC（'memo' < 'reading'，memo 在前）
 --   5. 游标翻页：三元组游标连翻三页无重复无遗漏（含同刻度跨源边界）
 --   6. 搜索：p_q 命中 reading 的 title/excerpt/content 与 memo 的 content
 --   7. 标签：p_tags 命中 reading 的标签名与 memo 的 tags 数组
@@ -70,12 +70,16 @@ INSERT INTO public.memos (id, user_id, content, tags, created_at) VALUES
    'B的速记', '{}', now() + interval '8 seconds');
 
 -- ========== 1. 鉴权 ==========
+-- pg_prove 以 postgres（超级用户）连接：必须切到 anon 角色才走真实匿名通道
+-- （超级用户不受 revoke 影响，直接调不会抛 42501）
+SET ROLE anon;
 SELECT throws_ok(
   $$ SELECT public.library_items('all', 30) $$,
   '42501',
   NULL,
   '089: 匿名调用拒绝（42501）'
 );
+RESET ROLE;
 
 -- ========== 2. 视图过滤与返回列形状 ==========
 SET ROLE authenticated;
@@ -107,11 +111,11 @@ SELECT is(
   '089: content 为空的阅读条目标记 is_link_only（仅存链接）'
 );
 
--- ========== 4. 排序（同刻度 reading 在 memo 前）==========
+-- ========== 4. 排序（同刻度 source_type 升序：'memo' < 'reading'，memo 在前）==========
 SELECT is(
   (SELECT source_type FROM public.library_items('all', 1)),
-  'reading',
-  '089: 最新同刻度行 reading 排在 memo 前（source_type 升序）'
+  'memo',
+  '089: 同刻度行 source_type 升序（memo 排在 reading 前）'
 );
 
 -- ========== 5. 游标翻页（limit 3 三页无重复无遗漏）==========
