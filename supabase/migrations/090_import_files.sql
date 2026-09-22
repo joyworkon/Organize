@@ -140,3 +140,7 @@ create policy "Users can delete own import files"
 -- ========== 表级 GRANT（RLS 只管行级；缺 GRANT 一切写入 permission denied）==========
 grant select, insert, update, delete on public.import_tasks to authenticated;
 grant select, insert, update, delete on public.import_files to authenticated;
+-- anon 收口：Supabase 默认权限会给 anon 表级 select（RLS 只滤行、查询不报错）；
+-- 导入记录含原件路径等隐私面，按 fail-closed 显式 revoke（沿 076 约定），pgTAP 锁定
+revoke all on table public.import_tasks from anon;
+revoke all on table public.import_files from anon;
