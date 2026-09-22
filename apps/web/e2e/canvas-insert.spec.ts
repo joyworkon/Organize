@@ -148,26 +148,35 @@ test.describe("构思画布 B2：统一插入", () => {
   test("平移远离原点后经添加面板新建，新内容进入可视区", async ({ page }) => {
     await openNewCanvas(page);
     await createBlankBoard(page);
-    // 平移到远处（中键拖拽平移，滚轮在合成事件下受系统滚动方向设置影响）
-    await page.mouse.move(600, 400);
-    await page.mouse.down({ button: "middle" });
-    for (let i = 1; i <= 12; i += 1) await page.mouse.move(600, 400 + i * 80);
-    await page.mouse.up({ button: "middle" });
-    await page.waitForTimeout(200);
-    const boardBoxBefore = await page.locator("[data-board-id]").first().boundingBox();
-    const viewportBox = await page.getByTestId("canvas-viewport").boundingBox();
-    // 已平出视口（与视口无交叠，上方或下方均可）
-    const beforeVisible =
-      boardBoxBefore!.y < viewportBox!.y + viewportBox!.height &&
-      boardBoxBefore!.y + boardBoxBefore!.height > viewportBox!.y;
-    expect(beforeVisible).toBe(false);
+    const board = page.locator("[data-board-id]").first();
+    const viewportEl = page.getByTestId("canvas-viewport");
+    const intersects = async () => {
+      const b = await board.boundingBox();
+      const v = await viewportEl.boundingBox();
+      if (!b || !v) return false;
+      return (
+        b.y < v.y + v.height &&
+        b.y + b.height > v.y &&
+        b.x < v.x + v.width &&
+        b.x + b.width > v.x
+      );
+    };
+    // 平移到远处（中键拖拽平移；不同平台单轮拖拽生效距离有差异，循环直到版面确实移出视口）
+    for (let round = 0; round < 4 && (await intersects()); round += 1) {
+      await page.mouse.move(600, 400);
+      await page.mouse.down({ button: "middle" });
+      for (let i = 1; i <= 12; i += 1) {
+        await page.mouse.move(600, 400 + i * 80);
+        await page.waitForTimeout(20);
+      }
+      await page.mouse.up({ button: "middle" });
+      await page.waitForTimeout(100);
+    }
+    // 已平出视口（与视口无交叠）
+    expect(await intersects()).toBe(false);
     // 无选中 → lastActive（最近区块）→ 插入并自动带回可视区
     await page.getByRole("button", { name: "添加正文" }).click();
-    const boardBoxAfter = await page.locator("[data-board-id]").first().boundingBox();
-    expect(boardBoxAfter).not.toBeNull();
-    const viewport = await page.getByTestId("canvas-viewport").boundingBox();
-    expect(boardBoxAfter!.y + boardBoxAfter!.height).toBeGreaterThan(viewport!.y);
-    expect(boardBoxAfter!.y).toBeLessThan(viewport!.y + viewport!.height);
+    await expect.poll(intersects, { timeout: 5000 }).toBe(true);
   });
 
   test("新块类型：分隔线/列表渲染与行为", async ({ page }) => {
