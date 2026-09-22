@@ -1,6 +1,6 @@
 "use client";
 
-import { isMaterialUrl, readingSourceLabel } from "@/lib/reading/source";
+import { isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -633,8 +633,8 @@ export default function ReadingDetailPage() {
               { type: "text", text: "原文链接：" },
               {
                 type: "text",
-                text: isMaterialUrl(item.url) ? "查看导入物料" : item.url,
-                marks: [{ type: "link", attrs: { href: isMaterialUrl(item.url) ? `/library/${item.id}` : item.url, target: "_blank" } }]
+                text: isInternalUrn(item.url) ? "查看导入物料" : item.url,
+                marks: [{ type: "link", attrs: { href: isInternalUrn(item.url) ? `/library/${item.id}` : item.url, target: "_blank" } }]
               }
             ]
           },
@@ -973,7 +973,7 @@ export default function ReadingDetailPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            {!isMaterialUrl(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer">
+            {!isInternalUrn(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm" className="gap-2">
                 <ExternalLink className="h-3.5 w-3.5" />
                 原文
@@ -993,7 +993,7 @@ export default function ReadingDetailPage() {
                 <DropdownMenuItem onSelect={() => setFocusMode(!focusMode)}><Maximize2 className="mr-2 h-4 w-4" />{focusMode ? "退出专注阅读" : "专注阅读"}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={toggleFullWidth}><StretchHorizontal className="mr-2 h-4 w-4" />{fullWidth ? "恢复默认宽度" : "全宽阅读"}</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {!isMaterialUrl(item.url) && <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开原文</a></DropdownMenuItem>}
+                {!isInternalUrn(item.url) && <DropdownMenuItem asChild><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="mr-2 h-4 w-4" />打开原文</a></DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1015,7 +1015,7 @@ export default function ReadingDetailPage() {
           </h1>
           <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
             <a
-              href={isMaterialUrl(item.url) ? undefined : item.url}
+              href={isInternalUrn(item.url) ? undefined : item.url}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-primary transition-colors"
@@ -1165,7 +1165,7 @@ export default function ReadingDetailPage() {
               </h1>
               <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
                 <a
-                  href={isMaterialUrl(item.url) ? undefined : item.url}
+                  href={isInternalUrn(item.url) ? undefined : item.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-primary transition-colors"

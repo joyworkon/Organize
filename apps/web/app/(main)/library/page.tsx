@@ -12,23 +12,27 @@ import { UnifiedCapture, type UnifiedCaptureHandle } from "@/components/library/
 import { UnifiedView } from "@/components/library/unified-view";
 import { ReadingView } from "@/components/library/reading-view";
 import { MemosView } from "@/components/library/memos-view";
+import { FilesView } from "@/components/library/files-view";
+import { FileImport } from "@/components/library/file-import";
 import { MaterialImport } from "@/components/reading/material-import";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { cn } from "@/lib/utils";
 import { Library } from "@/components/icons";
 
-type LibraryView = "all" | "reading" | "memos";
+type LibraryView = "all" | "reading" | "memos" | "files";
 
 const viewTabs: { value: LibraryView; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "reading", label: "稍后读" },
   { value: "memos", label: "速记" },
+  { value: "files", label: "文件" },
 ];
 
 /** ?view= 归一化：缺省 all；memo 是 memos 的历史别名（旧链接兼容） */
 function normalizeView(raw: string | null): LibraryView {
   if (raw === "reading") return "reading";
   if (raw === "memos" || raw === "memo") return "memos";
+  if (raw === "files") return "files";
   return "all";
 }
 
@@ -112,7 +116,9 @@ function LibraryPageInner() {
       ? "搜索速记（正文 / 标签）"
       : view === "reading"
         ? "搜索稍后读（标题 / 标签）"
-        : "搜索资料库（标题 / 正文 / 标签）";
+        : view === "files"
+          ? "搜索导入文件"
+          : "搜索资料库（标题 / 正文 / 标签）";
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -131,9 +137,9 @@ function LibraryPageInner() {
 
       <UnifiedCapture ref={unifiedRef} onCaptured={bumpRefresh} />
 
-      {/* AI 物料整理入口保留在资料库页（全部视图顶部，三视图共用一条）；
-          统一输入框拖入的文件也交给它（organize:material-files 事件） */}
-      <MaterialImport onAdded={bumpRefresh} />
+      {/* 文件导入面板（阶段 D）：三视图共用；统一输入框拖入的文件也交给它
+          （organize:import-files 事件） */}
+      <FileImport onImported={bumpRefresh} />
 
       {/* 视图分段：全部 / 稍后读 / 速记（?view= 双向同步，默认 all） */}
       <div className="reading-status-tabs flex gap-1 rounded-lg bg-muted p-1 w-fit" role="tablist" aria-label="资料库视图">
@@ -158,7 +164,13 @@ function LibraryPageInner() {
       {view === "all" ? (
         <UnifiedView search={search} refreshTick={refreshTick} />
       ) : view === "reading" ? (
-        <ReadingView search={search} refreshTick={refreshTick} registerEscape={registerEscape} />
+        <>
+          {/* AI 物料整理（可选）：不保存原件，生成派生整理稿；文件导入走上方导入面板 */}
+          <MaterialImport onAdded={bumpRefresh} />
+          <ReadingView search={search} refreshTick={refreshTick} registerEscape={registerEscape} />
+        </>
+      ) : view === "files" ? (
+        <FilesView refreshTick={refreshTick} />
       ) : (
         <MemosView search={search} />
       )}

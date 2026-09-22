@@ -28,7 +28,7 @@
 | B1 页面/区块结构 | feat/canvas-regions → **PR #323 已合并**（master `9e3da84`） | ✅ 完成 | tsc 通过；vitest 全量 183 文件/1410 例（lib/canvas 149 例：新增迁移 7 例、命令 21 例、布局 5 例、校验 6 例、store 1 例）；`next build --turbopack` 成功；canvas e2e 14/14；CI 5 job 全绿 |
 | B2 插入/图片/属性栏 | feat/canvas-insert-and-props → **PR #324 已合并**（master `5f3d4cf`） | ✅ 完成 | tsc 通过；vitest 全量 185 文件/1458 例（新增 insert-target 14 例、image-insert 12 例、B2 命令 9 例、布局 6 例、校验 7 例、store 3 例）；e2e 26/26；CI 5 job 全绿 |
 | C 资料库统一 | feat/library-unified → **PR #325 已合并**（master `71f530a`） | ✅ 完成 | tsc 通过；vitest 全量 188 文件/1495 例；主 e2e 44 过；library-unified 9/9；CI 5 job 全绿（verify/e2e/sw-e2e/collab-e2e/db-test）；089 pgTAP 20 例 |
-| D 文件导入 | — | 未开始 | — |
+| D 文件导入 | feat/library-import → **PR #327**（CI 中） | ✅ 完成（待 CI） | tsc 通过；vitest 全量 192 文件/1529 例（lib/imports 26 例 + mock shim 8 例 + collect-server）；主 e2e 47 过/20 跳过（真实后端）；library-import 2/2；090 pgTAP 16 例待 CI db-test |
 | E 联动+回归 | — | 未开始 | — |
 
 ### CI flake 观察（2026-09-22）
@@ -40,6 +40,19 @@
 ## 变更决策记录
 
 （随阶段推进追加：旧行为 → 新规则 → 替代覆盖）
+
+### D（2026-09-22，feat/library-import → PR #327）
+
+- **存储**：新增 090 迁移——私有桶 `import-files`（三条对象策略限定本人 `{uid}/` 目录）+ `import_tasks`/`import_files` 两表（RLS + GRANT authenticated、status check、`unique(user_id, retry_key)` 幂等键、`reading_item_id references reading_items on delete set null`、task 删除级联 files）。原件与解析产物分离：原件进桶，正文提取后进 reading_items（8 字段映射，`collectImportItem` 服务端收集入口，URN `urn:organize:import:{sha256}` 去重，语义与 `collectReadingItem` 对齐）。
+- **幂等语义（择一记录）**：客户端每次选择生成 `retry_key`（crypto.randomUUID）；同键已有**非 failed** 记录 → 服务端直接返回既有结果（不重复建条目）；failed → 原地重跑覆盖原行（唯一约束保一条）。重试复用原 retryKey，不产生重复资料；无 File 句柄的重试（刷新后）引导重新选择，结果并入原记录。
+- **解析全部在服务端**（API route Node runtime，浏览器零解析器）：PDF `pdfjs-dist`（legacy build、禁 worker、`serverExternalPackages`）、DOCX `mammoth`（convertToHtml + imgElement 单遍收集嵌入图，HTML 白名单消毒：剥全部属性、单元格内 p 解包）、XLSX SheetJS CDN tarball 0.20.3（raw:false 按缓存值展示，不并表逐 sheet 出 h2）。zip 中央目录扫描防 zip bomb（解压 ≤50MB）。
+- **错误分类入合同**（`ImportError` code）：unsupported/empty/not-utf8/encrypted/corrupted/scanned（PDF 总文本 <30 字符）/too-large/too-many-pages/too-many-sheets/too-many-cells/parse-failed。逐文件隔离失败，任务末态 saved/partial/failed；不支持格式不入库存直接 failed。
+- **预算**（`validateImportBatch`，服务端与客户端同一实现）：≤6 文件/批、合计 ≤20MB、文本 ≤200KB、PDF ≤200 页、解压 ≤50MB、≤50 工作表、≤10 万单元格、提取输出 ≤10 万字符。
+- **mock 诚实边界（任务书 §九）**：文本路径（txt/md/csv/json）真解析（与服务端同一 extract-text 实现）真建条目，幂等/去重同语义；PDF/DOCX/XLSX 与 image/audio **明确失败不伪造**（「mock 后端不支持解析」「mock 后端不支持原件存储」）。`MockHandler.rawBody` 支持 async + multipart 透传；jsdom Blob 无 `arrayBuffer()`，shim 内 FileReader 兜底（浏览器两条路都可用）。
+- **image/audio 只存原件不进正文**（真实后端）：存桶后 saved 无 reading_item_id，UI 显示「原件已存档」+ 下载链接；DOCX 嵌入图传 import-files 桶并在正文追加存档说明。DOCX 标题用文件名（mammoth 不产标题）。
+- **e2e 边界**：mock 数据在浏览器内存，刷新即清空 → 刷新恢复（import_files 落库）无法 mock e2e，由 mock 单测 GET 形状覆盖，真实后端恢复待 Docker。文档级 e2e 只用文本文件（内存 buffer setInputFiles，不落盘）。
+- **统一输入框文件分流**：unified-capture 改发 `organize:import-files` 事件，FileImport 面板三视图共用挂载（tabs 上方），原 MATERIAL_FILES_EVENT 已删；material-import.tsx 移除事件监听（保留显式 AI 整理入口）。
+- **内部 URN 收口**：`lib/reading/source.ts` 增 `isInternalUrn`（material + import 都算内部 URN），五处 `isMaterialUrl(` 调用统一替换（material+import 共享「无外部链接」UI 分支），library-card 来源标签改读 `readingSourceLabel`。
 
 ### C（2026-09-22，feat/library-unified → PR #325）
 
@@ -106,6 +119,8 @@
 
 ## 遗留与未验证
 
+- D 待办：090 RLS/存储策略与真实解析链路仅有 mock + pgTAP/SQL 层面验证，本机无 Docker，真实库验证待补（含刷新恢复、原件下载、加密/扫描 PDF 真实路径）。
+- D：`pnpm audit` 复核留在 CI verify（pdfjs-dist ≥6.2.108 修 CVE-2026-16633；mammoth ≥1.11.0 修 CVE-2025-11849；SheetJS 走 CDN tarball 0.20.3 避开 npm 停更的 0.18.5）。
 - B2 无新迁移（新块类型/行级字段全部在既有 jsonb content 内，validation 白名单同步即可）；服务端/mock 校验同一份 validation，契约不变。
 - 行/列的独立选中态未做（规格允许跳过该档）：「所在行」属性经由选中块 contextual 呈现。
 - 「减列」仅允许删除空列（非空列按钮禁用并提示），避免静默丢块；如需并块语义后续单独立项。
