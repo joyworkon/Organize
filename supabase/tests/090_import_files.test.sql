@@ -31,7 +31,7 @@ INSERT INTO public.import_files
 
 -- 关联阅读条目（set null 验证用）
 INSERT INTO public.reading_items (id, user_id, url, title, content, reading_status) VALUES
-  ('90000000-0000-0000-0000-0000000000r1', '90000001-0000-0000-0000-000000000001',
+  ('90000000-0000-0000-0000-0000000000b1', '90000001-0000-0000-0000-000000000001',
    'urn:organize:import:p9test', '导入条目', '<p>正文</p>', 'unread');
 
 -- ========== 1. anon 直读被拒 ==========
@@ -72,12 +72,12 @@ SELECT throws_ok(
 RESET ROLE;
 
 -- ========== 5. 级联与 set null（postgres 直操）==========
-UPDATE public.import_files SET reading_item_id = '90000000-0000-0000-0000-0000000000r1'
+UPDATE public.import_files SET reading_item_id = '90000000-0000-0000-0000-0000000000b1'
   WHERE retry_key = 'p9-retry-1';
 SELECT is((SELECT reading_item_id FROM public.import_files WHERE retry_key = 'p9-retry-1'),
-  '90000000-0000-0000-0000-0000000000r1'::uuid,
+  '90000000-0000-0000-0000-0000000000b1'::uuid,
   '090: reading_item_id 可关联阅读条目');
-DELETE FROM public.reading_items WHERE id = '90000000-0000-0000-0000-0000000000r1';
+DELETE FROM public.reading_items WHERE id = '90000000-0000-0000-0000-0000000000b1';
 SELECT is((SELECT reading_item_id IS NULL FROM public.import_files WHERE retry_key = 'p9-retry-1'),
   true, '090: 阅读条目删除后 reading_item_id 置空（文件行不消失）');
 SELECT is((SELECT count(*) FROM public.import_files
