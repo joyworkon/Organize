@@ -56,9 +56,12 @@ import {
   CanvasButtonBlockView,
   CanvasDividerBlockView,
   CanvasImageBlockView,
+  CanvasMaterialCardBlockView,
   CanvasTextBlockView,
   displayKey,
 } from "./canvas-block";
+import type { SourceStatusMap } from "./use-source-status";
+import { statusOf } from "./use-source-status";
 
 export interface CanvasBoardViewProps {
   board: CanvasBoard;
@@ -72,6 +75,8 @@ export interface CanvasBoardViewProps {
   selectedRegion: { boardId: string; regionId: string } | null;
   selectedBlockId: string | null;
   editingBlockId: string | null;
+  /** 资料来源可达性（E）：卡片/摘录/来源图片的状态角标。 */
+  sourceStatuses: SourceStatusMap;
   /** 图片替换（B2 统一上传入口）：块原位更新，失败保留旧图。 */
   onReplaceImage?: (blockId: string, file: File) => void;
 }
@@ -100,6 +105,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   selectedRegion,
   selectedBlockId,
   editingBlockId,
+  sourceStatuses,
   onReplaceImage,
 }: CanvasBoardViewProps) {
   const dragRef = useRef<{
@@ -224,6 +230,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
             selected={selectedRegion?.regionId === region.id}
             selectedBlockId={selectedBlockId}
             editingBlockId={editingBlockId}
+            sourceStatuses={sourceStatuses}
             colDrag={colDrag.current}
             onReplaceImage={onReplaceImage}
           />
@@ -428,6 +435,7 @@ interface RegionBodyProps {
   selected: boolean;
   selectedBlockId: string | null;
   editingBlockId: string | null;
+  sourceStatuses: SourceStatusMap;
   colDrag: ReturnType<typeof beginColDragFor>;
   onReplaceImage?: (blockId: string, file: File) => void;
 }
@@ -444,6 +452,7 @@ const RegionBody = memo(function RegionBody({
   selected,
   selectedBlockId,
   editingBlockId,
+  sourceStatuses,
   colDrag,
   onReplaceImage,
 }: RegionBodyProps) {
@@ -505,6 +514,7 @@ const RegionBody = memo(function RegionBody({
               ui={ui}
               selectedBlockId={selectedBlockId}
               editingBlockId={editingBlockId}
+              sourceStatuses={sourceStatuses}
               colDrag={colDrag}
               onReplaceImage={onReplaceImage}
             />
@@ -619,6 +629,7 @@ interface SectionBodyProps {
   ui: number;
   selectedBlockId: string | null;
   editingBlockId: string | null;
+  sourceStatuses: SourceStatusMap;
   colDrag: ReturnType<typeof beginColDragFor>;
   onReplaceImage?: (blockId: string, file: File) => void;
 }
@@ -638,6 +649,7 @@ const SectionBody = memo(function SectionBody({
   ui,
   selectedBlockId,
   editingBlockId,
+  sourceStatuses,
   colDrag,
   onReplaceImage,
 }: SectionBodyProps) {
@@ -778,6 +790,17 @@ const SectionBody = memo(function SectionBody({
                   <CanvasButtonBlockView {...common} block={block}>
                     {belowPlus}
                   </CanvasButtonBlockView>,
+                );
+              }
+              if (block.type === "materialCard") {
+                return hoverWrapper(
+                  <CanvasMaterialCardBlockView
+                    {...common}
+                    block={block}
+                    sourceStatus={statusOf(sourceStatuses, block.sourceRef)}
+                  >
+                    {belowPlus}
+                  </CanvasMaterialCardBlockView>,
                 );
               }
               return hoverWrapper(

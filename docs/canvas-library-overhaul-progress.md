@@ -28,8 +28,8 @@
 | B1 页面/区块结构 | feat/canvas-regions → **PR #323 已合并**（master `9e3da84`） | ✅ 完成 | tsc 通过；vitest 全量 183 文件/1410 例（lib/canvas 149 例：新增迁移 7 例、命令 21 例、布局 5 例、校验 6 例、store 1 例）；`next build --turbopack` 成功；canvas e2e 14/14；CI 5 job 全绿 |
 | B2 插入/图片/属性栏 | feat/canvas-insert-and-props → **PR #324 已合并**（master `5f3d4cf`） | ✅ 完成 | tsc 通过；vitest 全量 185 文件/1458 例（新增 insert-target 14 例、image-insert 12 例、B2 命令 9 例、布局 6 例、校验 7 例、store 3 例）；e2e 26/26；CI 5 job 全绿 |
 | C 资料库统一 | feat/library-unified → **PR #325 已合并**（master `71f530a`） | ✅ 完成 | tsc 通过；vitest 全量 188 文件/1495 例；主 e2e 44 过；library-unified 9/9；CI 5 job 全绿（verify/e2e/sw-e2e/collab-e2e/db-test）；089 pgTAP 20 例 |
-| D 文件导入 | feat/library-import → **PR #327**（CI 中） | ✅ 完成（待 CI） | tsc 通过；vitest 全量 192 文件/1529 例（lib/imports 26 例 + mock shim 8 例 + collect-server）；主 e2e 47 过/20 跳过（真实后端）；library-import 2/2；090 pgTAP 16 例待 CI db-test |
-| E 联动+回归 | — | 未开始 | — |
+| D 文件导入 | feat/library-import → **PR #327 已合并** | ✅ 完成 | tsc 通过；vitest 全量 192 文件/1529 例（lib/imports 26 例 + mock shim 8 例 + collect-server）；主 e2e 47 过/20 跳过（真实后端）；library-import 2/2；090 pgTAP 16 例待 CI db-test |
+| E 联动+回归 | feat/library-canvas-link → **PR #328** | ✅ 完成（待 CI） | tsc 通过；vitest 全量 1549 例；全量 e2e 49 过 / 20 跳过（真实后端）/ 1 flaky（library-unified 翻页 retry 后过，观察）；canvas-material 3/3；无新迁移（db-test 应直接绿） |
 
 ### CI flake 观察（2026-09-22）
 
@@ -40,6 +40,20 @@
 ## 变更决策记录
 
 （随阶段推进追加：旧行为 → 新规则 → 替代覆盖）
+
+### E（2026-09-22，feat/library-canvas-link → PR #328）
+
+- **快照语义（择一记录）**：画布对资料库内容是**引用 + 快照**，不是实时镜像。① 画布上修改卡片/摘录不回写资料库；② 资料库源更新**不自动**覆盖画布快照（用户显式点「更新快照」才刷新）；③ 源被删除时仅标题旁显示「来源不可用」角标，快照内容保留在画布。
+- **新块类型 `materialCard`**：`{ type:"materialCard", title, text, sourceRef? }`，标题（15px 粗）+ 摘录（13px，上限 `MATERIAL_CARD_EXCERPT_MAX=500` 字符）+ 来源行（24px）。text/image 块也带可选 `sourceRef`（摘录与来源图片三种形态共用）。
+- **sourceRef 模型**：`CanvasSourceRef{ kind:"reading"|"memo", id, title, excerpt?, url?, updatedAt? }`；新增 `lib/canvas/source-ref.ts`（`sourceRefKey`/`blockSourceRef`/`collectSourceRefs` 去重/`validateSourceRefField`），validation 白名单校验 text/image/materialCard 三处。**无新 DB 迁移**（jsonb + 校验白名单，同 B2 决策），服务端/mock 同一份 validation。
+- **来源状态探测**：`use-source-status.ts` 用 RLS 可达性探测（reading_items/memos 的 id `.in()`）生成 SourceStatusMap，未探测到的 id 按 ok 处理；`SourceStatusBadge` 渲染「来源不可用」角标。渲染链 canvas-board（RegionBody→SectionBody）→canvas-viewport 三层透传 sourceStatuses。
+- **图片来源解耦生命周期**：资料面板插入 reading 图片时复制上传为画布自有资产（同画布上传管线），不直接引用资料库 `/storage/` 路径——源删除/凭据变化不影响画布图片；代价是重复存储（可接受，快照语义一致）。
+- **资料面板**：画布添加面板「资料」折叠组，搜索 /api/library/items（稍后读+速记统一接口）→ 预览（可选中文字提取摘录）→ 三种插入：引用卡片（materialCard）/ 插入摘录（选中文字 → text 块带 sourceRef，aria-label「插入选中的文字摘录」）/ 图片（reading，复制上传）。
+- **添加到画布对话框（资料库侧）**：library-card 页脚「添加到画布」→ 选画布（含「新建画布」`__new__`）→ 选页面 → 选区块（含「追加新区块」`__new_region__`）→ patchCanvas CAS 提交；成功 toast 带「打开画布查看 →」链接。卡片链接导航用 preventDefault 隔离按钮。
+- **属性栏来源区**：materialCard 可编辑标题/摘录；「来源」区提供：打开来源（memo→`/library?view=memos&memo=id`，reading 内部 URL→`/library/[id]`，外部 http(s)→新标签）、更新快照（`updateMaterialSnapshot` 按 sourceRef.kind 分 reading/memo 拉取最新标题/首段/首图原地更新）、非卡片块可「移除引用」（detachSourceRef，materialCard 为 no-op）。
+- **命令**：`appendMaterialCardToRegion`（regionId 缺省=追加新区块，勿改语义）、`updateMaterialCard`、`updateMaterialSnapshot`（card/text/image 三分支）、`detachSourceRef`。
+- **e2e 经验**：卡片标题在 title div 与摘录里各出现一次，断言用 `.canvas-material-card-title` 的 toHaveText 避免 strict mode；mock 数据在内存，**禁止 page.goto 整页刷新**（数据清空），用侧栏 nav 的「资料库」「构思画布」链接做 SPA 导航。
+- **mock 翻页 flake 观察**：library-unified 翻页用例 retry 后过（阶段 C 起偶发，与 E 改动无关），记入观察清单。
 
 ### D（2026-09-22，feat/library-import → PR #327）
 
@@ -93,6 +107,19 @@
 - **store 焦点语义修正**：焦点转移到 region/board/free（非块编辑）时同步退出块编辑态（旧实现残留 editingBlockId）；B1 顺带修复并补测。
 - **e2e/单测 v1 fixture 处置**：canvas.spec 草稿 fixture **有意保留 v1**（加载路径 ensure 迁移的端到端验证，原因已注释）；backup/schema.test fixture 升 v2（备份层不校验 schemaVersion，v1 迁移链路由 migration.test.ts 覆盖）；其余单测全部机械迁移 `.sections` → `.regions[0].sections`（sed + 人工核对断言）。
 
+## E 变更清单（文件:符号）
+
+- `lib/canvas/model.ts`：`CanvasSourceRef`/`CanvasMaterialCardBlock`/`createMaterialCardBlock`/`MATERIAL_CARD_EXCERPT_MAX`；text/image 块可选 `sourceRef`。
+- `lib/canvas/source-ref.ts`（新增）：`sourceRefKey`/`blockSourceRef`/`collectSourceRefs`/`validateSourceRefField`。
+- `lib/canvas/commands.ts`：`appendMaterialCardToRegion`/`updateMaterialCard`/`updateMaterialSnapshot`/`detachSourceRef`。
+- `lib/canvas/validation.ts`：text/image 的 sourceRef + materialCard 白名单。
+- `lib/library/material-source.ts`（新增）：`sourceRefFromLibraryItem`/`firstLine`/`excerptSnapshot`/`firstImageSrcFromHtml`/`stripHtml`/`fetchReadingSnapshot`/`fetchMemoSnapshot`/`fetchSourceSnapshot`/`fetchImageBlob`。
+- `components/canvas/use-canvas-scene.ts`：measure 加 materialCard 分支；`use-source-status.ts`（新增）：RLS 可达性 → SourceStatusMap。
+- 组件：`canvas-block.tsx`（`CanvasMaterialCardBlockView`/`SourceStatusBadge`）、`canvas-board.tsx`（RegionBody→SectionBody 透传 sourceStatuses）、`canvas-viewport.tsx`（prop 透传）、`canvas-material-panel.tsx`（新增：搜索/预览/三插入）、`canvas-add-panel.tsx`（`material?: ReactNode` prop →「资料」折叠组）、`canvas-workspace.tsx`（insertMaterialCard/insertMaterialExcerpt/insertMaterialImage/refreshMaterialSnapshot 四回调 + useSourceStatus + 属性栏接线）、`canvas-property-bar.tsx`（materialCard 编辑 + 「来源」区 + `isInternalSourceUrl`）。
+- 资料库侧：`components/library/add-to-canvas-dialog.tsx`（新增：画布→页面→区块三级选择 + patchCanvas CAS）、`library-card.tsx`（页脚 `AddToCanvasButton`，preventDefault 防链接导航）。
+- 样式：`app/globals.css` 加 `.canvas-material-*`/`.canvas-material-card-*`/`.canvas-source-missing-*`/`.canvas-prop-textarea/note` 等。
+- 测试：`lib/canvas/source-ref.test.ts`（新增）、`lib/canvas/material-snapshot.test.ts`（新增）、`lib/library/material-source.test.ts`（新增）、`e2e/canvas-material.spec.ts`（新增 3 例：搜索插入卡片/摘录/属性栏来源区）。
+
 ## B2 变更清单（文件:符号）
 
 - `lib/canvas/insert-target.ts`（新增）：`resolveInsertTarget`/`describeInsertTarget`/`InsertTarget`/`ExplicitInsertPosition`/`LastActiveTarget`——七条优先级统一插入解析。
@@ -119,6 +146,9 @@
 
 ## 遗留与未验证
 
+- E 待办：来源状态探测（RLS `.in()` 可达性）与「更新快照」拉取在真实后端（Docker）下待验证；资料面板图片插入走画布上传管线，mock 下不可用已由单测覆盖，真实 `/storage/` 凭据路径待验。
+- E：图片插入 reading 图片来源为复制上传（画布自有资产），源删除不影响画布图片；重复存储为已知取舍。
+- E：library-unified 翻页用例偶发 flake（retry 后过，阶段 C 起存在），再出现需专项加固。
 - D 待办：090 RLS/存储策略与真实解析链路仅有 mock + pgTAP/SQL 层面验证，本机无 Docker，真实库验证待补（含刷新恢复、原件下载、加密/扫描 PDF 真实路径）。
 - D：`pnpm audit` 复核留在 CI verify（pdfjs-dist ≥6.2.108 修 CVE-2026-16633；mammoth ≥1.11.0 修 CVE-2025-11849；SheetJS 走 CDN tarball 0.20.3 避开 npm 停更的 0.18.5）。
 - B2 无新迁移（新块类型/行级字段全部在既有 jsonb content 内，validation 白名单同步即可）；服务端/mock 校验同一份 validation，契约不变。

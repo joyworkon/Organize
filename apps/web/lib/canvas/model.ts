@@ -46,12 +46,34 @@ export interface CanvasBlockStyle {
 
 export type CanvasTextRole = "title" | "body" | "list";
 
+/**
+ * 资料来源引用（阶段 E）：插入画布的是**独立可编辑快照**，
+ * sourceRef 只记录来源（类型 + ID + 快照时标题/摘要/时间），
+ * 画布修改不回写原资料，源更新也不自动覆盖画布。
+ * 渲染时按 kind+id 探测来源可达性（RLS：无权限/删除 → 不可达），
+ * 不可达时快照继续展示，仅标注来源状态。
+ */
+export interface CanvasSourceRef {
+  kind: "reading" | "memo";
+  id: string;
+  /** 快照时标题（memo 取正文首行）。 */
+  title: string;
+  /** 快照时摘要（≤280 字）。 */
+  excerpt?: string;
+  /** reading 的 URL / 物料 URN；memo 为空串。 */
+  url?: string;
+  /** 快照时间（ISO）。 */
+  updatedAt?: string;
+}
+
 export interface CanvasTextBlock {
   id: string;
   type: "text";
   text: string;
   role: CanvasTextRole;
   style?: CanvasBlockStyle;
+  /** 由资料插入的摘录快照所带的来源引用（普通文本块无）。 */
+  sourceRef?: CanvasSourceRef;
 }
 
 /**
@@ -125,9 +147,34 @@ export interface CanvasImageBlock {
   /** 说明文字（持久化，渲染为 img alt）。 */
   alt?: string;
   style?: CanvasBlockStyle;
+  /** 由资料图片插入所带的来源引用（普通图片块无）。 */
+  sourceRef?: CanvasSourceRef;
 }
 
-export type CanvasBlock = CanvasTextBlock | CanvasImageBlock | CanvasDividerBlock | CanvasButtonBlock;
+/**
+ * 资料引用卡片块（阶段 E）：整条资料的快照卡片。
+ * title/text 是插入时刻的独立副本（可经属性栏编辑，不回写来源）；
+ * sourceRef 提供「打开来源 / 更新快照 / 来源状态」能力。
+ */
+export interface CanvasMaterialCardBlock {
+  id: string;
+  type: "materialCard";
+  title: string;
+  /** 摘录正文快照（可编辑）。 */
+  text: string;
+  sourceRef: CanvasSourceRef;
+  style?: CanvasBlockStyle;
+}
+
+/** 卡片摘录默认上限（超出截断进快照，可编辑）。 */
+export const MATERIAL_CARD_EXCERPT_MAX = 500;
+
+export type CanvasBlock =
+  | CanvasTextBlock
+  | CanvasImageBlock
+  | CanvasDividerBlock
+  | CanvasButtonBlock
+  | CanvasMaterialCardBlock;
 
 export interface CanvasColumn {
   id: string;
@@ -296,6 +343,20 @@ export function createButtonBlock(
     href: "",
     align: "left",
     variant: "primary",
+  };
+}
+
+/** 资料引用卡片块（阶段 E）：title/text 为快照副本，sourceRef 记录来源。 */
+export function createMaterialCardBlock(
+  payload: { title: string; text: string; sourceRef: CanvasSourceRef },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasMaterialCardBlock {
+  return {
+    id: newId(),
+    type: "materialCard",
+    title: payload.title,
+    text: payload.text,
+    sourceRef: payload.sourceRef,
   };
 }
 

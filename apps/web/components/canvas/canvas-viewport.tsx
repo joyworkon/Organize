@@ -24,6 +24,7 @@ import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
 import { hitTestInsertPosition } from "./canvas-hit-test";
 import type { CanvasStore } from "./canvas-store";
+import type { SourceStatusMap } from "./use-source-status";
 import { CanvasBoardView } from "./canvas-board";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
@@ -52,6 +53,8 @@ export interface CanvasViewportProps {
   selection: ReturnType<CanvasStore["getState"]>["selection"];
   editingBlockId: string | null;
   assetUrls: Record<string, string>;
+  /** 资料来源可达性（E）。 */
+  sourceStatuses: SourceStatusMap;
   /** B1 空态明确入口：新建空白页面 / 宣传落地页骨架。 */
   onCreateBlank?: () => void;
   onCreateLanding?: () => void;
@@ -78,6 +81,7 @@ export function CanvasViewportView({
   selection,
   editingBlockId,
   assetUrls,
+  sourceStatuses,
   onCreateBlank,
   onCreateLanding,
   onReplaceImage,
@@ -303,6 +307,7 @@ export function CanvasViewportView({
               }
               selectedBlockId={selection?.kind === "block" ? selection.blockId : null}
               editingBlockId={editingBlockId}
+              sourceStatuses={sourceStatuses}
               onReplaceImage={onReplaceImage}
             />
           );

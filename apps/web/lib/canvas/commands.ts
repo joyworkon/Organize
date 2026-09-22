@@ -24,9 +24,11 @@ import {
   CanvasImageAsset,
   CanvasImageBlock,
   CanvasImageRatio,
+  CanvasMaterialCardBlock,
   CanvasRegion,
   CanvasSectionVerticalAlign,
   CanvasSectionWidthMode,
+  CanvasSourceRef,
   CanvasTextAlign,
   CanvasTextBlock,
   CanvasTextRole,
@@ -35,6 +37,7 @@ import {
   createBoardShape,
   createColumn,
   createImageBlock,
+  createMaterialCardBlock,
   createRegion,
   createSection,
   createTextBlock,
@@ -1195,6 +1198,110 @@ export function getImageBlock(doc: CanvasDoc, blockId: string): CanvasImageBlock
 export function getTextBlock(doc: CanvasDoc, blockId: string): CanvasTextBlock | null {
   const block = getBlock(doc, blockId);
   return block && block.type === "text" ? block : null;
+}
+
+// ---------------------------------------------------------------------------
+// 资料快照（阶段 E）：插入画布的是独立副本，sourceRef 只记录来源
+// ---------------------------------------------------------------------------
+
+/**
+ * 资料库「添加到画布」：把资料引用卡片作为新区块追加到指定页面末尾
+ * （不经过统一插入解析——目标由资料库对话框显式选择画布/页面/区块）。
+ * 快照副本不回写来源；sourceRef 供打开来源/更新快照/来源状态。
+ */
+export function appendMaterialCardToRegion(
+  doc: CanvasDoc,
+  args: { boardId: string; regionId?: string; title: string; text: string; sourceRef: CanvasSourceRef },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const board = findBoard(draft, args.boardId);
+    if (!board) return null;
+    const block = createMaterialCardBlock(
+      { title: args.title, text: args.text, sourceRef: args.sourceRef },
+      newId,
+    );
+    const column = createColumn([block], newId);
+    const section = createSection([column], newId);
+    let region = args.regionId ? board.regions.find((r) => r.id === args.regionId) ?? null : null;
+    if (!region) {
+      region = createRegion([], newId);
+      board.regions.push(region);
+    }
+    region.sections.push(section);
+    return { kind: "block", boardId: board.id, regionId: region.id, sectionId: section.id, columnId: column.id, blockId: block.id };
+  });
+}
+
+/** 资料引用卡片字段编辑（属性栏；一次编辑 = 一个可撤销事务）。 */
+export function updateMaterialCard(
+  doc: CanvasDoc,
+  args: { blockId: string; title?: string; text?: string },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc || loc.block.type !== "materialCard") return null;
+    if (args.title !== undefined) loc.block.title = args.title;
+    if (args.text !== undefined) loc.block.text = args.text;
+    return null;
+  });
+}
+
+/**
+ * 更新快照（阶段 E）：按来源当前内容重建块内快照，一次事务可撤销。
+ * - materialCard：替换 title/text/sourceRef（快照时间刷新）
+ * - text（摘录）：替换 text/sourceRef
+ * - image（来源图片）：替换 asset（画布自有资产副本）/alt/sourceRef
+ * 其余块型为 no-op。快照更新只进不出——画布不回写原资料。
+ */
+export function updateMaterialSnapshot(
+  doc: CanvasDoc,
+  args: {
+    blockId: string;
+    title?: string;
+    text?: string;
+    asset?: CanvasImageAsset | null;
+    alt?: string;
+    sourceRef: CanvasSourceRef;
+  },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc) return null;
+    const block = loc.block;
+    if (block.type === "materialCard") {
+      if (args.title !== undefined) block.title = args.title;
+      if (args.text !== undefined) block.text = args.text;
+      block.sourceRef = args.sourceRef;
+      return null;
+    }
+    if (block.type === "text") {
+      if (args.text !== undefined) block.text = args.text;
+      block.sourceRef = args.sourceRef;
+      return null;
+    }
+    if (block.type === "image") {
+      if (args.asset !== undefined) block.asset = args.asset;
+      if (args.alt !== undefined) block.alt = args.alt;
+      block.sourceRef = args.sourceRef;
+      return null;
+    }
+    return null;
+  });
+}
+
+/** 移除来源引用（快照内容保留，成为普通块；一次事务可撤销）。 */
+export function detachSourceRef(doc: CanvasDoc, args: { blockId: string }): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc) return null;
+    const block = loc.block;
+    if (block.type === "materialCard") return null; // 卡片必须有来源（移除=删除块）
+    if (block.type === "text" || block.type === "image") {
+      delete block.sourceRef;
+    }
+    return null;
+  });
 }
 
 export { BOARD_DEFAULT_WIDTH, BOARD_MIN_WIDTH, BOARD_MAX_WIDTH };

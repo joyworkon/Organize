@@ -5872,6 +5872,104 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-add-item:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 1px; }
 .canvas-add-note { margin: 0; font-size: 11px; color: hsl(var(--muted-foreground)); padding: 0 4px; }
 
+/* 资料面板（E）：画布左侧「资料」组的搜索/预览/插入 */
+.canvas-material-panel { display: flex; flex-direction: column; gap: 6px; padding: 0 2px; }
+.canvas-material-search {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.canvas-material-search:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 1px; }
+.canvas-material-empty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.canvas-material-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.canvas-material-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 12px;
+  color: hsl(var(--foreground));
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.canvas-material-row:hover { background: hsl(var(--accent)); }
+.canvas-material-row:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 1px; }
+.canvas-material-preview { padding: 2px 4px 6px; border-left: 2px solid hsl(var(--border)); margin-left: 8px; }
+.canvas-material-preview-text {
+  max-height: 96px;
+  overflow-y: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.canvas-material-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+/* 资料引用卡片块（E） */
+.canvas-block-material { cursor: default; }
+.canvas-material-card { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+.canvas-material-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.canvas-material-card-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.canvas-material-card-source {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.canvas-material-card-kind {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+  line-height: 16px;
+}
+.canvas-source-missing-badge {
+  border-radius: var(--radius-sm);
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+  padding: 0 4px;
+  line-height: 16px;
+}
+.canvas-source-missing-inline { color: hsl(var(--destructive)); }
+.canvas-prop-row-top { align-items: flex-start; }
+.canvas-prop-textarea { resize: vertical; min-height: 56px; font-family: inherit; }
+.canvas-prop-note { margin: 0; font-size: 11px; color: hsl(var(--muted-foreground)); padding: 0 4px; overflow-wrap: anywhere; }
+
 /* 视口与世界容器 */
 .canvas-shell { position: relative; flex: 1; overflow: hidden; }
 .canvas-viewport {

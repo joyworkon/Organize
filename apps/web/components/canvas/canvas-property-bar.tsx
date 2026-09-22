@@ -36,6 +36,8 @@ import {
   updateTextRole,
   setSectionWidthMode,
   applySmartWeights,
+  detachSourceRef,
+  updateMaterialCard,
 } from "@/lib/canvas/commands";
 import {
   findBlockLocation,
@@ -59,6 +61,9 @@ import {
 import { canSmartRecompute } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { useCanvasSelector } from "./use-canvas-selector";
+import type { SourceStatusMap } from "./use-source-status";
+import { statusOf } from "./use-source-status";
+import { blockSourceRef } from "@/lib/canvas/source-ref";
 import {
   Dialog,
   DialogContent,
@@ -71,15 +76,26 @@ interface MeasurerLike {
   measure: (text: string, key: string, style: ResolvedTextStyle, width: number) => number;
 }
 
+/** 来源 URL 是否站内资料（URN/内部链接 → 打开资料详情；http(s) → 新标签）。 */
+function isInternalSourceUrl(url: string | undefined): boolean {
+  return !url || !/^https?:\/\//i.test(url);
+}
+
 export function CanvasPropertyBar({
   store,
   measurer,
   onReplaceImage,
+  sourceStatuses,
+  onRefreshSource,
 }: {
   store: CanvasStore;
   measurer: MeasurerLike;
   /** 图片「替换图片」（B2 统一上传入口）：块原位更新，失败保留旧图。 */
   onReplaceImage?: (blockId: string, file: File) => void;
+  /** 资料来源可达性（E）。 */
+  sourceStatuses?: SourceStatusMap;
+  /** 「更新快照」（E）：按来源当前内容重建块内副本（一次可撤销事务）。 */
+  onRefreshSource?: (blockId: string) => void;
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
@@ -459,8 +475,11 @@ export function CanvasPropertyBar({
         ? "图片模块"
         : block.type === "divider"
           ? "分隔线"
-          : "行动按钮";
+          : block.type === "materialCard"
+            ? "资料卡片"
+            : "行动按钮";
   const ratio = block.type === "image" ? (block.ratio ?? "auto") : "auto";
+  const sourceRef = blockSourceRef(block);
   const canRemoveColumn =
     section.columns.length > 1 && section.columns[section.columns.length - 1].blocks.length === 0;
   const isTwoCols = section.columns.length === 2;
@@ -529,6 +548,40 @@ export function CanvasPropertyBar({
               store.getState().apply("文字颜色", (d) => updateBlockStyle(d, { blockId: block.id, style: { color: key } }))
             }
           />
+        </>
+      )}
+      {block.type === "materialCard" && (
+        <>
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">标题</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.title}
+              aria-label="卡片标题"
+              onChange={(e) =>
+                store.getState().apply("卡片标题", (d) =>
+                  updateMaterialCard(d, { blockId: block.id, title: e.target.value }),
+                )
+              }
+            />
+          </label>
+          <label className="canvas-prop-row canvas-prop-row-top">
+            <span className="canvas-prop-label">摘录</span>
+            <textarea
+              className="canvas-prop-input canvas-prop-textarea"
+              style={{ width: 132 }}
+              rows={4}
+              value={block.text}
+              aria-label="卡片摘录"
+              onChange={(e) =>
+                store.getState().apply("卡片摘录", (d) =>
+                  updateMaterialCard(d, { blockId: block.id, text: e.target.value }),
+                )
+              }
+            />
+          </label>
+          <p className="canvas-prop-note">修改的是画布内的快照副本，不影响原资料。</p>
         </>
       )}
       {block.type === "image" && (
@@ -609,8 +662,7 @@ export function CanvasPropertyBar({
                 )
               }
             />
-          </label>
-          <label className="canvas-prop-row">
+          </label>          <label className="canvas-prop-row">
             <span className="canvas-prop-label">链接</span>
             <input
               className="canvas-prop-input"
@@ -650,6 +702,55 @@ export function CanvasPropertyBar({
               )
             }
           />
+        </>
+      )}
+      {sourceRef && (
+        <>
+          <h3 className="canvas-prop-subtitle">来源</h3>
+          <p className="canvas-prop-note" title={sourceRef.title}>
+            {sourceRef.kind === "memo" ? "速记" : "资料"} · {sourceRef.title}
+            {sourceStatuses && statusOf(sourceStatuses, sourceRef) === "missing" && (
+              <span className="canvas-source-missing-inline">（来源已删除或无权限，快照仍保留）</span>
+            )}
+          </p>
+          <div className="canvas-prop-row canvas-prop-actions">
+            <a
+              className="canvas-prop-btn"
+              href={
+                sourceRef.kind === "memo"
+                  ? `/library?view=memos&memo=${encodeURIComponent(sourceRef.id)}`
+                  : isInternalSourceUrl(sourceRef.url)
+                    ? `/library/${encodeURIComponent(sourceRef.id)}`
+                    : (sourceRef.url ?? "")
+              }
+              target={sourceRef.kind === "memo" || isInternalSourceUrl(sourceRef.url) ? undefined : "_blank"}
+              rel={sourceRef.kind === "memo" || isInternalSourceUrl(sourceRef.url) ? undefined : "noopener noreferrer"}
+              aria-label="打开来源"
+            >
+              打开来源
+            </a>
+            <button
+              type="button"
+              className="canvas-prop-btn"
+              disabled={!onRefreshSource || (sourceStatuses ? statusOf(sourceStatuses, sourceRef) === "missing" : false)}
+              title={sourceStatuses && statusOf(sourceStatuses, sourceRef) === "missing" ? "来源不可用，无法更新" : "按来源当前内容重建快照（可撤销）"}
+              onClick={() => onRefreshSource?.(block.id)}
+            >
+              更新快照
+            </button>
+            {block.type !== "materialCard" && (
+              <button
+                type="button"
+                className="canvas-prop-btn"
+                title="移除来源引用（快照内容保留）"
+                onClick={() =>
+                  store.getState().apply("移除来源引用", (d) => detachSourceRef(d, { blockId: block.id }))
+                }
+              >
+                移除引用
+              </button>
+            )}
+          </div>
         </>
       )}
       <SwatchRow

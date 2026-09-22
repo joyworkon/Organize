@@ -106,6 +106,16 @@ export function useCanvasScene(
           innerWidth,
         );
       }
+      if (block.type === "materialCard") {
+        // 资料卡片（E）：标题（15px 加粗）+ 摘录（13px）+ 来源标签行，与渲染一致
+        const titleStyle = { fontSizePx: 15, lineHeight: 1.4, bold: true, align: "left" as const, colorKey: "" };
+        const titleH = measurer.measure(block.title || " ", `mc-t|${block.sourceRef.kind}:${block.sourceRef.id}`, titleStyle, innerWidth);
+        const bodyStyle = { fontSizePx: 13, lineHeight: 1.5, bold: false, align: "left" as const, colorKey: "" };
+        const textH = block.text.trim()
+          ? measurer.measure(block.text, `mc-b|${block.id}`, bodyStyle, innerWidth)
+          : 0;
+        return titleH + (textH > 0 ? textH + 6 : 0) + 24; // 24 = 来源标签行高 + 间距
+      }
       return 0; // 图片/分隔线高度由 layout.ts 按比例/固定值计算，不走文本测量
     };
     return computeScene(doc, measure);
