@@ -11,6 +11,7 @@ import {
   type CanvasImageBlock,
 } from "./model";
 import {
+  BLOCK_CHROME,
   canAddColumn,
   canSmartRecompute,
   columnRequiredHeight,
@@ -439,5 +440,122 @@ describe("Region 层布局（B1）", () => {
       BOARD_PADDING * 2 + r1.height + BOARD_GAP + r2.height,
       6,
     );
+  });
+});
+
+describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新块测高", () => {
+  const fakeMeasure = (block: { type: string; text?: string; label?: string }, _w: number) =>
+    block.type === "button" ? 22 : block.text === "长" ? 300 : 24;
+
+  function baseDoc() {
+    const doc = emptyDoc();
+    const b = createBoardShape({ x: 0, y: 0 });
+    doc.boards.push(b);
+    return { doc, b };
+  }
+
+  it("section.gap 覆盖区块行距（列宽与块距都按行距重算）", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    body.columns.push({ id: "c2", blocks: [{ id: "t2", type: "text", text: "B", role: "body" }] });
+    body.columnWeights = [1, 1];
+    body.gap = 40;
+    const scene = computeScene(doc, fakeMeasure);
+    const sec = scene.boards[0].regions[0].sections[1];
+    // 两列之间距 = 行级 gap 40
+    expect(sec.columns[1].x - (sec.columns[0].x + sec.columns[0].width)).toBeCloseTo(40, 6);
+  });
+
+  it("verticalAlign=top：块保持自然高并顶部对齐，不拉伸", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    // 左列两块（一短一长），右列一块 → 行高由左列决定
+    body.columns[0].blocks.push({ id: "short", type: "text", text: "短", role: "body" });
+    body.columns.push({
+      id: "c2",
+      blocks: [{ id: "img", type: "image", asset: { url: "https://x/a.png", naturalWidth: 400, naturalHeight: 300 }, fit: "contain" }],
+    });
+    body.columnWeights = [1, 1];
+    body.verticalAlign = "top";
+    const scene = computeScene(doc, fakeMeasure);
+    const sec = scene.boards[0].regions[0].sections[1];
+    const [left, right] = sec.columns;
+    // 拉伸语义下行高 = 左列两块之和；top 语义下右列图片保持自然高（内宽/比例 + chrome）
+    expect(right.height).toBe(left.height);
+    const imgBox = right.blocks[0];
+    const imgInner = right.width - BLOCK_PADDING * 2;
+    expect(imgBox.height).toBeCloseTo(imgInner / (400 / 300) + BLOCK_CHROME, 6);
+    // 右列只有一块：top 对齐 → y = 行顶
+    expect(imgBox.y).toBeCloseTo(right.y, 6);
+  });
+
+  it("verticalAlign=middle/bottom：块串在列内居中/底部对齐", () => {
+    for (const [align, expectedLead] of [
+      ["middle", 0.5],
+      ["bottom", 1],
+    ] as const) {
+      const { doc, b } = baseDoc();
+      const body = b.regions[0].sections[1];
+      body.columns[0].blocks.push({ id: "tall", type: "text", text: "长", role: "body" });
+      body.columns.push({
+        id: "c2",
+        blocks: [{ id: "short", type: "text", text: "短", role: "body" }],
+      });
+      body.columnWeights = [1, 1];
+      body.verticalAlign = align;
+      const scene = computeScene(doc, fakeMeasure);
+      const sec = scene.boards[0].regions[0].sections[1];
+      const [left, right] = sec.columns;
+      const naturalStack = 24 + BLOCK_CHROME; // 短块自然高（内容 24 夹紧 + chrome）
+      const expectedY = right.y + (left.height - naturalStack) * expectedLead;
+      expect(right.blocks[0].y).toBeCloseTo(expectedY, 6);
+    }
+  });
+
+  it("版面图片块 ratio 锁高：容器高 = 内宽/比例 + chrome（同 A5 自由图片语义）", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    body.columns[0].blocks.push({
+      id: "img169",
+      type: "image",
+      asset: { url: "https://x/a.png", naturalWidth: 1600, naturalHeight: 900 },
+      fit: "contain",
+      ratio: "16:9",
+    });
+    const scene = computeScene(doc, fakeMeasure);
+    const sec = scene.boards[0].regions[0].sections[1];
+    const col = sec.columns[0];
+    const inner = col.width - BLOCK_PADDING * 2;
+    const imgBox = col.blocks[1];
+    expect(imgBox.height).toBeCloseTo(inner / (16 / 9) + BLOCK_CHROME, 6);
+  });
+
+  it("分隔线块测高固定、行动按钮按标签测量（top 对齐看自然高）", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    body.verticalAlign = "top";
+    body.columns[0].blocks.push(
+      { id: "d1", type: "divider" },
+      { id: "btn1", type: "button", label: "立即购买", href: "https://example.com", align: "left", variant: "primary" },
+    );
+    const scene = computeScene(doc, fakeMeasure);
+    const col = scene.boards[0].regions[0].sections[1].columns[0];
+    expect(col.blocks[1].height).toBeCloseTo(8 + BLOCK_CHROME, 6); // 分隔线
+    expect(col.blocks[2].height).toBeCloseTo(24 + BLOCK_CHROME, 6); // 按钮（夹到最小内容高）
+  });
+
+  it("缺省 verticalAlign=stretch 时几何与 v1 完全一致（等高拉伸）", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    body.columns.push({
+      id: "c2",
+      blocks: [{ id: "t2", type: "text", text: "长", role: "body" }],
+    });
+    body.columnWeights = [1, 1];
+    const scene = computeScene(doc, fakeMeasure);
+    const sec = scene.boards[0].regions[0].sections[1];
+    // 每列 1 块：拉伸语义下块高 = 行高（行高 = 各列自然高的最大值）
+    expect(sec.columns[0].blocks[0].height).toBeCloseTo(sec.height, 6);
+    expect(sec.columns[1].blocks[0].height).toBeCloseTo(sec.height, 6);
   });
 });

@@ -9,7 +9,6 @@ import {
   applyCanvasTemplate,
   applyColumnDrag,
   applySmartWeights,
-  appendImageSection,
   attachFreeItemToRegion,
   createBoard,
   createBoardAutoPlace,
@@ -22,22 +21,29 @@ import {
   deleteRegion,
   duplicateBlock,
   duplicateRegion,
+  insertBlockAtTarget,
   insertBlockBelow,
   insertColumn,
+  insertRegionAfter,
   insertSectionAfter,
   moveBlock,
   moveRegion,
-  planImageInsertTarget,
+  removeColumn,
   renameBoard,
   renameRegion,
   resizeBoard,
+  setColumnWeights,
   setSectionWidthMode,
   setImageAsset,
   setImageFit,
   splitTextToSection,
   updateBlockStyle,
+  updateBoardPadding,
+  updateButtonBlock,
   updateFreeItem,
   updateFreeItemBlock,
+  updateImageBlock,
+  updateSectionLayout,
   updateTextBlock,
   updateTextRole,
 } from "./commands";
@@ -440,28 +446,7 @@ describe("createBoardAutoPlace（A4 视口内落位）", () => {
   });
 });
 
-describe("工具条图片插入路由（A9）", () => {
-  it("planImageInsertTarget：模块/版面/自由/无选中四类目标", () => {
-    expect(planImageInsertTarget({ kind: "block", blockId: "b" })).toEqual({ kind: "block", blockId: "b" });
-    expect(planImageInsertTarget({ kind: "board", boardId: "bd" })).toEqual({ kind: "board", boardId: "bd" });
-    expect(planImageInsertTarget({ kind: "free", itemId: "f" })).toEqual({ kind: "free" });
-    expect(planImageInsertTarget(null)).toEqual({ kind: "free" });
-  });
-
-  it("appendImageSection：版面末尾追加通栏图片块并选中新块（不带编辑态）", () => {
-    const { doc, board } = docWithBoard();
-    const asset = { url: "https://example.com/a.png", naturalWidth: 100, naturalHeight: 50 };
-    const res = appendImageSection(doc, { boardId: board.id, asset }, counterIds());
-    const b2 = res.doc.boards[0];
-    expect(b2.regions[0].sections).toHaveLength(3);
-    const appended = b2.regions[0].sections[2];
-    expect(appended.columns).toHaveLength(1);
-    const block = appended.columns[0].blocks[0];
-    expect(block).toMatchObject({ type: "image", asset, fit: "contain" });
-    expect(res.focus).toMatchObject({ kind: "block", blockId: block.id });
-    expect(res.focus).not.toMatchObject({ edit: true });
-  });
-
+describe("工具条图片插入路由（A9 → B2 由 image-insert.ts 取代）", () => {
   it("insertBlockBelow 插入图片块：选中但不进入编辑态", () => {
     const { doc, board } = docWithBoard();
     const body = board.regions[0].sections[1];
@@ -483,6 +468,204 @@ describe("工具条图片插入路由（A9）", () => {
     const block = res.doc.freeItems[0].block;
     expect(block.type).toBe("image");
     if (block.type === "image") expect(block.ratio).toBe("16:9");
+  });
+});
+
+describe("统一插入命令（B2）", () => {
+  it("insertBlockAtTarget column+afterBlockId：插在该块之后并聚焦编辑（文本块）", () => {
+    const { doc, board } = docWithBoard();
+    const title = board.regions[0].sections[0].columns[0].blocks[0];
+    const res = insertBlockAtTarget(
+      doc,
+      {
+        kind: "column",
+        boardId: board.id,
+        regionId: board.regions[0].id,
+        sectionId: board.regions[0].sections[0].id,
+        columnId: board.regions[0].sections[0].columns[0].id,
+        afterBlockId: title.id,
+      },
+      { id: "nb", type: "text", text: "", role: "body" },
+      counterIds(),
+    );
+    const blocks = res.doc.boards[0].regions[0].sections[0].columns[0].blocks;
+    expect(blocks.map((b) => b.id)).toEqual([title.id, "nb"]);
+    expect(res.focus).toMatchObject({ kind: "block", blockId: "nb", edit: true });
+  });
+
+  it("insertBlockAtTarget column 无锚点：追加到列末尾", () => {
+    const { doc, board } = docWithBoard();
+    const section = board.regions[0].sections[0];
+    const res = insertBlockAtTarget(
+      doc,
+      {
+        kind: "column",
+        boardId: board.id,
+        regionId: board.regions[0].id,
+        sectionId: section.id,
+        columnId: section.columns[0].id,
+      },
+      { id: "nb", type: "divider" },
+      counterIds(),
+    );
+    const blocks = res.doc.boards[0].regions[0].sections[0].columns[0].blocks;
+    expect(blocks[blocks.length - 1]).toMatchObject({ id: "nb", type: "divider" });
+    // 分隔线不进入编辑态
+    expect(res.focus).toMatchObject({ kind: "block", blockId: "nb" });
+    expect(res.focus).not.toMatchObject({ edit: true });
+  });
+
+  it("insertBlockAtTarget region-end：区块末尾追加一行（首列放块）", () => {
+    const { doc, board } = docWithBoard();
+    const region = board.regions[0];
+    const res = insertBlockAtTarget(
+      doc,
+      { kind: "region-end", boardId: board.id, regionId: region.id },
+      { id: "nd", type: "button", label: "L", href: "", align: "left", variant: "primary" },
+      counterIds(),
+    );
+    const sections = res.doc.boards[0].regions[0].sections;
+    expect(sections).toHaveLength(3);
+    expect(sections[2].columns).toHaveLength(1);
+    expect(sections[2].columns[0].blocks[0]).toMatchObject({ id: "nd", type: "button" });
+  });
+
+  it("insertBlockAtTarget region-end：区块/页面缺失时自动建区块兜底", () => {
+    const { doc, board } = docWithBoard();
+    const res = insertBlockAtTarget(
+      doc,
+      { kind: "region-end", boardId: board.id, regionId: "ghost-region" },
+      { id: "nb", type: "text", text: "", role: "body" },
+      counterIds(),
+    );
+    const regions = res.doc.boards[0].regions;
+    expect(regions).toHaveLength(2);
+    expect(regions[1].sections[0].columns[0].blocks[0]).toMatchObject({ id: "nb" });
+  });
+
+  it("insertBlockAtTarget column 锚点行已删：兜底追加区块末尾（不丢块）", () => {
+    const { doc, board } = docWithBoard();
+    const res = insertBlockAtTarget(
+      doc,
+      {
+        kind: "column",
+        boardId: board.id,
+        regionId: board.regions[0].id,
+        sectionId: "ghost-section",
+        columnId: "ghost-column",
+      },
+      { id: "nb", type: "text", text: "", role: "body" },
+      counterIds(),
+    );
+    const regions = res.doc.boards[0].regions;
+    expect(regions[0].sections[regions[0].sections.length - 1].columns[0].blocks[0]).toMatchObject({ id: "nb" });
+  });
+
+  it("insertRegionAfter：在指定区块之后插入新区块（含可输入空正文行）", () => {
+    const { doc, board } = docWithBoard();
+    const firstRegion = board.regions[0];
+    const res = insertRegionAfter(doc, { boardId: board.id, regionId: firstRegion.id }, counterIds());
+    const regions = res.doc.boards[0].regions;
+    expect(regions).toHaveLength(2);
+    expect(regions[1].sections[0].columns[0].blocks[0]).toMatchObject({ type: "text", role: "body" });
+    expect(res.focus).toMatchObject({ kind: "block", edit: true });
+  });
+
+  it("removeColumn：仅允许删除空列；非空列与最后一列 no-op", () => {
+    const { doc, board } = docWithBoard();
+    const body = board.regions[0].sections[1];
+    // 加一列（空正文块 = 非空）
+    const grown = insertColumn(
+      doc,
+      { boardId: board.id, sectionId: body.id, columnId: body.columns[0].id, side: "right" },
+      counterIds(),
+    );
+    const body2 = grown.doc.boards[0].regions[0].sections[1];
+    expect(body2.columns).toHaveLength(2);
+    // 非空列不能删
+    const refused = removeColumn(grown.doc, {
+      boardId: board.id,
+      sectionId: body.id,
+      columnId: body2.columns[1].id,
+    });
+    expect(refused.doc.boards[0].regions[0].sections[1].columns).toHaveLength(2);
+    // 删空列：先清空该列块
+    const emptied = updateTextBlock(grown.doc, { blockId: body2.columns[1].blocks[0].id, text: "" });
+    void emptied;
+    const deletedBlock = deleteBlock(grown.doc, { blockId: body2.columns[1].blocks[0].id });
+    const body3 = deletedBlock.doc.boards[0].regions[0].sections[1];
+    expect(body3.columns).toHaveLength(1); // 空列被 normalize 回收
+  });
+
+  it("updateButtonBlock：label/href/align/variant 更新并截断", () => {
+    const { doc, board } = docWithBoard();
+    const res = insertBlockAtTarget(
+      doc,
+      { kind: "region-end", boardId: board.id, regionId: board.regions[0].id },
+      { id: "btn", type: "button", label: "a", href: "", align: "left", variant: "primary" },
+      counterIds(),
+    );
+    const updated = updateButtonBlock(res.doc, {
+      blockId: "btn",
+      label: "立即购买",
+      href: "https://example.com",
+      align: "center",
+      variant: "secondary",
+    });
+    const block = updated.doc.boards[0].regions[0].sections[2].columns[0].blocks[0];
+    expect(block).toMatchObject({
+      type: "button",
+      label: "立即购买",
+      href: "https://example.com",
+      align: "center",
+      variant: "secondary",
+    });
+  });
+
+  it("updateSectionLayout / setColumnWeights / updateImageBlock / updateBoardPadding", () => {
+    const { doc, board } = docWithBoard();
+    const section = board.regions[0].sections[0];
+    const withLayout = updateSectionLayout(doc, {
+      boardId: board.id,
+      sectionId: section.id,
+      gap: 24,
+      verticalAlign: "top",
+    });
+    const s2 = withLayout.doc.boards[0].regions[0].sections[0];
+    expect(s2.gap).toBe(24);
+    expect(s2.verticalAlign).toBe("top");
+
+    const weighted = setColumnWeights(withLayout.doc, {
+      boardId: board.id,
+      sectionId: section.id,
+      weights: [2, 1],
+    });
+    // 列数不符 → no-op（权重不变，不转 manual）
+    expect(weighted.doc.boards[0].regions[0].sections[0].columnWeights).toEqual(section.columnWeights);
+    expect(weighted.doc.boards[0].regions[0].sections[0].widthMode).toBe(section.widthMode);
+
+    const padded = updateBoardPadding(withLayout.doc, { boardId: board.id, padding: 40 });
+    expect(padded.doc.boards[0].padding).toBe(40);
+
+    const img = insertBlockAtTarget(
+      padded.doc,
+      {
+        kind: "column",
+        boardId: board.id,
+        regionId: board.regions[0].id,
+        sectionId: section.id,
+        columnId: section.columns[0].id,
+      },
+      { id: "img", type: "image", asset: null, fit: "contain" },
+      counterIds(),
+    );
+    const withMeta = updateImageBlock(img.doc, { blockId: "img", ratio: "4:3", alt: "说明" });
+    const imgBlock = withMeta.doc.boards[0].regions[0].sections[0].columns[0].blocks[1];
+    expect(imgBlock.type).toBe("image");
+    if (imgBlock.type === "image") {
+      expect(imgBlock.ratio).toBe("4:3");
+      expect(imgBlock.alt).toBe("说明");
+    }
   });
 });
 

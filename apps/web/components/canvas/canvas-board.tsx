@@ -22,6 +22,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { GripHorizontal, Plus, StretchHorizontal, Trash2 } from "@/components/icons";
 import {
@@ -36,6 +37,7 @@ import {
   deleteBoard,
   insertBlockBelow,
   insertColumn,
+  insertRegionAfter,
   insertSectionAfter,
   moveBoard,
   renameRegion,
@@ -50,7 +52,13 @@ import {
 } from "@/lib/canvas/layout";
 import type { SceneBoard, SceneRegion, SceneSection } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
-import { CanvasImageBlockView, CanvasTextBlockView, displayKey } from "./canvas-block";
+import {
+  CanvasButtonBlockView,
+  CanvasDividerBlockView,
+  CanvasImageBlockView,
+  CanvasTextBlockView,
+  displayKey,
+} from "./canvas-block";
 
 export interface CanvasBoardViewProps {
   board: CanvasBoard;
@@ -64,12 +72,15 @@ export interface CanvasBoardViewProps {
   selectedRegion: { boardId: string; regionId: string } | null;
   selectedBlockId: string | null;
   editingBlockId: string | null;
+  /** 图片替换（B2 统一上传入口）：块原位更新，失败保留旧图。 */
+  onReplaceImage?: (blockId: string, file: File) => void;
 }
 
 type PlusPreview =
   | { kind: "column-left" | "column-right"; columnId: string }
   | { kind: "block-below"; columnId: string; blockId: string }
   | { kind: "section-band" }
+  | { kind: "region-band" }
   | null;
 
 /** 随缩放补偿的控件尺寸：世界尺寸 = 22px / zoom，夹在 22–64。 */
@@ -89,6 +100,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   selectedRegion,
   selectedBlockId,
   editingBlockId,
+  onReplaceImage,
 }: CanvasBoardViewProps) {
   const dragRef = useRef<{
     kind: "move" | "resize";
@@ -103,6 +115,9 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   } | null>(null);
   const [liveTransform, setLiveTransform] = useState<{ dx: number; dy: number } | null>(null);
   const [liveWidth, setLiveWidth] = useState<number | null>(null);
+  /** 悬停的区块间隙（在其后插入新区块）；null = 未悬停。 */
+  const [gapHover, setGapHover] = useState<number | null>(null);
+  const [gapPreview, setGapPreview] = useState(false);
 
   const ui = uiSize(zoom);
   const colDrag = useRef(beginColDragFor(store, zoom, sceneBoard));
@@ -210,9 +225,58 @@ export const CanvasBoardView = memo(function CanvasBoardView({
             selectedBlockId={selectedBlockId}
             editingBlockId={editingBlockId}
             colDrag={colDrag.current}
+            onReplaceImage={onReplaceImage}
           />
         );
       })}
+
+      {/* 区块间隙「＋」（B2）：在两个区块之间插入新区块，与块下＋/行边缘＋语义不同 */}
+      {interactive &&
+        sceneBoard.regions.slice(0, -1).map((sceneRegion, i) => (
+          <div
+            key={`region-gap-${sceneRegion.regionId}`}
+            className="canvas-region-gap"
+            style={{
+              left: `${board.padding}px`,
+              width: `${board.width - board.padding * 2}px`,
+              top: `${sceneRegion.y + sceneRegion.height - board.y - 4}px`,
+              height: `${board.gap + 8}px`,
+            }}
+            onPointerEnter={() => {
+              setGapHover(i);
+              setGapPreview(true);
+            }}
+            onPointerLeave={() => {
+              setGapHover(null);
+              setGapPreview(false);
+            }}
+          >
+            {gapHover === i && (
+              <button
+                type="button"
+                className="canvas-plus canvas-plus-region"
+                style={{ width: `${Math.max(20, ui * 0.9)}px`, height: `${Math.max(20, ui * 0.9)}px` }}
+                title="在下方添加区块"
+                aria-label="在下方添加区块"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const afterId = sceneBoard.regions[i]?.regionId;
+                  store.getState().apply("添加区块", (d) =>
+                    insertRegionAfter(d, { boardId: board.id, regionId: afterId }),
+                  );
+                  setGapHover(null);
+                  setGapPreview(false);
+                }}
+              >
+                <Plus style={{ width: ui * 0.5, height: ui * 0.5 }} />
+              </button>
+            )}
+            {gapPreview && gapHover === i && (
+              <div className="canvas-insert-preview canvas-region-insert-preview" aria-hidden="true" />
+            )}
+          </div>
+        ))}
 
       {/* 版面操作条（悬停显示）：拖动移动 + 删除 */}
       {interactive && (
@@ -365,6 +429,7 @@ interface RegionBodyProps {
   selectedBlockId: string | null;
   editingBlockId: string | null;
   colDrag: ReturnType<typeof beginColDragFor>;
+  onReplaceImage?: (blockId: string, file: File) => void;
 }
 
 const RegionBody = memo(function RegionBody({
@@ -380,6 +445,7 @@ const RegionBody = memo(function RegionBody({
   selectedBlockId,
   editingBlockId,
   colDrag,
+  onReplaceImage,
 }: RegionBodyProps) {
   const pad = regionPadding(board, region);
   const inner = regionInnerWidth(board, region);
@@ -440,6 +506,7 @@ const RegionBody = memo(function RegionBody({
               selectedBlockId={selectedBlockId}
               editingBlockId={editingBlockId}
               colDrag={colDrag}
+              onReplaceImage={onReplaceImage}
             />
           );
         })}
@@ -543,7 +610,7 @@ interface SectionBodyProps {
   offsetY: number;
   /** 行内容宽（区块内宽）。 */
   contentWidth: number;
-  /** 行内列/块间距（区块行距）。 */
+  /** 行内列/块间距缺省值（区块行距；行级 section.gap 优先）。 */
   gap: number;
   store: CanvasStore;
   interactive: boolean;
@@ -553,6 +620,7 @@ interface SectionBodyProps {
   selectedBlockId: string | null;
   editingBlockId: string | null;
   colDrag: ReturnType<typeof beginColDragFor>;
+  onReplaceImage?: (blockId: string, file: File) => void;
 }
 
 const SectionBody = memo(function SectionBody({
@@ -571,11 +639,13 @@ const SectionBody = memo(function SectionBody({
   selectedBlockId,
   editingBlockId,
   colDrag,
+  onReplaceImage,
 }: SectionBodyProps) {
   const [hovered, setHovered] = useState<{ blockId: string; columnId: string } | null>(null);
   const [preview, setPreview] = useState<PlusPreview>(null);
 
-  const canGrow = interactive ? canAddColumnAt(contentWidth, gap, section.columns.length) : false;
+  const effectiveGap = section.gap ?? gap;
+  const canGrow = interactive ? canAddColumnAt(contentWidth, effectiveGap, section.columns.length) : false;
   const avgWidth = (sceneSection.columnWidths.reduce((s, w) => s + w, 0) || 1) / section.columns.length;
 
   const commitColumnPlus = useCallback(
@@ -670,30 +740,7 @@ const SectionBody = memo(function SectionBody({
                     <Plus style={{ width: ui * 0.55, height: ui * 0.55 }} />
                   </button>
                 ) : null;
-              if (block.type === "text") {
-                return (
-                  <div
-                    key={block.id}
-                    className="contents"
-                    onPointerEnter={
-                      interactive
-                        ? () => setHovered({ blockId: block.id, columnId: column.id })
-                        : undefined
-                    }
-                  >
-                    <CanvasTextBlockView
-                      {...common}
-                      block={block}
-                      editing={editingBlockId === block.id}
-                      structuralEnter
-                      onEditEnd={() => store.getState().requestSmartRecompute()}
-                    >
-                      {belowPlus}
-                    </CanvasTextBlockView>
-                  </div>
-                );
-              }
-              return (
+              const hoverWrapper = (node: ReactNode) => (
                 <div
                   key={block.id}
                   className="contents"
@@ -703,19 +750,50 @@ const SectionBody = memo(function SectionBody({
                       : undefined
                   }
                 >
-                  <CanvasImageBlockView
+                  {node}
+                </div>
+              );
+              if (block.type === "text") {
+                return hoverWrapper(
+                  <CanvasTextBlockView
                     {...common}
                     block={block}
-                    userId={userId}
-                    resolvedUrl={
-                      block.asset
-                        ? assetUrls[displayKey(block.id, block.asset)] ?? (block.asset.url || null)
-                        : null
-                    }
+                    editing={editingBlockId === block.id}
+                    structuralEnter
+                    onEditEnd={() => store.getState().requestSmartRecompute()}
                   >
                     {belowPlus}
-                  </CanvasImageBlockView>
-                </div>
+                  </CanvasTextBlockView>,
+                );
+              }
+              if (block.type === "divider") {
+                return hoverWrapper(
+                  <CanvasDividerBlockView {...common} block={block}>
+                    {belowPlus}
+                  </CanvasDividerBlockView>,
+                );
+              }
+              if (block.type === "button") {
+                return hoverWrapper(
+                  <CanvasButtonBlockView {...common} block={block}>
+                    {belowPlus}
+                  </CanvasButtonBlockView>,
+                );
+              }
+              return hoverWrapper(
+                <CanvasImageBlockView
+                  {...common}
+                  block={block}
+                  userId={userId}
+                  onReplace={onReplaceImage}
+                  resolvedUrl={
+                    block.asset
+                      ? assetUrls[displayKey(block.id, block.asset)] ?? (block.asset.url || null)
+                      : null
+                  }
+                >
+                  {belowPlus}
+                </CanvasImageBlockView>,
               );
             })}
 
@@ -780,7 +858,7 @@ const SectionBody = memo(function SectionBody({
           <div
             key={`divider-${i}`}
             className="canvas-divider"
-            style={{ left: `${sceneSection.columns[i].x - board.x - offsetX + w + gap / 2}px` }}
+            style={{ left: `${sceneSection.columns[i].x - board.x - offsetX + w + effectiveGap / 2}px` }}
             role="separator"
             aria-label="拖动调整列宽"
             title="拖动调整列宽"
@@ -790,8 +868,8 @@ const SectionBody = memo(function SectionBody({
           />
         ))}
 
-      {/* 加号悬停插入预览（半透明，不参与布局，规格 §4.3） */}
-      {preview && <PreviewGhost preview={preview} gap={gap} sceneSection={sceneSection} avgWidth={avgWidth} />}
+      {/* 加号悬停插入预览（半透明，不参与布局，规格 §4.3；位置全部来自 computeScene 场景几何） */}
+      {preview && <PreviewGhost preview={preview} gap={effectiveGap} sceneSection={sceneSection} avgWidth={avgWidth} />}
 
       {/* 整排外侧「添加通栏」入口：与局部加号不同位、不同预览、不同提示 */}
       {interactive && hovered && (

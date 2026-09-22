@@ -87,8 +87,8 @@ test.describe("构思画布", () => {
 
   test("标题输入 → Enter 通栏 → 左右加号 → 局部加号（A02–A04 布局边界）", async ({ page }) => {
     await openNewCanvas(page);
-    // x=100：让版面右缘远离右侧属性栏，避免悬浮面板遮挡加号
-    await dblClickViewport(page, 100, 150);
+    // x=400：避开左侧添加面板（宽 ~220px）与右侧属性栏
+    await dblClickViewport(page, 400, 150);
     const titleArea = page.locator("[data-block-type='text'] textarea").first();
     await expect(titleArea).toBeFocused();
     await page.keyboard.type("标题甲乙丙");
@@ -153,7 +153,7 @@ test.describe("构思画布", () => {
 
   test("撤销（⌘Z）：连续结构编辑后原子回退（A09）", async ({ page }) => {
     await openNewCanvas(page);
-    await dblClickViewport(page, 100, 150);
+    await dblClickViewport(page, 400, 150);
     await page.keyboard.type("T");
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
@@ -190,31 +190,32 @@ test.describe("构思画布", () => {
     await page.keyboard.type("落地页标题");
   });
 
-  test("结构面板：页面→区块树操作（B1）", async ({ page }) => {
+  test("结构面板：页面→区块树操作（B1，B2 起收进添加面板折叠区）", async ({ page }) => {
     await openNewCanvas(page);
     await page.getByRole("button", { name: "新建宣传落地页骨架" }).click();
-    await page.getByRole("button", { name: "结构与模板面板" }).click();
-    const panel = page.locator(".canvas-outline-panel");
-    await expect(panel).toBeVisible();
+    // B2：结构是添加面板里的折叠分组
+    await page.getByRole("button", { name: "结构", exact: true }).click();
+    const tree = page.locator(".canvas-add-panel");
+    await expect(tree).toBeVisible();
     // 页面 → 区块树
-    await expect(panel.getByRole("button", { name: /^页面：/ })).toHaveCount(1);
-    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
+    await expect(tree.getByRole("button", { name: /^页面：/ })).toHaveCount(1);
+    await expect(tree.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
     // 重命名区块（铅笔按钮）
-    await panel.getByRole("button", { name: "重命名区块 头部" }).click();
-    const input = panel.locator("input[aria-label='区块名称']");
+    await tree.getByRole("button", { name: "重命名区块 头部" }).click();
+    const input = tree.locator("input[aria-label='区块名称']");
     await expect(input).toBeVisible();
     await input.fill("头图区");
     await input.press("Enter");
-    await expect(panel.getByRole("button", { name: /^区块：头图区/ })).toBeVisible();
+    await expect(tree.getByRole("button", { name: /^区块：头图区/ })).toBeVisible();
     // 下移区块：头部变第二行
-    await panel.getByRole("button", { name: "下移区块 头图区" }).click();
-    await expect(panel.locator(".canvas-outline-row.is-region").first()).toContainText("中部");
+    await tree.getByRole("button", { name: "下移区块 头图区" }).click();
+    await expect(tree.locator(".canvas-outline-row.is-region").first()).toContainText("中部");
     // 复制区块：4 个区块
-    await panel.getByRole("button", { name: "复制区块 中部" }).click();
-    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(4);
+    await tree.getByRole("button", { name: "复制区块 中部" }).click();
+    await expect(tree.getByRole("button", { name: /^区块：/ })).toHaveCount(4);
     // 删除区块回到 3 个
-    await panel.getByRole("button", { name: "删除区块 中部" }).nth(1).click();
-    await expect(panel.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
+    await tree.getByRole("button", { name: "删除区块 中部" }).nth(1).click();
+    await expect(tree.getByRole("button", { name: /^区块：/ })).toHaveCount(3);
   });
 
   test("mock 保存与草稿恢复：远端缺失时本机草稿可另存为新画布（A15 可自动化部分）", async ({ page }) => {

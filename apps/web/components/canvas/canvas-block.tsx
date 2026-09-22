@@ -11,12 +11,14 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   type CSSProperties,
 } from "react";
 import { Image as ImageIcon, Loader2 } from "@/components/icons";
 import {
   BLOCK_PADDING,
+  isSafeButtonHref,
+  type CanvasButtonBlock,
+  type CanvasDividerBlock,
   type CanvasImageBlock,
   type CanvasTextBlock,
 } from "@/lib/canvas/model";
@@ -29,7 +31,8 @@ import {
 import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
-import { MAX_CANVAS_IMAGE_BYTES, isAllowedImageType, retryPendingAsset, uploadCanvasImage } from "@/lib/canvas/assets";
+import { isUploadingAsset } from "@/lib/canvas/image-insert";
+import { MAX_CANVAS_IMAGE_BYTES, isAllowedImageType, retryPendingAsset } from "@/lib/canvas/assets";
 import { toast } from "@/hooks/use-toast";
 
 export interface CanvasBlockViewProps {
@@ -161,9 +164,13 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
       style={boxStyle(x, y, width, height, block.style)}
       data-block-id={block.id}
       data-block-type="text"
+      data-text-role={block.role}
       role="button"
       tabIndex={interactive && !editing ? 0 : -1}
-      aria-label={(block.role === "title" ? "标题：" : "正文：") + (text || "空")}
+      aria-label={
+        (block.role === "title" ? "标题：" : block.role === "list" ? "列表：" : "正文：") +
+        (text || "空")
+      }
       onPointerDown={
         interactive && !editing
           ? () => store.getState().select({ kind: "block", blockId: block.id })
@@ -194,29 +201,38 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
             onEditEnd?.(block.id);
           }}
           onCompositionEnd={() => store.getState().bumpComposition()}
-          aria-label={block.role === "title" ? "标题模块" : "正文模块"}
+          aria-label={block.role === "title" ? "标题模块" : block.role === "list" ? "列表模块" : "正文模块"}
           spellCheck={false}
         />
       ) : (
         <div
-          className="canvas-text-content"
+          className={`canvas-text-content ${block.role === "list" ? "is-list" : ""}`}
           style={contentStyle}
           ref={(el) => {
             if (el) applyCanvasTextStyle(el, style);
           }}
         >
-          {text}
+          {block.role === "list" ? renderListLines(text) : text}
         </div>
       )}
       {!editing && text === "" && (
         <span className="canvas-placeholder" aria-hidden="true">
-          {block.role === "title" ? "输入标题…" : "输入正文…"}
+          {block.role === "title" ? "输入标题…" : block.role === "list" ? "输入列表项，每行一条…" : "输入正文…"}
         </span>
       )}
       {children}
     </div>
   );
 });
+
+/** 列表角色：逐行渲染，行首加项目符号（编辑态 textarea 为原文，符号仅展示层）。 */
+function renderListLines(text: string): React.ReactNode {
+  return text.split("\n").map((line, i) => (
+    <div className="canvas-list-line" key={i}>
+      {line || " "}
+    </div>
+  ));
+}
 
 export function displayKey(blockId: string, asset: { url: string; localKey?: string }): string {
   if (asset.url) return asset.url;
@@ -235,9 +251,14 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
   interactive,
   children,
   userId,
-}: CanvasBlockViewProps & { block: CanvasImageBlock; userId: string }) {
+  onReplace,
+}: CanvasBlockViewProps & {
+  block: CanvasImageBlock;
+  userId: string;
+  /** 替换图片（B2）：走统一上传入口；成功后原地更新，失败保留旧图。 */
+  onReplace?: (blockId: string, file: File) => void;
+}) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState(false);
   const asset = block.asset;
 
   const pickFile = useCallback(() => {
@@ -255,26 +276,12 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
         toast({ title: "图片不能超过 5MB", variant: "destructive" });
         return;
       }
-      setUploading(true);
-      try {
-        const outcome = await uploadCanvasImage(file, userId);
-        store.getState().apply("插入图片", (doc) => setImageAsset(doc, { blockId: block.id, asset: outcome.asset }));
-        if (outcome.previewUrl) {
-          store.getState().setAssetUrl(displayKey(block.id, outcome.asset), outcome.previewUrl);
-        }
-        // 图片插入后重算一文一图智能比例（触发点，规格 §4.2）
-        store.getState().requestSmartRecompute();
-      } catch (error) {
-        toast({
-          title: "图片上传失败",
-          description: error instanceof Error ? error.message : "请重试",
-          variant: "destructive",
-        });
-      } finally {
-        setUploading(false);
+      if (onReplace) {
+        onReplace(block.id, file);
+        return;
       }
     },
-    [block.id, store, userId],
+    [block.id, onReplace],
   );
 
   const handleRetry = useCallback(async () => {
@@ -283,7 +290,6 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
       pickFile();
       return;
     }
-    setUploading(true);
     try {
       const outcome = await retryPendingAsset(pending, pending.localKey, userId);
       if (!outcome) {
@@ -306,12 +312,11 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
         description: error instanceof Error ? error.message : "请重试",
         variant: "destructive",
       });
-    } finally {
-      setUploading(false);
     }
   }, [block.asset, block.id, pickFile, store, userId]);
 
-  const showPlaceholder = !resolvedUrl;
+  const uploading = isUploadingAsset(asset);
+  const showPlaceholder = !resolvedUrl && !uploading;
   const canRetry = !!asset?.localKey && asset.uploadStatus !== "saved";
   return (
     <div
@@ -336,60 +341,57 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
           : undefined
       }
     >
-      {showPlaceholder ? (
+      {uploading ? (
+        <div className="canvas-image-uploading" role="status" aria-label="图片上传中">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-xs">上传中…</span>
+        </div>
+      ) : showPlaceholder ? (
         canRetry ? (
           <div className="canvas-image-retry" role="group" aria-label="图片待上传">
-            {uploading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="canvas-image-retry-btn"
-                  onClick={interactive ? () => void handleRetry() : undefined}
-                  disabled={!interactive}
-                  aria-label="重试上传"
-                >
-                  重试上传
-                </button>
-                <button
-                  type="button"
-                  className="canvas-image-retry-btn"
-                  onClick={interactive ? pickFile : undefined}
-                  disabled={!interactive}
-                  aria-label="重新选择图片"
-                >
-                  重新选择
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="canvas-image-retry-btn"
+              onClick={interactive ? () => void handleRetry() : undefined}
+              disabled={!interactive}
+              aria-label="重试上传"
+            >
+              重试上传
+            </button>
+            <button
+              type="button"
+              className="canvas-image-retry-btn"
+              onClick={interactive ? pickFile : undefined}
+              disabled={!interactive}
+              aria-label="重新选择图片"
+            >
+              重新选择
+            </button>
           </div>
         ) : (
           <button
             type="button"
             className="canvas-image-placeholder"
             onClick={interactive ? pickFile : undefined}
-            disabled={!interactive || uploading}
+            disabled={!interactive}
             aria-label="选择图片"
             title={asset ? "图片加载失败，点击重选" : "选择图片"}
           >
-            {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
-            <span className="text-xs">
-              {uploading ? "上传中…" : asset ? "图片加载失败，点击重选" : "选择图片"}
-            </span>
+            <ImageIcon className="h-5 w-5" />
+            <span className="text-xs">{asset ? "图片加载失败，点击重选" : "选择图片"}</span>
           </button>
         )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={resolvedUrl ?? undefined}
-          alt={asset?.name || "画布图片"}
+          alt={block.alt || asset?.name || "画布图片"}
           className="canvas-image-img"
           style={{ objectFit: block.fit }}
           draggable={false}
         />
       )}
-      {asset?.uploadStatus === "pending" && resolvedUrl && (
+      {asset?.uploadStatus === "pending" && asset.localKey && resolvedUrl && (
         <button
           type="button"
           className="canvas-image-pending-badge"
@@ -410,6 +412,130 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
           e.target.value = "";
         }}
       />
+      {children}
+    </div>
+  );
+});
+
+/** 分隔线块（B2）：token 色细线；属性栏只有对齐与删除。 */
+export const CanvasDividerBlockView = memo(function CanvasDividerBlockView({
+  block,
+  x,
+  y,
+  width,
+  height,
+  selected,
+  store,
+  interactive,
+  children,
+}: CanvasBlockViewProps & { block: CanvasDividerBlock }) {
+  const align = block.style?.align ?? "left";
+  return (
+    <div
+      className={`canvas-block canvas-block-divider group ${selected ? "is-selected" : ""}`}
+      style={boxStyle(x, y, width, height, undefined)}
+      data-block-id={block.id}
+      data-block-type="divider"
+      role="separator"
+      aria-label="分隔线"
+      tabIndex={interactive ? 0 : -1}
+      onPointerDown={
+        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+      }
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === "Enter" || e.key === "Delete" || e.key === "Backspace") {
+                e.preventDefault();
+                if (e.key === "Enter") store.getState().select({ kind: "block", blockId: block.id });
+                else store.getState().apply("删除模块", (doc) => deleteBlock(doc, { blockId: block.id }));
+              }
+            }
+          : undefined
+      }
+    >
+      <div
+        className={`canvas-divider-line is-${align}`}
+        style={align === "left" ? { width: "100%" } : align === "right" ? { width: "60%", marginLeft: "auto" } : { width: "60%" }}
+      />
+      {children}
+    </div>
+  );
+});
+
+/**
+ * 行动按钮块（B2）：纯链接，无脚本能力。
+ * - 编辑态（interactive）：点击 = 选中，绝不跳转；
+ * - 预览/只读：渲染为可点 <a>；href 仅 http(s)（isSafeButtonHref 双重把关），
+ *   非法/为空 → 禁用态 + 提示；
+ * - 属性栏编辑文案/链接/对齐/主次样式。
+ */
+export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
+  block,
+  x,
+  y,
+  width,
+  height,
+  selected,
+  store,
+  interactive,
+  children,
+}: CanvasBlockViewProps & { block: CanvasButtonBlock }) {
+  const safe = isSafeButtonHref(block.href);
+  const clickable = !interactive && safe && block.href !== "";
+  const className = `canvas-btn is-${block.variant} ${safe ? "" : "is-unsafe"}`;
+  const style: CSSProperties = { marginLeft: block.align === "right" ? "auto" : undefined, marginRight: block.align === "center" ? "auto" : undefined };
+  return (
+    <div
+      className={`canvas-block canvas-block-button group ${selected ? "is-selected" : ""}`}
+      style={boxStyle(x, y, width, height, undefined)}
+      data-block-id={block.id}
+      data-block-type="button"
+      role="button"
+      tabIndex={interactive ? 0 : -1}
+      aria-label={`行动按钮：${block.label}${safe ? "" : "（链接未设置或非法）"}`}
+      onPointerDown={
+        interactive
+          ? (e) => {
+              // 编辑态点击 = 选中，不跳转（B2）
+              e.preventDefault();
+              store.getState().select({ kind: "block", blockId: block.id });
+            }
+          : undefined
+      }
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                store.getState().select({ kind: "block", blockId: block.id });
+              }
+            }
+          : undefined
+      }
+    >
+      {clickable ? (
+        <a
+          href={block.href}
+          className={className}
+          style={style}
+          target="_blank"
+          rel="noopener noreferrer"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {block.label}
+        </a>
+      ) : (
+        <span
+          className={`${className} is-disabled`}
+          style={style}
+          role="link"
+          aria-disabled="true"
+          title={safe ? "链接未设置（选中后在右侧属性栏填写）" : "链接非法：仅支持 http/https"}
+        >
+          {block.label}
+        </span>
+      )}
       {children}
     </div>
   );

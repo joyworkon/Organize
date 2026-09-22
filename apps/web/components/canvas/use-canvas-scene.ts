@@ -97,7 +97,16 @@ export function useCanvasScene(
       if (block.type === "text") {
         return measurer.measure(block.text, textStyleKey(block), resolveTextStyle(block), innerWidth);
       }
-      return 0; // 图片高度由 layout.ts 按比例计算，不走文本测量
+      if (block.type === "button") {
+        // 行动按钮按标签文案测量（14px 正文行高），与渲染一致（B2）
+        return measurer.measure(
+          block.label,
+          `btn|${block.variant}`,
+          { fontSizePx: 14, lineHeight: 1.6, bold: false, align: block.align, colorKey: "" },
+          innerWidth,
+        );
+      }
+      return 0; // 图片/分隔线高度由 layout.ts 按比例/固定值计算，不走文本测量
     };
     return computeScene(doc, measure);
     // eslint-disable-next-line react-hooks/exhaustive-deps

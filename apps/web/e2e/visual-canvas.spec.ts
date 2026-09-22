@@ -9,6 +9,8 @@ async function openPage(page: Page, path: string) {
 }
 
 test("visual: 搭建完整骨架并截图", async ({ page }) => {
+  // 加宽视口：640 版面 + 右列加号需要同时避开左侧面板与右侧属性栏
+  await page.setViewportSize({ width: 1440, height: 900 });
   await openPage(page, "/canvas");
   await page.screenshot({ path: "/tmp/canvas-list.png" });
   await page.getByRole("button", { name: "新建构思画布" }).first().click();
@@ -16,7 +18,7 @@ test("visual: 搭建完整骨架并截图", async ({ page }) => {
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
 
   // 双击建页面骨架（B1 blank：一个区块 + 标题块），输入标题
-  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 80, y: 120 } });
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 250, y: 150 } });
   const title = page.locator("[data-block-type='text'] textarea").first();
   await expect(title).toBeFocused();
   await page.keyboard.type("新品发布 · 内容卡片");
@@ -78,7 +80,7 @@ test("visual: IME 组合期 Enter 不建块（合成事件模拟）", async ({ p
   await page.getByRole("button", { name: "新建构思画布" }).first().click();
   await page.waitForURL(/\/canvas\//);
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
-  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 140, y: 130 } });
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 250, y: 150 } });
   const title = page.locator("[data-block-type='text'] textarea").first();
   await expect(title).toBeFocused();
   await page.keyboard.type("zhongwen");
@@ -109,7 +111,7 @@ test("visual: organize:fonts-ready 触发重测且几何保持一致", async ({ 
   await page.getByRole("button", { name: "新建构思画布" }).first().click();
   await page.waitForURL(/\/canvas\//);
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
-  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 100, y: 150 } });
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 250, y: 150 } });
   await page.keyboard.type("字体切换度量稳定性");
   await page.keyboard.press("Enter");
   await page.keyboard.type("正文随度量重算");
@@ -143,7 +145,7 @@ test("visual: 初始化时 data-fonts-ready=true 直接重测一次", async ({ p
   await page.getByRole("button", { name: "新建构思画布" }).first().click();
   await page.waitForURL(/\/canvas\//);
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
-  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 100, y: 150 } });
+  await page.getByTestId("canvas-viewport").dblclick({ position: { x: 250, y: 150 } });
   await page.keyboard.type("预置就绪标记");
   await page.waitForTimeout(400);
   // 字体度量路径已生效：文本行高完整渲染（≈25.6px 行盒），未被 24px 最小高截断

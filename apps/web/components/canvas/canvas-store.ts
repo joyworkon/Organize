@@ -15,8 +15,11 @@ import {
   CanvasDoc,
   CanvasFocus,
   emptyDoc,
+  findBlockLocation,
+  findRegion,
 } from "@/lib/canvas/model";
 import { CanvasHistory } from "@/lib/canvas/history";
+import type { LastActiveTarget } from "@/lib/canvas/insert-target";
 
 export interface CanvasViewport {
   x: number;
@@ -58,6 +61,11 @@ export interface CanvasEditorState {
   assetUrls: Record<string, string>;
   /** 智能比例重算请求计数（图片插入/版面宽变/文本编辑结束触发）。 */
   smartRecomputeSeq: number;
+  /**
+   * 最近有效的插入落点（页面 + 区块）：无选中时添加入口的解析依据
+   * （B2 统一插入规则 6）。由 select/apply/startEdit 自动维护，内存持久不落盘。
+   */
+  lastActiveTarget: LastActiveTarget | null;
 
   init: (payload: {
     doc: CanvasDoc;
@@ -116,6 +124,7 @@ export function createCanvasStore(initial?: {
     measureEpoch: 0,
     assetUrls: {},
     smartRecomputeSeq: 0,
+    lastActiveTarget: null,
 
     init: ({ doc, title, revision, readOnly, recoveredFromDraft }) =>
       set({
@@ -142,10 +151,22 @@ export function createCanvasStore(initial?: {
         });
       }
       const result = command(state.doc);
+      const nextSelection =
+        result.focus?.kind === "block"
+          ? { kind: "block" as const, blockId: result.focus.blockId }
+          : result.focus?.kind === "free"
+            ? { kind: "free" as const, itemId: result.focus.itemId }
+            : result.focus?.kind === "region"
+              ? { kind: "region" as const, boardId: result.focus.boardId, regionId: result.focus.regionId }
+              : result.focus?.kind === "board"
+                ? { kind: "board" as const, boardId: result.focus.boardId }
+                : state.selection;
+      const activeTarget = activeTargetFromSelection(result.doc, nextSelection);
       set({
         doc: result.doc,
         focus: result.focus ?? null,
         localSeq: state.localSeq + 1,
+        ...(activeTarget ? { lastActiveTarget: activeTarget } : {}),
         // 文本输入保留既有选区与编辑态
       });
       if (result.focus?.kind === "block") {
@@ -200,7 +221,11 @@ export function createCanvasStore(initial?: {
     setViewport: (viewport) =>
       set((state) => ({ viewport: { ...state.viewport, ...viewport } })),
 
-    select: (selection) => set({ selection }),
+    select: (selection) =>
+      set((state) => {
+        const activeTarget = activeTargetFromSelection(state.doc, selection);
+        return activeTarget ? { selection, lastActiveTarget: activeTarget } : { selection };
+      }),
 
     clearFocus: () => set({ focus: null }),
 
@@ -214,7 +239,12 @@ export function createCanvasStore(initial?: {
         if (state.doc.freeItems.some((f) => f.id === id)) {
           return { editingBlockId: id, selection: { kind: "free", itemId: id } };
         }
-        return { editingBlockId: id, selection: { kind: "block", blockId: id } };
+        const activeTarget = activeTargetFromSelection(state.doc, { kind: "block", blockId: id });
+        return {
+          editingBlockId: id,
+          selection: { kind: "block", blockId: id },
+          ...(activeTarget ? { lastActiveTarget: activeTarget } : {}),
+        };
       }),
 
     stopEdit: () => set({ editingBlockId: null, focus: null }),
@@ -269,4 +299,28 @@ export function selectBlock(doc: CanvasDoc, blockId: string): CanvasBlock | null
 
 export function makeEmptyDoc(): CanvasDoc {
   return emptyDoc();
+}
+
+/** 从选区解析最近有效落点（页面+区块）；自由容器/空选区返回 null（保留旧值由调用方决定）。 */
+export function activeTargetFromSelection(
+  doc: CanvasDoc,
+  selection: CanvasSelection,
+): LastActiveTarget | null {
+  if (!selection) return null;
+  if (selection.kind === "board") {
+    const board = doc.boards.find((b) => b.id === selection.boardId);
+    const region = board?.regions[board.regions.length - 1];
+    return board ? { boardId: board.id, regionId: region?.id ?? "" } : null;
+  }
+  if (selection.kind === "region") {
+    const found = findRegion(doc, selection.regionId);
+    return found && found.board.id === selection.boardId
+      ? { boardId: selection.boardId, regionId: selection.regionId }
+      : null;
+  }
+  if (selection.kind === "block") {
+    const loc = findBlockLocation(doc, selection.blockId);
+    return loc ? { boardId: loc.board.id, regionId: loc.region.id } : null;
+  }
+  return null; // free：不改变页面/区块记忆
 }

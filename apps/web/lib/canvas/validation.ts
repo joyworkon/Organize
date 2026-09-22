@@ -17,6 +17,7 @@ import {
   CanvasDoc,
   countNodes,
   ensureCanvasDocV2,
+  isSafeButtonHref,
 } from "./model";
 
 export const CANVAS_LIMITS = {
@@ -130,8 +131,30 @@ function validateBlock(
     if (typeof b.text !== "string" || b.text.length > CANVAS_LIMITS.maxTextLength) {
       errors.push(`${path}.text 超长或非法`);
     }
-    if (b.role !== "title" && b.role !== "body") {
+    if (b.role !== "title" && b.role !== "body" && b.role !== "list") {
       errors.push(`${path}.role 非法`);
+    }
+    validateStyle(b.style, errors, path);
+    return true;
+  }
+  if (b.type === "divider") {
+    validateStyle(b.style, errors, path);
+    return true;
+  }
+  if (b.type === "button") {
+    if (typeof b.label !== "string" || b.label.length > CANVAS_LIMITS.maxTitleLength) {
+      errors.push(`${path}.label 超长或非法`);
+    }
+    if (typeof b.href !== "string" || b.href.length > CANVAS_LIMITS.maxAssetUrlLength) {
+      errors.push(`${path}.href 超长或非法`);
+    } else if (b.href !== "" && !isSafeButtonHref(b.href)) {
+      errors.push(`${path}.href 仅允许 http(s) 链接`);
+    }
+    if (b.align !== undefined && !["left", "center", "right"].includes(String(b.align))) {
+      errors.push(`${path}.align 非法`);
+    }
+    if (b.variant !== "primary" && b.variant !== "secondary") {
+      errors.push(`${path}.variant 非法`);
     }
     validateStyle(b.style, errors, path);
     return true;
@@ -181,6 +204,9 @@ function validateBlock(
       !["auto", "1:1", "4:3", "16:9"].includes(String(b.ratio))
     ) {
       errors.push(`${path}.ratio 非法`);
+    }
+    if (b.alt !== undefined && (typeof b.alt !== "string" || b.alt.length > 200)) {
+      errors.push(`${path}.alt 非法`);
     }
     validateStyle(b.style, errors, path);
     return true;
@@ -298,6 +324,18 @@ export function validateCanvasContent(
         else markId(section.id, spath);
         if (!["equal", "manual", "smart"].includes(String(section.widthMode))) {
           errors.push(`${spath}.widthMode 非法`);
+        }
+        if (
+          section.gap !== undefined &&
+          (!isFiniteNumber(section.gap) || section.gap < 0 || section.gap > 128)
+        ) {
+          errors.push(`${spath}.gap 非法`);
+        }
+        if (
+          section.verticalAlign !== undefined &&
+          !["stretch", "top", "middle", "bottom"].includes(String(section.verticalAlign))
+        ) {
+          errors.push(`${spath}.verticalAlign 非法`);
         }
         if (!Array.isArray(section.columns)) {
           errors.push(`${spath}.columns 必须是数组`);

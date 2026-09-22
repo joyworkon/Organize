@@ -67,6 +67,12 @@ export async function uploadCanvasImage(
     if (file.size > MAX_CANVAS_IMAGE_BYTES) {
       throw new Error("图片不能超过 5MB");
     }
+    // E2E 钩子：模拟在途上传（仅 mock 路径生效，生产无行为变化）
+    const delayMs =
+      typeof window !== "undefined"
+        ? ((window as unknown as { __canvasMockUploadDelayMs?: number }).__canvasMockUploadDelayMs ?? 0)
+        : 0;
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     await putBlob(userId, key, file);
     return { asset: { url: `mock-image:${key}`, ...base, uploadStatus: "saved" } };
   }
