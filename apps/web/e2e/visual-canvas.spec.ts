@@ -15,27 +15,28 @@ test("visual: 搭建完整骨架并截图", async ({ page }) => {
   await page.waitForURL(/\/canvas\//);
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
 
-  // 双击建版面，输入标题
+  // 双击建页面骨架（B1 blank：一个区块 + 标题块），输入标题
   await page.getByTestId("canvas-viewport").dblclick({ position: { x: 80, y: 120 } });
   const title = page.locator("[data-block-type='text'] textarea").first();
   await expect(title).toBeFocused();
   await page.keyboard.type("新品发布 · 内容卡片");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter"); // 本区块内新增通栏行
   await page.keyboard.type("左列正文：把想法写下来，让版式自己长出来。双击即建，回车成栏。");
-  // 左列局部加号：向下加一块
+  // 左列局部加号：向下加一块（骨架 blank 只有标题块 + 本行块）
   const blocks = page.locator("[data-block-type='text']");
-  await blocks.nth(2).hover();
+  await expect(blocks).toHaveCount(2);
+  await blocks.nth(1).hover();
   await page.locator("button[aria-label='在本列下方添加模块']").click();
-  await expect(blocks).toHaveCount(4);
+  await expect(blocks).toHaveCount(3);
   // 右列加号
-  await blocks.nth(2).hover();
+  await blocks.nth(1).hover();
   await page.locator("button[aria-label='在右侧添加一列']").click();
-  await expect(blocks).toHaveCount(5);
+  await expect(blocks).toHaveCount(4);
   await page.keyboard.type("右列说明");
   // 右列下方添加
-  await blocks.nth(4).hover();
+  await blocks.nth(3).hover();
   await page.locator("button[aria-label='在本列下方添加模块']").click();
-  await expect(blocks).toHaveCount(6);
+  await expect(blocks).toHaveCount(5);
   await page.keyboard.type("右列补充内容，跨两层演示。");
   // 通栏：Enter
   await page.keyboard.press("Enter");
@@ -94,12 +95,12 @@ test("visual: IME 组合期 Enter 不建块（合成事件模拟）", async ({ p
   });
   await page.waitForTimeout(300);
   const sectionsBefore = await page.locator("[data-section-id]").count();
-  // 组合结束后 Enter：应建块
+  // 组合结束后 Enter：应在本区块内建块（B1 blank 骨架起始为 1 行）
   await page.keyboard.press("Enter");
   await page.waitForTimeout(300);
   const sectionsAfter = await page.locator("[data-section-id]").count();
-  expect(sectionsBefore).toBe(2);
-  expect(sectionsAfter).toBe(3);
+  expect(sectionsBefore).toBe(1);
+  expect(sectionsAfter).toBe(2);
 });
 
 

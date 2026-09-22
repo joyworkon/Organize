@@ -6277,6 +6277,216 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
 .canvas-list-action:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / 0.5); }
 .canvas-list-action.is-danger:hover { color: hsl(var(--destructive)); }
 
+/* 区块（Region，B1）：编辑态轻量边框，选中态只强调当前对象 */
+.canvas-region {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-lg);
+}
+.canvas-region.is-selected {
+  border-color: hsl(var(--primary) / 0.7);
+}
+/* 预览 / 只读：隐藏编辑边框；用户显式设置的装饰 border 保留 */
+.canvas-region.is-static {
+  border-color: transparent;
+}
+.canvas-region.is-static.is-decorated {
+  border-color: hsl(var(--border));
+}
+.canvas-region-name {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 5;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: var(--radius-xs);
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--card));
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.canvas-region-name:hover {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+.canvas-region-name-input {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  z-index: 6;
+  width: 120px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: var(--radius-xs);
+  border: 1px solid hsl(var(--primary));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  outline: none;
+}
+/* 预览 / 只读：区块名作为内容标题文本 */
+.canvas-region-title {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  right: 10px;
+  z-index: 5;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* 左侧「结构 / 模板」面板（B1，位于工具条右侧，不破坏工具条布局） */
+.canvas-outline-panel {
+  position: absolute;
+  left: 56px;
+  top: 64px;
+  z-index: 40;
+  width: 216px;
+  max-height: calc(100% - 160px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  font-size: 12px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.canvas-outline-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  margin: 2px 2px 0;
+}
+.canvas-outline-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.canvas-outline-empty {
+  padding: 4px 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+.canvas-outline-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.canvas-outline-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 6px;
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground));
+  text-align: left;
+}
+.canvas-outline-row.is-board {
+  font-weight: 600;
+}
+.canvas-outline-row.is-region {
+  padding-left: 20px;
+}
+.canvas-outline-row.is-selected {
+  background: hsl(var(--accent));
+}
+.canvas-outline-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.canvas-outline-actions {
+  display: inline-flex;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0.35;
+}
+.canvas-outline-row:hover .canvas-outline-actions,
+.canvas-outline-row:focus-within .canvas-outline-actions {
+  opacity: 1;
+}
+.canvas-outline-action {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  color: hsl(var(--muted-foreground));
+}
+.canvas-outline-action:hover:not(:disabled) {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.canvas-outline-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.canvas-outline-action.is-danger:hover:not(:disabled) {
+  color: hsl(var(--destructive));
+}
+.canvas-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.canvas-template-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground));
+  text-align: left;
+}
+.canvas-template-item:hover {
+  background: hsl(var(--accent));
+}
+.canvas-template-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 空态明确入口（B1）：文字标签 + title 提示 */
+.canvas-empty-hint .canvas-empty-actions {
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.canvas-empty-action {
+  padding: 5px 14px;
+  font-size: 13px;
+  border-radius: var(--radius-lg);
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+.canvas-empty-action:hover {
+  border-color: hsl(var(--primary) / 0.7);
+  color: hsl(var(--primary));
+}
+
 /* 画布表面沿用全局连续曲率：div 表面不在全局 button/input 选择器内，这里补齐。
    圆角一律取 --radius-* 变量，支持 squircle 的浏览器呈连续曲率。 */
 @supports (corner-shape: squircle) {
@@ -6288,7 +6498,9 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   .canvas-banner,
   .canvas-block,
   .canvas-insert-preview,
-  .canvas-list-card {
+  .canvas-list-card,
+  .canvas-region,
+  .canvas-outline-panel {
     corner-shape: squircle;
   }
 }

@@ -1,9 +1,18 @@
 /**
- * 构思画布布局引擎（docs/idea-canvas-plan.md §4）。
+ * 构思画布布局引擎（docs/idea-canvas-plan.md §4，阶段 B1 增加 Region 层）。
  *
- * 单向流程：先定宽 → 测内容自然高度 → 算分区高 → 拉伸容器。
+ * 单向流程：先定宽 → 测内容自然高度 → 算行高 → 算区块高 → 拉伸容器。
  * 本模块是纯函数：测量值由调用方注入（UI 层用隐藏 DOM 测量器），绝不把
  * 拉伸后的容器高度反馈进宽度计算，避免布局抖动。
+ *
+ * Region 几何决策（B1）：
+ * - 版面内容宽 = width − 2×padding；
+ * - 区块内宽 = 版面内容宽 − 2×regionPadding，regionPadding = region.style.padding ?? 0
+ *   （缺省 0：v1 迁移文档不吃额外宽度，渲染几何逐像素不变）；
+ * - 区块内行距/列距/块距 = region.style.rowGap ?? board.gap（缺省继承版面 gap，
+ *   与 v1 行距语义一致）；
+ * - 区块高 = regionPadding×2 + Σ(行高) + 行距×(行数−1)；
+ * - 版面总高 = padding×2 + Σ(区块高) + gap×(区块数−1)。
  */
 
 import {
@@ -12,6 +21,7 @@ import {
   CanvasBlock,
   CanvasBoard,
   CanvasDoc,
+  CanvasRegion,
   CanvasSection,
   IMAGE_RATIO_WIDTH_PER_HEIGHT,
   MIN_TEXT_CONTENT_HEIGHT,
@@ -51,13 +61,21 @@ export interface SceneSection {
   columns: SceneColumn[];
 }
 
+export interface SceneRegion {
+  regionId: string;
+  /** 世界坐标（区块外框左上角）。 */
+  y: number;
+  height: number;
+  sections: SceneSection[];
+}
+
 export interface SceneBoard {
   boardId: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  sections: SceneSection[];
+  regions: SceneRegion[];
 }
 
 export interface SceneFreeItem {
@@ -83,16 +101,31 @@ export function sectionAllocatableWidth(board: CanvasBoard, columnCount: number)
   return boardContentWidth(board) - board.gap * Math.max(0, columnCount - 1);
 }
 
+/** 区块内边距：显式 style.padding，缺省 0（B1 决策，迁移文档几何不变）。 */
+export function regionPadding(board: CanvasBoard, region: CanvasRegion): number {
+  return region.style?.padding ?? 0;
+}
+
+/** 区块内行/列/块间距：显式 style.rowGap，缺省继承版面 gap（B1 决策）。 */
+export function regionGap(board: CanvasBoard, region: CanvasRegion): number {
+  return region.style?.rowGap ?? board.gap;
+}
+
+/** 区块内宽（版面内容宽 − 2×区块内边距）。 */
+export function regionInnerWidth(board: CanvasBoard, region: CanvasRegion): number {
+  return boardContentWidth(board) - regionPadding(board, region) * 2;
+}
+
 /**
  * 列宽分配：columnWeights 归一化后按比例分配，严格满足
- * Σ列宽 + gap×(n-1) = 分区内容宽（规格 §4.1.2）。
+ * Σ列宽 + gap×(n-1) = 内容宽（规格 §4.1.2）。
  */
-export function computeColumnWidths(
-  board: Pick<CanvasBoard, "width" | "padding" | "gap">,
+export function computeColumnWidthsForContent(
+  contentWidth: number,
+  gap: number,
   section: Pick<CanvasSection, "columnWeights" | "columns">,
 ): number[] {
-  const contentWidth = board.width - board.padding * 2;
-  const gapTotal = board.gap * Math.max(0, section.columns.length - 1);
+  const gapTotal = gap * Math.max(0, section.columns.length - 1);
   const allocatable = Math.max(0, contentWidth - gapTotal);
   const weights = section.columns.map(
     (_, i) => (section.columnWeights[i] ?? 1) > 0 ? section.columnWeights[i] ?? 1 : 1,
@@ -108,13 +141,25 @@ export function computeColumnWidths(
   return widths;
 }
 
-/** 能否再加一列：所有列（含新列）都 ≥ COLUMN_MIN_WIDTH（规格 §3.3）。 */
+/** 版面级列宽分配（版面内容宽 + 版面 gap；区块内布局请用 regionInnerWidth + regionGap）。 */
+export function computeColumnWidths(
+  board: Pick<CanvasBoard, "width" | "padding" | "gap">,
+  section: Pick<CanvasSection, "columnWeights" | "columns">,
+): number[] {
+  return computeColumnWidthsForContent(board.width - board.padding * 2, board.gap, section);
+}
+
+/** 给定内容宽与间距下能否再加一列：所有列（含新列）都 ≥ COLUMN_MIN_WIDTH（规格 §3.3）。 */
+export function canAddColumnAt(contentWidth: number, gap: number, columnCount: number): boolean {
+  return (columnCount + 1) * COLUMN_MIN_WIDTH + columnCount * gap <= contentWidth;
+}
+
+/** 能否再加一列（版面级判定；区块内请用 canAddColumnAt(regionInnerWidth, regionGap, n)）。 */
 export function canAddColumn(
   board: Pick<CanvasBoard, "width" | "padding" | "gap">,
   columnCount: number,
 ): boolean {
-  const contentWidth = board.width - board.padding * 2;
-  return (columnCount + 1) * COLUMN_MIN_WIDTH + columnCount * board.gap <= contentWidth;
+  return canAddColumnAt(board.width - board.padding * 2, board.gap, columnCount);
 }
 
 /**
@@ -171,15 +216,21 @@ export function columnRequiredHeight(
   return naturalHeights.length * m + (naturalHeights.length - 1) * gap;
 }
 
-/** 分区内每列每块的最终盒子（先定列宽，再测自然高，最后拉伸）。 */
+/**
+ * 分区内每列每块的最终盒子（先定列宽，再测自然高，最后拉伸）。
+ * @param contentX 行内容区左上角世界 x（= 区块内容区左缘）
+ * @param contentWidth 行内容宽（区块内宽）
+ * @param gap 列/块间距（区块行距）
+ */
 function layoutSection(
-  board: CanvasBoard,
   section: CanvasSection,
-  boardY: number,
+  contentX: number,
+  contentWidth: number,
+  gap: number,
+  sectionY: number,
   measure: CanvasMeasure,
 ): SceneSection {
-  const columnWidths = computeColumnWidths(board, section);
-  const gap = board.gap;
+  const columnWidths = computeColumnWidthsForContent(contentWidth, gap, section);
   const naturalPerColumn: number[][] = section.columns.map((column, i) =>
     column.blocks.map((block) => {
       const inner = Math.max(1, columnWidths[i] - BLOCK_PADDING * 2);
@@ -192,13 +243,12 @@ function layoutSection(
   const columnHeights = naturalPerColumn.map((heights) => columnRequiredHeight(heights, gap));
   const sectionHeight = columnHeights.length > 0 ? Math.max(...columnHeights) : 0;
 
-  const contentX = board.x + board.padding;
   let x = contentX;
   const columns: SceneColumn[] = section.columns.map((column, i) => {
     const width = columnWidths[i];
     const n = column.blocks.length;
     const blockHeight = n > 0 ? (sectionHeight - (n - 1) * gap) / n : 0;
-    let y = boardY;
+    let y = sectionY;
     const blocks: SceneBlockBox[] = column.blocks.map((block) => {
       const box: SceneBlockBox = {
         blockId: block.id,
@@ -210,18 +260,40 @@ function layoutSection(
       y += blockHeight + gap;
       return box;
     });
-    const sceneColumn: SceneColumn = { columnId: column.id, x, y: boardY, width, height: sectionHeight, blocks };
+    const sceneColumn: SceneColumn = { columnId: column.id, x, y: sectionY, width, height: sectionHeight, blocks };
     x += width + gap;
     return sceneColumn;
   });
 
   return {
     sectionId: section.id,
-    y: boardY,
+    y: sectionY,
     height: sectionHeight,
     columnWidths,
     columns,
   };
+}
+
+/** 区块内每行的最终盒子（含区块内边距与行距，B1）。 */
+function layoutRegion(
+  board: CanvasBoard,
+  region: CanvasRegion,
+  regionY: number,
+  measure: CanvasMeasure,
+): SceneRegion {
+  const pad = regionPadding(board, region);
+  const gap = regionGap(board, region);
+  const innerWidth = regionInnerWidth(board, region);
+  const contentX = board.x + board.padding + pad;
+  let y = regionY + pad;
+  const sections: SceneSection[] = region.sections.map((section) => {
+    const scene = layoutSection(section, contentX, innerWidth, gap, y, measure);
+    y += scene.height + gap;
+    return scene;
+  });
+  const height =
+    region.sections.length > 0 ? y - gap + pad - regionY : pad * 2;
+  return { regionId: region.id, y: regionY, height, sections };
 }
 
 /** 自由容器高度：文本按测量；图片按容器比例（ratio≠auto）或宽度/自然比例（auto）。 */
@@ -244,16 +316,16 @@ function freeItemHeight(
   return natural + BLOCK_CHROME;
 }
 
-/** 计算整张场景的世界坐标几何。 */
+/** 计算整张场景的世界坐标几何（B1：版面 → 区块 → 行 → 列 → 块）。 */
 export function computeScene(doc: CanvasDoc, measure: CanvasMeasure): Scene {
   const boards: SceneBoard[] = doc.boards.map((board) => {
     let y = board.y + board.padding;
-    const sections: SceneSection[] = board.sections.map((section) => {
-      const scene = layoutSection(board, section, y, measure);
+    const regions: SceneRegion[] = board.regions.map((region) => {
+      const scene = layoutRegion(board, region, y, measure);
       y += scene.height + board.gap;
       return scene;
     });
-    const height = board.sections.length > 0
+    const height = board.regions.length > 0
       ? y - board.gap + board.padding - board.y
       : board.padding * 2;
     return {
@@ -262,7 +334,7 @@ export function computeScene(doc: CanvasDoc, measure: CanvasMeasure): Scene {
       y: board.y,
       width: board.width,
       height,
-      sections,
+      regions,
     };
   });
   const freeItems: SceneFreeItem[] = doc.freeItems.map((item) => ({

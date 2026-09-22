@@ -18,7 +18,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import type { CanvasDoc } from "@/lib/canvas/model";
-import { createBoard } from "@/lib/canvas/commands";
+import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasBoardView } from "./canvas-board";
@@ -49,6 +49,9 @@ export interface CanvasViewportProps {
   selection: ReturnType<CanvasStore["getState"]>["selection"];
   editingBlockId: string | null;
   assetUrls: Record<string, string>;
+  /** B1 空态明确入口：新建空白页面 / 宣传落地页骨架。 */
+  onCreateBlank?: () => void;
+  onCreateLanding?: () => void;
 }
 
 export function CanvasViewportView({
@@ -61,6 +64,8 @@ export function CanvasViewportView({
   selection,
   editingBlockId,
   assetUrls,
+  onCreateBlank,
+  onCreateLanding,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -141,7 +146,7 @@ export function CanvasViewportView({
     setPanning(false);
   }, []);
 
-  // ---- 双击建版面（含 50%/100%/200% 下的世界坐标换算，A01） ----
+  // ---- 双击建页面骨架（含 50%/100%/200% 下的世界坐标换算，A01；B1 改走 blank 骨架） ----
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -156,7 +161,9 @@ export function CanvasViewportView({
       const state = store.getState();
       const wx = (e.clientX - rect.left - state.viewport.x) / state.viewport.zoom;
       const wy = (e.clientY - rect.top - state.viewport.y) / state.viewport.zoom;
-      store.getState().apply("新建版面", (d) => createBoard(d, { x: wx, y: wy }));
+      store.getState().apply("新建空白页面", (d) =>
+        createBoardSkeleton(d, { at: { x: wx, y: wy }, variant: "blank" }),
+      );
     },
     [interactive, store],
   );
@@ -213,6 +220,11 @@ export function CanvasViewportView({
               userId={userId}
               assetUrls={assetUrls}
               selectedBoard={selection?.kind === "board" && selection.boardId === board.id}
+              selectedRegion={
+                selection?.kind === "region" && selection.boardId === board.id
+                  ? selection
+                  : null
+              }
               selectedBlockId={selection?.kind === "block" ? selection.blockId : null}
               editingBlockId={editingBlockId}
             />
@@ -235,8 +247,38 @@ export function CanvasViewportView({
         })}
       </div>
       {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
-        <div className="canvas-empty-hint" aria-hidden="true">
-          双击画布任意位置，开始你的第一张构思稿
+        <div className="canvas-empty-hint">
+          <p>双击画布任意位置，开始你的第一张构思稿</p>
+          {(onCreateBlank || onCreateLanding) && (
+            <div className="canvas-empty-actions">
+              {onCreateBlank && (
+                <button
+                  type="button"
+                  className="canvas-empty-action"
+                  title="新建空白页面：一个默认区块 + 标题块"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateBlank();
+                  }}
+                >
+                  空白页面
+                </button>
+              )}
+              {onCreateLanding && (
+                <button
+                  type="button"
+                  className="canvas-empty-action"
+                  title="新建宣传落地页骨架：头部 / 中部 / 底部三个区块"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateLanding();
+                  }}
+                >
+                  宣传落地页骨架
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {!interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (

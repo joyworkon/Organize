@@ -22,27 +22,33 @@ import {
   Eye,
   Image as ImageIcon,
   LayoutTemplate,
+  ListTree,
   Loader2,
   Maximize2,
   Minus,
   MousePointerClick,
   Plus,
   Redo2,
+  Rows3,
   Type as TypeIcon,
   Undo2,
 } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
+import { isTypingTarget } from "@/lib/hooks/use-hotkey";
 import { createClient } from "@/lib/supabase/client";
-import { CANVAS_SCHEMA_VERSION, createImageBlock, type CanvasDoc } from "@/lib/canvas/model";
+import { CANVAS_SCHEMA_VERSION, createImageBlock, ensureCanvasDocV2, findBlockLocation, type CanvasDoc } from "@/lib/canvas/model";
 import {
   appendImageSection,
-  createBoardAutoPlace,
+  applyCanvasTemplate,
+  createBoardSkeleton,
   createFreeImage,
   createFreeText,
   deleteBlock,
   deleteFreeItem,
+  deleteRegion,
   insertBlockBelow,
   planImageInsertTarget,
+  type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
 import {
   duplicateCanvas,
@@ -58,6 +64,7 @@ import { createCanvasStore } from "./canvas-store";
 import { useCanvasScene, useFontsReady } from "./use-canvas-scene";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
+import { CanvasOutlinePanel } from "./canvas-outline-panel";
 import { displayKey } from "./canvas-block";
 import { useCanvasSelector } from "./use-canvas-selector";
 import {
@@ -90,10 +97,12 @@ function serializeDocForSave(doc: CanvasDoc): CanvasDoc {
     }
   };
   for (const board of clone.boards) {
-    for (const section of board.sections) {
-      for (const column of section.columns) {
-        for (const block of column.blocks) {
-          if (block.type === "image") clean(block.asset);
+    for (const region of board.regions) {
+      for (const section of region.sections) {
+        for (const column of section.columns) {
+          for (const block of column.blocks) {
+            if (block.type === "image") clean(block.asset);
+          }
         }
       }
     }
@@ -111,6 +120,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
   const [userId, setUserId] = useState("");
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const freeImageInputRef = useRef<HTMLInputElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
 
@@ -170,12 +180,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       setRemoteRow(remote.row);
 
       const draft = await loadDraft(uid, documentId);
-      let useDoc = remote.row.content;
+      // B1：读取侧统一 v2（远端经 repository ensure；草稿/旧数据在此迁移）
+      let useDoc = ensureCanvasDocV2(remote.row.content);
       let useTitle = remote.row.title;
       let recovered = false;
       if (draft && draft.localSeq > 0 && validateCanvasContent(draft.doc).errors.length === 0) {
-        // 本机草稿领先远端：恢复草稿内容（A11）
-        useDoc = draft.doc;
+        // 本机草稿领先远端：恢复草稿内容（A11）；v1 草稿经 ensure 迁移为 v2
+        useDoc = ensureCanvasDocV2(draft.doc);
         useTitle = draft.title;
         recovered = true;
       }
@@ -191,11 +202,12 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       // 解析本机图片（mock-image: / pending）为可渲染对象 URL
       const assets: { blockId: string; asset: Parameters<typeof resolveAssetUrl>[0] }[] = [];
       for (const board of useDoc.boards)
-        for (const section of board.sections)
-          for (const column of section.columns)
-            for (const block of column.blocks)
-              if (block.type === "image" && block.asset)
-                assets.push({ blockId: block.id, asset: block.asset });
+        for (const region of board.regions)
+          for (const section of region.sections)
+            for (const column of section.columns)
+              for (const block of column.blocks)
+                if (block.type === "image" && block.asset)
+                  assets.push({ blockId: block.id, asset: block.asset });
       for (const item of useDoc.freeItems)
         if (item.block.type === "image" && item.block.asset)
           assets.push({ blockId: item.id, asset: item.block.asset });
@@ -259,9 +271,11 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         }, 400);
         if (state.smartRecomputeSeq !== prev.smartRecomputeSeq) {
           for (const board of state.doc.boards) {
-            for (const section of board.sections) {
-              if (section.widthMode === "smart") {
-                recomputeSmartSection(store, measurer, section.id);
+            for (const region of board.regions) {
+              for (const section of region.sections) {
+                if (section.widthMode === "smart") {
+                  recomputeSmartSection(store, measurer, section.id);
+                }
               }
             }
           }
@@ -286,9 +300,11 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     const t = setTimeout(() => {
       const state = store.getState();
       for (const board of state.doc.boards) {
-        for (const section of board.sections) {
-          if (section.widthMode === "smart") {
-            recomputeSmartSection(store, measurer, section.id);
+        for (const region of board.regions) {
+          for (const section of region.sections) {
+            if (section.widthMode === "smart") {
+              recomputeSmartSection(store, measurer, section.id);
+            }
           }
         }
       }
@@ -327,6 +343,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         else s.undo();
         return;
       }
+      // 输入控件内（区块名编辑/对话框）不触发画布快捷键
+      if (isTypingTarget(e)) return;
       if (s.editingBlockId || s.readOnly || s.previewMode) return;
       if (e.code === "Space") {
         setSpaceHeld(true);
@@ -343,6 +361,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           s.apply("删除模块", (d) => deleteBlock(d, { blockId: sel.blockId }));
         } else if (sel.kind === "free") {
           s.apply("删除自由容器", (d) => deleteFreeItem(d, { itemId: sel.itemId }));
+        } else if (sel.kind === "region") {
+          s.apply("删除区块", (d) => deleteRegion(d, { boardId: sel.boardId, regionId: sel.regionId }));
         }
       }
     };
@@ -390,7 +410,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
   }, [store, worldCenter]);
 
-  /** 当前视口的世界矩形（新建版面自动落位用；拿不到容器尺寸时返回 null）。 */
+  /** 当前视口的世界矩形（新建页面自动落位用；拿不到容器尺寸时返回 null）。 */
   const worldViewportRect = useCallback(() => {
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect) return null;
@@ -403,9 +423,70 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     };
   }, [store]);
 
-  const addBoard = useCallback(() => {
-    store.getState().apply("新建版面", (d) => createBoardAutoPlace(d, worldViewportRect()));
+  // B1 新建入口：空白页面 / 宣传落地页骨架（落位走 A4 视口逻辑，首标题聚焦）
+  const addBlankBoard = useCallback(() => {
+    store.getState().apply("新建空白页面", (d) =>
+      createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "blank" }),
+    );
   }, [store, worldViewportRect]);
+
+  const addLandingBoard = useCallback(() => {
+    store.getState().apply("新建宣传落地页骨架", (d) =>
+      createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "landing" }),
+    );
+  }, [store, worldViewportRect]);
+
+  /** 选中并把对象平移到视口中央（不改缩放）。 */
+  const revealTarget = useCallback(
+    (target: { kind: "board"; boardId: string } | { kind: "region"; boardId: string; regionId: string }) => {
+      const rect = shellRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const sb = scene.boards.find((b) => b.boardId === target.boardId);
+      if (!sb) return;
+      let cy: number;
+      if (target.kind === "region") {
+        const sr = sb.regions.find((r) => r.regionId === target.regionId);
+        if (!sr) return;
+        cy = sr.y + sr.height / 2;
+      } else {
+        cy = sb.y + sb.height / 2;
+      }
+      const cx = sb.x + sb.width / 2;
+      const vp = store.getState().viewport;
+      store.getState().setViewport({
+        x: rect.width / 2 - cx * vp.zoom,
+        y: rect.height / 2 - cy * vp.zoom,
+      });
+    },
+    [scene, store],
+  );
+
+  /** 模板插入当前选中页面；无选中页面时先新建空白页面（两次可撤销事务）。 */
+  const applyTemplate = useCallback(
+    (template: CanvasTemplateKind) => {
+      const s = store.getState();
+      const sel = s.selection;
+      let boardId: string | null =
+        sel?.kind === "board" || sel?.kind === "region"
+          ? sel.boardId
+          : sel?.kind === "block"
+            ? (findBlockLocation(s.doc, sel.blockId)?.board.id ?? null)
+            : null;
+      if (!boardId) boardId = s.doc.boards[s.doc.boards.length - 1]?.id ?? null;
+      if (!boardId) {
+        s.apply("新建空白页面", (d) =>
+          createBoardSkeleton(d, { viewportRect: worldViewportRect(), variant: "blank" }),
+        );
+        const boards = store.getState().doc.boards;
+        boardId = boards[boards.length - 1]?.id ?? null;
+        if (!boardId) return;
+      }
+      store.getState().apply("插入模板", (d) => applyCanvasTemplate(d, { boardId, template }));
+      store.getState().requestSmartRecompute();
+      revealTarget({ kind: "board", boardId });
+    },
+    [store, worldViewportRect, revealTarget],
+  );
 
   const onFreeImageFile = useCallback(
     async (file: File | undefined) => {
@@ -644,11 +725,30 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           <button
             type="button"
             className="canvas-tool-btn"
-            title="新建版面"
-            aria-label="新建版面"
-            onClick={addBoard}
+            title="结构 / 模板面板"
+            aria-label="结构与模板面板"
+            aria-pressed={outlineOpen}
+            onClick={() => setOutlineOpen((v) => !v)}
+          >
+            <ListTree className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="canvas-tool-btn"
+            title="新建空白页面（一个默认区块 + 标题块）"
+            aria-label="新建空白页面"
+            onClick={addBlankBoard}
           >
             <LayoutTemplate className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="canvas-tool-btn"
+            title="新建宣传落地页骨架（头部 / 中部 / 底部三个区块）"
+            aria-label="新建宣传落地页骨架"
+            onClick={addLandingBoard}
+          >
+            <Rows3 className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -681,6 +781,15 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         }}
       />
 
+      {/* 左侧「结构 / 模板」面板（B1） */}
+      {interactive && outlineOpen && (
+        <CanvasOutlinePanel
+          store={store}
+          onReveal={revealTarget}
+          onApplyTemplate={applyTemplate}
+        />
+      )}
+
       {/* 视口 */}
       <div ref={shellRef} className="canvas-shell" data-testid="canvas-shell">
         <CanvasViewportView
@@ -693,6 +802,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           selection={selection}
           editingBlockId={editingBlockId}
           assetUrls={assetUrls}
+          onCreateBlank={addBlankBoard}
+          onCreateLanding={addLandingBoard}
         />
       </div>
 

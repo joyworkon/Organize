@@ -16,17 +16,17 @@ describe("CanvasHistory", () => {
     history.push(base, "新建版面"); // op1 前置快照
     const r2 = insertSectionAfter(
       r1.doc,
-      { boardId: r1.doc.boards[0].id, sectionId: r1.doc.boards[0].sections[0].id },
+      { boardId: r1.doc.boards[0].id, sectionId: r1.doc.boards[0].regions[0].sections[0].id },
       counterIds(),
     );
     history.push(r1.doc, "新增通栏"); // op2 前置快照
 
     const undone = history.undo(r2.doc);
-    expect(undone?.doc.boards[0].sections).toHaveLength(2); // 回到 r1
+    expect(undone?.doc.boards[0].regions[0].sections).toHaveLength(2); // 回到 r1
     expect(history.canRedo).toBe(true);
 
     const redone = history.redo(undone!.doc);
-    expect(redone?.doc.boards[0].sections).toHaveLength(3); // 回到 r2
+    expect(redone?.doc.boards[0].regions[0].sections).toHaveLength(3); // 回到 r2
   });
 
   it("连续文本输入按 coalesceKey 合并为一个事务（一次 undo 回到输入前）", () => {

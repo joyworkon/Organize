@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyDoc, findFreeItem } from "@/lib/canvas/model";
 import {
+  applyCanvasTemplate,
   createBoard,
   createFreeImage,
   createFreeText,
@@ -40,7 +41,7 @@ describe("apply 焦点同步（A1）", () => {
   it("block 焦点保持原行为：选中新块，edit 时进入编辑态", () => {
     const store = makeStore();
     store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
-    const titleId = store.getState().doc.boards[0].sections[0].columns[0].blocks[0].id;
+    const titleId = store.getState().doc.boards[0].regions[0].sections[0].columns[0].blocks[0].id;
     expect(store.getState().selection).toEqual({ kind: "block", blockId: titleId });
     expect(store.getState().editingBlockId).toBe(titleId);
   });
@@ -71,7 +72,7 @@ describe("startEdit 对象类别判定（A2）", () => {
   it("版面模块：selection 为 {kind:'block'}", () => {
     const store = makeStore();
     store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
-    const titleId = store.getState().doc.boards[0].sections[0].columns[0].blocks[0].id;
+    const titleId = store.getState().doc.boards[0].regions[0].sections[0].columns[0].blocks[0].id;
     store.getState().startEdit(titleId);
     expect(store.getState().selection).toEqual({ kind: "block", blockId: titleId });
     expect(store.getState().editingBlockId).toBe(titleId);
@@ -91,5 +92,22 @@ describe("自由容器样式命令路径（A3 属性栏依赖）", () => {
     if (block?.type === "text") {
       expect(block.style).toMatchObject({ fontSize: "lg", bold: true, align: "center", color: "red" });
     }
+  });
+});
+
+describe("region 焦点同步（B1）", () => {
+  it("region 焦点：selection 切到新区块，不进入编辑态", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
+    const boardId = store.getState().doc.boards[0].id;
+    const regionId = store.getState().doc.boards[0].regions[0].id;
+    store.getState().apply("插入模板", (d) =>
+      applyCanvasTemplate(d, { boardId, template: "blank-structure" }, counterIds()),
+    );
+    const regions = store.getState().doc.boards[0].regions;
+    const newRegionId = regions[regions.length - 1].id;
+    expect(newRegionId).not.toBe(regionId);
+    expect(store.getState().selection).toEqual({ kind: "region", boardId, regionId: newRegionId });
+    expect(store.getState().editingBlockId).toBeNull();
   });
 });

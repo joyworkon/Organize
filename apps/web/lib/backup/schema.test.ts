@@ -325,7 +325,9 @@ function fixtureData(): BackupData {
       {
         id: "c0000000-0000-4000-8000-000000000001",
         title: "备份往返画布",
-        content: { schemaVersion: 1, boards: [], freeItems: [] },
+        // B1：备份层只保证 content 是对象（schemaVersion 由应用层校验）；
+        // fixture 统一写 v2，v1 读取迁移链路由 lib/canvas/migration.test.ts 覆盖。
+        content: { schemaVersion: 2, boards: [], freeItems: [] },
         deleted_at: null,
         created_at: timestamp,
         updated_at: timestamp,

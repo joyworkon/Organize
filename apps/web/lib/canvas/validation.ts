@@ -1,9 +1,13 @@
 /**
- * 构思画布文档校验（docs/idea-canvas-plan.md §6.3）。
+ * 构思画布文档校验（docs/idea-canvas-plan.md §6.3，阶段 B1 升级为 schemaVersion 2）。
  *
  * 客户端与服务器共用同一契约：/api/canvases 与 mock api-shim 都用它校验
  * content。对未来未知块类型不静默删除——保留原数据、报告 unknownBlockIds，
  * 由 UI 渲染占位并阻止不兼容保存（规格 §6.1）。
+ *
+ * v1 处理策略（B1 决策）：校验入口先经 ensureCanvasDocV2 自动迁移——
+ * 服务端/mock 收到旧客户端写入的 v1 content 时迁移为 v2 再校验、
+ * 并以迁移后的 doc 落库（防止旧客户端写入丢 Region 层级）；返回的 doc 恒为 v2。
  */
 
 import {
@@ -12,10 +16,14 @@ import {
   CANVAS_SCHEMA_VERSION,
   CanvasDoc,
   countNodes,
+  ensureCanvasDocV2,
 } from "./model";
 
 export const CANVAS_LIMITS = {
   maxBoards: 50,
+  /** 每版面区块数上限（B1）。 */
+  maxRegionsPerBoard: 20,
+  /** region 内行数沿用 v1 的版面行数上限（B1：语义改为每区块）。 */
   maxSectionsPerBoard: 200,
   maxColumnsPerSection: 6,
   maxBlocksPerColumn: 20,
@@ -23,6 +31,7 @@ export const CANVAS_LIMITS = {
   maxFreeItems: 100,
   maxTextLength: 5000,
   maxTitleLength: 200,
+  maxNameLength: 100,
   maxAssetUrlLength: 2048,
   maxDimension: 100000,
 } as const;
@@ -76,6 +85,28 @@ function validateStyle(style: unknown, errors: string[], path: string): void {
     (!isFiniteNumber(s.radius) || s.radius < 0 || s.radius > 64)
   ) {
     errors.push(`${path}.style.radius 非法`);
+  }
+}
+
+function validateRegionStyle(style: unknown, errors: string[], path: string): void {
+  if (style === undefined || style === null) return;
+  if (typeof style !== "object" || Array.isArray(style)) {
+    errors.push(`${path}.style 必须是对象`);
+    return;
+  }
+  const s = style as Record<string, unknown>;
+  const background = s.background;
+  if (background !== undefined && background !== null && (typeof background !== "string" || background.length > 32)) {
+    errors.push(`${path}.style.background 非法`);
+  }
+  for (const key of ["padding", "rowGap"] as const) {
+    const v = s[key];
+    if (v !== undefined && (!isFiniteNumber(v) || v < 0 || v > 128)) {
+      errors.push(`${path}.style.${key} 非法`);
+    }
+  }
+  if (s.border !== undefined && typeof s.border !== "boolean") {
+    errors.push(`${path}.style.border 非法`);
   }
 }
 
@@ -162,6 +193,7 @@ function validateBlock(
 /**
  * 校验并解析画布 content JSON。结构非法时 ok=false 且 doc=null；
  * 存在未知块时 ok=false 但 doc 保留原数据（供占位渲染）。
+ * v1 输入先迁移为 v2 再校验（B1），返回 doc 恒为 schemaVersion=2。
  */
 export function validateCanvasContent(
   raw: unknown,
@@ -172,7 +204,8 @@ export function validateCanvasContent(
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, errors: ["content 必须是对象"], unknownBlockIds, doc: null };
   }
-  const obj = raw as Record<string, unknown>;
+  const migrated = ensureCanvasDocV2(raw);
+  const obj = migrated as unknown as Record<string, unknown>;
   if (obj.schemaVersion !== CANVAS_SCHEMA_VERSION) {
     return {
       ok: false,
@@ -205,6 +238,11 @@ export function validateCanvasContent(
     }
     if (!isId(board.id)) errors.push(`${path}.id 非法`);
     else markId(board.id, path);
+    if (board.name !== undefined && board.name !== null) {
+      if (typeof board.name !== "string" || board.name.length > CANVAS_LIMITS.maxNameLength) {
+        errors.push(`${path}.name 超长或非法`);
+      }
+    }
     if (!isFiniteNumber(board.x) || Math.abs(board.x) > 1e6) errors.push(`${path}.x 非法`);
     if (!isFiniteNumber(board.y) || Math.abs(board.y) > 1e6) errors.push(`${path}.y 非法`);
     if (
@@ -220,64 +258,88 @@ export function validateCanvasContent(
     if (!isFiniteNumber(board.gap) || board.gap < 0 || board.gap > 128) {
       errors.push(`${path}.gap 非法`);
     }
-    if (!Array.isArray(board.sections)) {
-      errors.push(`${path}.sections 必须是数组`);
+    if (!Array.isArray(board.regions)) {
+      errors.push(`${path}.regions 必须是数组`);
       return;
     }
-    if (board.sections.length > CANVAS_LIMITS.maxSectionsPerBoard) {
-      errors.push(`${path}.sections 超过上限`);
+    if (board.regions.length > CANVAS_LIMITS.maxRegionsPerBoard) {
+      errors.push(`${path}.regions 超过上限 ${CANVAS_LIMITS.maxRegionsPerBoard}`);
     }
-    board.sections.forEach((section, si) => {
-      const spath = `${path}.sections[${si}]`;
-      if (typeof section !== "object" || section === null) {
-        errors.push(`${spath} 必须是对象`);
+    board.regions.forEach((region, ri) => {
+      const rpath = `${path}.regions[${ri}]`;
+      if (typeof region !== "object" || region === null) {
+        errors.push(`${rpath} 必须是对象`);
         return;
       }
-      if (!isId(section.id)) errors.push(`${spath}.id 非法`);
-      else markId(section.id, spath);
-      if (!["equal", "manual", "smart"].includes(String(section.widthMode))) {
-        errors.push(`${spath}.widthMode 非法`);
+      if (!isId(region.id)) errors.push(`${rpath}.id 非法`);
+      else markId(region.id, rpath);
+      if (
+        typeof region.name !== "string" ||
+        region.name.length === 0 ||
+        region.name.length > CANVAS_LIMITS.maxNameLength
+      ) {
+        errors.push(`${rpath}.name 缺失或超长`);
       }
-      if (!Array.isArray(section.columns)) {
-        errors.push(`${spath}.columns 必须是数组`);
+      validateRegionStyle(region.style, errors, rpath);
+      if (!Array.isArray(region.sections)) {
+        errors.push(`${rpath}.sections 必须是数组`);
         return;
       }
-      if (section.columns.length > CANVAS_LIMITS.maxColumnsPerSection) {
-        errors.push(`${spath}.columns 超过上限 ${CANVAS_LIMITS.maxColumnsPerSection}`);
+      if (region.sections.length > CANVAS_LIMITS.maxSectionsPerBoard) {
+        errors.push(`${rpath}.sections 超过上限`);
       }
-      if (!Array.isArray(section.columnWeights)) {
-        errors.push(`${spath}.columnWeights 必须是数组`);
-      } else {
-        if (section.columnWeights.length !== section.columns.length) {
-          errors.push(`${spath}.columnWeights 长度与列数不一致`);
-        }
-        for (const w of section.columnWeights) {
-          if (!isFiniteNumber(w) || w <= 0) {
-            errors.push(`${spath}.columnWeights 必须为正有限数`);
-            break;
-          }
-        }
-      }
-      section.columns.forEach((column, ci) => {
-        const cpath = `${spath}.columns[${ci}]`;
-        if (typeof column !== "object" || column === null) {
-          errors.push(`${cpath} 必须是对象`);
+      region.sections.forEach((section, si) => {
+        const spath = `${rpath}.sections[${si}]`;
+        if (typeof section !== "object" || section === null) {
+          errors.push(`${spath} 必须是对象`);
           return;
         }
-        if (!isId(column.id)) errors.push(`${cpath}.id 非法`);
-        else markId(column.id, cpath);
-        if (!Array.isArray(column.blocks)) {
-          errors.push(`${cpath}.blocks 必须是数组`);
+        if (!isId(section.id)) errors.push(`${spath}.id 非法`);
+        else markId(section.id, spath);
+        if (!["equal", "manual", "smart"].includes(String(section.widthMode))) {
+          errors.push(`${spath}.widthMode 非法`);
+        }
+        if (!Array.isArray(section.columns)) {
+          errors.push(`${spath}.columns 必须是数组`);
           return;
         }
-        if (column.blocks.length > CANVAS_LIMITS.maxBlocksPerColumn) {
-          errors.push(`${cpath}.blocks 超过上限`);
+        if (section.columns.length > CANVAS_LIMITS.maxColumnsPerSection) {
+          errors.push(`${spath}.columns 超过上限 ${CANVAS_LIMITS.maxColumnsPerSection}`);
         }
-        column.blocks.forEach((block, ki) => {
-          validateBlock(block, errors, unknownBlockIds, options, `${cpath}.blocks[${ki}]`);
-          if (typeof block === "object" && block !== null && isId((block as { id?: unknown }).id)) {
-            markId((block as { id: string }).id, `${cpath}.blocks[${ki}]`);
+        if (!Array.isArray(section.columnWeights)) {
+          errors.push(`${spath}.columnWeights 必须是数组`);
+        } else {
+          if (section.columnWeights.length !== section.columns.length) {
+            errors.push(`${spath}.columnWeights 长度与列数不一致`);
           }
+          for (const w of section.columnWeights) {
+            if (!isFiniteNumber(w) || w <= 0) {
+              errors.push(`${spath}.columnWeights 必须为正有限数`);
+              break;
+            }
+          }
+        }
+        section.columns.forEach((column, ci) => {
+          const cpath = `${spath}.columns[${ci}]`;
+          if (typeof column !== "object" || column === null) {
+            errors.push(`${cpath} 必须是对象`);
+            return;
+          }
+          if (!isId(column.id)) errors.push(`${cpath}.id 非法`);
+          else markId(column.id, cpath);
+          if (!Array.isArray(column.blocks)) {
+            errors.push(`${cpath}.blocks 必须是数组`);
+            return;
+          }
+          if (column.blocks.length > CANVAS_LIMITS.maxBlocksPerColumn) {
+            errors.push(`${cpath}.blocks 超过上限`);
+          }
+          column.blocks.forEach((block, ki) => {
+            validateBlock(block, errors, unknownBlockIds, options, `${cpath}.blocks[${ki}]`);
+            if (typeof block === "object" && block !== null && isId((block as { id?: unknown }).id)) {
+              markId((block as { id: string }).id, `${cpath}.blocks[${ki}]`);
+            }
+          });
         });
       });
     });

@@ -7,6 +7,7 @@
  */
 
 import type { CanvasDoc } from "./model";
+import { ensureCanvasDocV2 } from "./model";
 
 export interface CanvasListItem {
   id: string;
@@ -59,7 +60,11 @@ export async function getCanvas(id: string): Promise<
   { ok: true; row: CanvasRow } | { ok: false; reason: "not-found" | "unauthorized" | "network" }
 > {
   const res = await requestJson<CanvasRow>(`/api/canvases/${id}`);
-  if (res.ok) return { ok: true, row: res.data };
+  // B1：读取侧统一走 ensureCanvasDocV2（v1 备份/旧数据自动迁移为 v2）
+  if (res.ok) {
+    res.data.content = ensureCanvasDocV2(res.data.content);
+    return { ok: true, row: res.data };
+  }
   if (res.status === 404) return { ok: false, reason: "not-found" };
   if (res.status === 401) return { ok: false, reason: "unauthorized" };
   return { ok: false, reason: "network" };

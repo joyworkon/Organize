@@ -3,16 +3,21 @@
 /**
  * 右侧属性栏（docs/idea-canvas-plan.md §5）：按选中对象显示紧凑属性。
  * 文本：角色/字号档/加粗/颜色/对齐/背景/圆角；图片：完整显示 vs 铺满裁切；
- * 版面：宽度/背景/圆角；自由容器：文本样式/图片显示与容器比例/层级/圆角。
+ * 版面（页面）：页面名/宽度/背景/圆角；区块在左侧结构面板操作；
+ * 自由容器：文本样式/图片显示与容器比例/层级/圆角/移入区块。
  * 不含无效占位控件。
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Trash2 } from "@/components/icons";
 import {
+  attachFreeItemToRegion,
   deleteBlock,
   deleteBoard,
   deleteFreeItem,
+  duplicateBlock,
+  moveBlock,
+  renameBoard,
   resizeBoard,
   setImageFit,
   updateBlockStyle,
@@ -23,8 +28,13 @@ import {
   setSectionWidthMode,
   applySmartWeights,
 } from "@/lib/canvas/commands";
-import { findBlockLocation, findFreeItem, type CanvasFontSizeTier, type CanvasDoc } from "@/lib/canvas/model";
-import { computeSmartWeights } from "@/lib/canvas/layout";
+import {
+  findBlockLocation,
+  findFreeItem,
+  type CanvasFontSizeTier,
+  type CanvasDoc,
+} from "@/lib/canvas/model";
+import { computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
 import {
   CANVAS_BG_KEYS,
   CANVAS_COLOR_KEYS,
@@ -38,6 +48,13 @@ import { canSmartRecompute } from "@/lib/canvas/layout";
 import type { CanvasImageRatio } from "@/lib/canvas/model";
 import type { CanvasStore } from "./canvas-store";
 import { useCanvasSelector } from "./use-canvas-selector";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface MeasurerLike {
   measure: (text: string, key: string, style: ResolvedTextStyle, width: number) => number;
@@ -52,6 +69,8 @@ export function CanvasPropertyBar({
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
+  // 「移入区块…」对话框开关（hooks 必须无条件执行，放最顶层）
+  const [moveTargetOpen, setMoveTargetOpen] = useState(false);
 
   const target = (() => {
     if (!selection) return null;
@@ -70,7 +89,7 @@ export function CanvasPropertyBar({
   if (!target) {
     return (
       <div className="canvas-property-bar" aria-label="属性">
-        <p className="text-xs text-muted-foreground">选中模块、版面或自由容器后，这里显示属性。</p>
+        <p className="text-xs text-muted-foreground">选中模块、页面、区块或自由容器后，这里显示属性。</p>
       </div>
     );
   }
@@ -78,8 +97,23 @@ export function CanvasPropertyBar({
   if (target.kind === "board") {
     const board = target.board;
     return (
-      <div className="canvas-property-bar" aria-label="版面属性">
-        <h3 className="canvas-prop-title">版面</h3>
+      <div className="canvas-property-bar" aria-label="页面属性">
+        <h3 className="canvas-prop-title">页面</h3>
+        <label className="canvas-prop-row">
+          <span className="canvas-prop-label">页面名</span>
+          <input
+            className="canvas-prop-input"
+            style={{ width: 132 }}
+            value={board.name ?? ""}
+            placeholder="未命名页面"
+            aria-label="页面名"
+            onChange={(e) =>
+              store.getState().apply("页面改名", (d) =>
+                renameBoard(d, { boardId: board.id, name: e.target.value }),
+              )
+            }
+          />
+        </label>
         <label className="canvas-prop-row">
           <span className="canvas-prop-label">宽度</span>
           <input
@@ -123,9 +157,9 @@ export function CanvasPropertyBar({
         <button
           type="button"
           className="canvas-prop-danger"
-          onClick={() => store.getState().apply("删除版面", (d) => deleteBoard(d, { boardId: board.id }))}
+          onClick={() => store.getState().apply("删除页面", (d) => deleteBoard(d, { boardId: board.id }))}
         >
-          <Trash2 className="h-3.5 w-3.5" /> 删除版面
+          <Trash2 className="h-3.5 w-3.5" /> 删除页面
         </button>
       </div>
     );
@@ -254,6 +288,20 @@ export function CanvasPropertyBar({
             下移一层
           </button>
         </div>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          onClick={() => setMoveTargetOpen(true)}
+        >
+          移入区块…
+        </button>
+        <MoveFreeItemDialog
+          store={store}
+          doc={doc}
+          itemId={item.id}
+          open={moveTargetOpen}
+          onOpenChange={setMoveTargetOpen}
+        />
         <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />
         <button
           type="button"
@@ -378,6 +426,31 @@ export function CanvasPropertyBar({
             </button>
           </div>
         )}
+      <div className="canvas-prop-row canvas-prop-actions">
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          onClick={() => store.getState().apply("复制模块", (d) => duplicateBlock(d, { blockId: block.id }))}
+        >
+          复制
+        </button>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          onClick={() => store.getState().apply("模块上移", (d) => moveBlock(d, { blockId: block.id, direction: "up" }))}
+        >
+          上移
+        </button>
+        <button
+          type="button"
+          className="canvas-prop-btn"
+          onClick={() =>
+            store.getState().apply("模块下移", (d) => moveBlock(d, { blockId: block.id, direction: "down" }))
+          }
+        >
+          下移
+        </button>
+      </div>
       <button
         type="button"
         className="canvas-prop-danger"
@@ -485,7 +558,7 @@ function RadiusControl({
   );
 }
 
-/** 立即重算一个分区的智能比例（属性栏「智能比例」/触发点共用）。 */
+/** 立即重算一个分区的智能比例（属性栏「智能比例」/触发点共用，B1 区块内宽版）。 */
 export function recomputeSmartSection(
   store: CanvasStore,
   measurer: MeasurerLike,
@@ -493,31 +566,129 @@ export function recomputeSmartSection(
 ): void {
   const doc: CanvasDoc = store.getState().doc;
   for (const board of doc.boards) {
-    const section = board.sections.find((s) => s.id === sectionId);
-    if (!section || section.columns.length !== 2) continue;
-    const textCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "text");
-    const imageCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "image");
-    if (!textCol || !imageCol) continue;
-    const textBlock = textCol.blocks[0];
-    const imageBlock = imageCol.blocks[0];
-    if (imageBlock.type !== "image" || !imageBlock.asset) continue;
-    if (textBlock.type !== "text") continue;
-    const style = resolveTextStyle(textBlock);
-    const gap = board.gap;
-    const contentWidth = board.width - board.padding * 2;
-    const refWidth = Math.max(40, (contentWidth - gap) / 2 - 24); // 等分参考宽，扣块内边距
-    const t = measurer.measure(textBlock.text, textStyleKey(textBlock), style, refWidth);
-    const ratio = imageBlock.asset.naturalHeight > 0
-      ? imageBlock.asset.naturalWidth / imageBlock.asset.naturalHeight
-      : 1;
-    const weights = computeSmartWeights({
-      contentWidth,
-      gap,
-      textNaturalHeightAtRef: t,
-      imageRatio: ratio,
-    });
-    store.getState().applyLayoutOnly((d) => applySmartWeights(d, { boardId: board.id, sectionId, weights }));
-    return;
+    for (const region of board.regions) {
+      const section = region.sections.find((s) => s.id === sectionId);
+      if (!section || section.columns.length !== 2) continue;
+      const textCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "text");
+      const imageCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "image");
+      if (!textCol || !imageCol) continue;
+      const textBlock = textCol.blocks[0];
+      const imageBlock = imageCol.blocks[0];
+      if (imageBlock.type !== "image" || !imageBlock.asset) continue;
+      if (textBlock.type !== "text") continue;
+      const style = resolveTextStyle(textBlock);
+      const gap = regionGap(board, region);
+      const contentWidth = regionInnerWidth(board, region);
+      const refWidth = Math.max(40, (contentWidth - gap) / 2 - 24); // 等分参考宽，扣块内边距
+      const t = measurer.measure(textBlock.text, textStyleKey(textBlock), style, refWidth);
+      const ratio = imageBlock.asset.naturalHeight > 0
+        ? imageBlock.asset.naturalWidth / imageBlock.asset.naturalHeight
+        : 1;
+      const weights = computeSmartWeights({
+        contentWidth,
+        gap,
+        textNaturalHeightAtRef: t,
+        imageRatio: ratio,
+      });
+      store.getState().applyLayoutOnly((d) => applySmartWeights(d, { boardId: board.id, sectionId, weights }));
+      return;
+    }
   }
+}
+
+/** 自由容器「移入区块…」：选择目标页面 → 区块，执行 attachFreeItemToRegion（可撤销）。 */
+function MoveFreeItemDialog({
+  store,
+  doc,
+  itemId,
+  open,
+  onOpenChange,
+}: {
+  store: CanvasStore;
+  doc: CanvasDoc;
+  itemId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [boardId, setBoardId] = useState("");
+  const [regionId, setRegionId] = useState("");
+  const boards = doc.boards;
+  const effectiveBoardId = boards.some((b) => b.id === boardId) ? boardId : (boards[0]?.id ?? "");
+  const regions = boards.find((b) => b.id === effectiveBoardId)?.regions ?? [];
+  const effectiveRegionId = regions.some((r) => r.id === regionId)
+    ? regionId
+    : (regions[0]?.id ?? "");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>移入区块</DialogTitle>
+          <DialogDescription>自由对象将移动到所选区块末尾（新建一行），可用 ⌘Z 撤销。</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 py-2">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">目标页面</span>
+            <select
+              className="rounded-md border border-border bg-background px-2 py-1.5"
+              aria-label="目标页面"
+              value={effectiveBoardId}
+              onChange={(e) => {
+                setBoardId(e.target.value);
+                setRegionId("");
+              }}
+            >
+              {boards.map((b, i) => (
+                <option key={b.id} value={b.id}>
+                  {b.name || `页面 ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">目标区块</span>
+            <select
+              className="rounded-md border border-border bg-background px-2 py-1.5"
+              aria-label="目标区块"
+              value={effectiveRegionId}
+              onChange={(e) => setRegionId(e.target.value)}
+            >
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md border px-3 py-1.5 text-sm"
+            onClick={() => onOpenChange(false)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+            disabled={!effectiveBoardId || !effectiveRegionId}
+            onClick={() => {
+              store.getState().apply("移入区块", (d) =>
+                attachFreeItemToRegion(d, {
+                  freeItemId: itemId,
+                  boardId: effectiveBoardId,
+                  regionId: effectiveRegionId,
+                }),
+              );
+              onOpenChange(false);
+            }}
+          >
+            移入
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 

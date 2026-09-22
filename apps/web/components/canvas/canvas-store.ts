@@ -28,6 +28,7 @@ export type CanvasSelection =
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
   | { kind: "board"; boardId: string }
+  | { kind: "region"; boardId: string; regionId: string }
   | null;
 
 /** 保存状态：saving/idle(已保存)/local(仅本机)/error/conflict；unknown=加载中。 */
@@ -132,7 +133,7 @@ export function createCanvasStore(initial?: {
       const state = get();
       if (state.readOnly || state.previewMode) return;
       const preFocus: CanvasFocus = state.editingBlockId
-        ? { kind: "block", boardId: "", sectionId: "", columnId: "", blockId: state.editingBlockId }
+        ? { kind: "block", boardId: "", regionId: "", sectionId: "", columnId: "", blockId: state.editingBlockId }
         : null;
       if (!opts?.skipHistory) {
         state.history.push(state.doc, label, {
@@ -153,9 +154,14 @@ export function createCanvasStore(initial?: {
           set({ editingBlockId: result.focus.blockId });
         }
       } else if (result.focus?.kind === "free") {
-        set({ selection: { kind: "free", itemId: result.focus.itemId } });
+        set({ selection: { kind: "free", itemId: result.focus.itemId }, editingBlockId: null });
+      } else if (result.focus?.kind === "region") {
+        set({
+          selection: { kind: "region", boardId: result.focus.boardId, regionId: result.focus.regionId },
+          editingBlockId: null,
+        });
       } else if (result.focus?.kind === "board") {
-        set({ selection: { kind: "board", boardId: result.focus.boardId } });
+        set({ selection: { kind: "board", boardId: result.focus.boardId }, editingBlockId: null });
       }
     },
 
@@ -249,10 +255,12 @@ export type CanvasStore = ReturnType<typeof createCanvasStore>;
 /** 按块查找的便捷只读选择器。 */
 export function selectBlock(doc: CanvasDoc, blockId: string): CanvasBlock | null {
   for (const board of doc.boards) {
-    for (const section of board.sections) {
-      for (const column of section.columns) {
-        const block = column.blocks.find((b) => b.id === blockId);
-        if (block) return block;
+    for (const region of board.regions) {
+      for (const section of region.sections) {
+        for (const column of section.columns) {
+          const block = column.blocks.find((b) => b.id === blockId);
+          if (block) return block;
+        }
       }
     }
   }

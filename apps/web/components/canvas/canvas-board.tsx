@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * 版面渲染与版面内结构交互（docs/idea-canvas-plan.md §3.2–§3.4、§4.3）。
+ * 版面渲染与版面内结构交互（docs/idea-canvas-plan.md §3.2–§3.4、§4.3；
+ * 阶段 B1：版面 → 区块 → 行 → 列 → 块）。
  *
+ * - 区块（Region）有独立外框与可编辑名称；编辑态轻量边框（--border 级），
+ *   选中态只强调当前对象与必要父级，避免多层粗边框；
  * - 三类加号各自独立：列左右加号（整列预览）、模块底部局部加号（列内预览）、
- *   分区右下「添加通栏」（通栏预览）——位置、提示、预览互不相同；
- * - 悬停状态挂在分区容器上（块→加号的指针移动不离开分区子树，
- *   加号不会中途卸载）；离开分区才清除；
+ *   行右下「添加通栏」（通栏预览）——位置、提示、预览互不相同；
+ * - 悬停状态挂在行容器上（块→加号的指针移动不离开行子树，
+ *   加号不会中途卸载）；离开行才清除；
  * - 列分隔线拖拽与版面拖动/改宽全程一个事务；
  * - 加号/手柄尺寸随缩放补偿，保持可点（规格 §4.3）。
  */
@@ -14,6 +17,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -24,6 +28,7 @@ import {
   COLUMN_MIN_WIDTH,
   type CanvasBoard,
   type CanvasDoc,
+  type CanvasRegion,
   type CanvasSection,
   findSection,
 } from "@/lib/canvas/model";
@@ -33,10 +38,17 @@ import {
   insertColumn,
   insertSectionAfter,
   moveBoard,
+  renameRegion,
   resizeBoard,
 } from "@/lib/canvas/commands";
-import { canAddColumn, manualWeightsFromDrag } from "@/lib/canvas/layout";
-import type { SceneBoard, SceneSection } from "@/lib/canvas/layout";
+import {
+  canAddColumnAt,
+  manualWeightsFromDrag,
+  regionGap,
+  regionInnerWidth,
+  regionPadding,
+} from "@/lib/canvas/layout";
+import type { SceneBoard, SceneRegion, SceneSection } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasImageBlockView, CanvasTextBlockView, displayKey } from "./canvas-block";
 
@@ -49,6 +61,7 @@ export interface CanvasBoardViewProps {
   userId: string;
   assetUrls: Record<string, string>;
   selectedBoard: boolean;
+  selectedRegion: { boardId: string; regionId: string } | null;
   selectedBlockId: string | null;
   editingBlockId: string | null;
 }
@@ -73,6 +86,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   userId,
   assetUrls,
   selectedBoard,
+  selectedRegion,
   selectedBlockId,
   editingBlockId,
 }: CanvasBoardViewProps) {
@@ -177,21 +191,22 @@ export const CanvasBoardView = memo(function CanvasBoardView({
       }}
       data-board-id={board.id}
     >
-      {sceneBoard.sections.map((sceneSection) => {
-        const section = board.sections.find((s) => s.id === sceneSection.sectionId);
-        if (!section) return null;
+      {sceneBoard.regions.map((sceneRegion) => {
+        const region = board.regions.find((r) => r.id === sceneRegion.regionId);
+        if (!region) return null;
         return (
-          <SectionBody
-            key={sceneSection.sectionId}
+          <RegionBody
+            key={sceneRegion.regionId}
             board={board}
-            section={section}
-            sceneSection={sceneSection}
+            region={region}
+            sceneRegion={sceneRegion}
             store={store}
             interactive={interactive}
             userId={userId}
             assetUrls={assetUrls}
             zoom={zoom}
             ui={ui}
+            selected={selectedRegion?.regionId === region.id}
             selectedBlockId={selectedBlockId}
             editingBlockId={editingBlockId}
             colDrag={colDrag.current}
@@ -308,7 +323,9 @@ function beginColDragFor(store: CanvasStore, zoom: number, sceneBoard: SceneBoar
       store.getState().applyLayoutOnly((d) => {
         const found = findSection(d, drag.sectionId);
         if (!found) return { doc: d };
-        const sceneSec = sceneBoard.sections.find((s) => s.sectionId === drag.sectionId);
+        const sceneSec = sceneBoard.regions
+          .flatMap((r) => r.sections)
+          .find((s) => s.sectionId === drag.sectionId);
         if (!sceneSec) return { doc: d };
         const nextWeights = manualWeightsFromDrag(sceneSec.columnWidths, drag.boundaryIndex, next);
         found.section.columnWeights = nextWeights;
@@ -331,18 +348,207 @@ function beginColDragFor(store: CanvasStore, zoom: number, sceneBoard: SceneBoar
 }
 
 // ---------------------------------------------------------------------------
-// 分区内部：悬停状态挂在分区容器（块→加号的移动不离开子树，加号不卸载）
+// 区块（Region，B1）：独立外框 + 可编辑名称；行在区块内排版
+// ---------------------------------------------------------------------------
+
+interface RegionBodyProps {
+  board: CanvasBoard;
+  region: CanvasRegion;
+  sceneRegion: SceneRegion;
+  store: CanvasStore;
+  interactive: boolean;
+  userId: string;
+  assetUrls: Record<string, string>;
+  zoom: number;
+  ui: number;
+  selected: boolean;
+  selectedBlockId: string | null;
+  editingBlockId: string | null;
+  colDrag: ReturnType<typeof beginColDragFor>;
+}
+
+const RegionBody = memo(function RegionBody({
+  board,
+  region,
+  sceneRegion,
+  store,
+  interactive,
+  userId,
+  assetUrls,
+  ui,
+  selected,
+  selectedBlockId,
+  editingBlockId,
+  colDrag,
+}: RegionBodyProps) {
+  const pad = regionPadding(board, region);
+  const inner = regionInnerWidth(board, region);
+  // 区块内容区相对版面原点的偏移
+  const offsetX = board.padding + pad;
+  const decorated = region.style?.border === true;
+
+  return (
+    <div
+      className={`canvas-region ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"} ${
+        decorated ? "is-decorated" : ""
+      }`}
+      data-region-id={region.id}
+      style={{
+        left: `${board.padding}px`,
+        top: `${sceneRegion.y - board.y}px`,
+        width: `${board.width - board.padding * 2}px`,
+        height: `${sceneRegion.height}px`,
+        padding: `${pad}px`,
+        background: region.style?.background ? `var(--cv-bg-${region.style.background})` : undefined,
+      }}
+      onPointerDown={
+        interactive
+          ? (e) => {
+              // 点击区块空白（非块/列/加号）时选中区块本身
+              const target = e.target as HTMLElement;
+              if (target.closest("[data-block-id], [data-column-id], button, input, textarea")) return;
+              store.getState().select({ kind: "region", boardId: board.id, regionId: region.id });
+            }
+          : undefined
+      }
+    >
+      <RegionNameLabel
+        boardId={board.id}
+        region={region}
+        store={store}
+        editable={interactive}
+      />
+      <div className="canvas-region-content" style={{ position: "relative", width: `${inner}px`, height: "100%" }}>
+        {sceneRegion.sections.map((sceneSection) => {
+          const section = region.sections.find((s) => s.id === sceneSection.sectionId);
+          if (!section) return null;
+          return (
+            <SectionBody
+              key={sceneSection.sectionId}
+              board={board}
+              section={section}
+              sceneSection={sceneSection}
+              offsetX={offsetX}
+              offsetY={sceneSection.y - board.y}
+              contentWidth={inner}
+              gap={regionGap(board, region)}
+              store={store}
+              interactive={interactive}
+              userId={userId}
+              assetUrls={assetUrls}
+              ui={ui}
+              selectedBlockId={selectedBlockId}
+              editingBlockId={editingBlockId}
+              colDrag={colDrag}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+/** 区块名：编辑态点击进入编辑（输入框按键不触发画布快捷键，由工作区 isTypingTarget 统一屏蔽）。 */
+function RegionNameLabel({
+  boardId,
+  region,
+  store,
+  editable,
+}: {
+  boardId: string;
+  region: CanvasRegion;
+  store: CanvasStore;
+  editable: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(region.name);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const commit = useCallback(() => {
+    setEditing(false);
+    const name = draft.trim();
+    if (name && name !== region.name) {
+      store.getState().apply("重命名区块", (d) => renameRegion(d, { boardId, regionId: region.id, name }));
+    } else {
+      setDraft(region.name);
+    }
+  }, [boardId, draft, region.id, region.name, store]);
+
+  if (!editable) {
+    // 预览/只读：有名称时作为区块标题文本显示
+    return region.name ? (
+      <div className="canvas-region-title" data-region-name>
+        {region.name}
+      </div>
+    ) : null;
+  }
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="canvas-region-name-input"
+        value={draft}
+        aria-label="区块名称"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setDraft(region.name);
+            setEditing(false);
+          }
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="canvas-region-name"
+      data-region-name
+      title="点击重命名区块"
+      aria-label={`区块名称：${region.name}（点击重命名）`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        setDraft(region.name);
+        setEditing(true);
+      }}
+    >
+      {region.name}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 行内部：悬停状态挂在行容器（块→加号的移动不离开子树，加号不卸载）
 // ---------------------------------------------------------------------------
 
 interface SectionBodyProps {
   board: CanvasBoard;
   section: CanvasSection;
   sceneSection: SceneSection;
+  /** 行内容区相对版面原点的偏移 x（= 版面 padding + 区块 padding）。 */
+  offsetX: number;
+  /** 行内容区相对版面原点的偏移 y。 */
+  offsetY: number;
+  /** 行内容宽（区块内宽）。 */
+  contentWidth: number;
+  /** 行内列/块间距（区块行距）。 */
+  gap: number;
   store: CanvasStore;
   interactive: boolean;
   userId: string;
   assetUrls: Record<string, string>;
-  zoom: number;
   ui: number;
   selectedBlockId: string | null;
   editingBlockId: string | null;
@@ -353,6 +559,10 @@ const SectionBody = memo(function SectionBody({
   board,
   section,
   sceneSection,
+  offsetX,
+  offsetY,
+  contentWidth,
+  gap,
   store,
   interactive,
   userId,
@@ -362,11 +572,10 @@ const SectionBody = memo(function SectionBody({
   editingBlockId,
   colDrag,
 }: SectionBodyProps) {
-  void assetUrls;
   const [hovered, setHovered] = useState<{ blockId: string; columnId: string } | null>(null);
   const [preview, setPreview] = useState<PlusPreview>(null);
 
-  const canGrow = interactive ? canAddColumn(board, section.columns.length) : false;
+  const canGrow = interactive ? canAddColumnAt(contentWidth, gap, section.columns.length) : false;
   const avgWidth = (sceneSection.columnWidths.reduce((s, w) => s + w, 0) || 1) / section.columns.length;
 
   const commitColumnPlus = useCallback(
@@ -404,9 +613,9 @@ const SectionBody = memo(function SectionBody({
       data-section-id={section.id}
       style={{
         position: "absolute",
-        left: `${board.padding}px`,
-        top: `${sceneSection.y - board.y}px`,
-        width: `${board.width - board.padding * 2}px`,
+        left: `${offsetX}px`,
+        top: `${offsetY}px`,
+        width: `${contentWidth}px`,
         height: `${sceneSection.height}px`,
       }}
       onPointerLeave={
@@ -422,16 +631,16 @@ const SectionBody = memo(function SectionBody({
         const sceneColumn = sceneSection.columns[columnIndex];
         if (!sceneColumn) return null;
         const isHoveredColumn = interactive && hovered?.columnId === column.id;
-        const colLeft = sceneColumn.x - board.x;
+        const colLeft = sceneColumn.x - board.x - offsetX;
         return (
           <div key={column.id} data-column-id={column.id} className="contents">
             {column.blocks.map((block, blockIndex) => {
               const box = sceneColumn.blocks[blockIndex];
               if (!box) return null;
-              // 分区内坐标：分区容器已按 (board.padding, sceneSection.y - board.y) 定位，
+              // 行内坐标：行容器已按 (offsetX, offsetY) 定位，
               // 块再用世界-版面相对值会双重偏移
-              const secX = board.x + board.padding;
-              const secY = sceneSection.y;
+              const secX = board.x + offsetX;
+              const secY = board.y + offsetY;
               const common = {
                 x: box.x - secX,
                 y: box.y - secY,
@@ -571,7 +780,7 @@ const SectionBody = memo(function SectionBody({
           <div
             key={`divider-${i}`}
             className="canvas-divider"
-            style={{ left: `${sceneSection.columns[i].x - board.x - board.padding + w + board.gap / 2}px` }}
+            style={{ left: `${sceneSection.columns[i].x - board.x - offsetX + w + gap / 2}px` }}
             role="separator"
             aria-label="拖动调整列宽"
             title="拖动调整列宽"
@@ -582,7 +791,7 @@ const SectionBody = memo(function SectionBody({
         ))}
 
       {/* 加号悬停插入预览（半透明，不参与布局，规格 §4.3） */}
-      {preview && <PreviewGhost preview={preview} board={board} sceneSection={sceneSection} avgWidth={avgWidth} />}
+      {preview && <PreviewGhost preview={preview} gap={gap} sceneSection={sceneSection} avgWidth={avgWidth} />}
 
       {/* 整排外侧「添加通栏」入口：与局部加号不同位、不同预览、不同提示 */}
       {interactive && hovered && (
@@ -610,24 +819,23 @@ const SectionBody = memo(function SectionBody({
 
 function PreviewGhost({
   preview,
-  board,
+  gap,
   sceneSection,
   avgWidth,
 }: {
   preview: PlusPreview;
-  board: CanvasBoard;
+  gap: number;
   sceneSection: SceneSection;
   avgWidth: number;
 }) {
   const style: CSSProperties = { position: "absolute" };
   if (!preview) return null;
-  const secX = board.x + board.padding;
   const secY = sceneSection.y;
   if (preview.kind === "column-left") {
     const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
     if (!col) return null;
     Object.assign(style, {
-      left: `${col.x - secX - avgWidth / 2 - board.gap / 2}px`,
+      left: `${col.x - sceneSection.columns[0].x - avgWidth / 2 - gap / 2}px`,
       top: "0",
       width: `${avgWidth}px`,
       height: "100%",
@@ -636,7 +844,7 @@ function PreviewGhost({
     const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
     if (!col) return null;
     Object.assign(style, {
-      left: `${col.x - secX + col.width + board.gap / 2}px`,
+      left: `${col.x - sceneSection.columns[0].x + col.width + gap / 2}px`,
       top: "0",
       width: `${avgWidth}px`,
       height: "100%",
@@ -646,15 +854,15 @@ function PreviewGhost({
     const box = col?.blocks.find((b) => b.blockId === preview.blockId);
     if (!col || !box) return null;
     Object.assign(style, {
-      left: `${box.x - secX}px`,
-      top: `${box.y - secY + box.height + board.gap / 2}px`,
+      left: `${box.x - sceneSection.columns[0].x}px`,
+      top: `${box.y - secY + box.height + gap / 2}px`,
       width: `${box.width}px`,
       height: "48px",
     });
   } else {
     Object.assign(style, {
       left: "0",
-      top: `${sceneSection.height + board.gap / 2}px`,
+      top: `${sceneSection.height + gap / 2}px`,
       width: "100%",
       height: "48px",
     });

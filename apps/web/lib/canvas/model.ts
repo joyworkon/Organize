@@ -1,12 +1,18 @@
 /**
- * 构思画布数据模型（docs/idea-canvas-plan.md §6.1）。
+ * 构思画布数据模型（docs/idea-canvas-plan.md §6.1，阶段 B1 升级为三层结构）。
  *
- * 布局按 Board → Section → Column → Block 建模，自由容器独立存放。
+ * 布局按 Board(页面) → Region(区块) → Section(行) → Column → Block 建模，
+ * 自由容器独立存放。Section 在 v1 中实际承担行布局，v2 起语义为
+ * 「区块内的行」，字段结构不变，仅多一层 Region 父级。
  * 自动模块不持久化 x/y 或测得高度；只存语义结构、宽度策略与样式。
  * schemaVersion 负责结构升级，数据库行上的 revision 负责并发（见 lib/canvas/validation.ts）。
  */
 
-export const CANVAS_SCHEMA_VERSION = 1;
+export const CANVAS_SCHEMA_VERSION = 2;
+/** v1 版本号（migrateCanvasDocV1toV2 的输入标识）。 */
+export const CANVAS_SCHEMA_VERSION_V1 = 1;
+/** 迁移与默认新区块的名称。 */
+export const DEFAULT_REGION_NAME = "内容";
 
 /** 版面默认外宽（画布单位 = 100% 缩放时的 CSS px）。 */
 export const BOARD_DEFAULT_WIDTH = 640;
@@ -102,11 +108,32 @@ export interface CanvasColumn {
  */
 export type CanvasSectionWidthMode = "equal" | "manual" | "smart";
 
+/** 行（v1 的 Section 结构原样保留，v2 起挂到 Region 下）。 */
 export interface CanvasSection {
   id: string;
   widthMode: CanvasSectionWidthMode;
   columnWeights: number[];
   columns: CanvasColumn[];
+}
+
+/** 区块装饰样式；padding/rowGap 缺省语义见 regionPadding/regionRowGap。 */
+export interface CanvasRegionStyle {
+  /** 背景色（色板键）；null/undefined = 透明。 */
+  background?: string | null;
+  /** 区块内边距；缺省 = 0（不额外吃版面宽度，保证 v1 迁移后几何不变）。 */
+  padding?: number;
+  /** 行间距；缺省 = 版面 gap（继承 v1 行距语义）。 */
+  rowGap?: number;
+  /** 用户显式开启的装饰边框（预览/只读也保留）。 */
+  border?: boolean;
+}
+
+/** 区块：页面的子分区，内含若干行（sections）。 */
+export interface CanvasRegion {
+  id: string;
+  name: string;
+  style?: CanvasRegionStyle;
+  sections: CanvasSection[];
 }
 
 export interface CanvasBoardStyle {
@@ -116,6 +143,8 @@ export interface CanvasBoardStyle {
 
 export interface CanvasBoard {
   id: string;
+  /** 页面名（可选；对外 UI 文案「页面」）。 */
+  name?: string;
   /** 世界坐标（左上角）。 */
   x: number;
   y: number;
@@ -123,7 +152,7 @@ export interface CanvasBoard {
   padding: number;
   gap: number;
   style?: CanvasBoardStyle;
-  sections: CanvasSection[];
+  regions: CanvasRegion[];
 }
 
 export type CanvasFreeItemBlock = CanvasTextBlock | CanvasImageBlock;
@@ -144,17 +173,38 @@ export interface CanvasDoc {
   freeItems: CanvasFreeItem[];
 }
 
+/** v1 文档（Board → Section 直挂）；仅迁移函数消费。 */
+interface CanvasDocV1Board {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  padding: number;
+  gap: number;
+  style?: CanvasBoardStyle;
+  sections: CanvasSection[];
+  name?: string;
+}
+
+interface CanvasDocV1 {
+  schemaVersion: number;
+  boards: CanvasDocV1Board[];
+  freeItems: CanvasFreeItem[];
+}
+
 /** 结构操作后的焦点目标；命令纯函数不触碰 DOM。 */
 export type CanvasFocus =
   | {
       kind: "block";
       boardId: string;
+      regionId: string;
       sectionId: string;
       columnId: string;
       blockId: string;
       caret?: "start" | "end" | "select-all";
       edit?: boolean;
     }
+  | { kind: "region"; boardId: string; regionId: string }
   | { kind: "board"; boardId: string }
   | { kind: "free"; itemId: string }
   | null;
@@ -201,12 +251,23 @@ export function createSection(
   return { id: newId(), widthMode: "equal", columnWeights: columns.map(() => 1), columns };
 }
 
+export function createRegion(
+  sections: CanvasSection[] = [],
+  newId: CanvasIdGenerator = defaultIdGenerator,
+  name: string = DEFAULT_REGION_NAME,
+): CanvasRegion {
+  return { id: newId(), name, sections };
+}
+
 /** 全新空文档：无版面；双击画布才创建。 */
 export function emptyDoc(): CanvasDoc {
   return { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [] };
 }
 
-/** 新版面：标题分区（单列单标题块）+ 一个正文分区（规格 §3.1：首块默认标题）。 */
+/**
+ * 新版面：标题分区（单列单标题块）+ 一个正文分区（规格 §3.1：首块默认标题），
+ * 包在一个默认区块「内容」内（v2 三层结构）。
+ */
 export function createBoardShape(
   at: { x: number; y: number },
   newId: CanvasIdGenerator = defaultIdGenerator,
@@ -220,8 +281,56 @@ export function createBoardShape(
     width: BOARD_DEFAULT_WIDTH,
     padding: BOARD_PADDING,
     gap: BOARD_GAP,
-    sections: [titleSection, bodySection],
+    regions: [createRegion([titleSection, bodySection], newId)],
   };
+}
+
+// ---------------------------------------------------------------------------
+// v1 → v2 迁移（阶段 B1）
+// ---------------------------------------------------------------------------
+
+/**
+ * v1 → v2 纯迁移：每个 board 的原 sections 按原顺序包进一个默认 Region
+ * （name「内容」）。Region id 基于 boardId 确定性派生（`r-<boardId>`），
+ * 同输入同输出，且不依赖外部 id 生成器；其余所有 ID/样式/内容逐字段不变，
+ * freeItems 原样不动；region.style 留空——布局时 padding 缺省 0、rowGap 缺省
+ * 继承 board.gap（见 regionPadding/regionRowGap），保证 v1 文档迁移后
+ * 渲染几何逐像素不变。v2 输入原样返回（幂等）。
+ */
+export function migrateCanvasDocV1toV2(raw: unknown): CanvasDoc {
+  if (typeof raw !== "object" || raw === null) return raw as CanvasDoc;
+  const doc = raw as CanvasDocV1;
+  if (doc.schemaVersion === CANVAS_SCHEMA_VERSION) return raw as CanvasDoc;
+  const clone: CanvasDocV1 = structuredClone(raw) as CanvasDocV1;
+  const boards: CanvasBoard[] = (clone.boards ?? []).map((board) => {
+    const { sections, ...rest } = board;
+    const region: CanvasRegion = {
+      id: `r-${board.id}`,
+      name: DEFAULT_REGION_NAME,
+      sections: sections ?? [],
+    };
+    return { ...rest, regions: [region] } as CanvasBoard;
+  });
+  return {
+    schemaVersion: CANVAS_SCHEMA_VERSION,
+    boards,
+    freeItems: clone.freeItems ?? [],
+  };
+}
+
+/**
+ * 读取侧统一入口：v1 自动迁移、v2 直返、未知更高版本原样返回
+ * （沿用未知数据保留语义，由 validation 报告 schemaVersion 错误并阻止保存）。
+ * 非对象输入原样返回，交给校验层报错。
+ */
+export function ensureCanvasDocV2(raw: unknown): CanvasDoc {
+  if (typeof raw !== "object" || raw === null) return raw as CanvasDoc;
+  const version = (raw as { schemaVersion?: unknown }).schemaVersion;
+  if (version === CANVAS_SCHEMA_VERSION) return raw as CanvasDoc;
+  if (version === CANVAS_SCHEMA_VERSION_V1 || version === undefined) {
+    return migrateCanvasDocV1toV2(raw);
+  }
+  return raw as CanvasDoc;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,9 +339,11 @@ export function createBoardShape(
 
 export interface BlockLocation {
   board: CanvasBoard;
+  region: CanvasRegion;
   section: CanvasSection;
   column: CanvasColumn;
   block: CanvasBlock;
+  regionIndex: number;
   sectionIndex: number;
   columnIndex: number;
   blockIndex: number;
@@ -242,14 +353,36 @@ export function findBoard(doc: CanvasDoc, boardId: string): CanvasBoard | null {
   return doc.boards.find((b) => b.id === boardId) ?? null;
 }
 
+export function findRegion(
+  doc: CanvasDoc,
+  regionId: string,
+): { board: CanvasBoard; region: CanvasRegion; regionIndex: number } | null {
+  for (const board of doc.boards) {
+    const regionIndex = board.regions.findIndex((r) => r.id === regionId);
+    if (regionIndex >= 0) {
+      return { board, region: board.regions[regionIndex], regionIndex };
+    }
+  }
+  return null;
+}
+
 export function findSection(
   doc: CanvasDoc,
   sectionId: string,
-): { board: CanvasBoard; section: CanvasSection; sectionIndex: number } | null {
+): {
+  board: CanvasBoard;
+  region: CanvasRegion;
+  section: CanvasSection;
+  regionIndex: number;
+  sectionIndex: number;
+} | null {
   for (const board of doc.boards) {
-    const sectionIndex = board.sections.findIndex((s) => s.id === sectionId);
-    if (sectionIndex >= 0) {
-      return { board, section: board.sections[sectionIndex], sectionIndex };
+    for (let regionIndex = 0; regionIndex < board.regions.length; regionIndex += 1) {
+      const region = board.regions[regionIndex];
+      const sectionIndex = region.sections.findIndex((s) => s.id === sectionId);
+      if (sectionIndex >= 0) {
+        return { board, region, section: region.sections[sectionIndex], regionIndex, sectionIndex };
+      }
     }
   }
   return null;
@@ -258,11 +391,13 @@ export function findSection(
 export function findColumn(
   doc: CanvasDoc,
   columnId: string,
-): { board: CanvasBoard; section: CanvasSection; column: CanvasColumn } | null {
+): { board: CanvasBoard; region: CanvasRegion; section: CanvasSection; column: CanvasColumn } | null {
   for (const board of doc.boards) {
-    for (const section of board.sections) {
-      const column = section.columns.find((c) => c.id === columnId);
-      if (column) return { board, section, column };
+    for (const region of board.regions) {
+      for (const section of region.sections) {
+        const column = section.columns.find((c) => c.id === columnId);
+        if (column) return { board, region, section, column };
+      }
     }
   }
   return null;
@@ -270,21 +405,26 @@ export function findColumn(
 
 export function findBlockLocation(doc: CanvasDoc, blockId: string): BlockLocation | null {
   for (const board of doc.boards) {
-    for (let sectionIndex = 0; sectionIndex < board.sections.length; sectionIndex += 1) {
-      const section = board.sections[sectionIndex];
-      for (let columnIndex = 0; columnIndex < section.columns.length; columnIndex += 1) {
-        const column = section.columns[columnIndex];
-        const blockIndex = column.blocks.findIndex((bl) => bl.id === blockId);
-        if (blockIndex >= 0) {
-          return {
-            board,
-            section,
-            column,
-            block: column.blocks[blockIndex],
-            sectionIndex,
-            columnIndex,
-            blockIndex,
-          };
+    for (let regionIndex = 0; regionIndex < board.regions.length; regionIndex += 1) {
+      const region = board.regions[regionIndex];
+      for (let sectionIndex = 0; sectionIndex < region.sections.length; sectionIndex += 1) {
+        const section = region.sections[sectionIndex];
+        for (let columnIndex = 0; columnIndex < section.columns.length; columnIndex += 1) {
+          const column = section.columns[columnIndex];
+          const blockIndex = column.blocks.findIndex((bl) => bl.id === blockId);
+          if (blockIndex >= 0) {
+            return {
+              board,
+              region,
+              section,
+              column,
+              block: column.blocks[blockIndex],
+              regionIndex,
+              sectionIndex,
+              columnIndex,
+              blockIndex,
+            };
+          }
         }
       }
     }
@@ -297,22 +437,25 @@ export function findFreeItem(doc: CanvasDoc, itemId: string): CanvasFreeItem | n
 }
 
 // ---------------------------------------------------------------------------
-// 结构整理（规格 §6.1：删空列/空分区，版面永不为空，不改剩余 ID）
+// 结构整理（规格 §6.1：删空列/空行/空区块，版面永不为空，不改剩余 ID）
 // ---------------------------------------------------------------------------
 
-/** 删除列内所有空列；分区没有列时删除分区；版面空了保留一个可输入的空正文块。 */
+/** 删除列内所有空列；行没有列时删除行；区块没有行时删除区块；版面空了保留一个可输入的空正文块。 */
 export function normalizeBoardAfterDeletion(board: CanvasBoard, newId: CanvasIdGenerator): void {
-  board.sections = board.sections.filter((section) => {
-    section.columns = section.columns.filter((column) => column.blocks.length > 0);
-    if (section.columns.length > 0 && section.columnWeights.length !== section.columns.length) {
-      section.columnWeights = section.columns.map(() => 1);
-      section.widthMode = "equal";
-    }
-    return section.columns.length > 0;
+  board.regions = board.regions.filter((region) => {
+    region.sections = region.sections.filter((section) => {
+      section.columns = section.columns.filter((column) => column.blocks.length > 0);
+      if (section.columns.length > 0 && section.columnWeights.length !== section.columns.length) {
+        section.columnWeights = section.columns.map(() => 1);
+        section.widthMode = "equal";
+      }
+      return section.columns.length > 0;
+    });
+    return region.sections.length > 0;
   });
-  if (board.sections.length === 0) {
-    board.sections = [
-      createSection([createColumn([createTextBlock("body")], newId)], newId),
+  if (board.regions.length === 0) {
+    board.regions = [
+      createRegion([createSection([createColumn([createTextBlock("body")], newId)], newId)], newId),
     ];
   }
 }
@@ -322,11 +465,14 @@ export function collectAllIds(doc: CanvasDoc): string[] {
   const ids: string[] = [];
   for (const board of doc.boards) {
     ids.push(board.id);
-    for (const section of board.sections) {
-      ids.push(section.id);
-      for (const column of section.columns) {
-        ids.push(column.id);
-        for (const block of column.blocks) ids.push(block.id);
+    for (const region of board.regions) {
+      ids.push(region.id);
+      for (const section of region.sections) {
+        ids.push(section.id);
+        for (const column of section.columns) {
+          ids.push(column.id);
+          for (const block of column.blocks) ids.push(block.id);
+        }
       }
     }
   }
@@ -340,22 +486,27 @@ export function collectAllIds(doc: CanvasDoc): string[] {
 /** 统计节点数（服务器/客户端共用上限校验）。 */
 export function countNodes(doc: CanvasDoc): {
   boards: number;
+  regions: number;
   sections: number;
   columns: number;
   blocks: number;
   freeItems: number;
 } {
+  let regions = 0;
   let sections = 0;
   let columns = 0;
   let blocks = 0;
   for (const board of doc.boards) {
-    sections += board.sections.length;
-    for (const section of board.sections) {
-      columns += section.columns.length;
-      for (const column of section.columns) blocks += column.blocks.length;
+    regions += board.regions.length;
+    for (const region of board.regions) {
+      sections += region.sections.length;
+      for (const section of region.sections) {
+        columns += section.columns.length;
+        for (const column of section.columns) blocks += column.blocks.length;
+      }
     }
   }
-  return { boards: doc.boards.length, sections, columns, blocks, freeItems: doc.freeItems.length };
+  return { boards: doc.boards.length, regions, sections, columns, blocks, freeItems: doc.freeItems.length };
 }
 
 /** 块的生效样式：显式样式优先，否则按角色给默认（标题大号加粗）。 */
