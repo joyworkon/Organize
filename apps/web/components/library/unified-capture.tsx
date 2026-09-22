@@ -31,7 +31,8 @@ export interface UnifiedCaptureProps {
 }
 
 /** 拖入文件交给现有物料导入流程（MaterialImport 监听本事件并接管） */
-export const MATERIAL_FILES_EVENT = "organize:material-files";
+/** 阶段 D 起文件走导入流程（任务书 §七）；事件名保留 material 前缀的历史误称已无意义，换名 */
+export const IMPORT_FILES_EVENT = "organize:import-files";
 
 function shortUrl(url: string): string {
   try {
@@ -212,7 +213,7 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
           setDragging(false);
           const dropped = Array.from(event.dataTransfer.files);
           if (dropped.length) {
-            window.dispatchEvent(new CustomEvent(MATERIAL_FILES_EVENT, { detail: { files: dropped } }));
+            window.dispatchEvent(new CustomEvent(IMPORT_FILES_EVENT, { detail: { files: dropped } }));
           }
         }}
       >

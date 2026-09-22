@@ -6,14 +6,14 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/reading/status-badge";
-import { isMaterialUrl, readingSourceLabel } from "@/lib/reading/source";
+import { isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
 import { cn } from "@/lib/utils";
 import type { LibraryItem } from "@organize/shared";
 import { Feather, Globe, Link2, PackageOpen } from "@/components/icons";
 
 function sourceBadge(item: LibraryItem): { label: string; Icon: typeof Globe } {
   if (item.source_type === "memo") return { label: "速记", Icon: Feather };
-  if (item.url && isMaterialUrl(item.url)) return { label: "导入物料", Icon: PackageOpen };
+  if (item.url && isInternalUrn(item.url)) return { label: readingSourceLabel(item.url), Icon: PackageOpen };
   return { label: item.url ? readingSourceLabel(item.url) || "网页" : "网页", Icon: Globe };
 }
 

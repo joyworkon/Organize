@@ -1,4 +1,4 @@
-import { isMaterialUrl } from "@/lib/reading/source";
+import { isInternalUrn } from "@/lib/reading/source";
 import { tiptapJsonToHtml } from "@/lib/export/tiptap-to-html";
 import { getPublicShare } from "@/lib/share/public-share";
 import { parseSessionId, shareSessionCookieName } from "@/lib/share/session";
@@ -138,7 +138,7 @@ export default async function SharePage({ params }: PageProps) {
           dangerouslySetInnerHTML={{ __html: sanitizeContent(item.content || "") }}
         />
         <div className="mt-8 pt-4 border-t text-sm text-muted-foreground">
-          {!isMaterialUrl(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+          {!isInternalUrn(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
             查看原文 →
           </a>}
         </div>

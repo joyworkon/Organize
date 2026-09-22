@@ -15,6 +15,9 @@ const nextConfig = {
       },
     ],
   },
+  // pdfjs-dist 在 Node API route 用 legacy build + 禁用 worker 解析（任务 0 选型）；
+  // 列入 serverExternalPackages 规避 Next.js 打包期 worker/asset 解析问题
+  serverExternalPackages: ["pdfjs-dist"],
 };
 
 export default nextConfig;

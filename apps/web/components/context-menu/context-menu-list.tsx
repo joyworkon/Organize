@@ -1,6 +1,6 @@
 "use client";
 
-import { isMaterialUrl } from "@/lib/reading/source";
+import { isInternalUrn } from "@/lib/reading/source";
 
 import * as React from "react";
 import {
@@ -50,7 +50,7 @@ export function ListItemContextMenu({
     if (type === "reading") {
       const url = (item as ReadingItem).url;
       if (url) {
-        window.open(isMaterialUrl(url) ? `/library/${item.id}` : url, "_blank", "noopener,noreferrer");
+        window.open(isInternalUrn(url) ? `/library/${item.id}` : url, "_blank", "noopener,noreferrer");
       }
     } else if (type === "note") {
       window.open(`/notes/${item.id}`, "_blank", "noopener,noreferrer");

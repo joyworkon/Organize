@@ -7,7 +7,6 @@ import { usePluginStore } from "@/lib/plugin/store";
 import { collectReadingItem, type MaterialCollectInput } from "@/lib/reading/collect";
 import { materialFingerprint } from "@/lib/materials/article";
 import { MATERIAL_ACCEPT, MAX_MATERIAL_TEXT, validateMaterialRequest } from "@/lib/materials/schema";
-import { MATERIAL_FILES_EVENT } from "@/components/library/unified-capture";
 import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles, Upload, X } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -46,16 +45,8 @@ export function MaterialImport({ onAdded }: { onAdded: () => void }) {
     return () => { mounted.current = false; pending.current?.abort(); pending.current = null; };
   }, []);
 
-  // 资料库统一输入框拖入文件 → 交给本组件的物料整理流程（阶段 C 统一入口）
-  const runRef = useRef<((nextFiles?: File[]) => Promise<void>) | null>(null);
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const files = (event as CustomEvent<{ files?: File[] }>).detail?.files;
-      if (files?.length) void runRef.current?.(files);
-    };
-    window.addEventListener(MATERIAL_FILES_EVENT, handler);
-    return () => window.removeEventListener(MATERIAL_FILES_EVENT, handler);
-  }, []);
+  // 阶段 D 起统一输入框拖入的文件改走「导入流程」（file-import.tsx 的 organize:import-files）；
+  // 本组件只保留显式的 AI 物料整理入口（选择文件 / 粘贴文字 / 自身拖放区）。
 
   const save = async (material: PreparedMaterial) => {    if (saving.current || !mounted.current) return;
     saving.current = true;
@@ -108,7 +99,6 @@ export function MaterialImport({ onAdded }: { onAdded: () => void }) {
       if (pending.current === controller) { pending.current = null; if (mounted.current) setStage(null); }
     }
   };
-  runRef.current = (nextFiles?: File[]) => run(nextFiles);
 
   return (
     <section aria-label="稍后读物料整理"
