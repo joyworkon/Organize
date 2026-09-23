@@ -363,6 +363,33 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    // 092（备份 v8）：主题集合 + 引用行
+    collections: [
+      {
+        id: "d3000000-0000-4000-8000-000000000001",
+        name: "季度发布",
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    collection_items: [
+      {
+        id: "d4000000-0000-4000-8000-000000000001",
+        collection_id: "d3000000-0000-4000-8000-000000000001",
+        reading_item_id: ids.reading,
+        memo_id: null,
+        import_file_id: null,
+        created_at: timestamp,
+      },
+      {
+        id: "d4000000-0000-4000-8000-000000000002",
+        collection_id: "d3000000-0000-4000-8000-000000000001",
+        reading_item_id: null,
+        memo_id: null,
+        import_file_id: "d2000000-0000-4000-8000-000000000001",
+        created_at: timestamp,
+      },
+    ],
   };
 }
 

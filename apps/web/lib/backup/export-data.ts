@@ -220,6 +220,20 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     userOwned: true,
     order: ["id"],
   },
+  {
+    // 092（备份 v8）：主题集合（引用容器，来源 id 随各来源表）
+    table: "collections",
+    columns: "id, name, created_at, updated_at",
+    userOwned: true,
+    order: ["id"],
+  },
+  {
+    table: "collection_items",
+    columns:
+      "id, collection_id, reading_item_id, memo_id, import_file_id, created_at",
+    userOwned: true,
+    order: ["id"],
+  },
 ] as const;
 
 /**
@@ -440,6 +454,17 @@ export function pruneExportData(data: BackupData): BackupData {
           : null,
       status: ["saved", "failed"].includes(String(row.status)) ? row.status : "failed",
     }));
+  // 092（备份 v8）：集合引用行——集合必须在内；唯一来源（三选一）不在导出集 → 剔除该行
+  const collectionIds = idSetOf(data.collections);
+  const memoIdSet = memoIds;
+  const importFileIds = idSetOf(data.import_files);
+  kept.collection_items = data.collection_items.filter((row) => {
+    if (!collectionIds.has(String(row.collection_id))) return false;
+    if (row.reading_item_id != null) return readingIds.has(String(row.reading_item_id));
+    if (row.memo_id != null) return memoIdSet.has(String(row.memo_id));
+    if (row.import_file_id != null) return importFileIds.has(String(row.import_file_id));
+    return false;
+  });
 
   return kept;
 }

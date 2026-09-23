@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import type { LibraryItem } from "@organize/shared";
 import { Feather, Globe, Link2, PackageOpen } from "@/components/icons";
 import { AddToCanvasButton } from "./add-to-canvas-dialog";
+import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
 
 function sourceBadge(item: LibraryItem): { label: string; Icon: typeof Globe } {
   if (item.source_type === "memo") return { label: "速记", Icon: Feather };
@@ -33,7 +34,7 @@ export function LibraryCard({ item }: { item: LibraryItem }) {
       : `/library/${item.id}`;
 
   return (
-    <Link href={href} className="block">
+    <Link href={href} className="block" data-library-card>
       <Card className="transition-colors duration-150 hover:bg-accent">
         <CardContent className="p-3 sm:p-4">
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -67,7 +68,13 @@ export function LibraryCard({ item }: { item: LibraryItem }) {
                 #{tag}
               </span>
             ))}
-            <span className="ml-auto" onClick={(e) => e.preventDefault()}>
+            <span className="ml-auto flex items-center gap-1" onClick={(e) => e.preventDefault()}>
+              <AddToCollectionsButton
+                sourceType={item.source_type === "memo" ? "memo" : "reading"}
+                id={item.id}
+                hintTitle={item.source_type === "memo" ? (item.excerpt || "").split("\n")[0] : item.title}
+                hintTags={item.tags}
+              />
               <AddToCanvasButton item={item} />
             </span>
           </div>

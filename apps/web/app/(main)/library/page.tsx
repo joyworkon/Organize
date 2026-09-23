@@ -13,19 +13,21 @@ import { UnifiedView } from "@/components/library/unified-view";
 import { ReadingView } from "@/components/library/reading-view";
 import { MemosView } from "@/components/library/memos-view";
 import { FilesView } from "@/components/library/files-view";
+import { CollectionsView } from "@/components/collections/collections-view";
 import { FileImport } from "@/components/library/file-import";
 import { MaterialImport } from "@/components/reading/material-import";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { cn } from "@/lib/utils";
 import { Library } from "@/components/icons";
 
-type LibraryView = "all" | "reading" | "memos" | "files";
+type LibraryView = "all" | "reading" | "memos" | "files" | "collections";
 
 const viewTabs: { value: LibraryView; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "reading", label: "稍后读" },
   { value: "memos", label: "速记" },
   { value: "files", label: "文件" },
+  { value: "collections", label: "集合" },
 ];
 
 /** ?view= 归一化：缺省 all；memo 是 memos 的历史别名（旧链接兼容） */
@@ -33,6 +35,7 @@ function normalizeView(raw: string | null): LibraryView {
   if (raw === "reading") return "reading";
   if (raw === "memos" || raw === "memo") return "memos";
   if (raw === "files") return "files";
+  if (raw === "collections") return "collections";
   return "all";
 }
 
@@ -50,6 +53,19 @@ function LibraryPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const view = normalizeView(searchParams.get("view"));
+  // 集合详情深链：/library?view=collections&collection=<id>
+  const collectionId = searchParams.get("collection");
+  const setCollectionId = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("collection", id);
+      else params.delete("collection");
+      router.replace(params.toString() ? `${pathname}?${params.toString()}` : pathname, {
+        scroll: false,
+      });
+    },
+    [searchParams, router, pathname],
+  );
 
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -171,6 +187,8 @@ function LibraryPageInner() {
         </>
       ) : view === "files" ? (
         <FilesView refreshTick={refreshTick} onImported={bumpRefresh} />
+      ) : view === "collections" ? (
+        <CollectionsView collectionId={collectionId} onCollectionIdChange={setCollectionId} />
       ) : (
         <MemosView search={search} />
       )}

@@ -13,6 +13,7 @@ import type { ImportFileResult } from "@/lib/imports/types";
 import { statusLabel } from "./file-import";
 import { FileText, Loader2, RotateCcw } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
+import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
 import { cn } from "@/lib/utils";
 
 const KIND_LABEL: Record<string, string> = {
@@ -185,6 +186,14 @@ export function FilesView({
               </span>
             )}
             <span className="flex items-center gap-1">
+              {file.status === "saved" && (
+                <AddToCollectionsButton
+                  sourceType="file"
+                  id={file.id}
+                  hintTitle={file.fileName}
+                  label="加入集合"
+                />
+              )}
               {file.readingItemId && (
                 <a className="rounded px-2 py-1 text-primary hover:underline" href={`/library/${file.readingItemId}`}>
                   打开条目

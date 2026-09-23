@@ -12,6 +12,7 @@ import type { ImportFileResult } from "@/lib/imports/types";
 import { Button } from "@/components/ui/button";
 import { Upload, Loader2 } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
+import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
 import { cn } from "@/lib/utils";
 
 export const IMPORT_FILES_EVENT = "organize:import-files";
@@ -40,6 +41,8 @@ export function FileImport({ onImported }: { onImported: () => void }) {
   const [dragging, setDragging] = useState(false);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [running, setRunning] = useState(false);
+  // 最近一批成功导入的文件 id（同批归入同一集合的入口）
+  const [batchSavedIds, setBatchSavedIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const onImportedRef = useRef(onImported);
   onImportedRef.current = onImported;
@@ -91,6 +94,7 @@ export function FileImport({ onImported }: { onImported: () => void }) {
         }),
         ...prev.filter((row) => !pending.some((p) => p.retryKey === row.retryKey)),
       ]);
+      setBatchSavedIds(results.filter((r) => r.status === "saved").map((r) => r.id));
       const saved = results.filter((r) => r.status === "saved").length;
       const failed = results.filter((r) => r.status === "failed").length;
       if (failed === 0) toast({ title: `已导入 ${saved} 个文件` });
@@ -192,6 +196,19 @@ export function FileImport({ onImported }: { onImported: () => void }) {
 
       {queue.length > 0 && (
         <ul className="mt-3 space-y-1.5" aria-label="导入结果">
+          {batchSavedIds.length > 1 && (
+            <li className="flex items-center gap-2 rounded bg-muted/40 px-2 py-1.5">
+              <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                本批 {batchSavedIds.length} 个文件已导入
+              </span>
+              <AddToCollectionsButton
+                sourceType="file"
+                id={batchSavedIds[0]}
+                batchIds={batchSavedIds}
+                label="本批加入集合"
+              />
+            </li>
+          )}
           {queue.slice(0, 12).map((row) => (
             <li key={row.retryKey} className="flex flex-wrap items-center gap-2 text-xs">
               <span className="min-w-0 flex-1 truncate">{row.fileName}</span>
