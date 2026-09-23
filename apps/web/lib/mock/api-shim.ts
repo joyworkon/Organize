@@ -486,9 +486,10 @@ const listLibraryItems: MockHandler = ({ url }) => {
   return { body: { items, nextCursor } };
 };
 
-// ---- 文件导入（阶段 D，/api/imports 的 mock 对齐实现）----
+// ---- 文件导入（阶段 D，/api/imports 的 mock 对齐实现；阶段 1 可靠性同构）----
 // 真实/mock 同一合同：响应 { task: {id,status}, files: ImportFileResult[] }；
-// 幂等键 retry_key；逐文件独立成败。
+// 幂等键 retry_key（结果回传 retryKey）；逐文件独立成败；中断恢复（stale 阈值）；
+// 任务状态随文件重算；GET 游标分页。
 // mock 诚实边界（任务书 §九：mock 不得伪造成功）：
 //   文本路径（txt/md/csv/json）真解析（与服务端同一 extract-text 实现）并真建条目；
 //   PDF/DOCX/XLSX 无服务端解析器 → 明确失败；image/audio 无存储 → 明确失败。
@@ -497,6 +498,12 @@ import { importKind } from "@/lib/imports/kinds";
 import { validateImportBatch } from "@/lib/imports/budgets";
 import { isImportError } from "@/lib/imports/errors";
 import { IMPORT_URI_PREFIX } from "@/lib/reading/source";
+import { INTERRUPTED_ERROR_MESSAGE, isImportRowStale } from "@/lib/imports/stale";
+import {
+  decodeImportHistoryCursor,
+  encodeImportHistoryCursor,
+  ImportHistoryCursorError,
+} from "@/lib/imports/history-cursor";
 
 // jsdom 的 Blob/File 无 arrayBuffer()，退回 FileReader（浏览器两条路都可用）
 const blobBytes = async (blob: Blob): Promise<Uint8Array> => {
@@ -512,11 +519,16 @@ const blobBytes = async (blob: Blob): Promise<Uint8Array> => {
 const sha256Hex = async (bytes: Uint8Array): Promise<string> =>
   Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource)),
-    (n) => n.toString(16).padStart(2, "0"),
+    (n: number) => n.toString(16).padStart(2, "0"),
   ).join("");
 
 const importTasksTable = () => (mockDb.import_tasks ??= []);
 const importFilesTable = () => (mockDb.import_files ??= []);
+
+const findImportRow = (retryKey: string) =>
+  importFilesTable().find(
+    (row: any) => row.user_id === MOCK_USER.id && row.retry_key === retryKey,
+  );
 
 const importFileDto = (row: any) => ({
   id: row.id,
@@ -529,7 +541,149 @@ const importFileDto = (row: any) => ({
   readingItemId: row.reading_item_id ?? null,
   pageCount: row.page_count ?? null,
   createdAt: row.created_at,
+  retryKey: row.retry_key,
 });
+
+/** 任务状态与逐文件状态对齐（与真实路由 recomputeTaskStatus 同语义）。 */
+const recomputeImportTaskMock = (taskId: string): string => {
+  const rows = importFilesTable().filter((row: any) => row.task_id === taskId);
+  let status: string;
+  if (rows.length === 0) {
+    status = "failed";
+  } else if (
+    rows.some((row: any) => row.status === "pending" || row.status === "uploading" || row.status === "parsing")
+  ) {
+    status = "processing";
+  } else {
+    const saved = rows.filter((row: any) => row.status === "saved").length;
+    const failed = rows.filter((row: any) => row.status === "failed").length;
+    status = failed === 0 ? "saved" : saved === 0 ? "failed" : "partial";
+  }
+  const task = importTasksTable().find((t: any) => t.id === taskId);
+  if (task) {
+    task.status = status;
+    task.updated_at = nowIso();
+  }
+  return status;
+};
+
+/** 惰性中断回收（与真实路由 recoverStaleImports 同语义）：stale 进行中行 → failed，任务收口。 */
+const recoverStaleImportsMock = (): void => {
+  const now = Date.now();
+  for (const row of importFilesTable()) {
+    if (row.user_id !== MOCK_USER.id) continue;
+    if ((row.status === "uploading" || row.status === "parsing") && isImportRowStale(row.updated_at, now)) {
+      row.status = "failed";
+      row.error = INTERRUPTED_ERROR_MESSAGE;
+      row.updated_at = nowIso();
+    }
+  }
+  const touched = new Set(
+    importTasksTable().filter((t: any) => t.user_id === MOCK_USER.id).map((t: any) => t.id),
+  );
+  for (const taskId of touched) recomputeImportTaskMock(taskId);
+};
+
+const IMPORT_UNSUPPORTED_MESSAGE = (name: string) =>
+  `暂不支持「${name}」：可导入 TXT / Markdown / CSV / JSON / PDF / DOCX / XLSX、图片与音频；旧版 .doc/.xls 请转换为 .docx/.xlsx`;
+
+const importOneMockFile = async (
+  file: File,
+  retryKey: string,
+  ensureTaskId: () => string,
+): Promise<ReturnType<typeof importFileDto>> => {
+  const kind = importKind(file);
+  const now = Date.now();
+
+  // 幂等 + 中断恢复（与真实路由同语义）：新鲜非 failed 行原样返回；
+  // stale 进行中行 / failed 行原地重跑（复用同一行）
+  let row: any = findImportRow(retryKey);
+  const interrupted = !!row && row.status !== "failed" && isImportRowStale(row.updated_at, now);
+  if (row && row.status !== "failed" && !interrupted) return importFileDto(row);
+
+  const touch = (fields: Record<string, unknown>) => {
+    Object.assign(row, fields, { updated_at: nowIso() });
+    return importFileDto(row);
+  };
+
+  const fail = async (error: string) => {
+    if (row) return touch({ status: "failed", error });
+    // 无行失败（不支持格式等）：也落一行失败记录——历史完整、任务状态一致、可重试
+    const newRow: any = {
+      id: genId("import_file"), task_id: ensureTaskId(), user_id: MOCK_USER.id,
+      file_name: file.name, mime: file.type || "application/octet-stream", size: file.size,
+      kind: kind ?? "text", retry_key: retryKey, status: "failed", error,
+      reading_item_id: null, page_count: null,
+      created_at: nowIso(), updated_at: nowIso(),
+    };
+    // push 前再查一次（并发窗口兜底，与真实路由唯一约束同语义）
+    const dup = findImportRow(retryKey);
+    if (dup) {
+      row = dup;
+      return touch({ status: "failed", error });
+    }
+    importFilesTable().push(newRow);
+    row = newRow;
+    return importFileDto(row);
+  };
+
+  if (!kind) return fail(IMPORT_UNSUPPORTED_MESSAGE(file.name));
+  if (kind === "pdf" || kind === "docx" || kind === "xlsx") {
+    return fail(`「${file.name}」：mock 后端不支持解析 ${kind.toUpperCase()}（需真实后端），已拒绝，未伪造结果`);
+  }
+  if (kind === "image" || kind === "audio") {
+    return fail(`「${file.name}」：mock 后端不支持原件存储，已拒绝，未伪造结果`);
+  }
+
+  // 文本路径：真实解析 + 真实建条目（URN 去重与真实后端同语义）
+  try {
+    const bytes = await blobBytes(file);
+    const doc = extractTextDocument(kind, { fileName: file.name, bytes });
+    const key = await sha256Hex(bytes);
+    const urn = `${IMPORT_URI_PREFIX}${key}`;
+    const dup = (mockDb.reading_items || []).find(
+      (r: any) => r.user_id === MOCK_USER.id && r.url === urn && !r.deleted_at,
+    );
+    let itemId = dup?.id ?? null;
+    if (!dup) {
+      itemId = genId("item");
+      mockDb.reading_items.push({
+        id: itemId,
+        user_id: MOCK_USER.id,
+        url: urn,
+        title: doc.title,
+        content: doc.html,
+        excerpt: doc.excerpt,
+        cover_image: null,
+        reading_status: "unread",
+        reading_progress: 0,
+        is_pinned: false,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+        tags: [],
+      });
+    }
+    if (!row) {
+      // await 期间同键行可能已被并发请求落行——复用之（幂等，不建第二行）
+      row = findImportRow(retryKey);
+    }
+    if (!row) {
+      row = {
+        id: genId("import_file"), task_id: ensureTaskId(), user_id: MOCK_USER.id,
+        file_name: file.name, mime: file.type || "application/octet-stream", size: file.size,
+        kind, retry_key: retryKey, status: "uploading", error: null,
+        reading_item_id: null, page_count: null,
+        created_at: nowIso(), updated_at: nowIso(),
+      };
+      const raced = findImportRow(retryKey);
+      if (!raced) importFilesTable().push(row);
+      else row = raced;
+    }
+    return touch({ status: "saved", error: null, reading_item_id: itemId, page_count: null });
+  } catch (error) {
+    return fail(isImportError(error) ? error.message : `解析失败：${String(error).slice(0, 200)}`);
+  }
+};
 
 const createImportShim: MockHandler = async ({ rawBody }) => {
   if (!(rawBody instanceof FormData)) {
@@ -539,114 +693,69 @@ const createImportShim: MockHandler = async ({ rawBody }) => {
   const retryKeys = rawBody.getAll("retryKeys").map(String);
   const batchError = validateImportBatch(files);
   if (batchError) return { status: 400, body: { error: batchError } };
+  if (retryKeys.length && retryKeys.length !== files.length) {
+    return { status: 400, body: { error: "retryKeys 与 files 数量不一致" } };
+  }
 
-  const taskId = genId("import_task");
-  const taskRow = {
-    id: taskId, user_id: MOCK_USER.id, status: "processing",
-    created_at: nowIso(), updated_at: nowIso(),
+  // 任务行惰性创建：纯重试批不产生空任务（与真实路由同语义）
+  let taskId: string | null = null;
+  const ensureTaskId = () => {
+    if (!taskId) {
+      taskId = genId("import_task");
+      importTasksTable().push({
+        id: taskId, user_id: MOCK_USER.id, status: "processing",
+        created_at: nowIso(), updated_at: nowIso(),
+      });
+    }
+    return taskId;
   };
-  importTasksTable().push(taskRow);
 
   const results = [];
   for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const retryKey = retryKeys[i] ?? `${taskId}:${i}`;
-    // 幂等：同键已有非失败记录 → 直接返回
-    const existing = importFilesTable().find(
-      (row: any) => row.user_id === MOCK_USER.id && row.retry_key === retryKey
-    );
-    if (existing && existing.status !== "failed") {
-      results.push(importFileDto(existing));
-      continue;
-    }
-
-    const kind = importKind(file);
-    const row: any = existing ?? {
-      id: genId("import_file"),
-      task_id: taskId,
-      user_id: MOCK_USER.id,
-      file_name: file.name,
-      mime: file.type || "application/octet-stream",
-      size: file.size,
-      kind: kind ?? "text",
-      retry_key: retryKey,
-      created_at: nowIso(),
-      updated_at: nowIso(),
-    };
-    const fail = (error: string) => {
-      row.status = "failed"; row.error = error;
-      if (!existing) importFilesTable().push(row);
-      results.push(importFileDto(row));
-    };
-
-    if (!kind) {
-      fail(`暂不支持「${file.name}」：可导入 TXT / Markdown / CSV / JSON / PDF / DOCX / XLSX、图片与音频；旧版 .doc/.xls 请转换为 .docx/.xlsx`);
-      continue;
-    }
-    if (kind === "pdf" || kind === "docx" || kind === "xlsx") {
-      fail(`「${file.name}」：mock 后端不支持解析 ${kind.toUpperCase()}（需真实后端），已拒绝，未伪造结果`);
-      continue;
-    }
-    if (kind === "image" || kind === "audio") {
-      fail(`「${file.name}」：mock 后端不支持原件存储，已拒绝，未伪造结果`);
-      continue;
-    }
-
-    // 文本路径：真实解析 + 真实建条目（URN 去重与真实后端同语义）
-    try {
-      const bytes = await blobBytes(file);
-      const doc = extractTextDocument(kind, { fileName: file.name, bytes });
-      const key = await sha256Hex(bytes);
-      const urn = `${IMPORT_URI_PREFIX}${key}`;
-      const dup = (mockDb.reading_items || []).find(
-        (r: any) => r.user_id === MOCK_USER.id && r.url === urn && !r.deleted_at
-      );
-      let itemId = dup?.id ?? null;
-      if (!dup) {
-        itemId = genId("item");
-        mockDb.reading_items.push({
-          id: itemId,
-          user_id: MOCK_USER.id,
-          url: urn,
-          title: doc.title,
-          content: doc.html,
-          excerpt: doc.excerpt,
-          cover_image: null,
-          reading_status: "unread",
-          reading_progress: 0,
-          is_pinned: false,
-          created_at: nowIso(),
-          updated_at: nowIso(),
-          tags: [],
-        });
-      }
-      row.status = "saved";
-      row.error = null;
-      row.reading_item_id = itemId;
-      row.page_count = null;
-      if (!existing) importFilesTable().push(row);
-      results.push(importFileDto(row));
-    } catch (error) {
-      fail(isImportError(error) ? error.message : `解析失败：${String(error).slice(0, 200)}`);
-    }
+    const retryKey = retryKeys[i] ?? `${ensureTaskId()}:${i}`;
+    results.push(await importOneMockFile(files[i], retryKey, ensureTaskId));
   }
 
-  const saved = results.filter((r) => r.status === "saved").length;
-  const failed = results.filter((r) => r.status === "failed").length;
-  taskRow.status = failed === 0 ? "saved" : saved === 0 ? "failed" : "partial";
-  return { body: { task: { id: taskId, status: taskRow.status }, files: results } };
+  // 收口：被触碰的任务全部重算（失败项修好 → partial 收口为 saved）
+  for (const id of [...new Set(results.map((r: any) => r.taskId))]) {
+    recomputeImportTaskMock(id);
+  }
+  const primaryTaskId = taskId ?? results[0]?.taskId ?? "";
+  const task = importTasksTable().find((t: any) => t.id === primaryTaskId);
+  return { body: { task: { id: primaryTaskId, status: task?.status ?? "failed" }, files: results } };
 };
 
 const listImportsShim: MockHandler = ({ url }) => {
+  recoverStaleImportsMock();
   const limitParam = Number(url.searchParams.get("limit"));
   const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 100) : 50;
-  const files = importFilesTable()
+  let cursor;
+  try {
+    cursor = decodeImportHistoryCursor(url.searchParams.get("cursor"));
+  } catch (error) {
+    const message = error instanceof ImportHistoryCursorError ? error.message : "cursor 无效";
+    return { status: 400, body: { error: message } };
+  }
+  const all = importFilesTable()
     .filter((row: any) => row.user_id === MOCK_USER.id)
     .slice()
-    .sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1))
-    .slice(0, limit)
-    .map(importFileDto);
-  return { body: { files } };
+    .sort((a: any, b: any) => {
+      if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+      return a.id < b.id ? 1 : -1; // created_at DESC, id DESC
+    });
+  const page = cursor
+    ? all.filter(
+        (row: any) =>
+          row.created_at < cursor.created_at ||
+          (row.created_at === cursor.created_at && row.id < cursor.id),
+      )
+    : all;
+  const files = page.slice(0, limit).map(importFileDto);
+  const last = files.length === limit ? files[files.length - 1] : null;
+  const nextCursor = last
+    ? encodeImportHistoryCursor({ created_at: last.createdAt, id: last.id })
+    : null;
+  return { body: { files, nextCursor } };
 };
 
 // ---- 备份恢复（P2-01 smoke 需要；与真实 /api/backup/restore 同形状）----

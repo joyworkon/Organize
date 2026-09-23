@@ -38,4 +38,10 @@ export interface ImportFileResult {
   readingItemId: string | null;
   pageCount: number | null;
   createdAt: string;
+  /**
+   * 稳定请求标识（090 unique(user_id, retry_key)）。服务端在每个结果里回传，
+   * 客户端按它精确配对结果与本地文件（禁止按文件名配对——同名文件会错配）；
+   * 列表接口也返回它，刷新后的单文件重试复用同一键。
+   */
+  retryKey: string;
 }

@@ -170,7 +170,7 @@ function LibraryPageInner() {
           <ReadingView search={search} refreshTick={refreshTick} registerEscape={registerEscape} />
         </>
       ) : view === "files" ? (
-        <FilesView refreshTick={refreshTick} />
+        <FilesView refreshTick={refreshTick} onImported={bumpRefresh} />
       ) : (
         <MemosView search={search} />
       )}

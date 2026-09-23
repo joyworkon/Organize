@@ -3,6 +3,36 @@
 > 任务启动：2026-09-22。基线 master `9874048`。规格来源：用户任务书（画布 → 页面 → 区块三层、资料库融合、文件导入、联动）。
 > 计划文件：会话计划（elektra-phantom-stranger-ravager）。恢复会话时先读本文件。
 
+## 收口任务（2026-09-23 启动，基线 master `57a8f75`）
+
+A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据归属与备份恢复 ③主题集合 ④合并整理成文章 ⑤画布体验与最终回归。
+
+### 阶段 1｜文件导入可靠性（feat/import-reliability → PR #332）
+
+- **中断恢复（择一记录）**：导入无后台 worker，uploading/parsing 只可能属于一个在途 POST；
+  行 `updated_at` 超过 `IMPORT_STALE_THRESHOLD_MS`（10 分钟，预算有界故余量充足）即判请求已死，
+  安全规则＝标记 failed（错误明示可重试、不重复）+ 保留已传原件（storage_path 不动）+
+  收口所属任务状态。回收是**惰性**的：GET（恢复列表）与 POST（同键重试）读到 stale 行时执行；
+  UPDATE 带同一 cutoff 条件防误杀在途行。新增 `lib/imports/stale.ts`、`lib/imports/recovery-server.ts`
+  （独立模块因 Next route 只许导出 handler）。
+- **重试闭环**：`ImportFileResult` 新增 `retryKey` 并由服务端逐文件回传——客户端按它精确配对
+  （删除旧的「文件名配对」，同名文件不再错配）；GET 列表也返回 retryKey。
+  FilesView 失败行新增「重试」：File 句柄已随刷新丢失 → 重选文件，**先验身份**（文件名+大小都
+  与原记录一致才提交）→ 复用行 retryKey 提交 → 成功后 bump refreshTick 双视图刷新。
+  FileImport 网络级失败不再丢队列行，落成 failed 原位可重试。
+- **并发幂等**：POST 建行撞 `unique(user_id, retry_key)`（23505）→ 读出赢家行按幂等/重跑处理
+  （递归至多一层）；mock shim 在 push 前复查同键行（真实约束的 mock 对齐）。
+  阅读条目仍由 URN 内容指纹去重兜底。
+- **任务惰性创建**：纯重试批不再产生空任务行；POST 结束/回收后对全部被触碰任务重算状态
+  （saved/partial/failed/processing，空任务 failed 且删除）；失败项修好后任务收口（partial→saved）。
+  不支持格式且无行失败时也落一行失败记录（历史完整、转换格式后可在列表重试）。
+- **分页**：GET /api/imports 支持 `cursor`（`imp1.` 前缀 base64url，`lib/imports/history-cursor.ts`
+  纯函数，排序 created_at DESC + id DESC），响应 `{ files, nextCursor }`；FilesView「加载更多」。
+- **已验证**：先红后绿——stale/cursor 纯函数 15 例、mock shim 新增 8 例（恢复/重跑/并发同键/
+  重试收口/同名不错配/分页）；全量 vitest 197 文件 1568 例；tsc；mock e2e 12/12
+  （含新增「一批两个同名文件不错配」）。**未验证（留阶段 2/真机）**：真实后端中断恢复
+  （需杀进程制造中断）、pgTAP 双账号（阶段 2 归属约束一并做）。
+
 ## 基线复测（2026-09-22，master@9874048）
 
 - `pnpm --filter @organize/web exec tsc --noEmit --incremental false`：✅ 通过（无错误输出）。
