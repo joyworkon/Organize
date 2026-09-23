@@ -243,7 +243,7 @@ describe("prepareRestorePayload 附件重映射", () => {
         "note_suggestions", "synced_blocks", "db_databases", "db_rows", "task_lists",
         "task_reminders", "task_attachments", "task_activities", "task_templates",
         "countdown_days", "memos", "task_item_refs", "memo_notes", "canvas_documents",
-        "import_tasks", "import_files",
+        "import_tasks", "import_files", "collections", "collection_items",
       ] as const
     ).map((table) => [table, []])
   ) as unknown as BackupData;

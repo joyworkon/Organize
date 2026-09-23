@@ -71,6 +71,42 @@ A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据�
   - 全量 vitest 199 文件 1577 例（2 skip 为真实后端 gated）；tsc；mock e2e 17/17。
 - **未验证**：真机大文件（接近 20MB 上限）的打包耗时；`pnpm audit` 留 CI verify。
 
+### 阶段 3｜主题集合（feat/topic-collections → PR 待开）
+
+> 分支说明：基于 feat/import-ownership-backup 的堆叠分支开发（PR #333 的 CI 遭遇
+> ghcr.io 全局限流长时间 pending，为不空等采用堆叠；#333 合并后 rebase 到新 master
+> 再开 PR，两段改动文件不相交，无冲突面）。
+
+- **迁移 092（`092_collections.sql`）**：
+  - `collections`（name ≤80）+ `collection_items`（引用行，三选一 check：
+    reading_item_id / memo_id / import_file_id 恰一个非空）。
+  - 同用户归属沿 091 口径：集合与三个来源全部是含 user_id 的复合外键（含
+    memos/import_files 的 (id, user_id) 唯一索引）——跨用户挂载在 DB 层不可能。
+  - 来源硬删 → cascade 清引用行；软删（回收站）→ 引用行保留，读取时
+    available=false 显示「来源不可用」；删除集合只 cascade 引用行，来源绝不 touching。
+  - 幂等：三组部分唯一索引 (collection_id, 来源id)，重复加入拒绝/ignore。
+  - RPC `collection_items_query`（security invoker）：实时 join 来源标题/摘要，
+    created_at DESC + id ASC 游标分页（col1. 前缀，`lib/collections/cursor.ts`）。
+  - `restore_backup_v2_full` 链式扩展（复制 091 主体 + 集合两表 + counts）。
+- **API（真实/mock 同合同，`lib/collections/types.ts` 共享）**：
+  GET/POST /api/collections、PATCH/DELETE /api/collections/[id]、
+  GET/POST/DELETE /api/collections/[id]/items（加入幂等 upsert ignoreDuplicates、
+  来源不存在 400「来源不存在或不可访问」）。
+- **mock**：`lib/mock/api-shim-collections.ts`（工厂注入 mockDb，软删 → available=false、
+  游标分页、幂等、404/400 语义对齐）。
+- **UI**：library 页新增「集合」tab（?view=collections，详情 ?collection=<id> 深链
+  URL 双向同步；旧 view 参数不受影响）；LibraryCard「加入集合」；FilesView 行内
+  「加入集合」；FileImport 批次成功后「本批加入集合」（整批 file 来源一次挂载）。
+  自动主题建议＝确定性启发式（集合名与来源标题/memo 标签的词元重合，CJK 包含匹配），
+  对话框内以「建议」芯片展示、点击确认才采用，绝不自动写入手动分类。
+- **备份 v8**：collections/collection_items 进备份（引用行校验「恰好一来源且可解析」；
+  导出剪枝剔除来源不在导出集的引用行；恢复重映射集合与来源坐标）；v2–v7 兼容补空。
+- **已验证**：pgTAP 42 文件 / 1119 例全过（092 新 21 例：跨用户负例×4、三选一 check、
+  幂等、删除语义、RPC 软删状态/分页/RLS、GRANT）；mock shim 测试 3 例 + 建议纯函数 8 例；
+  真实后端往返测试扩展集合断言后 2/2 过（B 侧集合引用坐标全部落在 B 的资料上）；
+  全量 vitest 201 文件 1587 例；tsc；mock e2e 集合 3/3。
+- **未验证**：真实后端浏览器流（UI 全链走真实 DB）留阶段 5 统一回归。
+
 ## 基线复测（2026-09-22，master@9874048）
 
 - `pnpm --filter @organize/web exec tsc --noEmit --incremental false`：✅ 通过（无错误输出）。

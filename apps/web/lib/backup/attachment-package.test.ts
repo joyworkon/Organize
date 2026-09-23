@@ -10,7 +10,7 @@ import {
   scanAttachmentReferences,
   type ScannedPackage,
 } from "./attachment-package";
-import type { BackupData } from "./schema";
+import { BACKUP_VERSION, type BackupData } from "./schema";
 
 // B07-2 导出侧单测：四类资源分类（§1.2/§4-2）、扫描白名单、打包护栏与取消（§4-3/4-4）、
 // manifest 合同与 zip 完整性（fflate 解包轮转 + STORE method + sha256 复核）。
@@ -196,7 +196,7 @@ describe("buildAttachmentPackage", () => {
 
     const manifest = JSON.parse(Buffer.from(unzipped["manifest.json"]).toString("utf8"));
     expect(manifest.package_version).toBe(1);
-    expect(manifest.backup_version).toBe(7);
+    expect(manifest.backup_version).toBe(BACKUP_VERSION);
     expect(manifest.app_version).toBe("1.2.3");
     expect(manifest.total_bytes).toBe(result.totalBytes);
     expect(manifest.url_map).toEqual(scanned.urlMap);

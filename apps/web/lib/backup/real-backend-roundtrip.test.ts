@@ -122,6 +122,16 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
       });
       expect(canvasError).toBeNull();
 
+      // 主题集合：引用 阅读条目 + 导入文件（092）
+      const collectionId = crypto.randomUUID();
+      await a.client.from("collections").insert({
+        id: collectionId, user_id: a.userId, name: "往返集合",
+      });
+      await a.client.from("collection_items").insert([
+        { collection_id: collectionId, user_id: a.userId, reading_item_id: readingId },
+        { collection_id: collectionId, user_id: a.userId, import_file_id: pdfFileId },
+      ]);
+
       // ---------- A 导出：JSON + 附件包 ----------
       const backupData = pruneExportData(await fetchBackupData(a.client, a.userId));
       expect(backupData.import_files).toHaveLength(2);
@@ -137,7 +147,7 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
         chunks.push(chunk);
       }, { supabase: a.client });
       const zipBytes = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-      expect(manifest.backup_version).toBe(7);
+      expect(manifest.backup_version).toBe(8);
       expect(manifest.files.filter((f) => f.bucket === "import-files")).toHaveLength(3);
       expect(manifest.files.some((f) => f.bucket === "images" && f.path === imagePath)).toBe(true);
 
@@ -193,6 +203,24 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
       const restoredFreeItems = (restoredCanvas?.[0]?.content as { freeItems: Array<{ asset: { url: string } }> }).freeItems;
       expect(restoredFreeItems[0].asset.url).not.toBe(imageUrl);
       expect(restoredFreeItems[0].asset.url).toContain("/images/");
+
+      // 集合往返：引用行重映射到 B 的集合/来源坐标
+      const { data: restoredCollections } = await b.client.from("collections").select("*");
+      expect(restoredCollections).toHaveLength(1);
+      expect(restoredCollections![0].name).toBe("往返集合");
+      const { data: restoredCollectionItems } = await b.client
+        .from("collection_items").select("*");
+      expect(restoredCollectionItems).toHaveLength(2);
+      const bReadingIds = new Set(
+        ((await b.client.from("reading_items").select("id")).data ?? []).map((r: { id: string }) => r.id),
+      );
+      for (const row of restoredCollectionItems ?? []) {
+        expect(row.collection_id).toBe(restoredCollections![0].id);
+        const sourceId: string | null = row.reading_item_id ?? row.import_file_id ?? row.memo_id;
+        expect(sourceId).toBeTruthy();
+        // 引用坐标必须落在 B 自己的资料上
+        if (row.reading_item_id) expect(bReadingIds.has(row.reading_item_id)).toBe(true);
+      }
 
       // ---------- 隔离与私有性 ----------
       // B 的新原件路径对 A 不可读（RLS 目录限定）

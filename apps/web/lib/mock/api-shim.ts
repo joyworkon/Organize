@@ -6,6 +6,7 @@
 // 数据库块（/api/databases*）、未登录 cron 类接口。
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { createCollectionRoutes } from "@/lib/mock/api-shim-collections";
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
 import { decodeLibraryCursor, encodeLibraryCursor } from "@/lib/library/cursor";
@@ -1088,6 +1089,8 @@ const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/library\/items$/, handler: listLibraryItems },
   { method: "POST", pattern: /^\/api\/imports$/, handler: createImportShim },
   { method: "GET", pattern: /^\/api\/imports$/, handler: listImportsShim },
+  // 主题集合（阶段 3）：独立模块，工厂注入同一 mockDb
+  ...createCollectionRoutes({ mockDb, MOCK_USER, genId, nowIso }),
   { method: "POST", pattern: /^\/api\/memos$/, handler: createMemo },
   { method: "GET", pattern: /^\/api\/memos\/tags$/, handler: listMemoTags },
   { method: "GET", pattern: /^\/api\/memos\/([^/]+)$/, handler: getMemo },

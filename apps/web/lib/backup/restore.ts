@@ -57,6 +57,9 @@ export const ID_TABLES = [
   // 091（备份 v7）
   "import_tasks",
   "import_files",
+  // 092（备份 v8）
+  "collections",
+  "collection_items",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -315,6 +318,19 @@ export function prepareRestorePayload(
           ? "failed"
           : "partial";
     return { ...task, status };
+  });
+
+  // 092（备份 v8）：主题集合——集合自身仅重映射 ID；引用行重映射集合与来源坐标
+  data.collections = (backup.data.collections || []).map((row) => withId(row, maps.collections));
+  data.collection_items = (backup.data.collection_items || []).map((row) => {
+    const next: Record<string, unknown> = { ...withId(row, maps.collection_items) };
+    next.collection_id = remap(row.collection_id, maps.collections);
+    next.reading_item_id =
+      row.reading_item_id == null ? null : remap(row.reading_item_id, maps.reading_items);
+    next.memo_id = row.memo_id == null ? null : remap(row.memo_id, maps.memos);
+    next.import_file_id =
+      row.import_file_id == null ? null : remap(row.import_file_id, maps.import_files);
+    return next;
   });
 
   // tasks 新列的外键重映射（list_id → task_lists）

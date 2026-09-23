@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 7;
-/** 备份版本兼容范围：v7 是当前格式（091 起收录导入任务/文件），v2–v6 仍可导入（新表按空处理） */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6, 7] as const;
+export const BACKUP_VERSION = 8;
+/** 备份版本兼容范围：v8 是当前格式（092 起收录主题集合），v2–v7 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6, 7, 8] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -44,6 +44,9 @@ export const BACKUP_TABLES = [
   // 091（备份 v7）：文件导入任务与逐文件记录（原件本体走附件包 import-files 桶目录）
   "import_tasks",
   "import_files",
+  // 092（备份 v8）：主题集合（引用容器，来源 id 随各来源表重映射）
+  "collections",
+  "collection_items",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -504,6 +507,28 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  collections: {
+    fields: {
+      id: isUuid,
+      name: isString,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  collection_items: {
+    fields: {
+      id: isUuid,
+      collection_id: isUuid,
+      // 三选一（092 check 锁定）；三列都是必填 uuid 语义由导出侧保证——
+      // 备份层只校验「是合法 uuid 或 null」，三选一/悬空在导出剪枝与恢复重映射处理
+      reading_item_id: isNullableUuid,
+      memo_id: isNullableUuid,
+      import_file_id: isNullableUuid,
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 // 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
@@ -562,7 +587,7 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   }
   if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4 | 5 | 6)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v7")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v8")
     );
   }
   // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs）；
@@ -588,6 +613,8 @@ export function inspectBackupV2(input: unknown): BackupInspection {
           : v3NewTables,
       // 091（v7）：v6 及更早的备份没有导入两表
       ["import_tasks", "import_files"],
+      // 092（v8）：v7 及更早的备份没有集合两表
+      ["collections", "collection_items"],
     ].flat();
     for (const t of fillTables) {
       if (data[t] === undefined) {
@@ -752,13 +779,16 @@ function validateManifest(
   const v5CompatTables = new Set(["canvas_documents"]);
   // v6 及更早的备份没有 091 的导入两表，缺键按 0 记
   const v7CompatTables = new Set(["import_tasks", "import_files"]);
+  // v7 及更早的备份没有 092 的集合两表，缺键按 0 记
+  const v8CompatTables = new Set(["collections", "collection_items"]);
   for (const table of BACKUP_TABLES) {
     const declared = value.counts[table];
     const isLegacyMissing =
       ((version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined) ||
       (version === 4 && v4CompatTables.has(table) && declared === undefined) ||
       (version === 5 && v5CompatTables.has(table) && declared === undefined) ||
-      ((version ?? 0) <= 6 && v7CompatTables.has(table) && declared === undefined);
+      ((version ?? 0) <= 6 && v7CompatTables.has(table) && declared === undefined) ||
+      ((version ?? 0) <= 7 && v8CompatTables.has(table) && declared === undefined);
     if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(
@@ -797,6 +827,9 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     threads: idSet(data.note_comment_threads),
     databases: idSet(data.db_databases),
     importTasks: idSet(data.import_tasks),
+    collections: idSet(data.collections),
+    memos: idSet(data.memos),
+    importFiles: idSet(data.import_files),
   };
 
   checkOptionalRefs(data.notes, "reading_item_id", ids.reading, "notes", issues);
@@ -853,6 +886,28 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   // 备份内引用必须可解析，恢复才不因外键失败整链回滚）
   checkRefs(data.import_files, "task_id", ids.importTasks, "import_files", issues);
   checkOptionalRefs(data.import_files, "reading_item_id", ids.reading, "import_files", issues);
+  // 092（v8）：集合引用行——集合必填；三源恰好一个非空且必须可解析
+  checkRefs(data.collection_items, "collection_id", ids.collections, "collection_items", issues);
+  data.collection_items.forEach((row, index) => {
+    const sources = [
+      ["reading_item_id", ids.reading],
+      ["memo_id", ids.memos],
+      ["import_file_id", ids.importFiles],
+    ] as const;
+    const nonNull = sources.filter(([field]) => row[field] != null);
+    if (nonNull.length !== 1) {
+      issues.push(
+        issue(
+          "INVALID_ROW",
+          `$.data.collection_items[${index}]`,
+          "引用行必须恰好挂一个来源"
+        )
+      );
+      return;
+    }
+    const [field, set] = nonNull[0];
+    checkReference(row[field], set, `$.data.collection_items[${index}].${field}`, issues);
+  });
 
   data.favorites.forEach((favorite, index) => {
     const targetSet =
