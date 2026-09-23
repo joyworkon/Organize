@@ -30,6 +30,17 @@ const RUN = Math.random().toString(36).slice(2, 8);
 const WS_TOKEN = `rl-verify-ws-${RUN}`.padEnd(20, "0");
 const OWNER_EMAIL = `rl-verify-owner-${RUN}@test.local`;
 
+// 076 共享计数是固定窗口（window = DB clock 对齐 wall clock 分钟，设计决策：
+// 单条 UPSERT 原子自增，代价是窗口切换瞬间最多 2× limit 突刺）。
+// 每个场景 ~1-40s 远小于 60s 窗口：等下一个窗口起点再开跑，避免场景中途
+// 跨分钟边界把计数清零、断言失准（CI 实测 flake：场景 2 起止 00:29:58.9→
+// 00:30:01.9 正好跨过 :00 边界，122 次全部放行）。DB 与 runner 同机（容器
+// 共享内核时钟），500ms 余量足够。
+async function alignToFreshWindow() {
+  const wait = 60_000 - (Date.now() % 60_000) + 500;
+  await new Promise((resolve) => setTimeout(resolve, wait));
+}
+
 function assert(cond, msg) {
   if (!cond) {
     console.error(`FAIL: ${msg}`);
@@ -53,6 +64,7 @@ async function saveOnce(baseUrl, token, xff) {
 
 // ========== 场景 1：token+IP 档两实例合计 30 ==========
 async function scenario1() {
+  await alignToFreshWindow();
   const token = `rl-verify-ip-${RUN}`.padEnd(20, "0"); // 形状合法（>=16 chars）即计数
   let four29 = 0;
   let non429 = 0;
@@ -67,6 +79,7 @@ async function scenario1() {
 
 // ========== 场景 2：轮换伪造 XFF，总量档合计 120 ==========
 async function scenario2() {
+  await alignToFreshWindow();
   const token = `rl-verify-xff-${RUN}`.padEnd(20, "0");
   let four29 = 0;
   let non429 = 0;
@@ -88,6 +101,7 @@ async function scenario2() {
 // （「无可信代理只走总量档」本身就是设计语义，见 anon-auth-limiter.ts）。
 // token+IP 档的共享合计由场景 1（web）+ pgTAP 076 覆盖（同一 RPC 同一机制）。
 async function scenario3() {
+  await alignToFreshWindow();
   // service_role 建专用账号 + 笔记 + public_read 分享（幂等；只读连接零写入）
   const status = JSON.parse(execSync("supabase status -o json", { encoding: "utf8" }));
   const url = process.env.SUPABASE_URL ?? status.API_URL;
