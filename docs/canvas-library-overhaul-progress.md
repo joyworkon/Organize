@@ -144,18 +144,28 @@
 - 样式：`app/globals.css` 区块外框/名称/标题、结构面板、模板列表、空态入口。
 - 测试：`lib/canvas/migration.test.ts`（新增）；`commands/layout/validation/canvas-store` 测试迁移 + 新增 40 例；`e2e/canvas.spec.ts` 新增 2 例、草稿 fixture 保留 v1；`e2e/visual-canvas.spec.ts` 骨架流程与 IME 计数适配；`lib/backup/schema.test.ts` fixture 升 v2。
 
+## 真实后端验证（2026-09-22，Docker 本地栈）
+
+用户拉起 Docker 后完成全量真实后端验证，全部通过：
+
+- **pgTAP**：40 文件 / 1081 例全过（含 089 library RPC、090 import_files）。
+- **门禁 e2e**（`playwright.collab.config.ts`，COLLAB_E2E=1 + REAL_DB_E2E=1）：**14/14 全过**——双账号协作 1、撤权/降级 3、同步块 7、反链 v2 1、匿名协作 2。
+- **D 导入真实链路**（真实 PDF/文本/加密/扫描四件 + 刷新 + 下载）：真实 PDF 真解析入稍后读 ✅、文本导入 ✅、加密 PDF 分类报错 ✅、扫描型 PDF 提示 OCR ✅、**刷新恢复**（import_files 落库，FilesView 持久列表整页刷新后仍在）✅、**原件下载**（/api/imports/file 鉴权路由返回 %PDF 原件）✅。
+- **E 联动真实链路**：图片存储凭据（/api/upload → 公开 URL 匿名回读 200）✅、资料面板搜索 → 引用卡片 ✅、插入摘录（text 块 + sourceRef）✅、**资料图片插入复制上传为画布自有资产**（新 /storage 对象，源图 URL 不同，匿名回读 200）✅、属性栏来源区 + 更新快照（真实拉取）✅、**源删除 → 来源不可用角标**（产品删除路径 mutate_trash RPC 软删 → RLS 不可见 → 角标出现）✅。
+- 验证脚本：`apps/web/.tmp-e2e/real-backend-verify.mjs`（gitignored，一次性，18 项断言）；PDF 固件经 reportlab/pypdf 生成（真实文本/加密/纯图扫描三类）。
+
 ## 遗留与未验证
 
-- E 待办：来源状态探测（RLS `.in()` 可达性）与「更新快照」拉取在真实后端（Docker）下待验证；资料面板图片插入走画布上传管线，mock 下不可用已由单测覆盖，真实 `/storage/` 凭据路径待验。
+- ~~E 待办：来源状态探测与「更新快照」真实后端待验~~ ✅ 已验（2026-09-22，见上节）。
+- ~~D 待办：090 真实库验证（刷新恢复、原件下载、加密/扫描 PDF 真实路径）~~ ✅ 已验（2026-09-22，见上节）。
 - E：图片插入 reading 图片来源为复制上传（画布自有资产），源删除不影响画布图片；重复存储为已知取舍。
 - E：library-unified 翻页用例偶发 flake（retry 后过，阶段 C 起存在），再出现需专项加固。
-- D 待办：090 RLS/存储策略与真实解析链路仅有 mock + pgTAP/SQL 层面验证，本机无 Docker，真实库验证待补（含刷新恢复、原件下载、加密/扫描 PDF 真实路径）。
 - D：`pnpm audit` 复核留在 CI verify（pdfjs-dist ≥6.2.108 修 CVE-2026-16633；mammoth ≥1.11.0 修 CVE-2025-11849；SheetJS 走 CDN tarball 0.20.3 避开 npm 停更的 0.18.5）。
 - B2 无新迁移（新块类型/行级字段全部在既有 jsonb content 内，validation 白名单同步即可）；服务端/mock 校验同一份 validation，契约不变。
 - 行/列的独立选中态未做（规格允许跳过该档）：「所在行」属性经由选中块 contextual 呈现。
 - 「减列」仅允许删除空列（非空列按钮禁用并提示），避免静默丢块；如需并块语义后续单独立项。
 - B2 生效范围仅桌面编辑态：手机只读隐藏添加面板与加号（既有 interactive 门控）。
 
-- 本机无 Docker：所有新迁移的 RLS/CAS/存储权限只能 mock + pgTAP/SQL 层面验证，真实库验证待补。
-- B1 无需新迁移（085 RPC 只存 jsonb）；服务端 v1→v2 落库路径仅有单测/mock 验证，真实路由同码待真实后端补验。
-- 区块 style.background/border 的装饰效果、区块名标题化的预览视觉走查排入阶段 E。
+- ~~本机无 Docker~~（2026-09-22 起本机有 Docker，D/E/089/090 真实链路已验，见上节）；B1 的 v1→v2 服务端迁移落库路径仍仅单测/mock 验证（旧 v1 客户端写入场景，低优先级）。
+- B1 无需新迁移（085 RPC 只存 jsonb）。
+- 区块 style.background/border 的装饰效果、区块名标题化的预览视觉走查未做（阶段 E 开发收尾时未含视觉走查），如需打磨单独立项。
