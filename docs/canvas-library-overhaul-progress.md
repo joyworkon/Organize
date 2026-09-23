@@ -141,6 +141,44 @@ A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据�
 - **未验证**：真实 AI 端到端（无外部 AI 服务；传输层由 materials 链路既有测试与
   safeAIRequest 单测覆盖）；整理稿编辑的真实浏览器全链留阶段 5。
 
+### 阶段 5｜画布体验与最终回归（feat/canvas-regression → PR 待开）
+
+> 堆叠链终点：#333 → #334 → #335 全部合并后，本分支 rebase 到 master 只含阶段 5 增量。
+
+- **use-source-status 状态机修正（任务书点名的缺陷）**：旧实现把探测查询失败一律判成
+  「来源已删除」。新状态机：`loading`（探测在途，按可用渲染不闪烁）／`ok`／`missing`
+  （查询成功但行不可见＝软删/硬删/无权限，显示「来源不可用」）／`error`（网络或服务异常，
+  显示「来源状态未知」，15s 自动重探）。任何状态都不隐藏已保存的画布快照（hook 只产出
+  状态 Map，不裁剪文档；徽标仅叠加角标）。补 5 例 hook 状态机单测（含 error≠missing）。
+- **顺带修复的真实缺陷（由新增真实后端回归测试抓出）**：
+  1. **import-files 桶缺 UPDATE 对象策略（090 遗留）**：重试对已存在原件 upsert 走
+     UPDATE 路径被 RLS 拒绝（「原件上传失败：new row violates row-level security」）——
+     之前所有真实后端验证从未真正走过「失败行重选文件重试」。093 补 UPDATE 策略
+     （限定本人目录，with check 禁止跨目录搬移）；090 pgTAP 策略计数 3→4。
+  2. **memos 软删来源被误判可达**：memos 的 SELECT RLS 无 deleted_at 条件（055），
+     use-source-status 不带过滤会把软删速记判 ok → 来源删除角标不出现。探测查询显式
+     `.is("deleted_at", null)`（reading_items 同步加，双层保险）。
+- **关键验收固化为仓库内测试（不再依赖 gitignored 临时脚本）**：
+  `e2e/real-import-canvas.spec.ts`（REAL_DB_E2E=1 + COLLAB_E2E=1 门控，
+  挂入 playwright.collab.config.ts；运行方式见文件头注释）2/2 过：
+  - 导入链路：真实导入 saved → 打开条目 → 下载原件 200（字节一致）→ **整页刷新恢复** →
+    service 侧做旧行（短暂禁 updated_at 触发器 + 11 分钟前）→ **惰性中断回收
+    （「导入中断」）→ 重选文件重试 saved → 不产生第二行**；
+  - 画布联动：新建画布真实落库（保存状态非「演示模式」）→ 资料面板引用卡片 →
+    **刷新持久** → 来源软删 → **「来源不可用」角标 + 快照保留**。
+- **浏览器回归矩阵**（mock 全量 e2e 重跑确认）：亮/暗主题（visual-canvas 截图链）、
+  390px 手机只读（mobile-readonly）、常用桌面宽 1440/1200（骨架/插入断言）、
+  50%/100%/200% 缩放双击坐标（canvas-insert A01 链）、平移后新增带回视口、
+  图片按钮/拖入/粘贴三入口、头中底区块外框（落地页骨架结构树）、预览模式、
+  属性保存与撤销（⌘Z/⇧⌘Z、滑杆 coalesce）——对应 spec 全部通过（见验证记录）。
+- **关键截图**（visual-canvas 产出，`/tmp/canvas-*.png`，已复制到 docs/）：
+  canvas-editor-light/dark、canvas-preview、canvas-mobile-readonly、canvas-list。
+- **已验证**：全量 vitest 204 文件 / 1609 例；tsc；全量 mock e2e（含 visual-canvas、
+  canvas-insert、canvas-material、canvas、library-* 全链）；真实后端 gated spec 2/2；
+  pgTAP 43 文件 / 1129 例。
+- **未验证**：真实硬件输入法手感、读屏全量走查（延续 A06/A17 既有缺口）；性能基准
+  （5 版面 200 模块 P95）未测——均为任务书允许的既有裁剪项。
+
 ## 基线复测（2026-09-22，master@9874048）
 
 - `pnpm --filter @organize/web exec tsc --noEmit --incremental false`：✅ 通过（无错误输出）。

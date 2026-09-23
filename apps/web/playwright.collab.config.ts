@@ -12,7 +12,7 @@ export default defineConfig({
   testDir: "./e2e",
   // A05-4 新增 collab-revocation（撤权/降级场景，需 service_role 撤权 + 短重验间隔）
   // B03-4 新增 note-backlinks（反链 v2 切读冒烟，不依赖 collab-server 但复用同栈）
-  testMatch: /(collab|anon-collab|collab-revocation|synced-block|note-backlinks)\.spec\.ts/,
+  testMatch: /(collab|anon-collab|collab-revocation|synced-block|note-backlinks|real-import-canvas)\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

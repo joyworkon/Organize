@@ -543,23 +543,32 @@ export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
   );
 });
 
-/** 来源状态徽章（E）：快照继续可见，仅标注来源不可达。 */
+/**
+ * 来源状态徽章（E；阶段 5 修正状态机）：loading=探测在途（按可用渲染，不闪烁）；
+ * ok=可达；missing=确认软删/硬删/无权限（「来源不可用」）；error=探测失败
+ * （网络/服务异常 → 「来源状态未知」，不是来源被删）。任何状态都不隐藏快照。
+ */
 export function SourceStatusBadge({
   sourceRef,
   status,
 }: {
   sourceRef: CanvasSourceRef;
-  status: "ok" | "missing";
+  status: "loading" | "ok" | "missing" | "error";
 }) {
-  if (status === "ok") return null;
+  if (status === "ok" || status === "loading") return null;
+  const unknown = status === "error";
   return (
     <span
-      className="canvas-source-missing-badge"
+      className={unknown ? "canvas-source-unknown-badge" : "canvas-source-missing-badge"}
       role="status"
-      aria-label={`来源${sourceRef.kind === "memo" ? "速记" : "资料"}不可用（已删除或无权限）`}
-      title={`来源已删除或无权限；快照仍保留（${sourceRef.title}）`}
+      aria-label={unknown
+        ? `来源${sourceRef.kind === "memo" ? "速记" : "资料"}状态未知（网络或服务异常）`
+        : `来源${sourceRef.kind === "memo" ? "速记" : "资料"}不可用（已删除或无权限）`}
+      title={unknown
+        ? `来源状态暂时无法确认；快照仍保留（${sourceRef.title}）`
+        : `来源已删除或无权限；快照仍保留（${sourceRef.title}）`}
     >
-      来源不可用
+      {unknown ? "来源状态未知" : "来源不可用"}
     </span>
   );
 }
@@ -582,8 +591,8 @@ export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlock
   children,
 }: CanvasBlockViewProps & {
   block: CanvasMaterialCardBlock;
-  /** 来源可达性（use-source-status；未探测完成按 ok）。 */
-  sourceStatus: "ok" | "missing";
+  /** 来源可达性（use-source-status；探测在途按可用渲染）。 */
+  sourceStatus: "loading" | "ok" | "missing" | "error";
 }) {
   return (
     <div

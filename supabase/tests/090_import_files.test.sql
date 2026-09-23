@@ -92,8 +92,8 @@ SELECT is((SELECT count(*) FROM public.import_files
 SELECT is((SELECT public FROM storage.buckets WHERE id = 'import-files'), false,
   '090: import-files 桶为私有（原件不随分享公开）');
 SELECT is((SELECT count(*) FROM pg_policies WHERE tablename = 'objects'
-  AND policyname LIKE '%import files%'), 3::bigint,
-  '090: import-files 三条对象策略齐备（上传/读取/删除限定本人目录）');
+  AND policyname LIKE '%import files%'), 4::bigint,
+  '093 起为四条对象策略（上传/读取/更新/删除限定本人目录；更新为重试 upsert 既有原件所需）');
 
 -- ========== 7. 表级 GRANT ==========
 SELECT is(has_table_privilege('authenticated', 'public.import_tasks', 'INSERT'), true,

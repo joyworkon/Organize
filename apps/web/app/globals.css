@@ -5965,6 +5965,14 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   padding: 0 4px;
   line-height: 16px;
 }
+
+.canvas-source-unknown-badge {
+  border-radius: var(--radius-sm);
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+  padding: 0 4px;
+  line-height: 16px;
+}
 .canvas-source-missing-inline { color: hsl(var(--destructive)); }
 .canvas-prop-row-top { align-items: flex-start; }
 .canvas-prop-textarea { resize: vertical; min-height: 56px; font-family: inherit; }
