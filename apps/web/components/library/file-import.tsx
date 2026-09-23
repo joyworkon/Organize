@@ -33,7 +33,8 @@ interface PendingFile {
   retryKey: string;
 }
 
-type QueueRow = ImportFileResult & { retryKey: string; file?: File };
+// retryKey 已并入 ImportFileResult（阶段 1）；file 是内存中的待重试句柄（刷新后丢失，走列表重选流程）
+type QueueRow = ImportFileResult & { file?: File };
 
 export function FileImport({ onImported }: { onImported: () => void }) {
   const [dragging, setDragging] = useState(false);
@@ -59,6 +60,15 @@ export function FileImport({ onImported }: { onImported: () => void }) {
         ...rest,
       ];
     });
+    // 请求级失败（非 200 / 网络异常）时把占位行落成 failed 而不是移除：
+    // File 句柄仍在内存，行保留在队列里才能原位重试（复用同一 retryKey）
+    const failPendingInPlace = (error: string) => {
+      setQueue((prev) => prev.map((row) => (
+        pending.some((p) => p.retryKey === row.retryKey)
+          ? { ...row, status: "failed" as const, error }
+          : row
+      )));
+    };
     try {
       const form = new FormData();
       for (const { file, retryKey } of pending) {
@@ -69,14 +79,15 @@ export function FileImport({ onImported }: { onImported: () => void }) {
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         toast({ title: data?.error || "导入失败", variant: "destructive" });
-        setQueue((prev) => prev.filter((row) => !pending.some((p) => p.retryKey === row.retryKey)));
+        failPendingInPlace(data?.error || "导入失败");
         return;
       }
       const results = (data.files ?? []) as ImportFileResult[];
       setQueue((prev) => [
         ...results.map((row) => {
-          const match = pending.find((p) => p.retryKey === row.id || p.file.name === row.fileName);
-          return { ...row, retryKey: match?.retryKey ?? row.id, file: match?.file };
+          // 按 retryKey 精确配对（服务端回传）：同名文件不会错配
+          const match = pending.find((p) => p.retryKey === row.retryKey);
+          return { ...row, file: match?.file };
         }),
         ...prev.filter((row) => !pending.some((p) => p.retryKey === row.retryKey)),
       ]);
@@ -88,7 +99,7 @@ export function FileImport({ onImported }: { onImported: () => void }) {
       onImportedRef.current();
     } catch {
       toast({ title: "导入失败：网络异常，请稍后重试", variant: "destructive" });
-      setQueue((prev) => prev.filter((row) => !pending.some((p) => p.retryKey === row.retryKey)));
+      failPendingInPlace("网络异常，请重试");
     } finally {
       setRunning(false);
     }

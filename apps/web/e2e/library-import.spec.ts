@@ -53,3 +53,33 @@ test("导入 PDF：mock 诚实失败，原因可见，可重试", async ({ page 
   // 刷新即清空，恢复语义由 lib/mock/api-shim-imports.test.ts 的 GET 形状用例覆盖，
   // 真实后端的落库恢复待 Docker 环境验证（进度文档遗留项）。
 });
+
+test("一批两个同名文件（内容不同）：两行独立、各回各的 retryKey、不错配", async ({ page }) => {
+  await openPage(page, "/library?view=files");
+  await page.getByLabel("选择要导入的文件").setInputFiles([
+    {
+      name: "e2e-same.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# 内容甲"),
+    },
+    {
+      name: "e2e-same.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# 内容乙完全不同"),
+    },
+  ]);
+  await expect(page.getByText("已导入 2 个文件").first()).toBeVisible();
+
+  // 两行同名记录都出现（按 retryKey 配对，不按文件名 → 不会挤掉另一行）
+  const rows = page.locator("section[aria-label='文件导入'] li", { hasText: "e2e-same.md" });
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first().getByText("已保存")).toBeVisible();
+  await expect(rows.nth(1).getByText("已保存")).toBeVisible();
+
+  // 两个条目链接指向不同的阅读条目（同名不同内容 = 两份资料）
+  const hrefA = await rows.first().getByRole("link", { name: "打开条目" }).getAttribute("href");
+  const hrefB = await rows.nth(1).getByRole("link", { name: "打开条目" }).getAttribute("href");
+  expect(hrefA).toBeTruthy();
+  expect(hrefB).toBeTruthy();
+  expect(hrefA).not.toBe(hrefB);
+});

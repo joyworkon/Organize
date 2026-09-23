@@ -1,13 +1,18 @@
 "use client";
 
-// 资料库「文件」视图（阶段 D）：导入记录列表（GET /api/imports）。
-// 刷新后可恢复（持久在 import_files 表）；状态轮询直到没有进行中的文件；
-// 失败项单独重试（服务端 retry_key 唯一约束幂等）；原件经 /api/imports/file 鉴权下载。
+// 资料库「文件」视图（阶段 D；阶段 1 加固）：
+// - 刷新后可恢复（持久在 import_files 表），游标分页「加载更多」（不再只有最近 50 条）；
+// - 失败行真正可重试：File 句柄已随刷新丢失，重试走「重新选择文件」——先确认身份
+//   （文件名与大小都与原记录一致才提交），并复用行上的 retryKey（服务端幂等，不重复建资料）；
+// - 状态轮询直到没有进行中的文件；服务端惰性中断回收保证卡住的行终会变成可重试的终态；
+// - 原件经 /api/imports/file 鉴权下载。
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ImportFileResult } from "@/lib/imports/types";
 import { statusLabel } from "./file-import";
-import { FileText, Loader2 } from "@/components/icons";
+import { FileText, Loader2, RotateCcw } from "@/components/icons";
+import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const KIND_LABEL: Record<string, string> = {
@@ -21,39 +26,115 @@ function formatSize(size: number): string {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function FilesView({ refreshTick }: { refreshTick: number }) {
+export function FilesView({
+  refreshTick,
+  onImported,
+}: {
+  refreshTick: number;
+  /** 重试提交成功后通知父级递增 refreshTick（本视图随之刷新，导入面板同步） */
+  onImported?: () => void;
+}) {
   const [files, setFiles] = useState<ImportFileResult[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchFiles = useCallback(async () => {
+  const fetchFiles = useCallback(async (cursor?: string | null, append = false) => {
     try {
-      const res = await fetch("/api/imports?limit=50", { cache: "no-store" });
+      const params = new URLSearchParams({ limit: "50" });
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(`/api/imports?${params}`, { cache: "no-store" });
       if (!res.ok) return;
-      const data = (await res.json()) as { files: ImportFileResult[] };
-      setFiles(data.files);
-      // 仍有进行中文件 → 2s 后轮询（状态机落库可恢复，不依赖内存 Promise）
+      const data = (await res.json()) as { files: ImportFileResult[]; nextCursor: string | null };
+      setFiles((prev) => (append ? [...prev, ...data.files] : data.files));
+      setNextCursor(data.nextCursor);
+      // 仍有进行中文件 → 2s 后轮询（中断回收在服务端惰性执行：卡住的行超阈值后
+      // 会被标记 failed，轮询自然停止）。刷新/加载更多不重复排轮询。
       const busy = data.files.some(
         (f) => f.status === "pending" || f.status === "uploading" || f.status === "parsing",
       );
-      if (busy) timerRef.current = setTimeout(() => void fetchFiles(), 2000);
+      if (busy && !cursor) {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => void fetchFiles(null, false), 2000);
+      }
     } catch {
       /* 网络异常静默，下轮刷新或用户操作重试 */
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    void fetchFiles();
+    void fetchFiles(null, false);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [fetchFiles, refreshTick]);
 
+  // ---- 单文件重试（阶段 1）----
+  const retryInputRef = useRef<HTMLInputElement>(null);
+  const retryTargetRef = useRef<ImportFileResult | null>(null);
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+
+  const startRetry = (file: ImportFileResult) => {
+    retryTargetRef.current = file;
+    retryInputRef.current?.click();
+  };
+
+  const submitRetry = useCallback(async (selected: File, target: ImportFileResult) => {
+    setRetryingKey(target.retryKey);
+    try {
+      const form = new FormData();
+      form.append("files", selected);
+      form.append("retryKeys", target.retryKey);
+      const res = await fetch("/api/imports", { method: "POST", body: form });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast({ title: data?.error || "重试失败", variant: "destructive" });
+        return;
+      }
+      const result = (data.files as ImportFileResult[] | undefined)?.[0];
+      if (result?.status === "saved") toast({ title: `「${target.fileName}」重试成功` });
+      else toast({ title: result?.error || "重试失败", variant: "destructive" });
+      onImported?.();
+    } catch {
+      toast({ title: "重试失败：网络异常，请稍后重试", variant: "destructive" });
+    } finally {
+      setRetryingKey(null);
+      retryTargetRef.current = null;
+    }
+  }, [onImported]);
+
+  const onRetryFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    const target = retryTargetRef.current;
+    if (!selected || !target) return;
+    // 身份确认：文件名与大小都必须与原记录一致，防止把别的文件套进原导入记录
+    if (selected.name !== target.fileName || selected.size !== target.size) {
+      toast({
+        title: "所选文件与原记录不一致（文件名或大小不匹配），未提交",
+        description: `请重新选择「${target.fileName}」（${formatSize(target.size)}）`,
+        variant: "destructive",
+      });
+      retryTargetRef.current = null;
+      return;
+    }
+    void submitRetry(selected, target);
+  };
+
   return (
     <div className="space-y-2" aria-busy={loading}>
+      <input
+        ref={retryInputRef}
+        type="file"
+        className="hidden"
+        aria-label="重新选择文件以重试"
+        onChange={onRetryFileSelected}
+      />
       {loading ? (
         <div className="grid gap-2">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -115,9 +196,49 @@ export function FilesView({ refreshTick }: { refreshTick: number }) {
               >
                 下载原件
               </a>
+              {file.status === "failed" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={retryingKey === file.retryKey}
+                  aria-label={`重试导入 ${file.fileName}（需重新选择该文件）`}
+                  onClick={() => startRetry(file)}
+                >
+                  {retryingKey === file.retryKey ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-1 h-3 w-3" />
+                  )}
+                  重试
+                </Button>
+              )}
             </span>
           </div>
         ))
+      )}
+
+      {nextCursor && !loading && (
+        <div className="py-2 text-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loadingMore}
+            onClick={() => {
+              setLoadingMore(true);
+              void fetchFiles(nextCursor, true);
+            }}
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                加载中...
+              </>
+            ) : (
+              "加载更多"
+            )}
+          </Button>
+        </div>
       )}
     </div>
   );
