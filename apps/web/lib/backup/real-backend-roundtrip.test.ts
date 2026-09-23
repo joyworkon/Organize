@@ -132,6 +132,19 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
         { collection_id: collectionId, user_id: a.userId, import_file_id: pdfFileId },
       ]);
 
+      // 整理稿 + 溯源（093）：整理稿是 reading_item，digest_sources 记录来源与版本
+      const digestId = crypto.randomUUID();
+      await a.client.from("reading_items").insert({
+        id: digestId, user_id: a.userId, url: `urn:organize:digest:${pdfFileId.slice(0, 8)}`,
+        title: "往返整理稿", content: "<p>整理正文</p>", excerpt: "整理",
+        reading_status: "unread", reading_progress: 0,
+      });
+      await a.client.from("digest_sources").insert({
+        digest_id: digestId, user_id: a.userId,
+        source_type: "reading", source_id: readingId,
+        content_hash: "a".repeat(64),
+      });
+
       // ---------- A 导出：JSON + 附件包 ----------
       const backupData = pruneExportData(await fetchBackupData(a.client, a.userId));
       expect(backupData.import_files).toHaveLength(2);
@@ -147,7 +160,7 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
         chunks.push(chunk);
       }, { supabase: a.client });
       const zipBytes = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-      expect(manifest.backup_version).toBe(8);
+      expect(manifest.backup_version).toBe(9);
       expect(manifest.files.filter((f) => f.bucket === "import-files")).toHaveLength(3);
       expect(manifest.files.some((f) => f.bucket === "images" && f.path === imagePath)).toBe(true);
 
@@ -221,6 +234,14 @@ describe.skipIf(!REAL_DB)("真实后端备份往返（v7）", () => {
         // 引用坐标必须落在 B 自己的资料上
         if (row.reading_item_id) expect(bReadingIds.has(row.reading_item_id)).toBe(true);
       }
+
+      // 整理稿溯源往返：digest 与 source 坐标重映射到 B 的行
+      const { data: restoredDigestSources } = await b.client.from("digest_sources").select("*");
+      expect(restoredDigestSources).toHaveLength(1);
+      const provenance = restoredDigestSources![0];
+      expect(bReadingIds.has(provenance.digest_id)).toBe(true); // digest 本身落在 B 名下
+      expect(bReadingIds.has(provenance.source_id)).toBe(true); // 来源坐标跟走
+      expect(provenance.content_hash).toBe("a".repeat(64)); // 版本指纹原样
 
       // ---------- 隔离与私有性 ----------
       // B 的新原件路径对 A 不可读（RLS 目录限定）

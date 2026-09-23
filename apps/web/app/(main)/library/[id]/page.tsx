@@ -1,6 +1,7 @@
 "use client";
 
-import { isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
+import { isDigestUrl, isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
+import { DigestEditor } from "@/components/reading/digest-editor";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -112,6 +113,8 @@ export default function ReadingDetailPage() {
     [itemTags, allTagOptions]
   );
   const contentRef = useRef<HTMLDivElement>(null);
+  // 整理稿（阶段 4）：独立可编辑文章的编辑态开关
+  const [editingDigest, setEditingDigest] = useState(false);
   const focusContentRef = useRef<HTMLDivElement>(null);
   const focusScrollContainerRef = useRef<HTMLDivElement>(null);
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -125,6 +128,7 @@ export default function ReadingDetailPage() {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [item, setItem] = useState<ReadingItem | null>(null);
+  const isDigest = Boolean(item?.url && isDigestUrl(item.url));
   const [loading, setLoading] = useState(true);
   const [bionicMode, setBionicMode] = useState(false);
   const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
@@ -1056,14 +1060,42 @@ export default function ReadingDetailPage() {
           </div>
         </header>
 
-        {/* 文章内容 */}
-        <HighlightMenu onCreateHighlight={handleCreateHighlight}>
-          <div
-            ref={contentRef}
-            className="reader-content"
-            dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+        {/* 文章内容（整理稿可编辑：编辑态下暂不渲染高亮菜单） */}
+        {isDigest && editingDigest ? (
+          <DigestEditor
+            itemId={item.id}
+            initialTitle={item.title || ""}
+            initialHtml={item.content || ""}
+            onSaved={(title, contentHtml) => {
+              setItem((prev) =>
+                prev ? { ...prev, title, content: contentHtml } : prev,
+              );
+              setEditingDigest(false);
+            }}
+            onCancel={() => setEditingDigest(false)}
           />
-        </HighlightMenu>
+        ) : (
+          <>
+            {isDigest && (
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={() => setEditingDigest(true)}
+                >
+                  编辑整理稿（独立文章，不改动来源）
+                </button>
+              </div>
+            )}
+            <HighlightMenu onCreateHighlight={handleCreateHighlight}>
+              <div
+                ref={contentRef}
+                className="reader-content"
+                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+              />
+            </HighlightMenu>
+          </>
+        )}
 
         {/* 下一篇推荐 */}
         <div className="pb-24 mt-12">

@@ -60,6 +60,8 @@ export const ID_TABLES = [
   // 092（备份 v8）
   "collections",
   "collection_items",
+  // 093（备份 v9）
+  "digest_sources",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -332,6 +334,17 @@ export function prepareRestorePayload(
       row.import_file_id == null ? null : remap(row.import_file_id, maps.import_files);
     return next;
   });
+  // 093（备份 v9）：整理稿溯源——整理稿与来源坐标全部重映射
+  data.digest_sources = (backup.data.digest_sources || []).map((row) => ({
+    ...withId(row, maps.digest_sources),
+    digest_id: remap(row.digest_id, maps.reading_items),
+    source_id:
+      row.source_type === "reading"
+        ? remap(row.source_id, maps.reading_items)
+        : row.source_type === "memo"
+          ? remap(row.source_id, maps.memos)
+          : remap(row.source_id, maps.import_files),
+  }));
 
   // tasks 新列的外键重映射（list_id → task_lists）
   data.tasks = data.tasks.map((row) => ({

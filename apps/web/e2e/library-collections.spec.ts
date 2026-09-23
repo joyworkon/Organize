@@ -117,3 +117,26 @@ test("同批导入文件「本批加入集合」→ 文件来源在集合内可�
   await expect(page.getByLabel("集合内容").locator("li")).toHaveCount(2);
   await expect(page.getByRole("link", { name: "下载原件" }).first()).toBeVisible();
 });
+
+test("生成整理稿：勾选来源 → 预览确认；mock 下 AI 明确报错且来源不受影响", async ({ page }) => {
+  await openPage(page, "/library?view=collections");
+  await createCollection(page, "整理实验");
+
+  await page.getByLabel("资料库统一输入").fill("https://example.com/digest-source");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/已保存|已存在/).first()).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("tab", { name: "全部" }).click();
+  await addCardToCollection(page, "Digest source", "整理实验");
+
+  // 勾选 → 生成整理稿 → mock 后端 501：明确报错，不伪造成功
+  await page.getByRole("tab", { name: "集合" }).click();
+  await collectionNameButton(page, "整理实验").click();
+  await page.getByLabel("集合内容").locator("input[type=checkbox]").first().check();
+  await page.getByRole("button", { name: "生成整理稿" }).click();
+  const dialog = page.getByRole("dialog", { name: "生成整理稿" });
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText("演示模式");
+  // 取消后集合内容原样保留（来源完整可用）
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(page.getByLabel("集合内容").locator("li")).toHaveCount(1);
+});
