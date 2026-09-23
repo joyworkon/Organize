@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 8;
-/** 备份版本兼容范围：v8 是当前格式（092 起收录主题集合），v2–v7 仍可导入（新表按空处理） */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6, 7, 8] as const;
+export const BACKUP_VERSION = 9;
+/** 备份版本兼容范围：v9 是当前格式（093 起收录整理稿溯源），v2–v8 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -47,6 +47,8 @@ export const BACKUP_TABLES = [
   // 092（备份 v8）：主题集合（引用容器，来源 id 随各来源表重映射）
   "collections",
   "collection_items",
+  // 093（备份 v9）：整理稿溯源（digest 是 reading_item，来源 id 随来源表重映射）
+  "digest_sources",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
@@ -529,6 +531,17 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  digest_sources: {
+    fields: {
+      id: isUuid,
+      digest_id: isUuid,
+      source_type: oneOf("reading", "memo", "file"),
+      source_id: isUuid,
+      content_hash: (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value),
+      created_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 // 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
@@ -587,7 +600,7 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   }
   if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4 | 5 | 6)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v8")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v9")
     );
   }
   // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs）；
@@ -615,6 +628,8 @@ export function inspectBackupV2(input: unknown): BackupInspection {
       ["import_tasks", "import_files"],
       // 092（v8）：v7 及更早的备份没有集合两表
       ["collections", "collection_items"],
+      // 093（v9）：v8 及更早的备份没有溯源表
+      ["digest_sources"],
     ].flat();
     for (const t of fillTables) {
       if (data[t] === undefined) {
@@ -781,6 +796,8 @@ function validateManifest(
   const v7CompatTables = new Set(["import_tasks", "import_files"]);
   // v7 及更早的备份没有 092 的集合两表，缺键按 0 记
   const v8CompatTables = new Set(["collections", "collection_items"]);
+  // v8 及更早的备份没有 093 的溯源表，缺键按 0 记
+  const v9CompatTables = new Set(["digest_sources"]);
   for (const table of BACKUP_TABLES) {
     const declared = value.counts[table];
     const isLegacyMissing =
@@ -788,7 +805,8 @@ function validateManifest(
       (version === 4 && v4CompatTables.has(table) && declared === undefined) ||
       (version === 5 && v5CompatTables.has(table) && declared === undefined) ||
       ((version ?? 0) <= 6 && v7CompatTables.has(table) && declared === undefined) ||
-      ((version ?? 0) <= 7 && v8CompatTables.has(table) && declared === undefined);
+      ((version ?? 0) <= 7 && v8CompatTables.has(table) && declared === undefined) ||
+      ((version ?? 0) <= 8 && v9CompatTables.has(table) && declared === undefined);
     if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(
@@ -830,6 +848,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     collections: idSet(data.collections),
     memos: idSet(data.memos),
     importFiles: idSet(data.import_files),
+    digests: idSet(data.reading_items),
   };
 
   checkOptionalRefs(data.notes, "reading_item_id", ids.reading, "notes", issues);
@@ -907,6 +926,15 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     }
     const [field, set] = nonNull[0];
     checkReference(row[field], set, `$.data.collection_items[${index}].${field}`, issues);
+  });
+  // 093（v9）：整理稿溯源——整理稿（reading_item）必填；source_id 属多态列，
+  // 按来源类型校验落在对应表集合内（防恢复后悬空不可追溯）
+  checkRefs(data.digest_sources, "digest_id", ids.digests, "digest_sources", issues);
+  data.digest_sources.forEach((row, index) => {
+    const type = row.source_type;
+    const targets =
+      type === "reading" ? ids.reading : type === "memo" ? ids.memos : ids.importFiles;
+    checkReference(row.source_id, targets, `$.data.digest_sources[${index}].source_id`, issues);
   });
 
   data.favorites.forEach((favorite, index) => {

@@ -390,6 +390,17 @@ function fixtureData(): BackupData {
         created_at: timestamp,
       },
     ],
+    // 093（备份 v9）：整理稿溯源（digest 是 reading_item；来源指向导入文件）
+    digest_sources: [
+      {
+        id: "d5000000-0000-4000-8000-000000000001",
+        digest_id: ids.reading,
+        source_type: "file",
+        source_id: "d2000000-0000-4000-8000-000000000001",
+        content_hash: "a".repeat(64),
+        created_at: timestamp,
+      },
+    ],
   };
 }
 

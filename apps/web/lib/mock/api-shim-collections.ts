@@ -36,6 +36,12 @@ interface ShimDeps {
 
 /** api-shim.ts 接线：createCollectionRoutes({ mockDb, MOCK_USER, genId, nowIso }) */
 export function createCollectionRoutes(deps: ShimDeps): ShimRoute[] {
+  // 整理稿生成（阶段 4）：mock 不伪造 AI，501 与真实路由同文案
+  const digestShim: ShimHandler = () => ({
+    status: 501,
+    body: { error: "演示模式不调用真实 AI；整理稿生成需要连接后端并配置 AI 服务" },
+  });
+
   const collectionsTable = () => (deps.mockDb.collections ??= []);
   const itemsTable = () => (deps.mockDb.collection_items ??= []);
 
@@ -245,5 +251,6 @@ return [
   { method: "GET", pattern: /^\/api\/collections\/([^/]+)\/items$/, handler: listItemsShim },
   { method: "POST", pattern: /^\/api\/collections\/([^/]+)\/items$/, handler: addItemsShim },
   { method: "DELETE", pattern: /^\/api\/collections\/([^/]+)\/items$/, handler: removeItemShim },
+  { method: "POST", pattern: /^\/api\/collections\/([^/]+)\/digest$/, handler: digestShim },
 ];
 }

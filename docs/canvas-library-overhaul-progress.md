@@ -107,6 +107,40 @@ A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据�
   全量 vitest 201 文件 1587 例；tsc；mock e2e 集合 3/3。
 - **未验证**：真实后端浏览器流（UI 全链走真实 DB）留阶段 5 统一回归。
 
+### 阶段 4｜合并整理成文章（feat/digest-articles，堆叠分支）
+
+> 同阶段 3 口径：基于 feat/topic-collections 的堆叠分支；#333 合并后逐级 rebase 再开 PR。
+
+- **整理稿形态（择一记录）**：整理稿 = 独立 reading_item（URN `urn:organize:digest:{key}`）。
+  选它的理由：089 统一搜索（标题/正文 ilike）与画布 sourceRef（reading 快照/引用卡片/
+  「加入集合」）零成本复用；key = sha256(排序后的 来源:类型:content_hash)。
+  可编辑：阅读详情页对 digest URN 项提供「编辑整理稿」（标题 + 迷你标记正文，
+  `## 标题`、`- 列表`、`1. 步骤`、`| 表格 |`；双向转换 `lib/collections/digest-editable.ts`
+  覆盖 MaterialResult 全部块型，编辑不丢表格；反向全部转义）。
+- **溯源（迁移 093）**：`digest_sources`（digest_id 复合外键 (digest_id,user_id) →
+  reading_items(id,user_id)，source_type + source_id + content_hash sha256 版本指纹）。
+  来源删除 → 溯源行保留（可追溯优先）；整理稿删除 → cascade。
+- **生成路由 `POST /api/collections/[id]/digest`**：
+  - `preview:true` 只做预算与来源清单校验（生成前预览，不调用 AI 不写库）；
+  - 预算明确拒绝不静默截断：单来源 ≤2 万字符、合计 ≤6 万字符（413 列出超限来源）；
+  - 幂等：同来源集合同版本重复提交返回既有整理稿（reused:true），内容变 key 变；
+  - AI 出网 chatCompletion（底层 safeAIRequest SSRF 防护）+ 错误 redactSecret 脱敏；
+    限流 5 次/分钟；
+  - 来源是不可信输入：逐份包 `<material>` 隔离标签 + SYSTEM 声明「只基于资料，
+    不编造，矛盾保留并注来源」（沿 materials 口径），关键事实标注（来源N）；
+  - 无 AI 配置 400 明确提示、mock 501 同文案；失败可重试；来源资料任何情况下不受影响。
+- **备份 v9**：digest_sources 进备份（digest 必填且指向备份内 reading_item；
+  source_id 按来源类型校验落在对应表；导出剪枝剔除悬空溯源行；恢复重映射
+  digest_id/source_id）；v2–v8 兼容补空。
+- **UI**：集合详情多选勾选 → 「生成整理稿」→ 预览对话框（来源清单/字数/预算说明）
+  → 确认生成 → 打开整理稿；LibraryCard 对整理稿显示「整理稿」徽标（URN 标签复用）。
+- **已验证**：pgTAP 43 文件 / 1129 例全过（093 新 10 例）；digest 服务层 10 例
+  （预算/幂等键/隔离标签/HTML↔迷你标记双向 + 往返无损）；真实后端往返扩展溯源断言
+  （digest/source 坐标重映射、hash 保真）2/2 过；备份单测 69 例；全量 vitest 203 文件
+  1604 例；tsc；mock e2e 集合 4/4（含演示模式 501 明确报错 + 来源不受影响）。
+- **未验证**：真实 AI 端到端（无外部 AI 服务；传输层由 materials 链路既有测试与
+  safeAIRequest 单测覆盖）；整理稿编辑的真实浏览器全链留阶段 5。
+
 ## 基线复测（2026-09-22，master@9874048）
 
 - `pnpm --filter @organize/web exec tsc --noEmit --incremental false`：✅ 通过（无错误输出）。

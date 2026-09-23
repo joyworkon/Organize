@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, FilePlus, Pencil, Trash2 } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { DigestPreviewDialog, type DigestRequest } from "./digest-preview-dialog";
 import type { CollectionItemView, CollectionSummary } from "@/lib/collections/types";
 
 export function CollectionsView({
@@ -221,6 +222,8 @@ function CollectionItems({
   onBack: () => void;
 }) {
   const [items, setItems] = useState<CollectionItemView[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [digestRequest, setDigestRequest] = useState<DigestRequest | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -274,6 +277,11 @@ function CollectionItems({
       return;
     }
     setItems((prev) => prev.filter((row) => row.id !== item.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(item.id);
+      return next;
+    });
   };
 
   const sourceHref = (item: CollectionItemView): string | null => {
@@ -298,6 +306,33 @@ function CollectionItems({
         />
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+            已选 {selected.size} 项（同类型来源才能合并整理）
+          </span>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              const chosen = items.filter((item) => selected.has(item.id));
+              if (!chosen.length) return;
+              const sourceType = chosen[0].sourceType;
+              setDigestRequest({
+                collectionId,
+                sourceType,
+                ids: chosen.filter((i) => i.sourceType === sourceType).map((i) => i.sourceId),
+              });
+            }}
+          >
+            生成整理稿
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelected(new Set())}>
+            取消选择
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="grid gap-2" aria-busy="true">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -320,8 +355,25 @@ function CollectionItems({
             return (
               <li
                 key={item.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card px-3 py-2.5 text-sm"
+                className={cn(
+                  "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card px-3 py-2.5 text-sm",
+                  selected.has(item.id) && "border-primary bg-accent",
+                )}
               >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 accent-primary"
+                  aria-label={`选中 ${item.title ?? item.fileName ?? "来源"}`}
+                  checked={selected.has(item.id)}
+                  onChange={(event) => {
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (event.target.checked) next.add(item.id);
+                      else next.delete(item.id);
+                      return next;
+                    });
+                  }}
+                />
                 <span
                   className={cn(
                     "rounded px-1.5 py-0.5 text-xs",
@@ -370,6 +422,14 @@ function CollectionItems({
           })}
         </ul>
       )}
+
+      <DigestPreviewDialog
+        request={digestRequest}
+        onClose={() => setDigestRequest(null)}
+        onCreated={(digestId) => {
+          window.open(`/library/${digestId}`, "_blank");
+        }}
+      />
 
       {nextCursor && !loading && (
         <div className="py-2 text-center">

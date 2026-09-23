@@ -234,6 +234,13 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     userOwned: true,
     order: ["id"],
   },
+  {
+    // 093（备份 v9）：整理稿溯源（digest 与来源都是 reading/memo/import 行）
+    table: "digest_sources",
+    columns: "id, digest_id, source_type, source_id, content_hash, created_at",
+    userOwned: true,
+    order: ["id"],
+  },
 ] as const;
 
 /**
@@ -465,6 +472,16 @@ export function pruneExportData(data: BackupData): BackupData {
     if (row.import_file_id != null) return importFileIds.has(String(row.import_file_id));
     return false;
   });
+  // 093（备份 v9）：整理稿溯源——整理稿与来源都在导出集才保留（可追溯完整性）
+  kept.digest_sources = data.digest_sources.filter(
+    (row) =>
+      readingIds.has(String(row.digest_id)) &&
+      (row.source_type === "reading"
+        ? readingIds.has(String(row.source_id))
+        : row.source_type === "memo"
+          ? memoIds.has(String(row.source_id))
+          : importFileIds.has(String(row.source_id)))
+  );
 
   return kept;
 }
