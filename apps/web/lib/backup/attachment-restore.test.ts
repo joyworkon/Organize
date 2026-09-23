@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   ATTACHMENT_PACKAGE_VERSION,
   type AttachmentManifest,
+  type PackageBucket,
 } from "./attachment-package";
 import {
   AttachmentRestoreError,
@@ -52,7 +53,7 @@ const manifestFile = (key: string, payload: Uint8Array): AttachmentManifest["fil
   const [, bucket, ...rest] = key.split("/");
   return {
     key,
-    bucket: bucket as "images" | "attachments",
+    bucket: bucket as PackageBucket,
     path: rest.join("/"),
     sha256: sha256(payload),
     size_bytes: payload.length,
@@ -70,7 +71,7 @@ interface UploadRecord {
 function harness(options: { failUploadFor?: Set<string> } = {}) {
   const uploads: UploadRecord[] = [];
   const uploadObject = async (
-    bucket: "images" | "attachments",
+    bucket: PackageBucket,
     path: string,
     bytes: Uint8Array,
     mimeType: string
@@ -80,7 +81,7 @@ function harness(options: { failUploadFor?: Set<string> } = {}) {
     }
     uploads.push({ bucket, path, bytes, mimeType });
   };
-  const publicUrl = (bucket: "images" | "attachments", path: string) =>
+  const publicUrl = (bucket: PackageBucket, path: string) =>
     `https://new-supabase.example.com/storage/v1/object/public/${bucket}/${path}`;
   return {
     uploads,
@@ -232,7 +233,7 @@ describe("prepareRestorePayload 附件重映射", () => {
   const oldUrl = storageUrl("images", "u1/a.png");
   const newUrl = "https://new-supabase.example.com/storage/v1/object/public/images/new-user/x.png";
 
-  // createBackupV2 要求 29 表键齐全：先铺空表再覆盖测试关注的表
+  // createBackupV2 要求全表键齐全：先铺空表再覆盖测试关注的表
   const emptyTables = Object.fromEntries(
     (
       [
@@ -242,6 +243,7 @@ describe("prepareRestorePayload 附件重映射", () => {
         "note_suggestions", "synced_blocks", "db_databases", "db_rows", "task_lists",
         "task_reminders", "task_attachments", "task_activities", "task_templates",
         "countdown_days", "memos", "task_item_refs", "memo_notes", "canvas_documents",
+        "import_tasks", "import_files",
       ] as const
     ).map((table) => [table, []])
   ) as unknown as BackupData;

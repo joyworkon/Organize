@@ -212,6 +212,10 @@ async function importOneFile(
   // 原件 → 私有桶（敏感原件不随分享公开；090 桶策略限定本人目录）
   const ext = (file.name.split(".").pop() ?? "bin").replace(/[^a-zA-Z0-9]/g, "").slice(0, 10) || "bin";
   const storagePath = `${userId}/${row.task_id}/${row.id}.${ext}`;
+  // 旧路径与新路径不同（如备份恢复后原件落在 {uid}/{uuid}.ext）：先清旧对象，重试不留孤儿
+  if (row.storage_path && row.storage_path !== storagePath) {
+    await supabase.storage.from("import-files").remove([row.storage_path]);
+  }
   const { error: uploadError } = await supabase.storage
     .from("import-files")
     .upload(storagePath, bytes, { contentType: file.type || "application/octet-stream", upsert: true });
@@ -233,22 +237,28 @@ async function importOneFile(
   try {
     const doc = await extractServerDocument(kind, { fileName: file.name, bytes });
 
-    // DOCX 嵌入图片：纳入资产管理（同任务目录存档，正文注明）
+    // DOCX 嵌入图片：纳入资产管理（同任务目录存档，路径记入 asset_paths 供
+    // 备份打包与删除回收），正文注明
     let html = doc.html;
     if (doc.embeddedImages.length) {
       const imgParts: string[] = [];
+      const assetPaths: string[] = [];
       for (let n = 0; n < doc.embeddedImages.length; n++) {
         const image = doc.embeddedImages[n];
         const imgExt = (image.mime.split("/")[1] ?? "png").replace(/[^a-zA-Z0-9]/g, "") || "png";
         const imgPath = `${userId}/${row.task_id}/${row.id}-img${n + 1}.${imgExt}`;
         const { error } = await supabase.storage.from("import-files")
           .upload(imgPath, image.bytes, { contentType: image.mime, upsert: true });
+        if (!error) assetPaths.push(imgPath);
         imgParts.push(h.paragraph(error
           ? `${image.name}：存档失败（${error.message}）`
           : `${image.name}：已存档（导入记录中可下载）`));
       }
       // 图片说明每行 <50 字，不会在正文已通过输出预算的情况下越界
       html = html + imgParts.join("");
+      await supabase.from("import_files")
+        .update({ asset_paths: assetPaths })
+        .eq("id", row.id).eq("user_id", userId);
     }
 
     const key = createHash("sha256").update(bytes).digest("hex");

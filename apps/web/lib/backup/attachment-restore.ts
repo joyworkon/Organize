@@ -176,7 +176,7 @@ function validateManifest(value: unknown): AttachmentManifest {
       typeof file !== "object" ||
       file === null ||
       typeof file.key !== "string" ||
-      (file.bucket !== "images" && file.bucket !== "attachments") ||
+      (file.bucket !== "images" && file.bucket !== "attachments" && file.bucket !== "import-files") ||
       typeof file.sha256 !== "string" ||
       !/^[0-9a-f]{64}$/.test(file.sha256) ||
       typeof file.size_bytes !== "number" ||
@@ -413,6 +413,31 @@ export function remapAttachmentReferences(
       if (hit) attachments[index] = { ...row, path: hit.path };
     }
   }
+  // 091（v7）：导入原件与嵌入图是私有桶坐标（行字段，不是内容 URL）——
+  // 文件已重放到新账号目录，行内坐标必须跟着走；missing 的保留旧路径
+  // （下载报 404，与「缺失资产明确报告」一致）
+  const importFiles = data.import_files as
+    | Array<{ storage_path?: unknown; asset_paths?: unknown }>
+    | undefined;
+  if (Array.isArray(importFiles)) {
+    const remapPath = (path: string): string => {
+      const hit = mapping.pathMap.get(`import-files/${path}`);
+      return hit ? hit.path : path;
+    };
+    for (let index = 0; index < importFiles.length; index++) {
+      const row = importFiles[index];
+      const next: Record<string, unknown> = { ...row };
+      if (typeof row.storage_path === "string" && row.storage_path) {
+        next.storage_path = remapPath(row.storage_path);
+      }
+      if (Array.isArray(row.asset_paths)) {
+        next.asset_paths = row.asset_paths.map((p) =>
+          typeof p === "string" ? remapPath(p) : p
+        );
+      }
+      importFiles[index] = next;
+    }
+  }
 }
 
 // ---- 线上传输格式（浏览器重放 → /api/backup/restore 服务端重写载荷） ----
@@ -473,7 +498,7 @@ export function isAttachmentMappingWire(value: unknown): value is AttachmentMapp
     if (
       typeof entry !== "object" ||
       entry === null ||
-      (entry.bucket !== "images" && entry.bucket !== "attachments") ||
+      (entry.bucket !== "images" && entry.bucket !== "attachments" && entry.bucket !== "import-files") ||
       typeof entry.old_path !== "string" ||
       !entry.old_path ||
       typeof entry.path !== "string" ||

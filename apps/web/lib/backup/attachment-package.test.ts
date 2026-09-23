@@ -196,7 +196,7 @@ describe("buildAttachmentPackage", () => {
 
     const manifest = JSON.parse(Buffer.from(unzipped["manifest.json"]).toString("utf8"));
     expect(manifest.package_version).toBe(1);
-    expect(manifest.backup_version).toBe(6);
+    expect(manifest.backup_version).toBe(7);
     expect(manifest.app_version).toBe("1.2.3");
     expect(manifest.total_bytes).toBe(result.totalBytes);
     expect(manifest.url_map).toEqual(scanned.urlMap);

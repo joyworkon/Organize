@@ -54,6 +54,9 @@ export const ID_TABLES = [
   "memo_notes",
   // 085（idea-canvas）
   "canvas_documents",
+  // 091（备份 v7）
+  "import_tasks",
+  "import_files",
 ] as const satisfies readonly BackupTable[];
 
 type IdTable = (typeof ID_TABLES)[number];
@@ -273,6 +276,46 @@ export function prepareRestorePayload(
   data.canvas_documents = (backup.data.canvas_documents || []).map((row) => ({
     ...withId(row, maps.canvas_documents),
   }));
+
+  // 091（备份 v7）：导入任务与逐文件记录。
+  // 文件行状态归一：备份只允许 saved/failed（导出侧已归一；防御旧/手改备份把
+  // uploading/parsing 恢复出「永不完成的任务」），非终态一律 failed 可重试。
+  data.import_tasks = (backup.data.import_tasks || []).map((row) => ({
+    ...withId(row, maps.import_tasks),
+    status: row.status === "processing" ? "failed" : row.status,
+  }));
+  data.import_files = (backup.data.import_files || []).map((row) => {
+    const terminal = row.status === "saved" || row.status === "failed";
+    return {
+      ...withId(row, maps.import_files),
+      task_id: remap(row.task_id, maps.import_tasks),
+      reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
+      status: terminal ? row.status : "failed",
+      error: terminal ? (row.error ?? null) : (row.error ?? "备份时导入未完成，可重试"),
+      storage_path: row.storage_path ?? null,
+      asset_paths: Array.isArray(row.asset_paths) ? row.asset_paths : [],
+    };
+  });
+  // 任务状态按文件现状收口（与 /api/imports 的 recomputeTaskStatus 同语义）：
+  // 全 saved → saved；全 failed → failed；混合 → partial；无文件 → failed
+  const importFileStatusByTask = new Map<string, { saved: number; failed: number }>();
+  for (const file of data.import_files) {
+    const bucket = importFileStatusByTask.get(String(file.task_id)) ?? { saved: 0, failed: 0 };
+    if (file.status === "saved") bucket.saved += 1;
+    else bucket.failed += 1;
+    importFileStatusByTask.set(String(file.task_id), bucket);
+  }
+  data.import_tasks = data.import_tasks.map((task) => {
+    const bucket = importFileStatusByTask.get(String(task.id));
+    const status = !bucket
+      ? "failed"
+      : bucket.failed === 0
+        ? "saved"
+        : bucket.saved === 0
+          ? "failed"
+          : "partial";
+    return { ...task, status };
+  });
 
   // tasks 新列的外键重映射（list_id → task_lists）
   data.tasks = data.tasks.map((row) => ({

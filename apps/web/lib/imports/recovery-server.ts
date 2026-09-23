@@ -19,6 +19,9 @@ export interface ImportFileRow {
   error: string | null;
   reading_item_id: string | null;
   page_count: number | null;
+  /** DOCX 嵌入图等派生资产路径（091 起一等记录；DB 默认 '{}'） */
+  asset_paths?: string[];
+  storage_path?: string | null;
   created_at: string;
   updated_at: string;
 }
