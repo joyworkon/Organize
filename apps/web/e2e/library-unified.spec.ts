@@ -95,6 +95,10 @@ test("全部视图：两页游标翻页无重复无遗漏", async ({ page }) => 
   await page.getByLabel("资料库统一输入").fill(urls.join(" "));
   await page.keyboard.press("Enter");
   await expect(page.getByText("Paged item 21").first()).toBeVisible();
+  // 「Paged item 21」只证明末条已入库；列表刷新有 300ms 防抖（refreshTick 效应），
+  // 此刻读 h2 可能撞上中间态（种子+部分新条 < 30）。「加载更多」可见 ⇔ 首屏
+  // fetch 完成且还有下一页——中间批次不足 30 条时按钮不渲染，是稳定信号。
+  await expect(page.getByRole("button", { name: "加载更多" })).toBeVisible();
 
   const firstPageTitles = await page.locator("h2").allTextContents();
   expect(firstPageTitles).toHaveLength(30);
