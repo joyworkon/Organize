@@ -30,6 +30,22 @@ alter table public.digest_sources
 create index if not exists idx_digest_sources_digest
   on public.digest_sources(digest_id);
 
+-- ========== 存量缺陷修复：import-files 桶补 UPDATE 对象策略 ==========
+-- 090 只建了 insert/select/delete 三条策略；重试对已存在的原件 upsert 时走
+-- UPDATE 路径 → RLS 拒绝（真实后端回归测试抓出）。补 UPDATE 策略（限定本人目录，
+-- with check 同时禁止把对象改挂到他人目录）。
+drop policy if exists "Users can update own import files" on storage.objects;
+create policy "Users can update own import files"
+on storage.objects for update
+using (
+  bucket_id = 'import-files'
+  and (storage.foldername(name))[1] = auth.uid()::text
+)
+with check (
+  bucket_id = 'import-files'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
 alter table public.digest_sources enable row level security;
 
 drop policy if exists "Users can read own digest sources" on public.digest_sources;
