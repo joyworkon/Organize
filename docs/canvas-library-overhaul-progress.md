@@ -7,7 +7,7 @@
 
 A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据归属与备份恢复 ③主题集合 ④合并整理成文章 ⑤画布体验与最终回归。
 
-### 阶段 1｜文件导入可靠性（feat/import-reliability → PR #332）
+### 阶段 1｜文件导入可靠性（feat/import-reliability → PR #332，已合并 master `2eb70d0`）
 
 - **中断恢复（择一记录）**：导入无后台 worker，uploading/parsing 只可能属于一个在途 POST；
   行 `updated_at` 超过 `IMPORT_STALE_THRESHOLD_MS`（10 分钟，预算有界故余量充足）即判请求已死，
@@ -32,6 +32,44 @@ A–E 已合并基础上的五阶段收口：①文件导入可靠性 ②数据�
   重试收口/同名不错配/分页）；全量 vitest 197 文件 1568 例；tsc；mock e2e 12/12
   （含新增「一批两个同名文件不错配」）。**未验证（留阶段 2/真机）**：真实后端中断恢复
   （需杀进程制造中断）、pgTAP 双账号（阶段 2 归属约束一并做）。
+
+### 阶段 2｜数据归属与备份恢复（feat/import-ownership-backup → PR #333）
+
+- **迁移 091（`091_import_ownership_backup.sql`）**：
+  - 归属约束（跨用户关联在 DB 层不可能）：`import_files (task_id, user_id) → import_tasks (id, user_id)`
+    复合外键（cascade）；`import_files (reading_item_id, user_id) → reading_items (id, user_id)`
+    复合外键 + **PG15 列级 `ON DELETE SET NULL (reading_item_id)`**（条目删除只置空引用列，
+    user_id 保持）。pgTAP 证明：B 知道 A 的 task_id/条目 id 也不能建立关联。
+  - 孤儿回收触发器：import_files 行删除（直接删/任务级联）→ security definer 函数经
+    **官方逃生门 `set_config('storage.allow_delete_query','true', true)`**（事务局部）直删
+    `storage.objects` 中 `{uid}/{taskId}/{rowId}%` 前缀资产（原件+嵌入图）；无关对象不误删。
+    storage 有 protect_delete 触发器禁止直删，该设置是正解（直删会报 42501）。
+  - `import_files.asset_paths text[]`（新增列）：DOCX 嵌入图上传成功即记录路径，
+    成为一等资产（可打包/可回收）；此前嵌入图无行级记录，备份无从扫描。
+  - `restore_backup_v2_full` 链式扩展（复制 088 主体——**含 088 的 notes.page_template
+    回填步骤，从 087 复制会丢**，本轮 db-test 抓出并修复）+ import 两表落库 + counts。
+- **备份格式 v7**：BACKUP_VERSION=7，收录 import_tasks/import_files；row schema 只允许终态
+  status（processing/uploading/parsing 不进备份——备份时刻未完成即中断，恢复归一 failed
+  可重试，不伪造成功）；v2–v6 老备份缺两表键补空、counts 缺键按 0（严格一致性校验保留）。
+- **附件包扩桶**：`import-files` 私有桶入包（PACKAGE_KEY_PATTERN/manifest 校验/wire 校验
+  三处白名单扩名）；扫描源 = import_files.storage_path + asset_paths（行内坐标，不参与
+  URL 重映射）；恢复重放到 `{new_uid}/{uuid}.{ext}`，行内坐标经 pathMap 跟走。
+- **重试孤儿清理**：POST /api/imports 重跑时旧 storage_path ≠ 新路径（如恢复后重试）
+  先 remove 旧对象再 upsert 新路径。
+- **已验证**：
+  - pgTAP **41 文件 / 1098 例全过**（本地 Docker，含 091 新 17 例：跨用户关联负例×2、
+    列级 set null、孤儿回收、恢复链 v7 双账号（B 恢复 counts 如实/A 非空拒绝/C 恢复 v6 老载荷）、
+    GRANT 口径）。
+  - 真实后端备份往返测试 **`lib/backup/real-backend-roundtrip.test.ts` 2/2 过**
+    （仓库内可重复运行，`REAL_DB_E2E=1 npx vitest run lib/backup/real-backend-roundtrip.test.ts`，
+    需本地栈）：真实 sample.pdf + sample.docx（含嵌入图）+ 画布图片——A 导出附件包 →
+    B 恢复（行/坐标/条目关联/任务收口/画布 URL 重映射全对；B 能下载新原件、A 读不到 B 的、
+    私有桶对象无签名公开访问失败）；**缺失资产用例**：剥掉包内 import-files 条目 →
+    restore 记入 missing 明确报告，行恢复但坐标保留旧路径（下载 404 可查），不假报成功。
+  - 私有性：分享链路不触碰 import-files（正文只以文字注明嵌入图，无内容引用），
+    pgTAP + 往返测试双重锁定桶私有与 RLS 目录限定。
+  - 全量 vitest 199 文件 1577 例（2 skip 为真实后端 gated）；tsc；mock e2e 17/17。
+- **未验证**：真机大文件（接近 20MB 上限）的打包耗时；`pnpm audit` 留 CI verify。
 
 ## 基线复测（2026-09-22，master@9874048）
 

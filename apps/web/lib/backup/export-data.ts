@@ -204,6 +204,22 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     userOwned: true,
     order: ["id"],
   },
+  {
+    // 091（备份 v7）：文件导入任务与逐文件记录。
+    // processing 不进备份语义由 schema 校验表达（status 只允许终态）——
+    // 导出时把未完成任务归一为 failed（未完成即中断，恢复后可重试不伪造成功）
+    table: "import_tasks",
+    columns: "id, status, created_at, updated_at",
+    userOwned: true,
+    order: ["id"],
+  },
+  {
+    table: "import_files",
+    columns:
+      "id, task_id, file_name, mime, size, kind, storage_path, status, error, reading_item_id, page_count, asset_paths, retry_key, created_at, updated_at",
+    userOwned: true,
+    order: ["id"],
+  },
 ] as const;
 
 /**
@@ -407,6 +423,23 @@ export function pruneExportData(data: BackupData): BackupData {
   kept.lesson_tags = data.lesson_tags.filter(
     (row) => lessonIds.has(String(row.lesson_id)) && tagIds.has(String(row.tag_id))
   );
+  // 091（备份 v7）：导入两表——文件行必须挂导出集内的导入任务；条目引用悬空置 null；
+  // 进行中状态（备份时刻仍在途）归一为 failed，恢复侧可重试、不伪造成功
+  const importTaskIds = idSetOf(data.import_tasks);
+  kept.import_tasks = data.import_tasks.map((row) => ({
+    ...row,
+    status: row.status === "processing" ? "failed" : row.status,
+  }));
+  kept.import_files = data.import_files
+    .filter((row) => importTaskIds.has(String(row.task_id)))
+    .map((row) => ({
+      ...row,
+      reading_item_id:
+        row.reading_item_id == null || readingIds.has(String(row.reading_item_id))
+          ? row.reading_item_id
+          : null,
+      status: ["saved", "failed"].includes(String(row.status)) ? row.status : "failed",
+    }));
 
   return kept;
 }

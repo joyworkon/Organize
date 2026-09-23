@@ -333,6 +333,36 @@ function fixtureData(): BackupData {
         updated_at: timestamp,
       },
     ],
+    // 091（备份 v7）：导入任务 + 逐文件记录（processing 不进备份——未完成的恢复归一 failed）
+    import_tasks: [
+      {
+        id: "d1000000-0000-4000-8000-000000000001",
+        status: "saved",
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
+    import_files: [
+      {
+        id: "d2000000-0000-4000-8000-000000000001",
+        task_id: "d1000000-0000-4000-8000-000000000001",
+        file_name: "季度报告.pdf",
+        mime: "application/pdf",
+        size: 12345,
+        kind: "pdf",
+        storage_path: "origin-user/task-1/d2000000-0000-4000-8000-000000000001.pdf",
+        status: "saved",
+        error: null,
+        reading_item_id: ids.reading,
+        page_count: 8,
+        asset_paths: [
+          "origin-user/task-1/d2000000-0000-4000-8000-000000000001-img1.png",
+        ],
+        retry_key: "fixture-retry-1",
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+    ],
   };
 }
 

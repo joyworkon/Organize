@@ -1,7 +1,7 @@
 export const BACKUP_FORMAT = "organize-backup";
-export const BACKUP_VERSION = 6;
-/** 备份版本兼容范围：v6 是当前格式（087 起收录 canvas_documents），v2–v5 仍可导入（新表按空处理） */
-export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6] as const;
+export const BACKUP_VERSION = 7;
+/** 备份版本兼容范围：v7 是当前格式（091 起收录导入任务/文件），v2–v6 仍可导入（新表按空处理） */
+export const BACKUP_ACCEPTED_VERSIONS = [2, 3, 4, 5, 6, 7] as const;
 export const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
 export const BACKUP_MAX_ROWS_PER_TABLE = 10_000;
 export const BACKUP_MAX_TOTAL_ROWS = 50_000;
@@ -41,11 +41,17 @@ export const BACKUP_TABLES = [
   "memo_notes",
   // 085（idea-canvas）：构思画布文档（content 为结构 JSON）
   "canvas_documents",
+  // 091（备份 v7）：文件导入任务与逐文件记录（原件本体走附件包 import-files 桶目录）
+  "import_tasks",
+  "import_files",
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
 export type BackupRow = Record<string, unknown>;
 export type BackupData = Record<BackupTable, BackupRow[]>;
+
+/** 导入任务可恢复的状态（processing 不进备份——备份时刻未完成的任务由恢复侧归一为 failed） */
+type ImportTaskStatus = "saved" | "partial" | "failed";
 
 export interface BackupV2 {
   format: typeof BACKUP_FORMAT;
@@ -468,6 +474,36 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
     },
     keyFields: ["id"],
   },
+  import_tasks: {
+    fields: {
+      id: isUuid,
+      status: oneOf("saved", "partial", "failed"),
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
+  import_files: {
+    fields: {
+      id: isUuid,
+      task_id: isUuid,
+      file_name: isString,
+      mime: isString,
+      size: isNumber,
+      kind: isString,
+      storage_path: isNullableString,
+      status: oneOf("saved", "failed"),
+      error: isNullableString,
+      reading_item_id: isNullableUuid,
+      page_count: isNullableInteger,
+      asset_paths: (value) =>
+        Array.isArray(value) && value.every((entry) => typeof entry === "string"),
+      retry_key: isString,
+      created_at: isTimestamp,
+      updated_at: isTimestamp,
+    },
+    keyFields: ["id"],
+  },
 };
 
 // 校验侧的底线：任何备份的 manifest 必须声明这五类排除（v4 起强制）。
@@ -526,7 +562,7 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   }
   if (!BACKUP_ACCEPTED_VERSIONS.includes(value.version as 2 | 3 | 4 | 5 | 6)) {
     issues.push(
-      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v6")
+      issue("UNSUPPORTED_VERSION", "$.version", "仅支持 organize-backup v2–v7")
     );
   }
   // 旧 v2 备份没有 033 新表；早期 v3 备份没有 058 新表（memos/task_item_refs）；
@@ -534,18 +570,25 @@ export function inspectBackupV2(input: unknown): BackupInspection {
   // 各自缺键补空数组（B01 实测：075 只补了 counts 兼容漏了 data 补空，
   // 真实 v4 文件导入即 INVALID_TABLE）。
   if (
-    (value.version === 2 || value.version === 3 || value.version === 4 || value.version === 5) &&
+    (value.version === 2 ||
+      value.version === 3 ||
+      value.version === 4 ||
+      value.version === 5 ||
+      value.version === 6) &&
     value.data &&
     typeof value.data === "object"
   ) {
     const data = value.data as Record<string, unknown>;
     const v3NewTables = ["task_lists", "task_reminders", "task_attachments", "task_activities", "task_templates", "countdown_days", "task_dependencies", "memos", "task_item_refs", "memo_notes"];
-    const fillTables =
+    const fillTables = [
       value.version === 4
         ? ["memo_notes"]
         : value.version === 5
           ? ["canvas_documents"]
-          : v3NewTables;
+          : v3NewTables,
+      // 091（v7）：v6 及更早的备份没有导入两表
+      ["import_tasks", "import_files"],
+    ].flat();
     for (const t of fillTables) {
       if (data[t] === undefined) {
         data[t] = [];
@@ -707,12 +750,15 @@ function validateManifest(
   const v4CompatTables = new Set(["memo_notes"]);
   // v5 备份没有 085 的 canvas_documents，缺键按 0 记
   const v5CompatTables = new Set(["canvas_documents"]);
+  // v6 及更早的备份没有 091 的导入两表，缺键按 0 记
+  const v7CompatTables = new Set(["import_tasks", "import_files"]);
   for (const table of BACKUP_TABLES) {
     const declared = value.counts[table];
     const isLegacyMissing =
       ((version === 2 || version === 3) && v3CompatTables.has(table) && declared === undefined) ||
       (version === 4 && v4CompatTables.has(table) && declared === undefined) ||
-      (version === 5 && v5CompatTables.has(table) && declared === undefined);
+      (version === 5 && v5CompatTables.has(table) && declared === undefined) ||
+      ((version ?? 0) <= 6 && v7CompatTables.has(table) && declared === undefined);
     if ((isLegacyMissing ? 0 : declared) !== data[table].length) {
       issues.push(
         issue(
@@ -750,6 +796,7 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     lessons: idSet(data.lessons),
     threads: idSet(data.note_comment_threads),
     databases: idSet(data.db_databases),
+    importTasks: idSet(data.import_tasks),
   };
 
   checkOptionalRefs(data.notes, "reading_item_id", ids.reading, "notes", issues);
@@ -802,6 +849,10 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
     issues
   );
   checkRefs(data.db_rows, "database_id", ids.databases, "db_rows", issues);
+  // 091（v7）：导入文件行的任务引用必填；阅读条目引用可选（091 起同用户复合外键，
+  // 备份内引用必须可解析，恢复才不因外键失败整链回滚）
+  checkRefs(data.import_files, "task_id", ids.importTasks, "import_files", issues);
+  checkOptionalRefs(data.import_files, "reading_item_id", ids.reading, "import_files", issues);
 
   data.favorites.forEach((favorite, index) => {
     const targetSet =
