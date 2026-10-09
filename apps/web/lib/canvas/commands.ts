@@ -12,6 +12,7 @@ import {
   BOARD_MAX_WIDTH,
   BOARD_MIN_WIDTH,
   BLOCK_PADDING,
+  COLUMN_MIN_WIDTH,
   CANVAS_SCHEMA_VERSION,
   CanvasBlock,
   CanvasBoard,
@@ -49,7 +50,8 @@ import {
   imageNaturalHeight,
   normalizeBoardAfterDeletion,
 } from "./model";
-import { BLOCK_CHROME, manualWeightsFromDrag } from "./layout";
+import { BLOCK_CHROME, canAddColumnAt, computeColumnWidthsForContent, manualWeightsFromDrag, regionGap, regionInnerWidth } from "./layout";
+import { CANVAS_LIMITS } from "./validation";
 
 /**
  * 深拷贝后在草稿上应用变更，保证命令无副作用（历史快照同源）。
@@ -456,6 +458,13 @@ export function insertColumn(
   args: { boardId: string; sectionId: string; columnId: string; side: "left" | "right" },
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasCommandResult {
+  const source = findSection(doc, args.sectionId);
+  if (!source || source.board.id !== args.boardId ||
+      source.section.columns.length >= CANVAS_LIMITS.maxColumnsPerSection ||
+      !canAddColumnAt(regionInnerWidth(source.board, source.region),
+        source.section.gap ?? regionGap(source.board, source.region), source.section.columns.length)) {
+    return { doc, focus: null };
+  }
   return edit(doc, (draft) => {
     const found = findSection(draft, args.sectionId);
     if (!found || found.board.id !== args.boardId) return null;
@@ -470,6 +479,20 @@ export function insertColumn(
       ? section.columnWeights.reduce((s, w) => s + w, 0) / section.columnWeights.length
       : 1;
     section.columnWeights.splice(insertAt, 0, avg);
+    // 手动比例可能极端倾斜；重新分配时为每列保留最小可编辑宽度。
+    const gap = section.gap ?? regionGap(found.board, found.region);
+    const widths = computeColumnWidthsForContent(regionInnerWidth(found.board, found.region), gap, section);
+    let deficit = 0;
+    for (let i = 0; i < widths.length; i += 1) {
+      if (widths[i] < COLUMN_MIN_WIDTH) {
+        deficit += COLUMN_MIN_WIDTH - widths[i];
+        widths[i] = COLUMN_MIN_WIDTH;
+      }
+    }
+    if (deficit > 0) {
+      const surplus = widths.reduce((sum, w) => sum + Math.max(0, w - COLUMN_MIN_WIDTH), 0);
+      section.columnWeights = widths.map((w) => w - deficit * Math.max(0, w - COLUMN_MIN_WIDTH) / surplus);
+    }
     if (section.widthMode === "smart") section.widthMode = "manual"; // 多列不再受一文一图约束
     return focusBlock(found.board, found.region, section.id, column.id, column.blocks[0], {
       caret: "end",

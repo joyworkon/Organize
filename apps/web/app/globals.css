@@ -6076,9 +6076,10 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   border-radius: var(--radius-lg);
   box-sizing: border-box;
   transition: border-color 100ms;
-  z-index: 1;
+  /* 不建立独立层叠上下文：内部加号必须高于区块间隙热区。 */
+  z-index: auto;
 }
-.canvas-block:hover { border-color: hsl(var(--border)); }
+.canvas-viewport:where(.is-editable) .canvas-block { border-color: hsl(var(--border)); }
 .canvas-block.is-selected { border-color: hsl(var(--primary) / 0.8); }
 .canvas-block.is-editing { border-color: hsl(var(--primary)); }
 .canvas-text-content {
@@ -6269,8 +6270,9 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-plus-band {
   right: 0;
   bottom: 0;
-  transform: translateY(60%);
-  gap: 2px;
+  transform: translateY(50%);
+  gap: 4px;
+  white-space: nowrap;
 }
 .canvas-insert-preview {
   background: hsl(var(--primary) / 0.1);
@@ -6287,12 +6289,17 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   z-index: 33;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .canvas-plus-region {
   position: relative;
   flex-shrink: 0;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
 }
+.canvas-region-gap:hover .canvas-plus-region,
+.canvas-region-gap:focus-within .canvas-plus-region { opacity: 1; pointer-events: auto; }
 .canvas-region-insert-preview {
   position: absolute;
   left: 0;

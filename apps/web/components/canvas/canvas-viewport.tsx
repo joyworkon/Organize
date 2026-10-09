@@ -256,7 +256,7 @@ export function CanvasViewportView({
   return (
     <div
       ref={viewportRef}
-      className={`canvas-viewport ${spaceHeld || panning ? "is-panning" : ""}`}
+      className={`canvas-viewport ${interactive ? "is-editable" : ""} ${spaceHeld || panning ? "is-panning" : ""}`}
       data-testid="canvas-viewport"
       style={{
         backgroundSize: `${24 * vp.zoom}px ${24 * vp.zoom}px`,

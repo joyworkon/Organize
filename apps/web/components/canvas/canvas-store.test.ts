@@ -23,6 +23,15 @@ function makeStore() {
 }
 
 describe("apply 焦点同步（A1）", () => {
+  it("被拒绝的结构命令不制造撤销步骤、保存序号或焦点变化", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }));
+    const before = store.getState();
+    store.getState().apply("放不下的增列", (doc) => ({ doc, focus: null }));
+    expect(store.getState()).toBe(before);
+    store.getState().undo();
+    expect(store.getState().doc.boards).toHaveLength(0);
+  });
   it("free 焦点：selection 切到新自由容器，不进入编辑态", () => {
     const store = makeStore();
     store.getState().apply("新建自由文本", (d) => createFreeText(d, { x: 10, y: 10 }));

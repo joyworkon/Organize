@@ -147,6 +147,7 @@ export function createCanvasStore(initial?: {
       if (state.readOnly || state.previewMode) return;
       const preFocus = currentFocus(state);
       const result = command(state.doc);
+      if (result.doc === state.doc && !result.focus) return;
       if (!opts?.skipHistory) {
         state.history.push(state.doc, label, {
           coalesceKey: opts?.coalesceKey,

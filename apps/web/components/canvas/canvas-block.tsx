@@ -182,6 +182,7 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
       onKeyDown={
         interactive && !editing
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().startEdit(block.id);
@@ -338,6 +339,7 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 pickFile();
@@ -450,6 +452,7 @@ export const CanvasDividerBlockView = memo(function CanvasDividerBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter" || e.key === "Delete" || e.key === "Backspace") {
                 e.preventDefault();
                 if (e.key === "Enter") store.getState().select({ kind: "block", blockId: block.id });
@@ -511,6 +514,7 @@ export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().select({ kind: "block", blockId: block.id });
@@ -615,6 +619,7 @@ export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlock
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().select({ kind: "block", blockId: block.id });

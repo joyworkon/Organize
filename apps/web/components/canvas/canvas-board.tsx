@@ -16,15 +16,18 @@
 
 import {
   memo,
+  createContext,
+  useContext,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { GripHorizontal, Plus, StretchHorizontal, Trash2 } from "@/components/icons";
+import { GripHorizontal, Plus, Trash2 } from "@/components/icons";
 import {
   COLUMN_MIN_WIDTH,
   type CanvasBoard,
@@ -60,6 +63,10 @@ import {
   CanvasTextBlockView,
   displayKey,
 } from "./canvas-block";
+import { computeInsertPreview } from "@/lib/canvas/insert-preview";
+import { CANVAS_LIMITS } from "@/lib/canvas/validation";
+import { createCanvasMeasure } from "./use-canvas-scene";
+import { CanvasTextMeasurer } from "./text-measurer";
 import type { SourceStatusMap } from "./use-source-status";
 import { statusOf } from "./use-source-status";
 
@@ -85,8 +92,13 @@ type PlusPreview =
   | { kind: "column-left" | "column-right"; columnId: string }
   | { kind: "block-below"; columnId: string; blockId: string }
   | { kind: "section-band" }
-  | { kind: "region-band" }
   | null;
+
+type ControlTarget = { sectionId: string; blockId: string; columnId: string } | null;
+const BoardControls = createContext<{
+  target: ControlTarget;
+  setTarget: React.Dispatch<React.SetStateAction<ControlTarget>>;
+} | null>(null);
 
 /** 随缩放补偿的控件尺寸：世界尺寸 = 22px / zoom，夹在 22–64。 */
 function uiSize(zoom: number): number {
@@ -108,6 +120,8 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   sourceStatuses,
   onReplaceImage,
 }: CanvasBoardViewProps) {
+  const [controlTarget, setControlTarget] = useState<ControlTarget>(null);
+  const controls = useMemo(() => ({ target: controlTarget, setTarget: setControlTarget }), [controlTarget]);
   const dragRef = useRef<{
     kind: "move" | "resize";
     startX: number;
@@ -200,6 +214,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   const width = liveWidth ?? board.width;
 
   return (
+    <BoardControls.Provider value={controls}>
     <div
       className={`canvas-board ${selectedBoard ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
       style={{
@@ -239,13 +254,13 @@ export const CanvasBoardView = memo(function CanvasBoardView({
 
       {/* 区块间隙「＋」（B2）：在两个区块之间插入新区块，与块下＋/行边缘＋语义不同 */}
       {interactive &&
-        sceneBoard.regions.slice(0, -1).map((sceneRegion, i) => (
+        sceneBoard.regions.map((sceneRegion, i) => (
           <div
             key={`region-gap-${sceneRegion.regionId}`}
             className="canvas-region-gap"
             style={{
               left: `${board.padding}px`,
-              width: `${board.width - board.padding * 2}px`,
+              width: `${Math.min(100, board.width - board.padding * 2)}px`,
               top: `${sceneRegion.y + sceneRegion.height - board.y - 4}px`,
               height: `${board.gap + 8}px`,
             }}
@@ -253,21 +268,31 @@ export const CanvasBoardView = memo(function CanvasBoardView({
               setGapHover(i);
               setGapPreview(true);
             }}
-            onPointerLeave={() => {
+            onPointerLeave={(e) => {
+              if (e.currentTarget.contains(document.activeElement)) return;
               setGapHover(null);
               setGapPreview(false);
             }}
+            data-after-region={sceneRegion.regionId}
+            onFocusCapture={() => { setGapHover(i); setGapPreview(true); }}
+            onBlurCapture={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setGapHover(null); setGapPreview(false);
+            }}
           >
-            {gapHover === i && (
               <button
                 type="button"
                 className="canvas-plus canvas-plus-region"
-                style={{ width: `${Math.max(20, ui * 0.9)}px`, height: `${Math.max(20, ui * 0.9)}px` }}
-                title="在下方添加区块"
+                style={{ width: "auto", padding: `0 ${ui * 0.3}px`, height: `${Math.max(20, ui * 0.9)}px` }}
+                title={board.regions.length < CANVAS_LIMITS.maxRegionsPerBoard ? "在下方添加独立区块（同一页面）" : "区块已达上限"}
+                disabled={board.regions.length >= CANVAS_LIMITS.maxRegionsPerBoard}
                 aria-label="在下方添加区块"
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
                   const afterId = sceneBoard.regions[i]?.regionId;
                   store.getState().apply("添加区块", (d) =>
                     insertRegionAfter(d, { boardId: board.id, regionId: afterId }),
@@ -277,10 +302,10 @@ export const CanvasBoardView = memo(function CanvasBoardView({
                 }}
               >
                 <Plus style={{ width: ui * 0.5, height: ui * 0.5 }} />
+                <span style={{ fontSize: ui * 0.45 }}>区块</span>
               </button>
-            )}
-            {gapPreview && gapHover === i && (
-              <div className="canvas-insert-preview canvas-region-insert-preview" aria-hidden="true" />
+            {gapPreview && gapHover === i && board.regions.length < CANVAS_LIMITS.maxRegionsPerBoard && (
+              <RegionPreview board={board} regionId={sceneRegion.regionId} originY={sceneRegion.y + sceneRegion.height - 4} />
             )}
           </div>
         ))}
@@ -355,6 +380,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
         />
       )}
     </div>
+    </BoardControls.Provider>
   );
 });
 
@@ -647,16 +673,30 @@ const SectionBody = memo(function SectionBody({
   colDrag,
   onReplaceImage,
 }: SectionBodyProps) {
-  const [hovered, setHovered] = useState<{ blockId: string; columnId: string } | null>(null);
+  const controls = useContext(BoardControls)!;
+  const setControlTarget = controls.setTarget;
+  const hovered = controls.target?.sectionId === section.id ? controls.target : null;
+  const setHovered = useCallback((next: { blockId: string; columnId: string } | null) => {
+    setControlTarget((current) => next ? { ...next, sectionId: section.id }
+      : current?.sectionId === section.id ? null : current);
+  }, [setControlTarget, section.id]);
   const [preview, setPreview] = useState<PlusPreview>(null);
 
   const effectiveGap = section.gap ?? gap;
-  const canGrow = interactive ? canAddColumnAt(contentWidth, effectiveGap, section.columns.length) : false;
-  const avgWidth = (sceneSection.columnWidths.reduce((s, w) => s + w, 0) || 1) / section.columns.length;
+  const canGrow = interactive && section.columns.length < CANVAS_LIMITS.maxColumnsPerSection && canAddColumnAt(contentWidth, effectiveGap, section.columns.length);
+  const belowColumn = section.columns.find((c) => c.id === hovered?.columnId);
+  const canAddBlock = (belowColumn?.blocks.length ?? 0) < CANVAS_LIMITS.maxBlocksPerColumn;
+  const previewBox = useMemo(() => {
+    if (!preview || !hovered) return null;
+    return computeInsertPreview(board, preview.kind === "block-below"
+      ? { kind: "block-below", blockId: preview.blockId }
+      : { ...preview, sectionId: section.id },
+      createCanvasMeasure(new CanvasTextMeasurer()));
+  }, [board, preview, section.id, hovered]);
 
   const commitColumnPlus = useCallback(
     (side: "left" | "right") => {
-        if (!hovered) return;
+      if (!hovered || !canGrow) return;
       store.getState().apply("添加列", (d) =>
         insertColumn(d, {
           boardId: board.id,
@@ -667,7 +707,7 @@ const SectionBody = memo(function SectionBody({
       );
       setPreview(null);
     },
-    [board.id, hovered, section.id, store],
+    [board.id, canGrow, hovered, section.id, store],
   );
 
   const commitBlockBelow = useCallback(() => {
@@ -696,12 +736,22 @@ const SectionBody = memo(function SectionBody({
       }}
       onPointerLeave={
         interactive
-          ? () => {
+          ? (e) => {
+              if (e.currentTarget.contains(document.activeElement)) return;
               setHovered(null);
               setPreview(null);
             }
           : undefined
       }
+      onFocusCapture={interactive ? (e) => {
+        const block = (e.target as HTMLElement).closest<HTMLElement>("[data-block-id]");
+        const column = section.columns.find((c) => c.blocks.some((b) => b.id === block?.dataset.blockId));
+        if (block?.dataset.blockId && column) setHovered({ blockId: block.dataset.blockId, columnId: column.id });
+      } : undefined}
+      onBlurCapture={interactive ? (e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setHovered(null); setPreview(null);
+      } : undefined}
     >
       {section.columns.map((column, columnIndex) => {
         const sceneColumn = sceneSection.columns[columnIndex];
@@ -730,16 +780,20 @@ const SectionBody = memo(function SectionBody({
                   <button
                     type="button"
                     className="canvas-plus canvas-plus-below"
-                    style={{ width: `${ui}px`, height: `${ui}px` }}
-                    title="在下方添加模块（仅本列）"
+                    style={{ width: `${ui}px`, height: `${ui}px`, bottom: -effectiveGap / 2 }}
+                    title={canAddBlock ? "在下方添加内容块（当前列内）" : "本列内容块已达上限"}
+                    disabled={!canAddBlock}
                     aria-label="在本列下方添加模块"
                     onPointerDown={(e) => {
-                      // pointerdown 提交：press 即响应，且 preventDefault 抑制后续 click 双触发
+                      // 保留当前编辑焦点，实际动作由 click 支持鼠标和键盘。
                       e.stopPropagation();
                       e.preventDefault();
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       commitBlockBelow();
                     }}
-                    onMouseEnter={() => setPreview({ kind: "block-below", columnId: column.id, blockId: block.id })}
+                    onMouseEnter={() => canAddBlock && setPreview({ kind: "block-below", columnId: column.id, blockId: block.id })}
                     onMouseLeave={() => setPreview(null)}
                   >
                     <Plus style={{ width: ui * 0.55, height: ui * 0.55 }} />
@@ -820,21 +874,24 @@ const SectionBody = memo(function SectionBody({
                   type="button"
                   className={`canvas-plus canvas-plus-column ${canGrow ? "" : "is-disabled"}`}
                   style={{
-                    left: `${colLeft - ui / 2}px`,
+                    left: `${colLeft - (columnIndex === 0 ? ui : (ui + effectiveGap) / 2)}px`,
                     top: "50%",
                     width: `${ui}px`,
                     height: `${ui}px`,
                     transform: "translateY(-50%)",
                   }}
-                  title={canGrow ? "在左侧添加一列" : "版面宽度不足，请先加宽版面"}
+                  title={canGrow ? "在当前行左侧添加一列，重新分配行宽" : "已达列数上限或宽度不足，请新建一行或加宽页面"}
                   aria-label="在左侧添加一列"
                   disabled={!canGrow}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     commitColumnPlus("left");
                   }}
-                  onMouseEnter={() => setPreview({ kind: "column-left", columnId: column.id })}
+                  onMouseEnter={() => canGrow && setPreview({ kind: "column-left", columnId: column.id })}
                   onMouseLeave={() => setPreview(null)}
                 >
                   <Plus style={{ width: ui * 0.55, height: ui * 0.55 }} />
@@ -843,21 +900,24 @@ const SectionBody = memo(function SectionBody({
                   type="button"
                   className={`canvas-plus canvas-plus-column ${canGrow ? "" : "is-disabled"}`}
                   style={{
-                    left: `${colLeft + sceneColumn.width - ui / 2}px`,
+                    left: `${colLeft + sceneColumn.width + (columnIndex === section.columns.length - 1 ? 0 : (effectiveGap - ui) / 2)}px`,
                     top: "50%",
                     width: `${ui}px`,
                     height: `${ui}px`,
                     transform: "translateY(-50%)",
                   }}
-                  title={canGrow ? "在右侧添加一列" : "版面宽度不足，请先加宽版面"}
+                  title={canGrow ? "在当前行右侧添加一列，重新分配行宽" : "已达列数上限或宽度不足，请新建一行或加宽页面"}
                   aria-label="在右侧添加一列"
                   disabled={!canGrow}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     commitColumnPlus("right");
                   }}
-                  onMouseEnter={() => setPreview({ kind: "column-right", columnId: column.id })}
+                  onMouseEnter={() => canGrow && setPreview({ kind: "column-right", columnId: column.id })}
                   onMouseLeave={() => setPreview(null)}
                 >
                   <Plus style={{ width: ui * 0.55, height: ui * 0.55 }} />
@@ -885,81 +945,42 @@ const SectionBody = memo(function SectionBody({
         ))}
 
       {/* 加号悬停插入预览（半透明，不参与布局，规格 §4.3；位置全部来自 computeScene 场景几何） */}
-      {preview && <PreviewGhost preview={preview} gap={effectiveGap} sceneSection={sceneSection} avgWidth={avgWidth} />}
+      {previewBox && <div className="canvas-insert-preview" style={{ position: "absolute",
+        left: previewBox.x - sceneSection.columns[0].x, top: previewBox.y - sceneSection.y,
+        width: previewBox.width, height: previewBox.height }} aria-hidden="true" />}
 
       {/* 整排外侧「添加通栏」入口：与局部加号不同位、不同预览、不同提示 */}
       {interactive && hovered && (
         <button
           type="button"
           className="canvas-plus canvas-plus-band"
-          style={{ width: "auto", height: `${ui}px`, padding: `0 ${ui * 0.4}px` }}
-          title="添加通栏（整排下方，与 Enter 相同）"
+          style={{ width: "auto", height: `${ui}px`, padding: `0 ${ui * 0.4}px`, fontSize: ui * 0.45, bottom: -effectiveGap / 2 }}
+          title="在当前区块内添加整行（与 Enter 相同）"
           aria-label="添加通栏"
           onPointerDown={(e) => {
             e.stopPropagation();
             e.preventDefault();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
             commitSectionBand();
           }}
           onMouseEnter={() => setPreview({ kind: "section-band" })}
           onMouseLeave={() => setPreview(null)}
         >
-          <StretchHorizontal style={{ width: ui * 0.6, height: ui * 0.6 }} />
           <Plus style={{ width: ui * 0.45, height: ui * 0.45 }} />
+          <span>添加整行</span>
         </button>
       )}
     </div>
   );
 });
 
-function PreviewGhost({
-  preview,
-  gap,
-  sceneSection,
-  avgWidth,
-}: {
-  preview: PlusPreview;
-  gap: number;
-  sceneSection: SceneSection;
-  avgWidth: number;
-}) {
-  const style: CSSProperties = { position: "absolute" };
-  if (!preview) return null;
-  const secY = sceneSection.y;
-  if (preview.kind === "column-left") {
-    const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
-    if (!col) return null;
-    Object.assign(style, {
-      left: `${col.x - sceneSection.columns[0].x - avgWidth / 2 - gap / 2}px`,
-      top: "0",
-      width: `${avgWidth}px`,
-      height: "100%",
-    });
-  } else if (preview.kind === "column-right") {
-    const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
-    if (!col) return null;
-    Object.assign(style, {
-      left: `${col.x - sceneSection.columns[0].x + col.width + gap / 2}px`,
-      top: "0",
-      width: `${avgWidth}px`,
-      height: "100%",
-    });
-  } else if (preview.kind === "block-below") {
-    const col = sceneSection.columns.find((c) => c.columnId === preview.columnId);
-    const box = col?.blocks.find((b) => b.blockId === preview.blockId);
-    if (!col || !box) return null;
-    Object.assign(style, {
-      left: `${box.x - sceneSection.columns[0].x}px`,
-      top: `${box.y - secY + box.height + gap / 2}px`,
-      width: `${box.width}px`,
-      height: "48px",
-    });
-  } else {
-    Object.assign(style, {
-      left: "0",
-      top: `${sceneSection.height + gap / 2}px`,
-      width: "100%",
-      height: "48px",
-    });
-  }
-  return <div className="canvas-insert-preview" style={style} aria-hidden="true" />;
+function RegionPreview({ board, regionId, originY }: { board: CanvasBoard; regionId: string; originY: number }) {
+  const box = useMemo(() => computeInsertPreview(board, { kind: "region-band", regionId },
+    createCanvasMeasure(new CanvasTextMeasurer())), [board, regionId]);
+  if (!box) return null;
+  return <div className="canvas-insert-preview canvas-region-insert-preview" style={{
+    top: box.y - originY, width: box.width, height: box.height, transform: "none",
+  }} aria-hidden="true" />;
 }

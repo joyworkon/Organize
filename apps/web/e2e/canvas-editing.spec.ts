@@ -12,6 +12,105 @@ async function createPage(page: Page) {
   await expect(page.locator("[data-block-id] textarea")).toBeFocused();
 }
 
+test("增列保留区块归属和模块边框，预览等于实际插入位置", async ({ page }) => {
+  await openCanvas(page);
+  await createPage(page);
+  await page.locator("[data-block-id] textarea").fill("同一区块内的内容");
+  const region = page.locator("[data-region-id]");
+  const regionId = await region.getAttribute("data-region-id");
+  const first = page.locator("[data-block-id]").first();
+  await first.hover();
+  const textBox = (await first.locator("textarea").boundingBox())!;
+  for (const control of await page.locator(".canvas-section .canvas-plus").all()) {
+    const rect = (await control.boundingBox())!;
+    const overlap = Math.min(rect.x + rect.width, textBox.x + textBox.width) > Math.max(rect.x, textBox.x)
+      && Math.min(rect.y + rect.height, textBox.y + textBox.height) > Math.max(rect.y, textBox.y);
+    expect(overlap).toBe(false);
+  }
+  const plus = page.getByRole("button", { name: "在右侧添加一列", exact: true });
+  await plus.hover();
+  const ghost = await page.locator(".canvas-insert-preview").boundingBox();
+  expect(ghost).not.toBeNull();
+  await plus.click();
+  await expect(region.locator("[data-block-id]")).toHaveCount(2);
+  await expect(region).toHaveAttribute("data-region-id", regionId!);
+  const created = region.locator("[data-block-id]").last();
+  await expect(created.locator("textarea")).toBeFocused();
+  const actual = (await created.boundingBox())!;
+  for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(actual[key] - ghost![key])).toBeLessThan(1);
+  await page.getByRole("textbox", { name: "画布名称", exact: true }).focus();
+  await page.mouse.move(0, 0);
+  const border = await first.evaluate((el) => getComputedStyle(el).borderColor);
+  expect(border).not.toBe("rgba(0, 0, 0, 0)");
+  await page.getByRole("button", { name: "预览", exact: true }).click();
+  await first.hover();
+  await expect.poll(() => first.evaluate((el) => getComputedStyle(el).borderColor)).toBe("rgba(0, 0, 0, 0)");
+});
+
+test("加号支持键盘激活，一次操作只新增一列/一块/一行", async ({ page }) => {
+  await openCanvas(page);
+  await createPage(page);
+  const first = page.locator("[data-block-id]").first();
+  await first.hover();
+  const right = page.getByRole("button", { name: "在右侧添加一列", exact: true });
+  await right.focus();
+  await right.press("Enter");
+  await expect(page.locator("[data-column-id]")).toHaveCount(2);
+  await expect(page.locator("[data-block-id] textarea")).toBeFocused();
+  await first.hover();
+  const below = page.getByRole("button", { name: "在本列下方添加模块", exact: true });
+  await below.focus();
+  await below.press("Enter");
+  await expect(page.locator("[data-block-id]")).toHaveCount(3);
+  await first.hover();
+  const row = page.getByRole("button", { name: "添加通栏", exact: true });
+  await expect(row).toHaveText("添加整行");
+  await row.focus();
+  await row.press("Enter");
+  await expect(page.locator("[data-section-id]")).toHaveCount(2);
+  await expect(page.locator("[data-region-id]")).toHaveCount(1);
+});
+
+test("区块入口不遮挡模块底部加号，鼠标可在当前列连续加块", async ({ page }) => {
+  await openCanvas(page);
+  await createPage(page);
+  const first = page.locator("[data-block-id]").first();
+  await first.hover();
+  await page.getByRole("button", { name: "在右侧添加一列", exact: true }).click();
+  await first.hover();
+  const below = page.getByRole("button", { name: "在本列下方添加模块", exact: true });
+  await below.hover();
+  const ghost = (await page.locator(".canvas-insert-preview").boundingBox())!;
+  await below.click();
+  await expect(page.locator("[data-region-id]")).toHaveCount(1);
+  await expect(page.locator("[data-column-id]")).toHaveCount(2);
+  await expect(page.locator("[data-block-id]")).toHaveCount(3);
+  const added = page.locator("[data-column-id]").first().locator("[data-block-id]").last();
+  const box = (await added.boundingBox())!;
+  for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(box[key] - ghost[key])).toBeLessThan(1);
+  await expect(added.locator("textarea")).toBeFocused();
+});
+
+test("只有一个区块也能添加独立区块，预览和新增外框一致", async ({ page }) => {
+  await openCanvas(page);
+  await createPage(page);
+  await page.locator("[data-block-id] textarea").fill("原区块");
+  const gap = page.locator(".canvas-region-gap").last();
+  await gap.hover();
+  const button = gap.getByRole("button", { name: "在下方添加区块", exact: true });
+  await expect(button).toContainText("区块");
+  const preview = (await page.locator(".canvas-region-insert-preview").boundingBox())!;
+  await button.focus();
+  await button.press("Enter");
+  await expect(page.locator("[data-region-id]")).toHaveCount(2);
+  const original = page.locator("[data-region-id]").first();
+  const added = page.locator("[data-region-id]").last();
+  await expect(original.locator("[data-block-id]")).toHaveCount(1);
+  await expect(added.locator("textarea")).toBeFocused();
+  const box = (await added.boundingBox())!;
+  for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(box[key] - preview[key])).toBeLessThan(1);
+});
+
 test("新建和适合全部避开面板，缩放控件可点击", async ({ page }) => {
   await openCanvas(page);
   await createPage(page);
