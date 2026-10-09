@@ -25,6 +25,7 @@ import { toast } from "@/hooks/use-toast";
 
 export interface CanvasFreeItemViewProps {
   item: CanvasFreeItem;
+  height: number;
   store: CanvasStore;
   zoom: number;
   interactive: boolean;
@@ -36,6 +37,7 @@ export interface CanvasFreeItemViewProps {
 
 export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   item,
+  height,
   store,
   zoom,
   interactive,
@@ -196,7 +198,9 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   return (
     <div
       className={`canvas-free-item ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
-      style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, zIndex: item.zIndex }}
+      style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px`, zIndex: item.zIndex,
+        background: block.style?.background ? `var(--cv-bg-${block.style.background})` : undefined,
+        borderRadius: block.style?.radius != null ? `${block.style.radius}px` : undefined }}
       data-free-item-id={item.id}
       onPointerDown={
         interactive
@@ -216,7 +220,10 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       {textBlock ? (
         editing && interactive ? (
           <textarea
-            ref={textareaRef}
+            ref={(el) => {
+              textareaRef.current = el;
+              if (el && textStyle) applyCanvasTextStyle(el, textStyle);
+            }}
             className="canvas-text-content canvas-textarea"
             style={{ height: "100%", resize: "none" }}
             value={textBlock.text}
@@ -227,7 +234,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
                 { coalesceKey: `free-text:${item.id}:${store.getState().compositionSeq}` },
               )
             }
-            onBlur={() => store.getState().stopEdit()}
+            onBlur={() => store.getState().stopEdit(item.id)}
             onCompositionEnd={() => store.getState().bumpComposition()}
             aria-label="自由文本"
             spellCheck={false}
@@ -240,7 +247,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
             }}
             style={{ minHeight: MIN_TEXT_CONTENT_HEIGHT }}
           >
-            {textBlock.text}
+            {textBlock.text + (textBlock.text === "" || textBlock.text.endsWith("\n") ? "\u200b" : "")}
           </div>
         )
       ) : resolvedUrl ? (

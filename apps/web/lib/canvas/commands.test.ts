@@ -392,6 +392,11 @@ describe("结构完整性", () => {
 describe("createBoardAutoPlace（A4 视口内落位）", () => {
   const viewport = { x: 5000, y: 5000, width: 1200, height: 800 };
 
+  it("可用视口小于默认版面时仍在该视口起点落位，不退回原点", () => {
+    const res = createBoardAutoPlace(emptyDoc(), { x: 5300, y: 5100, width: 300, height: 200 }, counterIds());
+    expect(res.doc.boards[0]).toMatchObject({ x: 5300, y: 5100 });
+  });
+
   it("空画布：新版面落在视口矩形左上角", () => {
     const res = createBoardAutoPlace(emptyDoc(), viewport, counterIds());
     const b = res.doc.boards[0];

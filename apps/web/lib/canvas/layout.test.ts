@@ -3,7 +3,6 @@ import {
   BOARD_DEFAULT_WIDTH,
   BOARD_GAP,
   BOARD_PADDING,
-  BLOCK_PADDING,
   COLUMN_MIN_WIDTH,
   MIN_TEXT_CONTENT_HEIGHT,
   createBoardShape,
@@ -201,7 +200,7 @@ describe("图片布局", () => {
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
     const body = scene.boards[0].regions[0].sections[1];
-    const inner = body.columnWidths[0] - BLOCK_PADDING * 2;
+    const inner = body.columnWidths[0] - BLOCK_CHROME;
     expect(body.columns[0].blocks[0].height).toBeCloseTo(inner / 2 + 26, 6);
   });
 
@@ -300,9 +299,9 @@ describe("自由图片容器比例（A5）", () => {
     return doc;
   }
 
-  // BLOCK_CHROME = BLOCK_PADDING*2 + 2 = 26；inner = 320 - 24 = 296
+  // BLOCK_CHROME = BLOCK_PADDING*2 + 2 = 26；inner = 320 - 26 = 294
   const CHROME = 26;
-  const inner = 296;
+  const inner = 294;
 
   it("auto（缺省）：高度 = 内宽 / 图片自然比例（现状回归）", () => {
     const scene = computeScene(freeImageDoc(), fakeMeasure);
@@ -483,7 +482,7 @@ describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新�
     // 拉伸语义下行高 = 左列两块之和；top 语义下右列图片保持自然高（内宽/比例 + chrome）
     expect(right.height).toBe(left.height);
     const imgBox = right.blocks[0];
-    const imgInner = right.width - BLOCK_PADDING * 2;
+    const imgInner = right.width - BLOCK_CHROME;
     expect(imgBox.height).toBeCloseTo(imgInner / (400 / 300) + BLOCK_CHROME, 6);
     // 右列只有一块：top 对齐 → y = 行顶
     expect(imgBox.y).toBeCloseTo(right.y, 6);
@@ -525,7 +524,7 @@ describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新�
     const scene = computeScene(doc, fakeMeasure);
     const sec = scene.boards[0].regions[0].sections[1];
     const col = sec.columns[0];
-    const inner = col.width - BLOCK_PADDING * 2;
+    const inner = col.width - BLOCK_CHROME;
     const imgBox = col.blocks[1];
     expect(imgBox.height).toBeCloseTo(inner / (16 / 9) + BLOCK_CHROME, 6);
   });

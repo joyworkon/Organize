@@ -10,13 +10,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BLOCK_PADDING,
   CanvasBlock,
   CanvasDoc,
   CanvasTextBlock,
 } from "@/lib/canvas/model";
 import {
   computeColumnWidthsForContent,
+  BLOCK_CHROME,
   computeScene,
   regionGap,
   regionInnerWidth,
@@ -38,16 +38,16 @@ function collectTextRequests(doc: CanvasDoc) {
       const regionWidth = regionInnerWidth(board, region);
       const gap = regionGap(board, region);
       for (const section of region.sections) {
-        const widths = computeColumnWidthsForContent(regionWidth, gap, section);
+        const widths = computeColumnWidthsForContent(regionWidth, section.gap ?? gap, section);
         section.columns.forEach((column, i) => {
-          const colInner = Math.max(1, (widths[i] ?? 0) - BLOCK_PADDING * 2);
+          const colInner = Math.max(1, (widths[i] ?? 0) - BLOCK_CHROME);
           for (const block of column.blocks) {
             if (block.type === "text") {
               requests.push({
                 block,
                 key: textStyleKey(block),
                 style: resolveTextStyle(block),
-                width: colInner,
+                width: Math.max(1, colInner - (block.role === "list" ? 16 : 0)),
               });
             }
           }
@@ -58,7 +58,7 @@ function collectTextRequests(doc: CanvasDoc) {
   // 自由文本容器
   for (const item of doc.freeItems) {
     if (item.block.type === "text") {
-      const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
+      const inner = Math.max(1, item.width - BLOCK_CHROME);
       requests.push({
         block: item.block,
         key: textStyleKey(item.block),
@@ -95,7 +95,7 @@ export function useCanvasScene(
     );
     const measure: CanvasMeasure = (block: CanvasBlock, innerWidth: number) => {
       if (block.type === "text") {
-        return measurer.measure(block.text, textStyleKey(block), resolveTextStyle(block), innerWidth);
+        return measurer.measure(block.text, textStyleKey(block), resolveTextStyle(block), Math.max(1, innerWidth - (block.role === "list" ? 16 : 0)));
       }
       if (block.type === "button") {
         // 行动按钮按标签文案测量（14px 正文行高），与渲染一致（B2）

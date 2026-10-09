@@ -88,12 +88,12 @@ export interface CanvasEditorState {
   clearFocus: () => void;
   /** 进入编辑态：传版面模块 id 或自由容器 id（自由容器选区保持 {kind:"free"}）。 */
   startEdit: (id: string) => void;
-  stopEdit: () => void;
+  stopEdit: (id?: string) => void;
   bumpComposition: () => void;
   setTitle: (title: string) => void;
   togglePreview: () => void;
   setSaveStatus: (status: CanvasSaveStatus, conflictCurrentRevision?: number) => void;
-  markSaved: (revision: number) => void;
+  markSaved: (revision: number, savedSeq?: number) => void;
   bumpMeasureEpoch: () => void;
   setAssetUrl: (key: string, url: string) => void;
   requestSmartRecompute: () => void;
@@ -136,21 +136,23 @@ export function createCanvasStore(initial?: {
         recoveredFromDraft: recoveredFromDraft ?? false,
         saveStatus: "saved",
         history: new CanvasHistory(),
+        selection: null,
+        focus: null,
+        editingBlockId: null,
+        lastActiveTarget: null,
       }),
 
     apply: (label, command, opts) => {
       const state = get();
       if (state.readOnly || state.previewMode) return;
-      const preFocus: CanvasFocus = state.editingBlockId
-        ? { kind: "block", boardId: "", regionId: "", sectionId: "", columnId: "", blockId: state.editingBlockId }
-        : null;
+      const preFocus = currentFocus(state);
+      const result = command(state.doc);
       if (!opts?.skipHistory) {
         state.history.push(state.doc, label, {
           coalesceKey: opts?.coalesceKey,
           preFocus,
         });
       }
-      const result = command(state.doc);
       const nextSelection =
         result.focus?.kind === "block"
           ? { kind: "block" as const, blockId: result.focus.blockId }
@@ -161,29 +163,22 @@ export function createCanvasStore(initial?: {
               : result.focus?.kind === "board"
                 ? { kind: "board" as const, boardId: result.focus.boardId }
                 : state.selection;
-      const activeTarget = activeTargetFromSelection(result.doc, nextSelection);
+      const validSelection = selectionExists(result.doc, nextSelection) ? nextSelection : null;
+      const activeTarget = activeTargetFromSelection(result.doc, validSelection);
+      const nextEditing = result.focus
+        ? result.focus.kind === "block" && result.focus.edit
+          ? result.focus.blockId
+          : result.focus.kind === "free" && result.focus.edit ? result.focus.itemId : null
+        : state.editingBlockId;
       set({
         doc: result.doc,
         focus: result.focus ?? null,
         localSeq: state.localSeq + 1,
+        selection: validSelection,
+        editingBlockId: nextEditing && isTextTarget(result.doc, nextEditing) ? nextEditing : null,
         ...(activeTarget ? { lastActiveTarget: activeTarget } : {}),
         // 文本输入保留既有选区与编辑态
       });
-      if (result.focus?.kind === "block") {
-        set({ selection: { kind: "block", blockId: result.focus.blockId } });
-        if (result.focus.edit) {
-          set({ editingBlockId: result.focus.blockId });
-        }
-      } else if (result.focus?.kind === "free") {
-        set({ selection: { kind: "free", itemId: result.focus.itemId }, editingBlockId: null });
-      } else if (result.focus?.kind === "region") {
-        set({
-          selection: { kind: "region", boardId: result.focus.boardId, regionId: result.focus.regionId },
-          editingBlockId: null,
-        });
-      } else if (result.focus?.kind === "board") {
-        set({ selection: { kind: "board", boardId: result.focus.boardId }, editingBlockId: null });
-      }
     },
 
     applyLayoutOnly: (command) => {
@@ -195,26 +190,26 @@ export function createCanvasStore(initial?: {
     undo: () => {
       const state = get();
       if (state.readOnly || state.previewMode) return;
-      const entry = state.history.undo(state.doc);
+      const entry = state.history.undo(state.doc, currentFocus(state));
       if (!entry) return;
       set({
         doc: entry.doc,
         focus: entry.focus ?? null,
         localSeq: state.localSeq + 1,
-        editingBlockId: entry.focus?.kind === "block" ? entry.focus.blockId : null,
+        ...restoreFocus(entry.doc, entry.focus ?? null),
       });
     },
 
     redo: () => {
       const state = get();
       if (state.readOnly || state.previewMode) return;
-      const entry = state.history.redo(state.doc);
+      const entry = state.history.redo(state.doc, currentFocus(state));
       if (!entry) return;
       set({
         doc: entry.doc,
         focus: entry.focus ?? null,
         localSeq: state.localSeq + 1,
-        editingBlockId: entry.focus?.kind === "block" ? entry.focus.blockId : null,
+        ...restoreFocus(entry.doc, entry.focus ?? null),
       });
     },
 
@@ -234,6 +229,7 @@ export function createCanvasStore(initial?: {
         if (state.readOnly || state.previewMode) {
           return { editingBlockId: null };
         }
+        if (!isTextTarget(state.doc, id)) return {};
         // 自由容器与版面模块共用本入口：自由容器保持 {kind:"free"} 选区，
         // 属性栏才能解析到自由容器（findBlockLocation 只遍历 boards）。
         if (state.doc.freeItems.some((f) => f.id === id)) {
@@ -247,7 +243,11 @@ export function createCanvasStore(initial?: {
         };
       }),
 
-    stopEdit: () => set({ editingBlockId: null, focus: null }),
+    // 旧 textarea 的迟到 blur 不能清除刚切入的新模块焦点。
+    stopEdit: (id) => {
+      if (id && get().editingBlockId !== id) return;
+      set({ editingBlockId: null, focus: null });
+    },
 
     bumpComposition: () => set((state) => ({ compositionSeq: state.compositionSeq + 1 })),
 
@@ -268,7 +268,10 @@ export function createCanvasStore(initial?: {
     setSaveStatus: (status, conflictCurrentRevision) =>
       set({ saveStatus: status, conflictCurrentRevision: conflictCurrentRevision ?? null }),
 
-    markSaved: (revision) => set({ revision, saveStatus: "saved" }),
+    markSaved: (revision, savedSeq) => set((state) => ({
+      revision,
+      saveStatus: savedSeq === undefined || savedSeq === state.localSeq ? "saved" : "saving",
+    })),
 
     bumpMeasureEpoch: () => set((state) => ({ measureEpoch: state.measureEpoch + 1 })),
 
@@ -281,6 +284,49 @@ export function createCanvasStore(initial?: {
 }
 
 export type CanvasStore = ReturnType<typeof createCanvasStore>;
+
+function isTextTarget(doc: CanvasDoc, id: string): boolean {
+  return findBlockLocation(doc, id)?.block.type === "text" ||
+    doc.freeItems.some((item) => item.id === id && item.block.type === "text");
+}
+
+function selectionExists(doc: CanvasDoc, selection: CanvasSelection): boolean {
+  if (!selection) return false;
+  if (selection.kind === "block") return !!findBlockLocation(doc, selection.blockId);
+  if (selection.kind === "free") return doc.freeItems.some((item) => item.id === selection.itemId);
+  if (selection.kind === "board") return doc.boards.some((board) => board.id === selection.boardId);
+  return doc.boards.some((board) => board.id === selection.boardId && board.regions.some((region) => region.id === selection.regionId));
+}
+
+/** 历史保存真实的对象类别、选中与编辑状态，不能把自由文本伪装成版面块。 */
+function currentFocus(state: CanvasEditorState): CanvasFocus {
+  const selection = state.selection;
+  if (!selection || !selectionExists(state.doc, selection)) return null;
+  if (selection.kind !== "block") {
+    return selection.kind === "free"
+      ? { ...selection, edit: state.editingBlockId === selection.itemId }
+      : selection;
+  }
+  const loc = findBlockLocation(state.doc, selection.blockId)!;
+  return {
+    kind: "block", boardId: loc.board.id, regionId: loc.region.id,
+    sectionId: loc.section.id, columnId: loc.column.id, blockId: loc.block.id,
+    edit: state.editingBlockId === loc.block.id, caret: "end",
+  };
+}
+
+function restoreFocus(doc: CanvasDoc, focus: CanvasFocus) {
+  const selection: CanvasSelection = focus?.kind === "block"
+    ? { kind: "block", blockId: focus.blockId }
+    : focus?.kind === "free" ? { kind: "free", itemId: focus.itemId } : focus;
+  const id = focus?.kind === "block" && focus.edit ? focus.blockId
+    : focus?.kind === "free" && focus.edit ? focus.itemId : null;
+  return {
+    selection: selectionExists(doc, selection) ? selection : null,
+    editingBlockId: id && isTextTarget(doc, id) ? id : null,
+    lastActiveTarget: activeTargetFromSelection(doc, selection),
+  };
+}
 
 /** 按块查找的便捷只读选择器。 */
 export function selectBlock(doc: CanvasDoc, blockId: string): CanvasBlock | null {

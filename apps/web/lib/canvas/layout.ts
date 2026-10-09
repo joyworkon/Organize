@@ -234,7 +234,7 @@ function layoutSection(
   const gap = section.gap ?? regionGap;
   const columnWidths = computeColumnWidthsForContent(contentWidth, gap, section);
   const naturalPerColumn: number[][] = section.columns.map((column, i) =>
-    column.blocks.map((block) => blockContentNaturalHeight(block, Math.max(1, columnWidths[i] - BLOCK_PADDING * 2), measure)),
+    column.blocks.map((block) => blockContentNaturalHeight(block, Math.max(1, columnWidths[i] - BLOCK_CHROME), measure)),
   );
   const naturalColumnHeights = naturalPerColumn.map((heights) =>
     heights.reduce((sum, h) => sum + h + BLOCK_CHROME, 0) + Math.max(0, heights.length - 1) * gap,
@@ -331,7 +331,7 @@ function freeItemHeight(
   item: CanvasDoc["freeItems"][number],
   measure: CanvasMeasure,
 ): number {
-  const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
+  const inner = Math.max(1, item.width - BLOCK_CHROME);
   if (item.block.type === "image") {
     const ratio = item.block.ratio;
     if (ratio && ratio !== "auto") {
@@ -340,9 +340,7 @@ function freeItemHeight(
     }
     return imageNaturalHeight(item.block, inner) + BLOCK_CHROME;
   }
-  const natural = item.block.text.trim()
-    ? measure(item.block, inner)
-    : MIN_TEXT_CONTENT_HEIGHT;
+  const natural = Math.max(MIN_TEXT_CONTENT_HEIGHT, measure(item.block, inner));
   return natural + BLOCK_CHROME;
 }
 

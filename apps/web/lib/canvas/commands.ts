@@ -158,7 +158,7 @@ export function pickAutoPlacePosition(
       height: autoPlaceFreeItemHeight(f),
     })),
   ];
-  if (viewport && viewport.width >= boardW && viewport.height >= boardH) {
+  if (viewport && viewport.width > 0 && viewport.height > 0) {
     const perRow = Math.max(1, Math.floor((viewport.width - boardW) / step) + 1);
     const rowStep = step + 60;
     for (let attempt = 0; attempt < 400; attempt += 1) {
@@ -1014,7 +1014,8 @@ export function updateFreeItemBlock(
     if (args.style) {
       item.block.style = { ...(item.block.style ?? {}), ...args.style };
     }
-    return { kind: "free", itemId: args.itemId };
+    // 内容/样式更新保留现有选区与编辑态，不能每输入一个字就重新选中并退出编辑。
+    return null;
   });
 }
 

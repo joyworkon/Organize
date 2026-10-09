@@ -296,7 +296,7 @@ export type CanvasFocus =
     }
   | { kind: "region"; boardId: string; regionId: string }
   | { kind: "board"; boardId: string }
-  | { kind: "free"; itemId: string }
+  | { kind: "free"; itemId: string; edit?: boolean }
   | null;
 
 export interface CanvasCommandResult {

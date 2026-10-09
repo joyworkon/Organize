@@ -41,6 +41,7 @@ import {
   createMaterialCardBlock,
   createTextBlock,
   ensureCanvasDocV2,
+  findBlockLocation,
   type CanvasBlock,
   type CanvasDoc,
 } from "@/lib/canvas/model";
@@ -287,8 +288,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             expectedRevision: snapshot.expectedRevision,
           });
           if (outcome.ok) {
-            store.getState().markSaved(outcome.revision);
-            void deleteDraft(uid, documentId);
+            store.getState().markSaved(outcome.revision, snapshot.localSeq);
+            if (store.getState().localSeq === snapshot.localSeq) void deleteDraft(uid, documentId);
             return { ok: true, revision: outcome.revision };
           }
           if (outcome.reason === "conflict") {
@@ -308,6 +309,16 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       autosaveRef.current = controller;
 
       unsub = store.subscribe((state, prev) => {
+        // 编辑结束只有请求计数变化；不能被下方的“文档没变”判断短路。
+        if (state.smartRecomputeSeq !== prev.smartRecomputeSeq) {
+          for (const board of state.doc.boards) {
+            for (const region of board.regions) {
+              for (const section of region.sections) {
+                if (section.widthMode === "smart") recomputeSmartSection(store, measurer, section.id);
+              }
+            }
+          }
+        }
         if (state.doc === prev.doc && state.title === prev.title) return;
         controller!.schedule({
           title: state.title,
@@ -327,17 +338,6 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             updatedAt: Date.now(),
           });
         }, 400);
-        if (state.smartRecomputeSeq !== prev.smartRecomputeSeq) {
-          for (const board of state.doc.boards) {
-            for (const region of board.regions) {
-              for (const section of region.sections) {
-                if (section.widthMode === "smart") {
-                  recomputeSmartSection(store, measurer, section.id);
-                }
-              }
-            }
-          }
-        }
       });
       store.getState().setSaveStatus("saved");
     })();
@@ -406,6 +406,17 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         else s.undo();
         return;
       }
+      if (e.key === "Escape" && !e.isComposing && e.keyCode !== 229 && s.editingBlockId && !hasOpenDialog()) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest("[data-block-id], [data-free-item-id]")) {
+          e.preventDefault();
+          const id = s.editingBlockId;
+          s.stopEdit(id);
+          target.closest<HTMLElement>("[data-block-id], [data-free-item-id]")?.focus({ preventScroll: true });
+          s.requestSmartRecompute();
+          return;
+        }
+      }
       // 输入控件内（区块名编辑/属性栏输入框/对话框）不触发画布快捷键
       if (isTypingTarget(e)) return;
       if (s.editingBlockId || s.readOnly || s.previewMode) return;
@@ -459,18 +470,31 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
 
   // ---------------- 工具条动作 ----------------
 
+  /** 浮动添加/属性面板覆盖的区域不算可用画布，新建与适合全部使用同一矩形。 */
+  const visibleViewportNow = useCallback(() => {
+    const shell = shellRef.current;
+    if (!shell) return null;
+    const rect = shell.getBoundingClientRect();
+    const parent = shell.parentElement;
+    const leftPanel = parent?.querySelector(".canvas-add-panel-wrap")?.getBoundingClientRect();
+    const rightPanel = parent?.querySelector(".canvas-property-bar")?.getBoundingClientRect();
+    const x = leftPanel ? Math.max(0, leftPanel.right - rect.left + 16) : 0;
+    const right = rightPanel ? Math.min(rect.width, rightPanel.left - rect.left - 16) : rect.width;
+    return { x, y: 0, width: Math.max(120, right - x), height: Math.max(120, rect.height - 64) };
+  }, []);
+
   const worldCenterNow = useCallback(() => {
-    const rect = shellRef.current?.getBoundingClientRect();
+    const rect = visibleViewportNow();
     const vp = store.getState().viewport;
     return rect ? worldCenter(rect, vp) : { x: 0, y: 0 };
-  }, [store]);
+  }, [store, visibleViewportNow]);
 
   /** 当前视口的世界矩形（新建页面自动落位用；拿不到容器尺寸时返回 null）。 */
   const worldViewportRectNow = useCallback(() => {
-    const rect = shellRef.current?.getBoundingClientRect();
+    const rect = visibleViewportNow();
     if (!rect) return null;
     return worldViewportRect(rect, store.getState().viewport);
-  }, [store]);
+  }, [store, visibleViewportNow]);
 
   const addFreeText = useCallback(() => {
     const at = worldCenterNow();
@@ -478,6 +502,17 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     const sel = store.getState().selection;
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
   }, [store, worldCenterNow]);
+
+  /** 面板之间放不下默认页面时，缩小新页面以保留两侧加号的操作空间。 */
+  const fitNewPageIfNeeded = useCallback(() => {
+    const rect = visibleViewportNow();
+    const state = store.getState();
+    const board = state.selection?.kind === "block"
+      ? findBlockLocation(state.doc, state.selection.blockId)?.board : null;
+    if (!rect || !board || board.width * state.viewport.zoom <= rect.width - 48) return;
+    const zoom = clampZoom((rect.width - 48) / board.width);
+    state.setViewport({ zoom, x: rect.x + 24 - board.x * zoom, y: 24 - board.y * zoom });
+  }, [store, visibleViewportNow]);
 
   /**
    * 统一解析插入目标（B2）：explicit 为拖入/粘贴的指针命中位置。
@@ -492,12 +527,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         s.apply("新建空白页面", (d) =>
           createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "blank" }),
         );
+        fitNewPageIfNeeded();
         const s2 = store.getState();
         target = resolveInsertTarget(s2.doc, s2.selection, null, s2.lastActiveTarget);
       }
       return target;
     },
-    [store, worldViewportRectNow],
+    [store, worldViewportRectNow, fitNewPageIfNeeded],
   );
 
   // B1 新建入口：空白页面 / 宣传落地页骨架（落位走 A4 视口逻辑，首标题聚焦）
@@ -505,43 +541,48 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     store.getState().apply("新建空白页面", (d) =>
       createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "blank" }),
     );
-  }, [store, worldViewportRectNow]);
+    fitNewPageIfNeeded();
+  }, [store, worldViewportRectNow, fitNewPageIfNeeded]);
 
   const addLandingBoard = useCallback(() => {
     store.getState().apply("新建宣传落地页骨架", (d) =>
       createBoardSkeleton(d, { viewportRect: worldViewportRectNow(), variant: "landing" }),
     );
-  }, [store, worldViewportRectNow]);
+    fitNewPageIfNeeded();
+  }, [store, worldViewportRectNow, fitNewPageIfNeeded]);
 
   /** 选中并把对象平移到视口中央（不改缩放）。 */
   const revealTarget = useCallback(
     (target: { kind: "board"; boardId: string } | { kind: "region"; boardId: string; regionId: string }) => {
-      const rect = shellRef.current?.getBoundingClientRect();
+      const rect = visibleViewportNow();
       if (!rect) return;
       const sb = scene.boards.find((b) => b.boardId === target.boardId);
       if (!sb) return;
-      let cy: number;
+      let top: number;
+      let height: number;
       if (target.kind === "region") {
         const sr = sb.regions.find((r) => r.regionId === target.regionId);
         if (!sr) return;
-        cy = sr.y + sr.height / 2;
+        top = sr.y;
+        height = sr.height;
       } else {
-        cy = sb.y + sb.height / 2;
+        top = sb.y;
+        height = sb.height;
       }
-      const cx = sb.x + sb.width / 2;
       const vp = store.getState().viewport;
       store.getState().setViewport({
-        x: rect.width / 2 - cx * vp.zoom,
-        y: rect.height / 2 - cy * vp.zoom,
+        // 大于可用视口时对齐左上角，保留第一行可编辑；小对象居中。
+        x: rect.x + Math.max(0, (rect.width - sb.width * vp.zoom) / 2) - sb.x * vp.zoom,
+        y: Math.max(0, (rect.height - height * vp.zoom) / 2) - top * vp.zoom,
       });
     },
-    [scene, store],
+    [scene, store, visibleViewportNow],
   );
 
   /** 目标在视口内则不跳动；平移远离后新建/插入会把目标带回可视区（B2）。 */
   const revealIfNeeded = useCallback(
     (target: { kind: "board"; boardId: string } | { kind: "region"; boardId: string; regionId: string }) => {
-      const rect = shellRef.current?.getBoundingClientRect();
+      const rect = visibleViewportNow();
       if (!rect) return;
       const sb = scene.boards.find((b) => b.boardId === target.boardId);
       if (!sb) return;
@@ -559,11 +600,12 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       const vp = store.getState().viewport;
       const viewTop = -vp.y / vp.zoom;
       const viewBottom = viewTop + rect.height / vp.zoom;
-      // 与视口有任意重叠即视为可见，不跳动
-      if (top + height > viewTop && top < viewBottom) return;
+      const viewLeft = (rect.x - vp.x) / vp.zoom;
+      const viewRight = viewLeft + rect.width / vp.zoom;
+      if (top + height > viewTop && top < viewBottom && sb.x + sb.width > viewLeft && sb.x < viewRight) return;
       revealTarget(target);
     },
-    [scene, store, revealTarget],
+    [scene, store, revealTarget, visibleViewportNow],
   );
 
   /** 模板插入当前选中页面（统一解析：无选中 → lastActive → 自动建页面）。 */
@@ -1170,10 +1212,10 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           title="适合全部"
           aria-label="适合全部"
           onClick={() => {
-            const rect = shellRef.current?.getBoundingClientRect();
+            const rect = visibleViewportNow();
             zoomToFit(
               scene,
-              (vp) => store.getState().setViewport(vp),
+              (vp) => store.getState().setViewport({ ...vp, x: (vp.x ?? 0) + (rect?.x ?? 0), y: (vp.y ?? 0) + (rect?.y ?? 0) }),
               rect ? { width: rect.width, height: rect.height } : { width: 1200, height: 800 },
             );
           }}

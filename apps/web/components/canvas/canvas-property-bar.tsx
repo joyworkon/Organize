@@ -48,7 +48,7 @@ import {
   type CanvasImageRatio,
   type CanvasSectionVerticalAlign,
 } from "@/lib/canvas/model";
-import { computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
+import { BLOCK_CHROME, computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
 import {
   CANVAS_BG_KEYS,
   CANVAS_COLOR_KEYS,
@@ -1102,9 +1102,9 @@ export function recomputeSmartSection(
       if (imageBlock.type !== "image" || !imageBlock.asset) continue;
       if (textBlock.type !== "text") continue;
       const style = resolveTextStyle(textBlock);
-      const gap = regionGap(board, region);
+      const gap = section.gap ?? regionGap(board, region);
       const contentWidth = regionInnerWidth(board, region);
-      const refWidth = Math.max(40, (contentWidth - gap) / 2 - 24); // 等分参考宽，扣块内边距
+      const refWidth = Math.max(1, (contentWidth - gap) / 2 - BLOCK_CHROME - (textBlock.role === "list" ? 16 : 0));
       const t = measurer.measure(textBlock.text, textStyleKey(textBlock), style, refWidth);
       const ratio = imageBlock.asset.naturalHeight > 0
         ? imageBlock.asset.naturalWidth / imageBlock.asset.naturalHeight
@@ -1216,4 +1216,3 @@ function MoveFreeItemDialog({
     </Dialog>
   );
 }
-

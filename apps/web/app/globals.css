@@ -6003,12 +6003,13 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-board {
   position: absolute;
   background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  outline: 1px solid hsl(var(--border));
+  outline-offset: -1px;
   border-radius: var(--radius-xl);
   box-sizing: border-box;
 }
 .canvas-board.is-selected {
-  border-color: hsl(var(--primary));
+  outline-color: hsl(var(--primary));
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.6);
 }
 .canvas-board-handle {
@@ -6082,6 +6083,10 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-block.is-editing { border-color: hsl(var(--primary)); }
 .canvas-text-content {
   font-family: inherit;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: hsl(var(--foreground));
   min-height: 24px;
 }
@@ -6561,22 +6566,23 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-region {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid hsl(var(--border));
+  outline: 1px solid hsl(var(--border));
+  outline-offset: -1px;
   border-radius: var(--radius-lg);
 }
 .canvas-region.is-selected {
-  border-color: hsl(var(--primary) / 0.7);
+  outline-color: hsl(var(--primary) / 0.7);
 }
 /* 预览 / 只读：隐藏编辑边框；用户显式设置的装饰 border 保留 */
 .canvas-region.is-static {
-  border-color: transparent;
+  outline-color: transparent;
 }
 .canvas-region.is-static.is-decorated {
-  border-color: hsl(var(--border));
+  outline-color: hsl(var(--border));
 }
 .canvas-region-name {
   position: absolute;
-  top: 4px;
+  top: -18px;
   left: 8px;
   z-index: 5;
   padding: 0 6px;
@@ -6594,7 +6600,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-region-name-input {
   position: absolute;
-  top: 4px;
+  top: -18px;
   left: 8px;
   z-index: 6;
   width: 120px;
@@ -6610,12 +6616,13 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 /* 预览 / 只读：区块名作为内容标题文本 */
 .canvas-region-title {
   position: absolute;
-  top: 6px;
+  top: -18px;
   left: 10px;
   right: 10px;
   z-index: 5;
   font-size: 12px;
   font-weight: 600;
+  line-height: 16px;
   color: hsl(var(--muted-foreground));
   white-space: nowrap;
   overflow: hidden;

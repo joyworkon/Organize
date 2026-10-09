@@ -313,10 +313,13 @@ export function CanvasViewportView({
           );
         })}
         {doc.freeItems.map((item) => {
+          const box = scene.freeItems.find((box) => box.itemId === item.id);
+          if (!box) return null;
           return (
             <CanvasFreeItemView
               key={item.id}
               item={item}
+              height={box.height}
               store={store}
               zoom={vp.zoom}
               interactive={interactive}

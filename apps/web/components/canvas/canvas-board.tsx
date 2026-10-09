@@ -458,8 +458,6 @@ const RegionBody = memo(function RegionBody({
 }: RegionBodyProps) {
   const pad = regionPadding(board, region);
   const inner = regionInnerWidth(board, region);
-  // 区块内容区相对版面原点的偏移
-  const offsetX = board.padding + pad;
   const decorated = region.style?.border === true;
 
   return (
@@ -493,7 +491,7 @@ const RegionBody = memo(function RegionBody({
         store={store}
         editable={interactive}
       />
-      <div className="canvas-region-content" style={{ position: "relative", width: `${inner}px`, height: "100%" }}>
+      <div className="canvas-region-content" style={{ position: "relative", width: `${inner}px`, height: `${Math.max(0, sceneRegion.height - pad * 2)}px` }}>
         {sceneRegion.sections.map((sceneSection) => {
           const section = region.sections.find((s) => s.id === sceneSection.sectionId);
           if (!section) return null;
@@ -503,8 +501,7 @@ const RegionBody = memo(function RegionBody({
               board={board}
               section={section}
               sceneSection={sceneSection}
-              offsetX={offsetX}
-              offsetY={sceneSection.y - board.y}
+              offsetY={sceneSection.y - sceneRegion.y - pad}
               contentWidth={inner}
               gap={regionGap(board, region)}
               store={store}
@@ -614,9 +611,7 @@ interface SectionBodyProps {
   board: CanvasBoard;
   section: CanvasSection;
   sceneSection: SceneSection;
-  /** 行内容区相对版面原点的偏移 x（= 版面 padding + 区块 padding）。 */
-  offsetX: number;
-  /** 行内容区相对版面原点的偏移 y。 */
+  /** 行相对区块内容区的偏移 y（不能再叠加版面/区块偏移）。 */
   offsetY: number;
   /** 行内容宽（区块内宽）。 */
   contentWidth: number;
@@ -638,7 +633,6 @@ const SectionBody = memo(function SectionBody({
   board,
   section,
   sceneSection,
-  offsetX,
   offsetY,
   contentWidth,
   gap,
@@ -695,7 +689,7 @@ const SectionBody = memo(function SectionBody({
       data-section-id={section.id}
       style={{
         position: "absolute",
-        left: `${offsetX}px`,
+        left: 0,
         top: `${offsetY}px`,
         width: `${contentWidth}px`,
         height: `${sceneSection.height}px`,
@@ -713,16 +707,15 @@ const SectionBody = memo(function SectionBody({
         const sceneColumn = sceneSection.columns[columnIndex];
         if (!sceneColumn) return null;
         const isHoveredColumn = interactive && hovered?.columnId === column.id;
-        const colLeft = sceneColumn.x - board.x - offsetX;
+        const colLeft = sceneColumn.x - sceneSection.columns[0].x;
         return (
           <div key={column.id} data-column-id={column.id} className="contents">
             {column.blocks.map((block, blockIndex) => {
               const box = sceneColumn.blocks[blockIndex];
               if (!box) return null;
-              // 行内坐标：行容器已按 (offsetX, offsetY) 定位，
-              // 块再用世界-版面相对值会双重偏移
-              const secX = board.x + offsetX;
-              const secY = board.y + offsetY;
+              // 场景存世界坐标，DOM 在行内；只减行的世界原点。
+              const secX = sceneSection.columns[0].x;
+              const secY = sceneSection.y;
               const common = {
                 x: box.x - secX,
                 y: box.y - secY,
@@ -881,7 +874,7 @@ const SectionBody = memo(function SectionBody({
           <div
             key={`divider-${i}`}
             className="canvas-divider"
-            style={{ left: `${sceneSection.columns[i].x - board.x - offsetX + w + effectiveGap / 2}px` }}
+            style={{ left: `${sceneSection.columns[i].x - sceneSection.columns[0].x + w + effectiveGap / 2}px` }}
             role="separator"
             aria-label="拖动调整列宽"
             title="拖动调整列宽"
