@@ -51,6 +51,7 @@ import {
   createFreeImage,
   createFreeText,
   deleteBlock,
+  deleteBoard,
   deleteFreeItem,
   deleteRegion,
   insertBlockAtTarget,
@@ -433,10 +434,15 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       if ((e.key === "Delete" || e.key === "Backspace") && s.selection) {
         e.preventDefault();
         const sel = s.selection;
-        if (sel.kind === "block") {
+        if (sel.kind === "blocks") {
+          s.apply("删除多个模块", (d) => ({ doc: sel.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, d) }));
+          store.getState().select(null);
+        } else if (sel.kind === "block") {
           s.apply("删除模块", (d) => deleteBlock(d, { blockId: sel.blockId }));
         } else if (sel.kind === "free") {
           s.apply("删除自由容器", (d) => deleteFreeItem(d, { itemId: sel.itemId }));
+        } else if (sel.kind === "board") {
+          s.apply("删除页面", (d) => deleteBoard(d, { boardId: sel.boardId }));
         } else if (sel.kind === "region") {
           s.apply("删除区块", (d) => deleteRegion(d, { boardId: sel.boardId, regionId: sel.regionId }));
         }
@@ -480,7 +486,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     const rightPanel = parent?.querySelector(".canvas-property-bar")?.getBoundingClientRect();
     const x = leftPanel ? Math.max(0, leftPanel.right - rect.left + 16) : 0;
     const right = rightPanel ? Math.min(rect.width, rightPanel.left - rect.left - 16) : rect.width;
-    return { x, y: 0, width: Math.max(120, right - x), height: Math.max(120, rect.height - 64) };
+    return { x, y: 40, width: Math.max(120, right - x), height: Math.max(120, rect.height - 104) };
   }, []);
 
   const worldCenterNow = useCallback(() => {
@@ -511,7 +517,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       ? findBlockLocation(state.doc, state.selection.blockId)?.board : null;
     if (!rect || !board || board.width * state.viewport.zoom <= rect.width - 48) return;
     const zoom = clampZoom((rect.width - 48) / board.width);
-    state.setViewport({ zoom, x: rect.x + 24 - board.x * zoom, y: 24 - board.y * zoom });
+    state.setViewport({ zoom, x: rect.x + 24 - board.x * zoom, y: rect.y + 24 - board.y * zoom });
   }, [store, visibleViewportNow]);
 
   /**
@@ -573,7 +579,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       store.getState().setViewport({
         // 大于可用视口时对齐左上角，保留第一行可编辑；小对象居中。
         x: rect.x + Math.max(0, (rect.width - sb.width * vp.zoom) / 2) - sb.x * vp.zoom,
-        y: Math.max(0, (rect.height - height * vp.zoom) / 2) - top * vp.zoom,
+        y: rect.y + Math.max(0, (rect.height - height * vp.zoom) / 2) - top * vp.zoom,
       });
     },
     [scene, store, visibleViewportNow],
@@ -598,7 +604,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         height = sb.height;
       }
       const vp = store.getState().viewport;
-      const viewTop = -vp.y / vp.zoom;
+      const viewTop = (rect.y - vp.y) / vp.zoom;
       const viewBottom = viewTop + rect.height / vp.zoom;
       const viewLeft = (rect.x - vp.x) / vp.zoom;
       const viewRight = viewLeft + rect.width / vp.zoom;

@@ -213,7 +213,7 @@ test("智能图文比例只在编辑结束重算，手动列宽不被覆盖", as
   await text.dblclick();
   await text.locator("textarea").fill("需要更高版面的图文正文\n".repeat(20));
   expect(await width()).toBe(initial);
-  await page.keyboard.press("Escape");
+  await region.locator("[data-block-type='image']").click({ position: { x: 20, y: 24 } });
   await expect.poll(width).toBeLessThan(initial - 10);
   await page.getByRole("button", { name: "1:2", exact: true }).click();
   const manual = await width();
@@ -252,8 +252,8 @@ for (const zoom of [0.5, 1, 2]) {
           bottom: (b.bottom - r.bottom) / scale, right: (b.right - r.right) / scale };
       });
     });
-    expect(geometry[0].x).toBeCloseTo(0, 1);
-    expect(geometry[0].y).toBeCloseTo(0, 1);
+    expect(geometry[0].x).toBeCloseTo(16, 1);
+    expect(geometry[0].y).toBeCloseTo(16, 1);
     for (const b of geometry) {
       expect(b.x).toBeGreaterThanOrEqual(-0.1);
       expect(b.bottom).toBeLessThanOrEqual(0.1);

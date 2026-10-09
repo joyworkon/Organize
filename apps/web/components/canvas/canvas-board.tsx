@@ -34,7 +34,6 @@ import {
   type CanvasDoc,
   type CanvasRegion,
   type CanvasSection,
-  findSection,
 } from "@/lib/canvas/model";
 import {
   deleteBoard,
@@ -45,10 +44,10 @@ import {
   moveBoard,
   renameRegion,
   resizeBoard,
+  applyColumnDrag,
 } from "@/lib/canvas/commands";
 import {
   canAddColumnAt,
-  manualWeightsFromDrag,
   regionGap,
   regionInnerWidth,
   regionPadding,
@@ -80,7 +79,7 @@ export interface CanvasBoardViewProps {
   assetUrls: Record<string, string>;
   selectedBoard: boolean;
   selectedRegion: { boardId: string; regionId: string } | null;
-  selectedBlockId: string | null;
+  selectedBlockIds: readonly string[];
   editingBlockId: string | null;
   /** 资料来源可达性（E）：卡片/摘录/来源图片的状态角标。 */
   sourceStatuses: SourceStatusMap;
@@ -115,7 +114,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   assetUrls,
   selectedBoard,
   selectedRegion,
-  selectedBlockId,
+  selectedBlockIds,
   editingBlockId,
   sourceStatuses,
   onReplaceImage,
@@ -140,7 +139,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   const [gapPreview, setGapPreview] = useState(false);
 
   const ui = uiSize(zoom);
-  const colDrag = useRef(beginColDragFor(store, zoom, sceneBoard));
+  const colDrag = useRef(beginColDragFor(store));
 
   // ---------------- 版面移动 / 改宽（拖动全程一个事务） ----------------
 
@@ -187,7 +186,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
       const drag = dragRef.current;
       if (!drag) return;
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
       dragRef.current = null;
       if (drag.raf) cancelAnimationFrame(drag.raf);
       const dx = (e.clientX - drag.startX) / zoom;
@@ -210,6 +209,13 @@ export const CanvasBoardView = memo(function CanvasBoardView({
     },
     [board.id, store, zoom],
   );
+
+  const cancelBoardDrag = useCallback(() => {
+    if (dragRef.current?.raf) cancelAnimationFrame(dragRef.current.raf);
+    dragRef.current = null;
+    setLiveTransform(null);
+    setLiveWidth(null);
+  }, []);
 
   const width = liveWidth ?? board.width;
 
@@ -243,7 +249,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
             zoom={zoom}
             ui={ui}
             selected={selectedRegion?.regionId === region.id}
-            selectedBlockId={selectedBlockId}
+            selectedBlockIds={selectedBlockIds}
             editingBlockId={editingBlockId}
             sourceStatuses={sourceStatuses}
             colDrag={colDrag.current}
@@ -322,6 +328,8 @@ export const CanvasBoardView = memo(function CanvasBoardView({
             onPointerDown={(e) => beginBoardDrag(e, "move")}
             onPointerMove={onBoardDragMove}
             onPointerUp={endBoardDrag}
+            onPointerCancel={cancelBoardDrag}
+            onLostPointerCapture={cancelBoardDrag}
             onKeyDown={(e) => {
               const step = e.shiftKey ? 40 : 10;
               if (e.key === "ArrowLeft") {
@@ -366,6 +374,8 @@ export const CanvasBoardView = memo(function CanvasBoardView({
           onPointerDown={(e) => beginBoardDrag(e, "resize")}
           onPointerMove={onBoardDragMove}
           onPointerUp={endBoardDrag}
+            onPointerCancel={cancelBoardDrag}
+            onLostPointerCapture={cancelBoardDrag}
           onKeyDown={(e) => {
             if (e.key === "ArrowLeft") {
               e.preventDefault();
@@ -385,18 +395,21 @@ export const CanvasBoardView = memo(function CanvasBoardView({
 });
 
 /** 列分隔线拖拽句柄工厂：拖动全程一个事务（提交时把拖前快照压入历史）。 */
-function beginColDragFor(store: CanvasStore, zoom: number, sceneBoard: SceneBoard) {
+function beginColDragFor(store: CanvasStore) {
   const colDragRef = { current: null as null | {
     sectionId: string;
     boundaryIndex: number;
     startX: number;
     startLeftWidth: number;
+    widths: number[];
+    zoom: number;
+    boardId: string;
     startDoc: CanvasDoc;
     moved: boolean;
   } };
   return {
     colDragRef,
-    onColDragStart(e: ReactPointerEvent, section: CanvasSection, boundaryIndex: number, leftWidth: number) {
+    onColDragStart(e: ReactPointerEvent, section: CanvasSection, boundaryIndex: number, widths: number[], boardId: string) {
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -404,7 +417,10 @@ function beginColDragFor(store: CanvasStore, zoom: number, sceneBoard: SceneBoar
         sectionId: section.id,
         boundaryIndex,
         startX: e.clientX,
-        startLeftWidth: leftWidth,
+        startLeftWidth: widths[boundaryIndex],
+        widths: [...widths],
+        zoom: store.getState().viewport.zoom,
+        boardId,
         startDoc: store.getState().doc,
         moved: false,
       };
@@ -413,30 +429,24 @@ function beginColDragFor(store: CanvasStore, zoom: number, sceneBoard: SceneBoar
       const drag = colDragRef.current;
       if (!drag) return;
       e.stopPropagation();
-      const dx = (e.clientX - drag.startX) / zoom;
+      const dx = (e.clientX - drag.startX) / drag.zoom;
       if (Math.abs(dx) > 2) drag.moved = true;
+      if (!drag.moved) return;
       const next = Math.max(COLUMN_MIN_WIDTH, drag.startLeftWidth + dx);
       // live 更新走 layoutOnly（手动比例，不受 smart 覆盖）；结束时统一进历史
-      store.getState().applyLayoutOnly((d) => {
-        const found = findSection(d, drag.sectionId);
-        if (!found) return { doc: d };
-        const sceneSec = sceneBoard.regions
-          .flatMap((r) => r.sections)
-          .find((s) => s.sectionId === drag.sectionId);
-        if (!sceneSec) return { doc: d };
-        const nextWeights = manualWeightsFromDrag(sceneSec.columnWidths, drag.boundaryIndex, next);
-        found.section.columnWeights = nextWeights;
-        found.section.widthMode = "manual";
-        return { doc: d };
-      });
+      store.getState().applyLayoutOnly((d) => applyColumnDrag(d, {
+        boardId: drag.boardId, sectionId: drag.sectionId,
+        boundaryIndex: drag.boundaryIndex, newLeftWidth: next, currentWidths: drag.widths,
+      }));
     },
-    onColDragEnd(e: ReactPointerEvent) {
+    onColDragEnd(e: ReactPointerEvent, cancel = false) {
       const drag = colDragRef.current;
       if (!drag) return;
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
       colDragRef.current = null;
-      if (drag.moved) {
+      if (drag.moved && cancel) store.getState().applyLayoutOnly(() => ({ doc: drag.startDoc }));
+      else if (drag.moved) {
         // 拖动全程一个事务：把拖动开始前的文档压入历史
         store.getState().history.push(drag.startDoc, "调整列宽");
       }
@@ -459,7 +469,7 @@ interface RegionBodyProps {
   zoom: number;
   ui: number;
   selected: boolean;
-  selectedBlockId: string | null;
+  selectedBlockIds: readonly string[];
   editingBlockId: string | null;
   sourceStatuses: SourceStatusMap;
   colDrag: ReturnType<typeof beginColDragFor>;
@@ -476,7 +486,7 @@ const RegionBody = memo(function RegionBody({
   assetUrls,
   ui,
   selected,
-  selectedBlockId,
+  selectedBlockIds,
   editingBlockId,
   sourceStatuses,
   colDrag,
@@ -498,7 +508,7 @@ const RegionBody = memo(function RegionBody({
         width: `${board.width - board.padding * 2}px`,
         height: `${sceneRegion.height}px`,
         padding: `${pad}px`,
-        background: region.style?.background ? `var(--cv-bg-${region.style.background})` : undefined,
+        background: region.style?.background === null ? "transparent" : region.style?.background ? `var(--cv-bg-${region.style.background})` : undefined,
       }}
       onPointerDown={
         interactive
@@ -535,7 +545,7 @@ const RegionBody = memo(function RegionBody({
               userId={userId}
               assetUrls={assetUrls}
               ui={ui}
-              selectedBlockId={selectedBlockId}
+              selectedBlockIds={selectedBlockIds}
               editingBlockId={editingBlockId}
               sourceStatuses={sourceStatuses}
               colDrag={colDrag}
@@ -648,7 +658,7 @@ interface SectionBodyProps {
   userId: string;
   assetUrls: Record<string, string>;
   ui: number;
-  selectedBlockId: string | null;
+  selectedBlockIds: readonly string[];
   editingBlockId: string | null;
   sourceStatuses: SourceStatusMap;
   colDrag: ReturnType<typeof beginColDragFor>;
@@ -667,7 +677,7 @@ const SectionBody = memo(function SectionBody({
   userId,
   assetUrls,
   ui,
-  selectedBlockId,
+  selectedBlockIds,
   editingBlockId,
   sourceStatuses,
   colDrag,
@@ -771,7 +781,7 @@ const SectionBody = memo(function SectionBody({
                 y: box.y - secY,
                 width: box.width,
                 height: box.height,
-                selected: selectedBlockId === block.id,
+                selected: selectedBlockIds.includes(block.id),
                 store,
                 interactive,
               };
@@ -936,11 +946,22 @@ const SectionBody = memo(function SectionBody({
             className="canvas-divider"
             style={{ left: `${sceneSection.columns[i].x - sceneSection.columns[0].x + w + effectiveGap / 2}px` }}
             role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-valuenow={Math.round(w)}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+              e.preventDefault();
+              e.stopPropagation();
+              store.getState().apply("调整列宽", (d) => applyColumnDrag(d, { boardId: board.id, sectionId: section.id, boundaryIndex: i, newLeftWidth: w + (e.key === "ArrowLeft" ? -10 : 10), currentWidths: sceneSection.columnWidths }));
+            }}
             aria-label="拖动调整列宽"
             title="拖动调整列宽"
-            onPointerDown={(e) => colDrag.onColDragStart(e, section, i, w)}
+            onPointerDown={(e) => colDrag.onColDragStart(e, section, i, sceneSection.columnWidths, board.id)}
             onPointerMove={(e) => colDrag.onColDragMove(e)}
             onPointerUp={(e) => colDrag.onColDragEnd(e)}
+            onPointerCancel={(e) => colDrag.onColDragEnd(e, true)}
+            onLostPointerCapture={(e) => colDrag.onColDragEnd(e, true)}
           />
         ))}
 

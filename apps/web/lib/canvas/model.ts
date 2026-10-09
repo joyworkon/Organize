@@ -416,7 +416,7 @@ export function createBoardShape(
  * v1 → v2 纯迁移：每个 board 的原 sections 按原顺序包进一个默认 Region
  * （name「内容」）。Region id 基于 boardId 确定性派生（`r-<boardId>`），
  * 同输入同输出，且不依赖外部 id 生成器；其余所有 ID/样式/内容逐字段不变，
- * freeItems 原样不动；region.style 留空——布局时 padding 缺省 0、rowGap 缺省
+ * freeItems 原样不动；region.style.padding 显式为 0、rowGap 缺省
  * 继承 board.gap（见 regionPadding/regionRowGap），保证 v1 文档迁移后
  * 渲染几何逐像素不变。v2 输入原样返回（幂等）。
  */
@@ -430,6 +430,7 @@ export function migrateCanvasDocV1toV2(raw: unknown): CanvasDoc {
     const region: CanvasRegion = {
       id: `r-${board.id}`,
       name: DEFAULT_REGION_NAME,
+      style: { padding: 0 },
       sections: sections ?? [],
     };
     return { ...rest, regions: [region] } as CanvasBoard;

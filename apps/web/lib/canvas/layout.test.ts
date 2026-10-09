@@ -88,11 +88,11 @@ describe("computeScene", () => {
     expect(sb.y).toBe(60);
     expect(sb.width).toBe(BOARD_DEFAULT_WIDTH);
     // 标题分区通栏
-    expect(sb.regions[0].sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2]);
+    expect(sb.regions[0].sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2 - 32]);
     // 版面高度 = (空文本内容高 + 模块 chrome) × 2 + 间距 + 上下 padding
     const CHROME = 26; // BLOCK_PADDING*2 + 上下边框
     const contentHeight = (MIN_TEXT_CONTENT_HEIGHT + CHROME) * 2 + BOARD_GAP;
-    expect(sb.height).toBeCloseTo(contentHeight + BOARD_PADDING * 2, 6);
+    expect(sb.height).toBeCloseTo(contentHeight + BOARD_PADDING * 2 + 32, 6);
   });
 
   it("分区顺延：不同分区 y 递增不重叠（A03）", () => {
@@ -101,9 +101,9 @@ describe("computeScene", () => {
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
     const [title, body] = scene.boards[0].regions[0].sections;
-    expect(title.y).toBe(BOARD_PADDING);
+    expect(title.y).toBe(BOARD_PADDING + 16);
     expect(body.y).toBe(title.y + title.height + BOARD_GAP);
-    expect(body.y + body.height + BOARD_PADDING).toBeCloseTo(scene.boards[0].height, 6);
+    expect(body.y + body.height + BOARD_PADDING + 16).toBeCloseTo(scene.boards[0].height, 6);
   });
 });
 
@@ -363,14 +363,14 @@ describe("Region 层布局（B1）", () => {
     return doc;
   }
 
-  it("区块内边距缺省 0：迁移文档行内容宽 = 版面内容宽（几何不变）", () => {
+  it("区块内边距缺省 16：模块与外框留出空间", () => {
     const scene = computeScene(regionDoc(), fakeMeasure);
     const region = scene.boards[0].regions[0];
     const section = region.sections[0];
-    expect(section.columnWidths[0]).toBeCloseTo(BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2, 6);
+    expect(section.columnWidths[0]).toBeCloseTo(BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2 - 32, 6);
     // 区块外框高 = 行高之和 + 行距
     const [title, body] = region.sections;
-    expect(region.height).toBeCloseTo(title.height + BOARD_GAP + body.height, 6);
+    expect(region.height).toBeCloseTo(title.height + BOARD_GAP + body.height + 32, 6);
   });
 
   it("region.style.padding 生效：行内容区收窄，区块高 = pad×2 + Σ行高 + 行距", () => {
@@ -391,7 +391,7 @@ describe("Region 层布局（B1）", () => {
     const region = scene.boards[0].regions[0];
     const [title, body] = region.sections;
     expect(body.y).toBeCloseTo(title.y + title.height + 40, 6);
-    expect(region.height).toBeCloseTo(title.height + 40 + body.height, 6);
+    expect(region.height).toBeCloseTo(title.height + 40 + body.height + 32, 6);
   });
 
   it("长文字撑高行 → 区块增高 → 版面总高同步；sceneBounds 覆盖区块外框", () => {

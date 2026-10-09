@@ -6311,24 +6311,27 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-divider {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 12px;
+  top: -10px;
+  width: 20px;
+  height: 16px;
   transform: translateX(-50%);
   cursor: col-resize;
-  z-index: 20;
+  z-index: 40;
   touch-action: none;
+  border-radius: 4px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
 }
 .canvas-divider::after {
   content: "";
   position: absolute;
-  left: 5.5px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: transparent;
+  left: 7px;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-inline: 1px solid hsl(var(--muted-foreground));
 }
-.canvas-divider:hover::after, .canvas-divider.is-dragging::after { background: hsl(var(--primary) / 0.55); }
+.canvas-divider:hover, .canvas-divider:focus-visible { border-color: hsl(var(--primary)); }
 
 /* 自由容器 */
 .canvas-free-item {
@@ -6773,4 +6776,19 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   .canvas-outline-tree {
     corner-shape: squircle;
   }
+}
+
+/* Canvas interaction surfaces own wheel gestures and keep content away from the frame. */
+.canvas-viewport { overscroll-behavior: none; touch-action: none; }
+.canvas-region { background: hsl(var(--muted) / 0.45); }
+.canvas-viewport.is-editable .canvas-block:not(.is-editing) { cursor: grab; }
+.canvas-selection-marquee { position: absolute; pointer-events: none; border: 1px solid hsl(var(--primary)); background: hsl(var(--primary) / 0.12); z-index: 50; }
+.canvas-drop-indicator { position: absolute; height: 3px; background: hsl(var(--primary)); pointer-events: none; z-index: 60; }
+.canvas-drag-hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px; background: hsl(var(--background)); pointer-events: none; z-index: 60; }
+.dashboard-search-slot { width: 240px; min-height: 36px; flex: 0 0 240px; }
+.dashboard-search-slot[aria-hidden="true"] { visibility: hidden; }
+.dashboard-search-slot .organize-page-search { width: 100%; }
+@media (max-width: 767px) {
+  .dashboard-view-switcher-tools { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .dashboard-search-slot { width: 100%; }
 }

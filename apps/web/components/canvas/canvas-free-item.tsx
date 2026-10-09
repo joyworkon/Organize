@@ -107,7 +107,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       const drag = dragRef.current;
       if (!drag) return;
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
       dragRef.current = null;
       setLive(null);
       if (!drag.moved) return;
@@ -202,11 +202,26 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         background: block.style?.background ? `var(--cv-bg-${block.style.background})` : undefined,
         borderRadius: block.style?.radius != null ? `${block.style.radius}px` : undefined }}
       data-free-item-id={item.id}
+      role="button"
+      tabIndex={interactive && !editing ? 0 : -1}
+      aria-label={isText ? "自由文本内容框" : "自由图片内容框"}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || !interactive || editing || e.key !== "Enter" || !isText) return;
+        e.preventDefault();
+        store.getState().startEdit(item.id);
+      }}
       onPointerDown={
         interactive
-          ? () => store.getState().select({ kind: "free", itemId: item.id })
+          ? (e) => {
+              store.getState().select({ kind: "free", itemId: item.id });
+              if (!editing && !(e.target as HTMLElement).closest("button, input, textarea")) beginDrag(e, "move");
+            }
           : undefined
       }
+      onPointerMove={onDragMove}
+      onPointerUp={endDrag}
+      onPointerCancel={() => { dragRef.current = null; setLive(null); }}
+      onLostPointerCapture={() => { dragRef.current = null; setLive(null); }}
       onDoubleClick={
         interactive && isText && !editing ? () => store.getState().startEdit(item.id) : undefined
       }
@@ -299,6 +314,14 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
             className="canvas-free-move"
             title="拖动移动"
             aria-label="拖动移动自由容器"
+            onKeyDown={(e) => {
+              const delta = e.shiftKey ? 40 : 10;
+              const dx = e.key === "ArrowLeft" ? -delta : e.key === "ArrowRight" ? delta : 0;
+              const dy = e.key === "ArrowUp" ? -delta : e.key === "ArrowDown" ? delta : 0;
+              if (!dx && !dy) return;
+              e.preventDefault();
+              store.getState().apply("移动自由容器", (d) => updateFreeItem(d, { itemId: item.id, x: item.x + dx, y: item.y + dy }));
+            }}
             role="button"
             tabIndex={0}
             onPointerDown={(e) => beginDrag(e, "move")}
@@ -310,6 +333,11 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
             className="canvas-free-resize"
             title="拖动调整宽度"
             aria-label="拖动调整自由容器宽度"
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+              e.preventDefault();
+              store.getState().apply("调整自由容器宽度", (d) => updateFreeItem(d, { itemId: item.id, width: Math.max(80, item.width + (e.key === "ArrowLeft" ? -10 : 10)) }));
+            }}
             role="button"
             tabIndex={0}
             onPointerDown={(e) => beginDrag(e, "resize")}

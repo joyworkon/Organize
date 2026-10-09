@@ -673,9 +673,8 @@ export function setImageAsset(
 ): CanvasCommandResult {
   return edit(doc, (draft) => {
     const loc = findBlockLocation(draft, args.blockId);
-    if (loc && loc.block.type === "image") {
-      loc.block.asset = args.asset;
-    }
+    const block = loc?.block ?? draft.freeItems.find((item) => item.block.id === args.blockId)?.block;
+    if (block?.type === "image") block.asset = args.asset;
     return null;
   });
 }
@@ -941,7 +940,7 @@ export function applySmartWeights(
 ): CanvasCommandResult {
   return edit(doc, (draft) => {
     const found = findSection(draft, args.sectionId);
-    if (found && found.section.columns.length === 2 && found.section.widthMode !== "manual") {
+    if (found && found.section.columns.length === 2 && found.section.widthMode === "smart") {
       found.section.columnWeights = [...args.weights];
       found.section.widthMode = "smart";
     }
@@ -1070,6 +1069,13 @@ export function attachFreeItemToRegion(
     const board = findBoard(draft, args.boardId);
     const region = board?.regions.find((r) => r.id === args.regionId);
     if (!item || !board || !region) return null;
+    // Validate the complete destination before removing the free source.
+    if (args.sectionId) {
+      const section = region.sections.find((s) => s.id === args.sectionId);
+      if (!section) return null;
+      if (args.columnId && !section.columns.some((c) => c.id === args.columnId)) return null;
+      if (!args.columnId && !canAddColumnAt(regionInnerWidth(board, region), section.gap ?? regionGap(board, region), section.columns.length)) return null;
+    }
     const block = structuredClone(item.block) as CanvasBlock;
     draft.freeItems = draft.freeItems.filter((f) => f.id !== args.freeItemId);
 
@@ -1329,3 +1335,47 @@ export function detachSourceRef(doc: CanvasDoc, args: { blockId: string }): Canv
 }
 
 export { BOARD_DEFAULT_WIDTH, BOARD_MIN_WIDTH, BOARD_MAX_WIDTH };
+
+/** Drag selected modules as one transaction, preserving IDs, content and relative order. */
+export function relocateBlocks(
+  doc: CanvasDoc,
+  args: {
+    blockIds: string[];
+    target?: { columnId: string; beforeBlockId?: string };
+    freePositions?: Array<{ blockId: string; x: number; y: number; width: number }>;
+  },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  const ids = new Set(args.blockIds);
+  const sources = args.blockIds.map((id) => findBlockLocation(doc, id));
+  if (!ids.size || sources.some((s) => !s)) return { doc };
+  const target = args.target;
+  if (target && target.beforeBlockId && ids.has(target.beforeBlockId)) return { doc };
+  const targetColumn = target && doc.boards.flatMap((b) => b.regions).flatMap((r) => r.sections)
+    .flatMap((s) => s.columns).find((c) => c.id === target.columnId);
+  if (target && (!targetColumn || targetColumn.blocks.filter((b) => !ids.has(b.id)).length + ids.size > CANVAS_LIMITS.maxBlocksPerColumn || (target.beforeBlockId && !targetColumn.blocks.some((b) => b.id === target.beforeBlockId)))) return { doc };
+  if (!target && (doc.freeItems.length + ids.size > CANVAS_LIMITS.maxFreeItems || !args.freePositions || !args.blockIds.every((id) => args.freePositions!.some((p) => p.blockId === id && Number.isFinite(p.x) && Number.isFinite(p.y) && p.width > 0)) || sources.some((s) => s!.block.type !== "text" && s!.block.type !== "image"))) return { doc };
+  return edit(doc, (draft) => {
+    // Document order is also the order used by marquee selection.
+    const blocks: CanvasBlock[] = [];
+    for (const board of draft.boards) for (const region of board.regions) for (const section of region.sections) {
+      for (const column of section.columns) {
+        blocks.push(...column.blocks.filter((b) => ids.has(b.id)));
+        column.blocks = column.blocks.filter((b) => !ids.has(b.id));
+      }
+    }
+    if (target) {
+      const column = draft.boards.flatMap((b) => b.regions).flatMap((r) => r.sections)
+        .flatMap((s) => s.columns).find((c) => c.id === target.columnId)!;
+      const index = target.beforeBlockId ? column.blocks.findIndex((b) => b.id === target.beforeBlockId) : column.blocks.length;
+      column.blocks.splice(index, 0, ...blocks);
+    } else {
+      for (const block of blocks) {
+        if (block.type !== "text" && block.type !== "image") continue;
+        const pos = args.freePositions!.find((p) => p.blockId === block.id)!;
+        draft.freeItems.push({ id: newId(), x: pos.x, y: pos.y, width: pos.width, zIndex: draft.freeItems.length, block });
+      }
+    }
+    return null;
+  });
+}

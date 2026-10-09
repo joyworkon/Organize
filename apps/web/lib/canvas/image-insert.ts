@@ -108,6 +108,7 @@ function focusBlockIds(state: { doc: CanvasDoc }): Set<string> {
       }
     }
   }
+  for (const item of state.doc.freeItems) ids.add(item.block.id);
   return ids;
 }
 
@@ -161,6 +162,7 @@ export async function startImageInsert(options: ImageInsertOptions): Promise<Ima
       if (focusBlockIds(store.getState()).has(placeholder.id)) {
         store.getState().apply("图片上传失败", (doc) =>
           setImageAsset(doc, { blockId: placeholder.id, asset: failedAsset(file.name) }),
+          { skipHistory: true },
         );
       }
       continue;
@@ -184,9 +186,11 @@ export async function startImageInsert(options: ImageInsertOptions): Promise<Ima
     // 4) 原地更新资产 + 预览
     store.getState().apply("图片上传完成", (doc) =>
       setImageAsset(doc, { blockId: placeholder.id, asset: outcome.asset }),
+      { skipHistory: true },
     );
     if (outcome.previewUrl) {
-      store.getState().setAssetUrl(assetDisplayKey(placeholder.id, outcome.asset), outcome.previewUrl);
+      const free = store.getState().doc.freeItems.find((item) => item.block.id === placeholder.id);
+      store.getState().setAssetUrl(assetDisplayKey(free?.id ?? placeholder.id, outcome.asset), outcome.previewUrl);
     }
     summary.inserted += 1;
     options.onUploaded?.();

@@ -48,7 +48,7 @@ import {
   type CanvasImageRatio,
   type CanvasSectionVerticalAlign,
 } from "@/lib/canvas/model";
-import { BLOCK_CHROME, computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
+import { BLOCK_CHROME, canAddColumnAt, computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
 import {
   CANVAS_BG_KEYS,
   CANVAS_COLOR_KEYS,
@@ -103,7 +103,7 @@ export function CanvasPropertyBar({
   const [moveTargetOpen, setMoveTargetOpen] = useState(false);
 
   const target = (() => {
-    if (!selection) return null;
+    if (!selection || selection.kind === "blocks") return null;
     if (selection.kind === "block") {
       const loc = findBlockLocation(doc, selection.blockId);
       return loc ? { kind: "block" as const, ...loc } : null;
@@ -121,6 +121,17 @@ export function CanvasPropertyBar({
     const board = doc.boards.find((b) => b.id === selection.boardId);
     return board ? { kind: "board" as const, board } : null;
   })();
+
+  if (selection?.kind === "blocks") {
+    return <div className="canvas-property-bar" aria-label="多个模块属性">
+      <h3 className="canvas-prop-title">已选中 {selection.blockIds.length} 个模块</h3>
+      <p className="text-xs text-muted-foreground">拖动任一选中模块可一起移动；Shift 点击可增减选区。</p>
+      <button type="button" className="canvas-prop-btn" onClick={() => {
+        store.getState().apply("删除多个模块", (d) => ({ doc: selection.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, d) }));
+        store.getState().select(null);
+      }}>删除选中模块</button>
+    </div>;
+  }
 
   if (!target) {
     return (
@@ -255,7 +266,7 @@ export function CanvasPropertyBar({
             min={0}
             max={128}
             step={2}
-            value={region.style?.padding ?? 0}
+            value={region.style?.padding ?? 16}
             aria-label="区块内边距"
             onChange={(e) =>
               store.getState().apply("区块内边距", (d) =>
@@ -463,7 +474,7 @@ export function CanvasPropertyBar({
   }
 
   // 选中模块
-  const { block, section, board } = target;
+  const { block, section, board, region, column } = target;
   const blockTitle =
     block.type === "text"
       ? block.role === "title"
@@ -480,6 +491,7 @@ export function CanvasPropertyBar({
             : "行动按钮";
   const ratio = block.type === "image" ? (block.ratio ?? "auto") : "auto";
   const sourceRef = blockSourceRef(block);
+  const blockIndex = column.blocks.findIndex((b) => b.id === block.id);
   const canRemoveColumn =
     section.columns.length > 1 && section.columns[section.columns.length - 1].blocks.length === 0;
   const isTwoCols = section.columns.length === 2;
@@ -767,7 +779,8 @@ export function CanvasPropertyBar({
         <button
           type="button"
           className="canvas-prop-btn"
-          title="在右侧添加一列"
+          disabled={section.columns.length >= 6 || !canAddColumnAt(regionInnerWidth(board, region), section.gap ?? regionGap(board, region), section.columns.length)}
+          title={section.columns.length >= 6 ? "每行最多六列" : canAddColumnAt(regionInnerWidth(board, region), section.gap ?? regionGap(board, region), section.columns.length) ? "在右侧添加一列" : "当前宽度不足，请先加宽页面"}
           onClick={() =>
             store.getState().apply("添加列", (d) =>
               insertColumn(d, {
@@ -803,6 +816,8 @@ export function CanvasPropertyBar({
         <button
           type="button"
           className="canvas-prop-btn"
+          disabled={section.columns.length < 2}
+          title={section.columns.length < 2 ? "等分需要至少两列" : "将当前行所有列恢复为等宽"}
           onClick={() =>
             store.getState().apply("等分列宽", (d) =>
               setSectionWidthMode(d, { boardId: board.id, sectionId: section.id, mode: "equal" }),
@@ -926,6 +941,8 @@ export function CanvasPropertyBar({
         <button
           type="button"
           className="canvas-prop-btn"
+          disabled={blockIndex === 0}
+          title={blockIndex === 0 ? "已经是本列第一个模块" : "在本列上移"}
           onClick={() => store.getState().apply("模块上移", (d) => moveBlock(d, { blockId: block.id, direction: "up" }))}
         >
           上移
@@ -933,6 +950,8 @@ export function CanvasPropertyBar({
         <button
           type="button"
           className="canvas-prop-btn"
+          disabled={blockIndex === column.blocks.length - 1}
+          title={blockIndex === column.blocks.length - 1 ? "已经是本列最后一个模块" : "在本列下移"}
           onClick={() =>
             store.getState().apply("模块下移", (d) => moveBlock(d, { blockId: block.id, direction: "down" }))
           }
@@ -1093,7 +1112,7 @@ export function recomputeSmartSection(
   for (const board of doc.boards) {
     for (const region of board.regions) {
       const section = region.sections.find((s) => s.id === sectionId);
-      if (!section || section.columns.length !== 2) continue;
+      if (!section || section.widthMode !== "smart" || section.columns.length !== 2) continue;
       const textCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "text");
       const imageCol = section.columns.find((c) => c.blocks.length === 1 && c.blocks[0].type === "image");
       if (!textCol || !imageCol) continue;

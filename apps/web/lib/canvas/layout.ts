@@ -7,7 +7,7 @@
  *
  * Region 几何决策（B1）：
  * - 版面内容宽 = width − 2×padding；
- * - 区块内宽 = 版面内容宽 − 2×regionPadding，regionPadding = region.style.padding ?? 0
+ * - 区块内宽 = 版面内容宽 − 2×regionPadding，regionPadding = region.style.padding ?? 16
  *   （缺省 0：v1 迁移文档不吃额外宽度，渲染几何逐像素不变）；
  * - 区块内行距/列距/块距 = region.style.rowGap ?? board.gap（缺省继承版面 gap，
  *   与 v1 行距语义一致）；
@@ -102,9 +102,9 @@ export function sectionAllocatableWidth(board: CanvasBoard, columnCount: number)
   return boardContentWidth(board) - board.gap * Math.max(0, columnCount - 1);
 }
 
-/** 区块内边距：显式 style.padding，缺省 0（B1 决策，迁移文档几何不变）。 */
+/** 区块内边距：显式 style.padding 优先，缺省 16，避免模块紧贴外框。 */
 export function regionPadding(board: CanvasBoard, region: CanvasRegion): number {
-  return region.style?.padding ?? 0;
+  return region.style?.padding ?? 16;
 }
 
 /** 区块内行/列/块间距：显式 style.rowGap，缺省继承版面 gap（B1 决策）。 */
@@ -415,9 +415,10 @@ export function manualWeightsFromDrag(
   const leftOld = currentWidths[boundaryIndex] ?? COLUMN_MIN_WIDTH;
   const rightOld = currentWidths[boundaryIndex + 1] ?? COLUMN_MIN_WIDTH;
   const pairTotal = leftOld + rightOld;
+  const minimum = Math.min(COLUMN_MIN_WIDTH, pairTotal / 2);
   const clampedLeft = Math.max(
-    COLUMN_MIN_WIDTH,
-    Math.min(newLeftWidth, pairTotal - COLUMN_MIN_WIDTH),
+    minimum,
+    Math.min(newLeftWidth, pairTotal - minimum),
   );
   const next = [...currentWidths];
   next[boundaryIndex] = clampedLeft;

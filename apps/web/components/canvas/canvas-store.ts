@@ -14,6 +14,7 @@ import {
   CanvasBlock,
   CanvasDoc,
   CanvasFocus,
+  CanvasImageBlock,
   emptyDoc,
   findBlockLocation,
   findRegion,
@@ -28,6 +29,7 @@ export interface CanvasViewport {
 }
 
 export type CanvasSelection =
+  | { kind: "blocks"; blockIds: string[] }
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
   | { kind: "board"; boardId: string }
@@ -184,7 +186,9 @@ export function createCanvasStore(initial?: {
 
     applyLayoutOnly: (command) => {
       const state = get();
+      if (state.readOnly || state.previewMode) return;
       const result = command(state.doc);
+      if (result.doc === state.doc) return;
       set({ doc: result.doc, localSeq: state.localSeq + 1 });
     },
 
@@ -193,11 +197,12 @@ export function createCanvasStore(initial?: {
       if (state.readOnly || state.previewMode) return;
       const entry = state.history.undo(state.doc, currentFocus(state));
       if (!entry) return;
+      const restoredDoc = reconcilePendingUploads(entry.doc, state.doc);
       set({
-        doc: entry.doc,
+        doc: restoredDoc,
         focus: entry.focus ?? null,
         localSeq: state.localSeq + 1,
-        ...restoreFocus(entry.doc, entry.focus ?? null),
+        ...restoreFocus(restoredDoc, entry.focus ?? null),
       });
     },
 
@@ -206,11 +211,12 @@ export function createCanvasStore(initial?: {
       if (state.readOnly || state.previewMode) return;
       const entry = state.history.redo(state.doc, currentFocus(state));
       if (!entry) return;
+      const restoredDoc = reconcilePendingUploads(entry.doc, state.doc);
       set({
-        doc: entry.doc,
+        doc: restoredDoc,
         focus: entry.focus ?? null,
         localSeq: state.localSeq + 1,
-        ...restoreFocus(entry.doc, entry.focus ?? null),
+        ...restoreFocus(restoredDoc, entry.focus ?? null),
       });
     },
 
@@ -293,6 +299,7 @@ function isTextTarget(doc: CanvasDoc, id: string): boolean {
 
 function selectionExists(doc: CanvasDoc, selection: CanvasSelection): boolean {
   if (!selection) return false;
+  if (selection.kind === "blocks") return selection.blockIds.length > 0 && selection.blockIds.every((id) => !!findBlockLocation(doc, id));
   if (selection.kind === "block") return !!findBlockLocation(doc, selection.blockId);
   if (selection.kind === "free") return doc.freeItems.some((item) => item.id === selection.itemId);
   if (selection.kind === "board") return doc.boards.some((board) => board.id === selection.boardId);
@@ -303,6 +310,7 @@ function selectionExists(doc: CanvasDoc, selection: CanvasSelection): boolean {
 function currentFocus(state: CanvasEditorState): CanvasFocus {
   const selection = state.selection;
   if (!selection || !selectionExists(state.doc, selection)) return null;
+  if (selection.kind === "blocks") return null;
   if (selection.kind !== "block") {
     return selection.kind === "free"
       ? { ...selection, edit: state.editingBlockId === selection.itemId }
@@ -370,4 +378,19 @@ export function activeTargetFromSelection(
     return loc ? { boardId: loc.board.id, regionId: loc.region.id } : null;
   }
   return null; // free：不改变页面/区块记忆
+}
+
+
+/** Upload completion is system state: undoing a move must not resurrect a dead upload placeholder. */
+function reconcilePendingUploads(snapshot: CanvasDoc, current: CanvasDoc): CanvasDoc {
+  const images = (doc: CanvasDoc) => [
+    ...doc.boards.flatMap((b) => b.regions).flatMap((r) => r.sections).flatMap((s) => s.columns).flatMap((c) => c.blocks),
+    ...doc.freeItems.map((item) => item.block),
+  ].filter((block): block is CanvasImageBlock => block.type === "image");
+  const completed = new Map(images(current).filter((b) => b.asset && b.asset.uploadStatus !== "pending").map((b) => [b.id, b.asset!]));
+  const recoverable = (block: CanvasImageBlock) => block.asset?.uploadStatus === "pending" && !block.asset.localKey && completed.has(block.id);
+  if (!images(snapshot).some(recoverable)) return snapshot;
+  const doc = structuredClone(snapshot);
+  for (const block of images(doc)) if (recoverable(block)) block.asset = structuredClone(completed.get(block.id)!);
+  return doc;
 }

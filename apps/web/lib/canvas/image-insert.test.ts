@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyDoc, findBlockLocation, findFreeItem, type CanvasImageAsset } from "@/lib/canvas/model";
-import { createBoard, deleteBlock } from "@/lib/canvas/commands";
+import { createBoard, deleteBlock, relocateBlocks } from "@/lib/canvas/commands";
 import { createCanvasStore } from "@/components/canvas/canvas-store";
 import { isUploadingAsset, replaceImage, startImageInsert } from "./image-insert";
 import type { CanvasUploadOutcome } from "./assets";
@@ -384,5 +384,33 @@ describe("replaceImage（B2 替换图片）", () => {
     expect(findBlockLocation(store.getState().doc, blockId)).toBeNull();
     const item = findFreeItem(store.getState().doc, store.getState().doc.freeItems[0]?.id ?? "");
     expect(item?.block.type).toBe("image");
+  });
+});
+
+
+describe("upload completion follows relocated modules", () => {
+  it("updates an uploading image moved to a free item without making a duplicate orphan", async () => {
+    const { store, board, titleId } = boardStore();
+    const { upload, release } = controlledUpload(savedOutcome());
+    const target = { kind: "column" as const, boardId: board.id, regionId: board.regions[0].id,
+      sectionId: board.regions[0].sections[0].id, columnId: board.regions[0].sections[0].columns[0].id, afterBlockId: titleId };
+    const promise = startImageInsert({ store, target, files: [makeFile()], upload, userId: "u" });
+    const placeholder = store.getState().doc.boards[0].regions[0].sections[0].columns[0].blocks[1];
+    store.getState().apply("move while uploading", (doc) => relocateBlocks(doc, { blockIds: [placeholder.id],
+      freePositions: [{ blockId: placeholder.id, x: 800, y: 0, width: 200 }] }));
+    release(savedOutcome());
+    const result = await promise;
+    expect(result.orphaned).toEqual([]);
+    expect(store.getState().doc.freeItems).toHaveLength(1);
+    const moved = store.getState().doc.freeItems[0].block;
+    expect(moved.type === "image" && moved.asset?.uploadStatus).toBe("saved");
+    expect(moved.id).toBe(placeholder.id);
+    store.getState().undo();
+    expect(store.getState().doc.freeItems).toHaveLength(0);
+    const restored = findBlockLocation(store.getState().doc, placeholder.id)!.block;
+    expect(restored.type === "image" && restored.asset?.uploadStatus).toBe("saved");
+    store.getState().redo();
+    const redone = store.getState().doc.freeItems[0].block;
+    expect(redone.type === "image" && redone.asset?.uploadStatus).toBe("saved");
   });
 });
