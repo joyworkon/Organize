@@ -10,13 +10,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BLOCK_PADDING,
   CanvasBlock,
   CanvasDoc,
   CanvasTextBlock,
 } from "@/lib/canvas/model";
 import {
   computeColumnWidthsForContent,
+  BLOCK_CHROME,
   computeScene,
   regionGap,
   regionInnerWidth,
@@ -38,16 +38,16 @@ function collectTextRequests(doc: CanvasDoc) {
       const regionWidth = regionInnerWidth(board, region);
       const gap = regionGap(board, region);
       for (const section of region.sections) {
-        const widths = computeColumnWidthsForContent(regionWidth, gap, section);
+        const widths = computeColumnWidthsForContent(regionWidth, section.gap ?? gap, section);
         section.columns.forEach((column, i) => {
-          const colInner = Math.max(1, (widths[i] ?? 0) - BLOCK_PADDING * 2);
+          const colInner = Math.max(1, (widths[i] ?? 0) - BLOCK_CHROME);
           for (const block of column.blocks) {
             if (block.type === "text") {
               requests.push({
                 block,
                 key: textStyleKey(block),
                 style: resolveTextStyle(block),
-                width: colInner,
+                width: Math.max(1, colInner - (block.role === "list" ? 16 : 0)),
               });
             }
           }
@@ -58,7 +58,7 @@ function collectTextRequests(doc: CanvasDoc) {
   // 自由文本容器
   for (const item of doc.freeItems) {
     if (item.block.type === "text") {
-      const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
+      const inner = Math.max(1, item.width - BLOCK_CHROME);
       requests.push({
         block: item.block,
         key: textStyleKey(item.block),
@@ -68,6 +68,35 @@ function collectTextRequests(doc: CanvasDoc) {
     }
   }
   return requests;
+}
+
+/** 场景和插入预览共用测量，避免预览与落点使用不同规则。 */
+export function createCanvasMeasure(measurer: CanvasTextMeasurer): CanvasMeasure {
+  return (block: CanvasBlock, innerWidth: number) => {
+    if (block.type === "text") {
+      return measurer.measure(block.text, textStyleKey(block), resolveTextStyle(block), Math.max(1, innerWidth - (block.role === "list" ? 16 : 0)));
+    }
+    if (block.type === "button") {
+      // 行动按钮按标签文案测量（14px 正文行高），与渲染一致（B2）
+      return measurer.measure(
+        block.label,
+        `btn|${block.variant}`,
+        { fontSizePx: 14, lineHeight: 1.6, bold: false, align: block.align, colorKey: "" },
+        innerWidth,
+      );
+    }
+    if (block.type === "materialCard") {
+      // 资料卡片（E）：标题（15px 加粗）+ 摘录（13px）+ 来源标签行，与渲染一致
+      const titleStyle = { fontSizePx: 15, lineHeight: 1.4, bold: true, align: "left" as const, colorKey: "" };
+      const titleH = measurer.measure(block.title || " ", `mc-t|${block.sourceRef.kind}:${block.sourceRef.id}`, titleStyle, innerWidth);
+      const bodyStyle = { fontSizePx: 13, lineHeight: 1.5, bold: false, align: "left" as const, colorKey: "" };
+      const textH = block.text.trim()
+        ? measurer.measure(block.text, `mc-b|${block.id}`, bodyStyle, innerWidth)
+        : 0;
+      return titleH + (textH > 0 ? textH + 6 : 0) + 24; // 24 = 来源标签行高 + 间距
+    }
+    return 0; // 图片/分隔线高度由 layout.ts 按比例/固定值计算，不走文本测量
+  };
 }
 
 export function useCanvasScene(
@@ -93,31 +122,7 @@ export function useCanvasScene(
     measurer.warm(
       requests.map((r) => ({ key: r.key, text: r.block.text, style: r.style, width: r.width })),
     );
-    const measure: CanvasMeasure = (block: CanvasBlock, innerWidth: number) => {
-      if (block.type === "text") {
-        return measurer.measure(block.text, textStyleKey(block), resolveTextStyle(block), innerWidth);
-      }
-      if (block.type === "button") {
-        // 行动按钮按标签文案测量（14px 正文行高），与渲染一致（B2）
-        return measurer.measure(
-          block.label,
-          `btn|${block.variant}`,
-          { fontSizePx: 14, lineHeight: 1.6, bold: false, align: block.align, colorKey: "" },
-          innerWidth,
-        );
-      }
-      if (block.type === "materialCard") {
-        // 资料卡片（E）：标题（15px 加粗）+ 摘录（13px）+ 来源标签行，与渲染一致
-        const titleStyle = { fontSizePx: 15, lineHeight: 1.4, bold: true, align: "left" as const, colorKey: "" };
-        const titleH = measurer.measure(block.title || " ", `mc-t|${block.sourceRef.kind}:${block.sourceRef.id}`, titleStyle, innerWidth);
-        const bodyStyle = { fontSizePx: 13, lineHeight: 1.5, bold: false, align: "left" as const, colorKey: "" };
-        const textH = block.text.trim()
-          ? measurer.measure(block.text, `mc-b|${block.id}`, bodyStyle, innerWidth)
-          : 0;
-        return titleH + (textH > 0 ? textH + 6 : 0) + 24; // 24 = 来源标签行高 + 间距
-      }
-      return 0; // 图片/分隔线高度由 layout.ts 按比例/固定值计算，不走文本测量
-    };
+    const measure = createCanvasMeasure(measurer);
     return computeScene(doc, measure);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, measurer, opts.measureEpoch, opts.fontsReady]);

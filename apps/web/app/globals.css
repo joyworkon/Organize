@@ -6003,12 +6003,13 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-board {
   position: absolute;
   background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
+  outline: 1px solid hsl(var(--border));
+  outline-offset: -1px;
   border-radius: var(--radius-xl);
   box-sizing: border-box;
 }
 .canvas-board.is-selected {
-  border-color: hsl(var(--primary));
+  outline-color: hsl(var(--primary));
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.6);
 }
 .canvas-board-handle {
@@ -6075,13 +6076,18 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   border-radius: var(--radius-lg);
   box-sizing: border-box;
   transition: border-color 100ms;
-  z-index: 1;
+  /* 不建立独立层叠上下文：内部加号必须高于区块间隙热区。 */
+  z-index: auto;
 }
-.canvas-block:hover { border-color: hsl(var(--border)); }
+.canvas-viewport:where(.is-editable) .canvas-block { border-color: hsl(var(--border)); }
 .canvas-block.is-selected { border-color: hsl(var(--primary) / 0.8); }
 .canvas-block.is-editing { border-color: hsl(var(--primary)); }
 .canvas-text-content {
   font-family: inherit;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: hsl(var(--foreground));
   min-height: 24px;
 }
@@ -6264,8 +6270,9 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-plus-band {
   right: 0;
   bottom: 0;
-  transform: translateY(60%);
-  gap: 2px;
+  transform: translateY(50%);
+  gap: 4px;
+  white-space: nowrap;
 }
 .canvas-insert-preview {
   background: hsl(var(--primary) / 0.1);
@@ -6282,12 +6289,17 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   z-index: 33;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .canvas-plus-region {
   position: relative;
   flex-shrink: 0;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
 }
+.canvas-region-gap:hover .canvas-plus-region,
+.canvas-region-gap:focus-within .canvas-plus-region { opacity: 1; pointer-events: auto; }
 .canvas-region-insert-preview {
   position: absolute;
   left: 0;
@@ -6299,24 +6311,31 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-divider {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 12px;
+  top: -10px;
+  width: 20px;
+  height: 16px;
   transform: translateX(-50%);
   cursor: col-resize;
-  z-index: 20;
+  z-index: 40;
   touch-action: none;
 }
 .canvas-divider::after {
   content: "";
   position: absolute;
-  left: 5.5px;
+  left: 50%;
   top: 0;
   bottom: 0;
-  width: 1px;
-  background: transparent;
+  width: 8px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--primary));
+  opacity: 0;
+  pointer-events: none;
 }
-.canvas-divider:hover::after, .canvas-divider.is-dragging::after { background: hsl(var(--primary) / 0.55); }
+.canvas-divider:hover::after,
+.canvas-divider:focus-visible::after,
+.canvas-divider:active::after { opacity: 1; }
 
 /* 自由容器 */
 .canvas-free-item {
@@ -6561,22 +6580,23 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-region {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid hsl(var(--border));
+  outline: 1px solid hsl(var(--border));
+  outline-offset: -1px;
   border-radius: var(--radius-lg);
 }
 .canvas-region.is-selected {
-  border-color: hsl(var(--primary) / 0.7);
+  outline-color: hsl(var(--primary) / 0.7);
 }
 /* 预览 / 只读：隐藏编辑边框；用户显式设置的装饰 border 保留 */
 .canvas-region.is-static {
-  border-color: transparent;
+  outline-color: transparent;
 }
 .canvas-region.is-static.is-decorated {
-  border-color: hsl(var(--border));
+  outline-color: hsl(var(--border));
 }
 .canvas-region-name {
   position: absolute;
-  top: 4px;
+  top: -18px;
   left: 8px;
   z-index: 5;
   padding: 0 6px;
@@ -6594,7 +6614,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-region-name-input {
   position: absolute;
-  top: 4px;
+  top: -18px;
   left: 8px;
   z-index: 6;
   width: 120px;
@@ -6610,12 +6630,13 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 /* 预览 / 只读：区块名作为内容标题文本 */
 .canvas-region-title {
   position: absolute;
-  top: 6px;
+  top: -18px;
   left: 10px;
   right: 10px;
   z-index: 5;
   font-size: 12px;
   font-weight: 600;
+  line-height: 16px;
   color: hsl(var(--muted-foreground));
   white-space: nowrap;
   overflow: hidden;
@@ -6759,4 +6780,19 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   .canvas-outline-tree {
     corner-shape: squircle;
   }
+}
+
+/* Canvas interaction surfaces own wheel gestures and keep content away from the frame. */
+.canvas-viewport { overscroll-behavior: none; touch-action: none; }
+.canvas-region { background: hsl(var(--muted) / 0.45); }
+.canvas-viewport.is-editable .canvas-block:not(.is-editing) { cursor: grab; }
+.canvas-selection-marquee { position: absolute; pointer-events: none; border: 1px solid hsl(var(--primary)); background: hsl(var(--primary) / 0.12); z-index: 50; }
+.canvas-drop-indicator { position: absolute; height: 3px; background: hsl(var(--primary)); pointer-events: none; z-index: 60; }
+.canvas-drag-hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 6px 12px; border-radius: 6px; background: hsl(var(--background)); pointer-events: none; z-index: 60; }
+.dashboard-search-slot { width: 240px; min-height: 36px; flex: 0 0 240px; }
+.dashboard-search-slot[aria-hidden="true"] { visibility: hidden; }
+.dashboard-search-slot .organize-page-search { width: 100%; }
+@media (max-width: 767px) {
+  .dashboard-view-switcher-tools { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .dashboard-search-slot { width: 100%; }
 }

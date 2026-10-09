@@ -7,6 +7,9 @@ import {
   createFreeText,
   updateBoardStyle,
   updateFreeItemBlock,
+  insertBlockBelow,
+  deleteFreeItem,
+  deleteBoard,
 } from "@/lib/canvas/commands";
 import { createCanvasStore } from "./canvas-store";
 
@@ -20,6 +23,15 @@ function makeStore() {
 }
 
 describe("apply 焦点同步（A1）", () => {
+  it("被拒绝的结构命令不制造撤销步骤、保存序号或焦点变化", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }));
+    const before = store.getState();
+    store.getState().apply("放不下的增列", (doc) => ({ doc, focus: null }));
+    expect(store.getState()).toBe(before);
+    store.getState().undo();
+    expect(store.getState().doc.boards).toHaveLength(0);
+  });
   it("free 焦点：selection 切到新自由容器，不进入编辑态", () => {
     const store = makeStore();
     store.getState().apply("新建自由文本", (d) => createFreeText(d, { x: 10, y: 10 }));
@@ -76,6 +88,70 @@ describe("startEdit 对象类别判定（A2）", () => {
     store.getState().startEdit(titleId);
     expect(store.getState().selection).toEqual({ kind: "block", blockId: titleId });
     expect(store.getState().editingBlockId).toBe(titleId);
+  });
+});
+
+describe("编辑与历史保持同一个有效对象", () => {
+  it("旧快照的保存响应更新 revision，但不能把后续输入标记为已保存", () => {
+    const store = makeStore();
+    store.getState().setTitle("第一版");
+    const seq = store.getState().localSeq;
+    store.getState().setTitle("保存期间继续输入");
+    store.getState().markSaved(2, seq);
+    expect(store.getState().revision).toBe(2);
+    expect(store.getState().saveStatus).toBe("saving");
+    store.getState().markSaved(3, store.getState().localSeq);
+    expect(store.getState().saveStatus).toBe("saved");
+  });
+  it("自由文本输入不退出编辑，撤销重做保持自由选区与焦点", () => {
+    const store = makeStore();
+    store.getState().apply("新建自由文本", (d) => createFreeText(d, { x: 0, y: 0 }));
+    const id = store.getState().doc.freeItems[0].id;
+    store.getState().startEdit(id);
+    store.getState().apply("输入", (d) => updateFreeItemBlock(d, { itemId: id, text: "完整输入" }));
+    expect(store.getState().editingBlockId).toBe(id);
+    store.getState().undo();
+    expect(store.getState().selection).toEqual({ kind: "free", itemId: id });
+    expect(store.getState().editingBlockId).toBe(id);
+    store.getState().redo();
+    expect(store.getState().doc.freeItems[0].block).toMatchObject({ text: "完整输入" });
+    expect(store.getState().selection).toEqual({ kind: "free", itemId: id });
+    expect(store.getState().editingBlockId).toBe(id);
+  });
+
+  it("新模块聚焦后，旧模块迟到的 blur 不清除新焦点", () => {
+    const store = makeStore();
+    store.getState().apply("建页面", (d) => createBoard(d, { x: 0, y: 0 }));
+    const oldId = store.getState().editingBlockId!;
+    store.getState().apply("加模块", (d) => insertBlockBelow(d, { blockId: oldId }));
+    const newId = store.getState().editingBlockId!;
+    expect(newId).not.toBe(oldId);
+    store.getState().stopEdit(oldId);
+    expect(store.getState().editingBlockId).toBe(newId);
+    store.getState().undo();
+    expect(store.getState().editingBlockId).toBe(oldId);
+    expect(store.getState().selection).toEqual({ kind: "block", blockId: oldId });
+    store.getState().redo();
+    expect(store.getState().editingBlockId).toBe(newId);
+    expect(store.getState().selection).toEqual({ kind: "block", blockId: newId });
+  });
+
+  it("删除当前对象后不会残留选区/编辑态，撤销恢复", () => {
+    const store = makeStore();
+    store.getState().apply("建自由文本", (d) => createFreeText(d, { x: 0, y: 0 }));
+    const id = store.getState().doc.freeItems[0].id;
+    store.getState().startEdit(id);
+    store.getState().apply("删除", (d) => deleteFreeItem(d, { itemId: id }));
+    expect(store.getState().selection).toBeNull();
+    expect(store.getState().editingBlockId).toBeNull();
+    store.getState().undo();
+    expect(store.getState().selection).toEqual({ kind: "free", itemId: id });
+    expect(store.getState().editingBlockId).toBe(id);
+    store.getState().apply("建页面", (d) => createBoard(d, { x: 0, y: 0 }));
+    const boardId = store.getState().doc.boards[0].id;
+    store.getState().apply("删页面", (d) => deleteBoard(d, { boardId }));
+    expect(store.getState().selection).toBeNull();
+    expect(store.getState().editingBlockId).toBeNull();
   });
 });
 

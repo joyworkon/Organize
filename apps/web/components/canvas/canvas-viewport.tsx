@@ -15,7 +15,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
@@ -26,6 +25,7 @@ import { hitTestInsertPosition } from "./canvas-hit-test";
 import type { CanvasStore } from "./canvas-store";
 import type { SourceStatusMap } from "./use-source-status";
 import { CanvasBoardView } from "./canvas-board";
+import { useCanvasPointer } from "./use-canvas-pointer";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
@@ -91,6 +91,7 @@ export function CanvasViewportView({
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [panning, setPanning] = useState(false);
   const vp = useStoreViewport(store);
+  const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
   const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -116,21 +117,42 @@ export function CanvasViewportView({
     [store],
   );
 
-  const onWheel = useCallback(
-    (e: ReactWheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const factor = Math.exp(-e.deltaY * 0.002);
-        zoomAt(factor, e.clientX, e.clientY);
-      } else {
-        // 触控板/滚轮平移
-        e.preventDefault();
-        const state = store.getState();
-        store.getState().setViewport({ x: state.viewport.x - e.deltaX, y: state.viewport.y - e.deltaY });
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    // React delegates wheel passively; a native active listener must cancel browser gestures.
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.002), e.clientX, e.clientY);
+      else {
+        const live = store.getState().viewport;
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+        store.getState().setViewport({ x: live.x - e.deltaX * unit, y: live.y - e.deltaY * unit });
       }
-    },
-    [store, zoomAt],
-  );
+    };
+    let lastScale = 1;
+    const gesture = (event: Event) => {
+      event.preventDefault();
+      const e = event as Event & { scale?: number; clientX?: number; clientY?: number };
+      if (e.type === "gesturestart") lastScale = 1;
+      if (e.type === "gesturechange" && e.scale && e.scale > 0) {
+        const rect = el.getBoundingClientRect();
+        const x = e.clientX !== undefined && e.clientX >= rect.left && e.clientX <= rect.right ? e.clientX : rect.left + rect.width / 2;
+        const y = e.clientY !== undefined && e.clientY >= rect.top && e.clientY <= rect.bottom ? e.clientY : rect.top + rect.height / 2;
+        zoomAt(e.scale / lastScale, x, y);
+        lastScale = e.scale;
+      }
+    };
+    const oldOverscroll = document.documentElement.style.overscrollBehaviorX;
+    document.documentElement.style.overscrollBehaviorX = "none";
+    el.addEventListener("wheel", wheel, { passive: false });
+    for (const name of ["gesturestart", "gesturechange", "gestureend"]) el.addEventListener(name, gesture, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      for (const name of ["gesturestart", "gesturechange", "gestureend"]) el.removeEventListener(name, gesture);
+      document.documentElement.style.overscrollBehaviorX = oldOverscroll;
+    };
+  }, [store, zoomAt]);
 
   const beginPan = useCallback(
     (e: ReactPointerEvent) => {
@@ -162,7 +184,7 @@ export function CanvasViewportView({
 
   const endPan = useCallback((e: ReactPointerEvent) => {
     if (!panRef.current) return;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     panRef.current = null;
     setPanning(false);
   }, []);
@@ -256,13 +278,15 @@ export function CanvasViewportView({
   return (
     <div
       ref={viewportRef}
-      className={`canvas-viewport ${spaceHeld || panning ? "is-panning" : ""}`}
+      className={`canvas-viewport ${interactive ? "is-editable" : ""} ${spaceHeld || panning ? "is-panning" : ""}`}
       data-testid="canvas-viewport"
       style={{
         backgroundSize: `${24 * vp.zoom}px ${24 * vp.zoom}px`,
         backgroundPosition: `${vp.x}px ${vp.y}px`,
       }}
-      onWheel={onWheel}
+      onPointerDownCapture={pointer.down}
+      onPointerMoveCapture={pointer.move}
+      onClickCapture={pointer.clickCapture}
       onPointerDown={(e) => {
         beginPan(e);
         onPointerDownBackground(e);
@@ -273,7 +297,9 @@ export function CanvasViewportView({
         if (at) lastPointerWorldRef.current = at;
         onPanMove(e);
       }}
-      onPointerUp={endPan}
+      onPointerUp={(e) => { pointer.finish(e); endPan(e); }}
+      onPointerCancel={(e) => { pointer.finish(e, true); endPan(e); }}
+      onLostPointerCapture={(e) => { pointer.finish(e, true); endPan(e); }}
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -305,7 +331,7 @@ export function CanvasViewportView({
                   ? selection
                   : null
               }
-              selectedBlockId={selection?.kind === "block" ? selection.blockId : null}
+              selectedBlockIds={selection?.kind === "block" ? [selection.blockId] : selection?.kind === "blocks" ? selection.blockIds : []}
               editingBlockId={editingBlockId}
               sourceStatuses={sourceStatuses}
               onReplaceImage={onReplaceImage}
@@ -313,10 +339,13 @@ export function CanvasViewportView({
           );
         })}
         {doc.freeItems.map((item) => {
+          const box = scene.freeItems.find((box) => box.itemId === item.id);
+          if (!box) return null;
           return (
             <CanvasFreeItemView
               key={item.id}
               item={item}
+              height={box.height}
               store={store}
               zoom={vp.zoom}
               interactive={interactive}
@@ -327,7 +356,11 @@ export function CanvasViewportView({
             />
           );
         })}
+        {pointer.visual?.marquee && <div className="canvas-selection-marquee" style={{ left: pointer.visual.marquee.x, top: pointer.visual.marquee.y, width: pointer.visual.marquee.width, height: pointer.visual.marquee.height }} />}
+        {pointer.visual?.ghosts?.map((box) => <div key={box.blockId} className="canvas-selection-marquee" style={{ left: box.x, top: box.y, width: box.width, height: box.height }} />)}
+        {pointer.visual?.drop && <div className="canvas-drop-indicator" style={{ left: pointer.visual.drop.x, top: pointer.visual.drop.y, width: pointer.visual.drop.width }} />}
       </div>
+      {pointer.visual?.hint && <div className="canvas-drag-hint" role="status">{pointer.visual.hint}</div>}
       {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
         <div className="canvas-empty-hint">
           <p>双击画布任意位置，开始你的第一张构思稿</p>

@@ -107,7 +107,7 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
     if (focusState?.kind === "block" && focusState.blockId === block.id) {
       const len = text.length;
       const pos = focusState.caret === "start" ? 0 : len;
-      el.setSelectionRange(pos, pos);
+      el.setSelectionRange(focusState.caret === "select-all" ? 0 : pos, pos);
       store.getState().clearFocus();
     }
     // text.length 变化时不重复定位光标（用户正在输入）
@@ -182,6 +182,7 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
       onKeyDown={
         interactive && !editing
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().startEdit(block.id);
@@ -192,14 +193,17 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
     >
       {editing ? (
         <textarea
-          ref={textareaRef}
-          className="canvas-text-content canvas-textarea"
+          ref={(el) => {
+            textareaRef.current = el;
+            if (el) applyCanvasTextStyle(el, style);
+          }}
+          className={`canvas-text-content canvas-textarea ${block.role === "list" ? "is-list" : ""}`}
           style={{ ...contentStyle, height: "100%", resize: "none" }}
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={() => {
-            store.getState().stopEdit();
+            store.getState().stopEdit(block.id);
             onEditEnd?.(block.id);
           }}
           onCompositionEnd={() => store.getState().bumpComposition()}
@@ -214,7 +218,7 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
             if (el) applyCanvasTextStyle(el, style);
           }}
         >
-          {block.role === "list" ? renderListLines(text) : text}
+          {block.role === "list" ? renderListLines(text) : text + (text === "" || text.endsWith("\n") ? "\u200b" : "")}
         </div>
       )}
       {!editing && text === "" && (
@@ -335,6 +339,7 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 pickFile();
@@ -447,6 +452,7 @@ export const CanvasDividerBlockView = memo(function CanvasDividerBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter" || e.key === "Delete" || e.key === "Backspace") {
                 e.preventDefault();
                 if (e.key === "Enter") store.getState().select({ kind: "block", blockId: block.id });
@@ -508,6 +514,7 @@ export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().select({ kind: "block", blockId: block.id });
@@ -612,6 +619,7 @@ export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlock
       onKeyDown={
         interactive
           ? (e) => {
+              if (e.target !== e.currentTarget) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 store.getState().select({ kind: "block", blockId: block.id });

@@ -68,10 +68,8 @@ export class CanvasTextMeasurer {
   }
 
   private static cacheKey(key: string, width: number, text: string): string {
-    // 宽度按 0.5px 量化吸收亚像素抖动；文本必须参与键——
-    // 否则空文本的 24px 最小高会被同宽度的任何内容复用（真实bug）
-    const textTag = text.length <= 64 ? text : `${text.length}:${text.slice(0, 32)}:${text.slice(-16)}`;
-    return `${key}@${Math.round(width * 2) / 2}@${textTag}`;
+    // 完整文本和实际宽度参与缓存，避免仅修改长文中段或临界换行时命中旧高度。
+    return JSON.stringify([key, width, text]);
   }
 
   private buildSample(req: TextMeasureRequest): HTMLDivElement {
@@ -81,7 +79,8 @@ export class CanvasTextMeasurer {
     el.style.width = `${Math.max(1, req.width)}px`;
     el.style.whiteSpace = "pre-wrap";
     el.style.overflowWrap = "anywhere";
-    el.textContent = req.text;
+    // div 会忽略末尾换行的空行，textarea 的光标却需要该行。
+    el.textContent = req.text + (req.text === "" || req.text.endsWith("\n") ? "\u200b" : "");
     return el;
   }
 
@@ -99,7 +98,7 @@ export class CanvasTextMeasurer {
       pending.push({ el, cacheKey: ck });
     }
     if (pending.length === 0) return;
-    const heights = pending.map(({ el }) => Math.max(MIN_TEXT_CONTENT_HEIGHT, el.offsetHeight));
+    const heights = pending.map(({ el }) => Math.max(MIN_TEXT_CONTENT_HEIGHT, Math.ceil(el.getBoundingClientRect().height)));
     pending.forEach(({ el }, i) => {
       this.cache.set(pending[i].cacheKey, heights[i]);
       el.remove();

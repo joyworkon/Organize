@@ -3,7 +3,6 @@ import {
   BOARD_DEFAULT_WIDTH,
   BOARD_GAP,
   BOARD_PADDING,
-  BLOCK_PADDING,
   COLUMN_MIN_WIDTH,
   MIN_TEXT_CONTENT_HEIGHT,
   createBoardShape,
@@ -89,11 +88,11 @@ describe("computeScene", () => {
     expect(sb.y).toBe(60);
     expect(sb.width).toBe(BOARD_DEFAULT_WIDTH);
     // 标题分区通栏
-    expect(sb.regions[0].sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2]);
+    expect(sb.regions[0].sections[0].columnWidths).toEqual([BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2 - 32]);
     // 版面高度 = (空文本内容高 + 模块 chrome) × 2 + 间距 + 上下 padding
     const CHROME = 26; // BLOCK_PADDING*2 + 上下边框
     const contentHeight = (MIN_TEXT_CONTENT_HEIGHT + CHROME) * 2 + BOARD_GAP;
-    expect(sb.height).toBeCloseTo(contentHeight + BOARD_PADDING * 2, 6);
+    expect(sb.height).toBeCloseTo(contentHeight + BOARD_PADDING * 2 + 32, 6);
   });
 
   it("分区顺延：不同分区 y 递增不重叠（A03）", () => {
@@ -102,9 +101,9 @@ describe("computeScene", () => {
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
     const [title, body] = scene.boards[0].regions[0].sections;
-    expect(title.y).toBe(BOARD_PADDING);
+    expect(title.y).toBe(BOARD_PADDING + 16);
     expect(body.y).toBe(title.y + title.height + BOARD_GAP);
-    expect(body.y + body.height + BOARD_PADDING).toBeCloseTo(scene.boards[0].height, 6);
+    expect(body.y + body.height + BOARD_PADDING + 16).toBeCloseTo(scene.boards[0].height, 6);
   });
 });
 
@@ -201,7 +200,7 @@ describe("图片布局", () => {
     doc.boards.push(b);
     const scene = computeScene(doc, fakeMeasure);
     const body = scene.boards[0].regions[0].sections[1];
-    const inner = body.columnWidths[0] - BLOCK_PADDING * 2;
+    const inner = body.columnWidths[0] - BLOCK_CHROME;
     expect(body.columns[0].blocks[0].height).toBeCloseTo(inner / 2 + 26, 6);
   });
 
@@ -300,9 +299,9 @@ describe("自由图片容器比例（A5）", () => {
     return doc;
   }
 
-  // BLOCK_CHROME = BLOCK_PADDING*2 + 2 = 26；inner = 320 - 24 = 296
+  // BLOCK_CHROME = BLOCK_PADDING*2 + 2 = 26；inner = 320 - 26 = 294
   const CHROME = 26;
-  const inner = 296;
+  const inner = 294;
 
   it("auto（缺省）：高度 = 内宽 / 图片自然比例（现状回归）", () => {
     const scene = computeScene(freeImageDoc(), fakeMeasure);
@@ -364,14 +363,14 @@ describe("Region 层布局（B1）", () => {
     return doc;
   }
 
-  it("区块内边距缺省 0：迁移文档行内容宽 = 版面内容宽（几何不变）", () => {
+  it("区块内边距缺省 16：模块与外框留出空间", () => {
     const scene = computeScene(regionDoc(), fakeMeasure);
     const region = scene.boards[0].regions[0];
     const section = region.sections[0];
-    expect(section.columnWidths[0]).toBeCloseTo(BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2, 6);
+    expect(section.columnWidths[0]).toBeCloseTo(BOARD_DEFAULT_WIDTH - BOARD_PADDING * 2 - 32, 6);
     // 区块外框高 = 行高之和 + 行距
     const [title, body] = region.sections;
-    expect(region.height).toBeCloseTo(title.height + BOARD_GAP + body.height, 6);
+    expect(region.height).toBeCloseTo(title.height + BOARD_GAP + body.height + 32, 6);
   });
 
   it("region.style.padding 生效：行内容区收窄，区块高 = pad×2 + Σ行高 + 行距", () => {
@@ -392,7 +391,7 @@ describe("Region 层布局（B1）", () => {
     const region = scene.boards[0].regions[0];
     const [title, body] = region.sections;
     expect(body.y).toBeCloseTo(title.y + title.height + 40, 6);
-    expect(region.height).toBeCloseTo(title.height + 40 + body.height, 6);
+    expect(region.height).toBeCloseTo(title.height + 40 + body.height + 32, 6);
   });
 
   it("长文字撑高行 → 区块增高 → 版面总高同步；sceneBounds 覆盖区块外框", () => {
@@ -483,7 +482,7 @@ describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新�
     // 拉伸语义下行高 = 左列两块之和；top 语义下右列图片保持自然高（内宽/比例 + chrome）
     expect(right.height).toBe(left.height);
     const imgBox = right.blocks[0];
-    const imgInner = right.width - BLOCK_PADDING * 2;
+    const imgInner = right.width - BLOCK_CHROME;
     expect(imgBox.height).toBeCloseTo(imgInner / (400 / 300) + BLOCK_CHROME, 6);
     // 右列只有一块：top 对齐 → y = 行顶
     expect(imgBox.y).toBeCloseTo(right.y, 6);
@@ -525,7 +524,7 @@ describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新�
     const scene = computeScene(doc, fakeMeasure);
     const sec = scene.boards[0].regions[0].sections[1];
     const col = sec.columns[0];
-    const inner = col.width - BLOCK_PADDING * 2;
+    const inner = col.width - BLOCK_CHROME;
     const imgBox = col.blocks[1];
     expect(imgBox.height).toBeCloseTo(inner / (16 / 9) + BLOCK_CHROME, 6);
   });

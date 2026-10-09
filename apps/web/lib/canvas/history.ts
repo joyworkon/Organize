@@ -73,20 +73,20 @@ export class CanvasHistory {
   }
 
   /** 撤销：current 是当前最新文档，压入重做栈；返回操作前的文档与焦点。 */
-  undo(current: CanvasDoc): CanvasHistoryEntry | null {
+  undo(current: CanvasDoc, currentFocus: CanvasFocus = this.lastPostFocus): CanvasHistoryEntry | null {
     const entry = this.past.pop();
     if (!entry) return null;
-    this.future.push({ doc: current, label: entry.label, focus: this.lastPostFocus });
+    this.future.push({ doc: current, label: entry.label, focus: currentFocus });
     this.lastCoalesce = null;
     this.lastPostFocus = entry.focus ?? null;
     return entry;
   }
 
   /** 重做。 */
-  redo(current: CanvasDoc): CanvasHistoryEntry | null {
+  redo(current: CanvasDoc, currentFocus: CanvasFocus = this.lastPostFocus): CanvasHistoryEntry | null {
     const entry = this.future.pop();
     if (!entry) return null;
-    this.past.push({ doc: current, label: entry.label, focus: this.lastPostFocus });
+    this.past.push({ doc: current, label: entry.label, focus: currentFocus });
     this.lastCoalesce = null;
     this.lastPostFocus = entry.focus ?? null;
     return entry;
