@@ -12,7 +12,7 @@ export async function GET() {
 
   const { data: rows, error } = await supabase
     .from("collections")
-    .select("id, name, created_at, updated_at, collection_items(count)")
+    .select("id, name, created_at, updated_at, collection_items!collection_items_collection_id_fkey(count)")
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
     .limit(500);

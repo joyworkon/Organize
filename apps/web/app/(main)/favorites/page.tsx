@@ -50,7 +50,7 @@ export default function FavoritesPage() {
 
       const [readingsRes, notesRes, tasksRes] = await Promise.all([
         readingIds.length > 0
-          ? supabase.from("reading_items").select("id, title, url, site_name, tags:tags!item_tags(id, name)").in("id", readingIds)
+          ? supabase.from("reading_items").select("id, title, url, tags:tags!item_tags(id, name)").in("id", readingIds)
           : Promise.resolve({ data: [] }),
         noteIds.length > 0
           ? supabase.from("notes").select("id, title, tags:tags!note_tags(id, name)").in("id", noteIds)

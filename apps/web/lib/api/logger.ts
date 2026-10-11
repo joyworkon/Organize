@@ -27,7 +27,12 @@ export function logApiError(err: unknown, ctx: ApiErrorContext = {}): void {
       err && typeof err === "object" && "code" in err
         ? String((err as { code: unknown }).code)
         : undefined,
-    message: err instanceof Error ? err.message : String(err),
+    message:
+      err instanceof Error
+        ? err.message
+        : err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : String(err),
   };
   // 单行 JSON 输出到 stderr：Vercel/容器日志管道可直接解析
   console.error(JSON.stringify(payload));
