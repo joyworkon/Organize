@@ -816,6 +816,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 图标不参与收缩：之前标题是裸文本节点，:last-child 命中图标本身，
+   窄屏下图标被裁成半个「(」而标题反而不省略 */
+.note-hierarchy-icon,
+.note-hierarchy-root > svg {
+  flex: 0 0 auto;
+  display: inline-flex;
+}
+.note-hierarchy-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .note-hierarchy-move {
   display: grid;
   flex: 0 0 auto;
