@@ -3,16 +3,16 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { DashboardSection, DashboardViewHeader } from "./dashboard-layout";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft,
   ChevronRight,
-  Calendar,
   CheckCircle2,
   BookOpen,
   FileText,
   Highlighter,
-  Clock,
   Loader2,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -211,87 +211,81 @@ export default function ReviewView() {
 
   const isToday = isSameDay(selectedDate, today);
 
-  const stats = data
-    ? {
-        completedTasks: data.tasks.length,
-        readingItems: data.readingItems.length,
-        newNotes: data.notes.length,
-        newHighlights: data.highlights.length,
-        readingMinutes: data.readingItems.length * 15,
-      }
-    : null;
-
   return (
-    <div className="min-h-screen">
-      <div className="border-b pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Calendar className="h-6 w-6 text-primary" />
-              每日回顾
-            </h1>
-            <p className="text-muted-foreground mt-1">{formatDateDisplay(selectedDate)}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
+    <div className="dashboard-view space-y-5">
+      <DashboardViewHeader
+        title="日历回顾"
+        description={formatDateDisplay(selectedDate)}
+        actions={
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={goToPrevDay}
-              className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               aria-label="前一天"
+              className="h-8 w-8"
             >
               <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={goToToday}
-              className={cn(
-                "px-3 py-1.5 text-sm rounded-md transition-colors",
-                isToday
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
+              disabled={isToday}
             >
-              今天
-            </button>
-            <button
-              type="button"
+              回到今天
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={goToNextDay}
               disabled={isToday}
-              className={cn(
-                "inline-flex items-center justify-center rounded-md p-2 transition-colors",
-                isToday
-                  ? "text-muted-foreground/40 cursor-not-allowed"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
               aria-label="后一天"
+              className="h-8 w-8"
             >
               <ChevronRight className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
+        }
+      />
+      {loading ? (
+        <div className="dashboard-loading" role="status">
+          <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
         </div>
-      </div>
-
-      <div className="p-4 md:p-6">
-        <div className="max-w-3xl mx-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin mr-2" />
-              加载中...
-            </div>
-          ) : error ? (
-            <div className="text-center py-12 text-muted-foreground">{error}</div>
-          ) : data ? (
-            <div className="rounded-lg border bg-card">
-              <div className="p-5 border-b">
-                <h2 className="font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  今日完成
-                </h2>
-              </div>
-              <div className="p-5">
+      ) : error ? (
+        <div className="dashboard-loading">
+          <p>{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadData(selectedDate)}
+          >
+            重试
+          </Button>
+        </div>
+      ) : data ? (
+        <>
+          <DashboardSection title="当日概览" icon={CheckCircle2}>
+            <dl className="dashboard-inline-metrics metrics-4">
+              {[
+                { label: "完成任务", value: data.tasks.length },
+                { label: "阅读文章", value: data.readingItems.length },
+                { label: "编辑笔记", value: data.notes.length },
+                { label: "新增高亮", value: data.highlights.length },
+              ].map((metric) => (
+                <div key={metric.label}>
+                  <dt>{metric.label}</dt>
+                  <dd>{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </DashboardSection>
+          <div className="dashboard-content-grid">
+            <div className="min-w-0 space-y-4 lg:col-span-2">
+              <DashboardSection title="完成任务" icon={CheckCircle2}>
                 {data.tasks.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    今天还没有完成任务，加油 💪
+                    这一天还没有完成任务，加油 💪
                   </p>
                 ) : (
                   <div className="space-y-1">
@@ -300,15 +294,21 @@ export default function ReviewView() {
                         key={task.id}
                         className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors"
                       >
-                        <Checkbox checked disabled className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground" />
+                        <Checkbox
+                          checked
+                          disabled
+                          className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                        />
                         <span
                           className={cn(
                             "w-2 h-2 rounded-full shrink-0",
-                            CATEGORY_COLORS[task.category]
+                            CATEGORY_COLORS[task.category],
                           )}
                           title={CATEGORY_LABELS[task.category]}
                         />
-                        <span className="text-sm flex-1 truncate">{task.title}</span>
+                        <span className="text-sm flex-1 truncate">
+                          {task.title}
+                        </span>
                         <span className="text-xs text-muted-foreground shrink-0">
                           {formatTime(task.completed_at)}
                         </span>
@@ -316,18 +316,11 @@ export default function ReviewView() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              <div className="p-5 border-b">
-                <h2 className="font-semibold flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-orange-500" />
-                  今日阅读
-                </h2>
-              </div>
-              <div className="p-5">
+              </DashboardSection>
+              <DashboardSection title="阅读记录" icon={BookOpen}>
                 {data.readingItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    今天还没有阅读记录
+                    这一天还没有阅读记录
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -362,18 +355,13 @@ export default function ReviewView() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              <div className="p-5 border-b">
-                <h2 className="font-semibold flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-green-500" />
-                  今日笔记
-                </h2>
-              </div>
-              <div className="p-5">
+              </DashboardSection>
+            </div>
+            <div className="min-w-0 space-y-4">
+              <DashboardSection title="笔记记录" icon={FileText}>
                 {data.notes.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    今天还没有创建或编辑笔记
+                    这一天还没有创建或编辑笔记
                   </p>
                 ) : (
                   <div className="space-y-1">
@@ -393,18 +381,11 @@ export default function ReviewView() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              <div className="p-5 border-b">
-                <h2 className="font-semibold flex items-center gap-2">
-                  <Highlighter className="h-4 w-4 text-yellow-500" />
-                  今日高亮
-                </h2>
-              </div>
-              <div className="p-5">
+              </DashboardSection>
+              <DashboardSection title="高亮摘录" icon={Highlighter}>
                 {data.highlights.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    今天还没有添加高亮
+                    这一天还没有添加高亮
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -421,7 +402,7 @@ export default function ReviewView() {
                               highlight.color === "green" && "bg-green-400",
                               highlight.color === "blue" && "bg-blue-400",
                               highlight.color === "pink" && "bg-pink-400",
-                              highlight.color === "purple" && "bg-purple-400"
+                              highlight.color === "purple" && "bg-purple-400",
                             )}
                           />
                           <div className="flex-1 min-w-0">
@@ -437,46 +418,11 @@ export default function ReviewView() {
                     ))}
                   </div>
                 )}
-              </div>
-
-              {stats && (
-                <>
-                  <div className="p-5 border-b">
-                    <h2 className="font-semibold flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-primary" />
-                      今日统计
-                    </h2>
-                  </div>
-                  <div className="p-5">
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-primary">{stats.completedTasks}</p>
-                        <p className="text-xs text-muted-foreground">完成任务</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold">{stats.readingItems}</p>
-                        <p className="text-xs text-muted-foreground">阅读文章</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold">{stats.newNotes}</p>
-                        <p className="text-xs text-muted-foreground">新建笔记</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold">{stats.newHighlights}</p>
-                        <p className="text-xs text-muted-foreground">新增高亮</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold">{stats.readingMinutes}</p>
-                        <p className="text-xs text-muted-foreground">阅读分钟(预估)</p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
+              </DashboardSection>
             </div>
-          ) : null}
-        </div>
-      </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

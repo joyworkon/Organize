@@ -125,11 +125,8 @@
   .organize-task-detail > div { padding: 24px 4px; }
   .organize-task-detail > footer { padding-left: 4px; padding-right: 4px; }
   /* Home prioritizes capture, today's tasks and continuation. */
-  .dashboard-view-switcher { position: static; flex-direction: row; justify-content: flex-end; padding: 0; border: 0; background: transparent; }
-  .dashboard-view-switcher > div:first-child { display: none; }
-  .dashboard-view-switcher [role="tablist"] { width: 100%; }
-  .dashboard-view-switcher [role="tab"] { flex: 1; min-height: 40px; }
-  .dashboard-today > div:first-child { margin-top: 4px; }
+  .dashboard-view-switcher { top: var(--mobile-header-height); padding: 8px 0; }
+  .dashboard-view-switcher [role="tab"] { min-height: 40px; }
   .dashboard-today .dashboard-quick-links { display: none; }
   .dashboard-capture { flex-wrap: wrap; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); padding: 12px; border-radius: 16px; }
   .dashboard-capture > div:first-child { flex-basis: 100%; }

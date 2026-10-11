@@ -3,24 +3,19 @@ import { readingSourceLabel } from "@/lib/reading/source";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
+import { DashboardSection, DashboardViewHeader } from "./dashboard-layout";
 import { Button } from "@/components/ui/button";
 import {
   BookOpen,
   FileText,
-  Clock,
   CheckCircle2,
-  Pin,
   TrendingUp,
   Tag as TagIcon,
   Globe,
   Loader2,
   ListChecks,
-  Star,
-  Highlighter,
   Calendar,
 } from "@/components/icons";
-import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 
 interface DailyBucket {
@@ -306,60 +301,47 @@ export default function StatsView() {
     loadStats();
   }, [loadStats]);
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">统计</h1>
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          加载中...
-        </div>
-      </div>
-    );
-  }
+  const {
+    totals,
+    averageProgress,
+    dailyItems,
+    dailyRead,
+    dailyTasks,
+    weeklyStats,
+    topTags,
+    topSources,
+  } = data ?? DEFAULT_DATA;
+  const hasAnyData =
+    totals.items > 0 ||
+    totals.notes > 0 ||
+    totals.tasksTotal > 0 ||
+    totals.highlights > 0 ||
+    totals.favorites > 0;
+  const readRate =
+    totals.items > 0 ? Math.round((totals.read / totals.items) * 100) : 0;
 
-  if (error && !data) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold">统计</h1>
+  return (
+    <div className="dashboard-view space-y-5">
+      <DashboardViewHeader
+        title="趋势统计"
+        description="累计概览与最近 30 天的活动趋势"
+      />
+      {loading ? (
+        <div className="dashboard-loading" role="status">
+          <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
+        </div>
+      ) : error ? (
         <EmptyState
-          icon={Loader2}
+          icon={TrendingUp}
           title="加载失败"
           description={error}
           action={
-            <Button onClick={loadStats}>
+            <Button variant="outline" onClick={loadStats}>
               重试
             </Button>
           }
         />
-      </div>
-    );
-  }
-
-  const totals = data?.totals ?? DEFAULT_DATA.totals;
-  const averageProgress = data?.averageProgress ?? DEFAULT_DATA.averageProgress;
-  const dailyItems = data?.dailyItems ?? DEFAULT_DATA.dailyItems;
-  const dailyRead = data?.dailyRead ?? DEFAULT_DATA.dailyRead;
-  const dailyTasks = data?.dailyTasks ?? DEFAULT_DATA.dailyTasks;
-  const weeklyStats = data?.weeklyStats ?? DEFAULT_DATA.weeklyStats;
-  const topTags = data?.topTags ?? DEFAULT_DATA.topTags;
-  const topSources = data?.topSources ?? DEFAULT_DATA.topSources;
-
-  const hasAnyData =
-    totals.items > 0 ||
-    totals.notes > 0 ||
-    totals.tasksTotal > 0;
-
-  const readRate = totals.items > 0 ? Math.round((totals.read / totals.items) * 100) : 0;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">阅读统计</h1>
-        <p className="text-muted-foreground mt-1">最近 30 天的阅读、笔记和任务数据</p>
-      </div>
-
-      {!hasAnyData ? (
+      ) : !hasAnyData ? (
         <EmptyState
           icon={TrendingUp}
           title="还没有统计数据"
@@ -367,204 +349,171 @@ export default function StatsView() {
         />
       ) : (
         <>
-          {/* 顶部数字卡片 - 可滚动 */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            <StatCard icon={BookOpen} label="总文章" value={totals.items} />
-            <StatCard icon={Clock} label="未读" value={totals.unread} />
-            <StatCard icon={BookOpen} label="在读" value={totals.reading} accent />
-            <StatCard icon={CheckCircle2} label="已读" value={totals.read} primary />
-            <StatCard icon={FileText} label="笔记" value={totals.notes} />
-            <StatCard icon={Pin} label="置顶" value={totals.pinned} />
-            <StatCard icon={ListChecks} label="总任务" value={totals.tasksTotal} />
-            <StatCard icon={CheckCircle2} label="完成任务" value={totals.tasksDone} primary />
-            <StatCard icon={ListChecks} label="进行中" value={totals.tasksInProgress} accent />
-            <StatCard icon={Clock} label="待办" value={totals.tasksTodo} />
-            <StatCard icon={Highlighter} label="高亮" value={totals.highlights} />
-            <StatCard icon={Star} label="收藏" value={totals.favorites} />
+          <div className="dashboard-content-grid">
+            <MetricGroup
+              title="文章"
+              icon={BookOpen}
+              total={totals.items}
+              metrics={[
+                { label: "未读", value: totals.unread },
+                { label: "在读", value: totals.reading },
+                { label: "已读", value: totals.read },
+              ]}
+            />
+            <MetricGroup
+              title="任务"
+              icon={ListChecks}
+              total={totals.tasksTotal}
+              metrics={[
+                { label: "待办", value: totals.tasksTodo },
+                { label: "进行中", value: totals.tasksInProgress },
+                { label: "已完成", value: totals.tasksDone },
+              ]}
+            />
+            <MetricGroup
+              title="笔记"
+              icon={FileText}
+              total={totals.notes}
+              metrics={[
+                { label: "高亮摘录", value: totals.highlights },
+                { label: "收藏", value: totals.favorites },
+                { label: "置顶文章", value: totals.pinned },
+              ]}
+            />
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-4">
-            {/* 本周概览 */}
-            <Card>
-              <CardContent className="p-5">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-primary" />
-                  本周概览
-                </h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-3 rounded-lg bg-muted/50">
-                    <BookOpen className="h-5 w-5 mx-auto mb-2 text-primary" />
-                    <p className="text-2xl font-bold text-primary">{weeklyStats.itemsAdded}</p>
-                    <p className="text-xs text-muted-foreground">新增文章</p>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/50">
-                    <CheckCircle2 className="h-5 w-5 mx-auto mb-2 text-green-500" />
-                    <p className="text-2xl font-bold text-green-500">{weeklyStats.tasksCompleted}</p>
-                    <p className="text-xs text-muted-foreground">完成任务</p>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/50">
-                    <FileText className="h-5 w-5 mx-auto mb-2 text-blue-500" />
-                    <p className="text-2xl font-bold text-blue-500">{weeklyStats.notesAdded}</p>
-                    <p className="text-xs text-muted-foreground">新增笔记</p>
-                  </div>
+          <DashboardSection
+            title="本周概览"
+            icon={Calendar}
+            actions={
+              <span className="text-xs text-muted-foreground">周一至今</span>
+            }
+          >
+            <dl className="dashboard-inline-metrics">
+              {[
+                { label: "新增文章", value: weeklyStats.itemsAdded },
+                { label: "完成任务", value: weeklyStats.tasksCompleted },
+                { label: "新增笔记", value: weeklyStats.notesAdded },
+              ].map((metric) => (
+                <div key={metric.label}>
+                  <dt>{metric.label}</dt>
+                  <dd>{metric.value}</dd>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </dl>
+          </DashboardSection>
 
-            {/* 阅读进度概览 */}
-            <Card>
-              <CardContent className="p-5">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  阅读进度概览
-                </h3>
-                <div className="space-y-4">
-                  <ProgressRow label="已读率" value={readRate} suffix="%" />
-                  <ProgressRow
-                    label="平均阅读进度"
-                    value={Math.round(averageProgress * 100)}
-                    suffix="%"
-                  />
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-2">状态分布</p>
-                    <div className="flex h-3 rounded-full overflow-hidden bg-muted">
-                      <div
-                        className="bg-muted-foreground/40"
-                        style={{ width: `${pct(totals.unread, totals.items)}%` }}
-                        title={`未读 ${totals.unread}`}
-                      />
-                      <div
-                        className="bg-accent-foreground/60"
-                        style={{ width: `${pct(totals.reading, totals.items)}%` }}
-                        title={`在读 ${totals.reading}`}
-                      />
-                      <div
-                        className="bg-primary"
-                        style={{ width: `${pct(totals.read, totals.items)}%` }}
-                        title={`已读 ${totals.read}`}
-                      />
-                    </div>
-                    <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                      <span>未读 {totals.unread}</span>
-                      <span>在读 {totals.reading}</span>
-                      <span>已读 {totals.read}</span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          <div className="dashboard-content-grid">
+            <DashboardSection
+              title="最近 30 天活动"
+              icon={TrendingUp}
+              className="lg:col-span-2"
+              actions={
+                <span className="text-xs text-muted-foreground">每日数量</span>
+              }
+            >
+              <DailyBars
+                added={dailyItems}
+                read={dailyRead}
+                tasks={dailyTasks}
+              />
+            </DashboardSection>
 
-            {/* 最近 30 天活动柱状图 */}
-            <Card className="lg:col-span-2">
-              <CardContent className="p-5">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
-                  最近 30 天活动
-                </h3>
-                <DailyBars
-                  added={dailyItems}
-                  read={dailyRead}
-                  tasks={dailyTasks}
-                  max={Math.max(
-                    1,
-                    ...dailyItems.map((d) => d.count),
-                    ...dailyRead.map((d) => d.count),
-                    ...dailyTasks.map((d) => d.count)
-                  )}
+            <DashboardSection title="阅读进度" icon={BookOpen}>
+              <div className="space-y-5">
+                <ProgressRow label="已读率" value={readRate} />
+                <ProgressRow
+                  label="平均阅读进度"
+                  value={Math.round(averageProgress * 100)}
                 />
-                <div className="flex flex-wrap items-center gap-4 mt-3 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-primary/70" /> 新增文章
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-primary" /> 已读
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-green-500" /> 完成任务
-                  </span>
+                <div>
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    文章状态分布
+                  </p>
+                  <div
+                    className="flex h-2 overflow-hidden rounded-full bg-muted"
+                    role="img"
+                    aria-label={`未读 ${totals.unread}，在读 ${totals.reading}，已读 ${totals.read}`}
+                  >
+                    <div
+                      className="bg-muted-foreground/30"
+                      style={{ width: `${pct(totals.unread, totals.items)}%` }}
+                    />
+                    <div
+                      className="bg-primary/40"
+                      style={{ width: `${pct(totals.reading, totals.items)}%` }}
+                    />
+                    <div
+                      className="bg-primary"
+                      style={{ width: `${pct(totals.read, totals.items)}%` }}
+                    />
+                  </div>
+                  <dl className="dashboard-stat-rows mt-3">
+                    <div>
+                      <dt>
+                        <span className="bg-muted-foreground/30" />
+                        未读
+                      </dt>
+                      <dd>{totals.unread}</dd>
+                    </div>
+                    <div>
+                      <dt>
+                        <span className="bg-primary/40" />
+                        在读
+                      </dt>
+                      <dd>{totals.reading}</dd>
+                    </div>
+                    <div>
+                      <dt>
+                        <span className="bg-primary" />
+                        已读
+                      </dt>
+                      <dd>{totals.read}</dd>
+                    </div>
+                  </dl>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </DashboardSection>
+          </div>
 
-            {/* Top 标签 */}
-            <Card>
-              <CardContent className="p-5">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <TagIcon className="h-4 w-4 text-primary" />
-                  标签 Top 5
-                </h3>
-                {topTags.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">还没有标签被使用</p>
-                ) : (
-                  <div className="space-y-2">
-                    {topTags.map((tag, i) => {
-                      const max = topTags[0]?.count || 1;
-                      return (
-                        <div key={tag.id} className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground w-4">{i + 1}</span>
-                          <div className="flex-1">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="truncate flex items-center gap-1.5">
-                                {tag.color && (
-                                  <span
-                                    className="w-2 h-2 rounded-full"
-                                    style={{ backgroundColor: `var(--tag-${tag.color})` }}
-                                  />
-                                )}
-                                {tag.name}
-                              </span>
-                              <span className="text-muted-foreground">{tag.count}</span>
-                            </div>
-                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full transition-all"
-                                style={{ width: `${(tag.count / max) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Top 来源 */}
-            <Card>
-              <CardContent className="p-5">
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-primary" />
-                  来源站点 Top 5
-                </h3>
-                {topSources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">还没有文章</p>
-                ) : (
-                  <div className="space-y-2">
-                    {topSources.map((src, i) => {
-                      const max = topSources[0]?.count || 1;
-                      return (
-                        <div key={src.host} className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground w-4">{i + 1}</span>
-                          <div className="flex-1">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="truncate">{src.host}</span>
-                              <span className="text-muted-foreground">{src.count}</span>
-                            </div>
-                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary/60 rounded-full transition-all"
-                                style={{ width: `${(src.count / max) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+            <DashboardSection
+              title="常用标签"
+              icon={TagIcon}
+              actions={
+                <span className="text-xs text-muted-foreground">
+                  Top 5 · 使用次数
+                </span>
+              }
+            >
+              <RankingRows
+                empty="还没有标签被使用"
+                entries={topTags.map((tag) => ({
+                  id: tag.id,
+                  label: tag.name,
+                  count: tag.count,
+                  color: tag.color ? `var(--tag-${tag.color})` : undefined,
+                }))}
+              />
+            </DashboardSection>
+            <DashboardSection
+              title="文章来源"
+              icon={Globe}
+              actions={
+                <span className="text-xs text-muted-foreground">
+                  Top 5 · 文章数
+                </span>
+              }
+            >
+              <RankingRows
+                empty="还没有文章"
+                entries={topSources.map((source) => ({
+                  id: source.host,
+                  label: source.host,
+                  count: source.count,
+                }))}
+              />
+            </DashboardSection>
           </div>
         </>
       )}
@@ -576,54 +525,52 @@ function pct(part: number, total: number) {
   return total === 0 ? 0 : (part / total) * 100;
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  primary = false,
-  accent = false,
+function MetricGroup({
+  title,
+  icon,
+  total,
+  metrics,
 }: {
+  title: string;
   icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  primary?: boolean;
-  accent?: boolean;
+  total: number;
+  metrics: Array<{ label: string; value: number }>;
 }) {
   return (
-    <div className="rounded-lg border p-3 text-center">
-      <Icon
-        className={cn(
-          "h-4 w-4 mx-auto mb-1",
-          primary ? "text-primary" : accent ? "text-accent-foreground" : "text-muted-foreground"
-        )}
-      />
-      <p className={cn("text-2xl font-bold", primary && "text-primary")}>{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
+    <DashboardSection
+      title={title}
+      icon={icon}
+      actions={<strong className="dashboard-stat-total">{total}</strong>}
+    >
+      <dl className="dashboard-stat-rows">
+        {metrics.map((metric) => (
+          <div key={metric.label}>
+            <dt>{metric.label}</dt>
+            <dd>{metric.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </DashboardSection>
   );
 }
 
-function ProgressRow({
-  label,
-  value,
-  suffix,
-}: {
-  label: string;
-  value: number;
-  suffix?: string;
-}) {
+function ProgressRow({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span>{label}</span>
-        <span className="font-medium">
-          {value}
-          {suffix}
-        </span>
+      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <strong className="font-semibold tabular-nums">{value}%</strong>
       </div>
-      <div className="h-2 bg-muted rounded-full overflow-hidden">
+      <div
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-label={label}
+        aria-valuenow={value}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
         <div
-          className="h-full bg-primary rounded-full transition-all"
+          className="h-full rounded-full bg-primary"
           style={{ width: `${Math.min(100, value)}%` }}
         />
       </div>
@@ -631,46 +578,122 @@ function ProgressRow({
   );
 }
 
+function RankingRows({
+  entries,
+  empty,
+}: {
+  entries: Array<{ id: string; label: string; count: number; color?: string }>;
+  empty: string;
+}) {
+  const max = entries[0]?.count || 1;
+  return entries.length === 0 ? (
+    <p className="py-6 text-center text-sm text-muted-foreground">{empty}</p>
+  ) : (
+    <ol className="dashboard-ranking">
+      {entries.map((entry, index) => (
+        <li key={entry.id}>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {index + 1}
+          </span>
+          <span className="dashboard-ranking-label" title={entry.label}>
+            {entry.color && <i style={{ backgroundColor: entry.color }} />}
+            <span className="min-w-0 truncate">{entry.label}</span>
+          </span>
+          <span className="dashboard-ranking-track" aria-hidden="true">
+            <span style={{ width: `${(entry.count / max) * 100}%` }} />
+          </span>
+          <strong className="text-sm font-medium tabular-nums">
+            {entry.count}
+          </strong>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function DailyBars({
   added,
   read,
   tasks,
-  max,
 }: {
   added: DailyBucket[];
   read: DailyBucket[];
   tasks: DailyBucket[];
-  max: number;
 }) {
+  const max = Math.max(
+    1,
+    ...added.map((d) => d.count),
+    ...read.map((d) => d.count),
+    ...tasks.map((d) => d.count),
+  );
   return (
-    <div className="flex items-end gap-0.5 h-32">
-      {added.map((d, i) => {
-        const r = read[i]?.count || 0;
-        const t = tasks[i]?.count || 0;
-        const addH = (d.count / max) * 100;
-        const readH = (r / max) * 100;
-        const taskH = (t / max) * 100;
-        return (
-          <div
-            key={d.date}
-            className="flex-1 flex flex-col-reverse items-stretch relative group"
-            title={`${d.date} · 新增 ${d.count} · 已读 ${r} · 完成任务 ${t}`}
-          >
-            <div
-              className="bg-primary/70 group-hover:bg-primary/80 transition-colors rounded-sm"
-              style={{ height: `${addH}%` }}
-            />
-            <div
-              className="bg-primary group-hover:bg-primary/90 transition-colors rounded-sm"
-              style={{ height: `${readH}%` }}
-            />
-            <div
-              className="bg-green-500 group-hover:bg-green-600 transition-colors rounded-sm"
-              style={{ height: `${taskH}%` }}
-            />
+    <div>
+      <div
+        className="dashboard-chart-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="最近 30 天活动柱状图，可横向滚动"
+      >
+        <div className="dashboard-chart">
+          <div className="dashboard-chart-scale" aria-hidden="true">
+            <span>{max}</span>
+            <span>{max / 2}</span>
+            <span>0</span>
           </div>
-        );
-      })}
+          <div className="dashboard-chart-plot">
+            {added.map((day, index) => {
+              const counts = [
+                day.count,
+                read[index]?.count || 0,
+                tasks[index]?.count || 0,
+              ];
+              const label = `${day.date} · 新增文章 ${counts[0]} · 已读 ${counts[1]} · 完成任务 ${counts[2]}`;
+              return (
+                <div
+                  key={day.date}
+                  className="dashboard-chart-day"
+                  role="img"
+                  aria-label={label}
+                  title={label}
+                >
+                  {counts.map((count, series) => (
+                    <span
+                      key={series}
+                      className={`dashboard-chart-bar series-${series}`}
+                      style={{ height: `${(count / max) * 100}%` }}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+          <div className="dashboard-chart-dates" aria-hidden="true">
+            {added.map((day, index) => (
+              <span key={day.date}>
+                {index === 0 ||
+                index === added.length - 1 ||
+                (index % 7 === 0 && index < added.length - 4)
+                  ? day.date.slice(5).replace("-", "/")
+                  : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="dashboard-chart-legend">
+        <span>
+          <i className="series-0" />
+          新增文章
+        </span>
+        <span>
+          <i className="series-1" />
+          已读文章
+        </span>
+        <span>
+          <i className="series-2" />
+          完成任务
+        </span>
+      </div>
     </div>
   );
 }
