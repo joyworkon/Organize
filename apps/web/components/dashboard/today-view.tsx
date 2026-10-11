@@ -121,6 +121,12 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const supabase = useMemo(() => createClient(), []);
 
   const [loading, setLoading] = useState(true);
+  // 问候语与日期依赖浏览器本地时区：SSR 与客户端时区不同会触发 hydration
+  // 不匹配，所以首帧渲染中性文案，挂载后再按本地时间计算。
+  const [greeting, setGreeting] = useState<{ title: string; date: string } | null>(null);
+  useEffect(() => {
+    setGreeting({ title: getGreeting(), date: formatDate(new Date()) });
+  }, []);
   const [overdueTasks, setOverdueTasks] = useState<TaskWithTags[]>([]);
   const [todayTasks, setTodayTasks] = useState<TaskWithTags[]>([]);
   const [inProgressTasks, setInProgressTasks] = useState<TaskWithTags[]>([]);
@@ -332,8 +338,8 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   return (
     <div className="dashboard-today space-y-5">
       <DashboardViewHeader
-        title={getGreeting()}
-        description={formatDate(today)}
+        title={greeting?.title ?? "你好"}
+        description={greeting?.date ?? "\u00a0"}
         actions={
           <>
             <div className="dashboard-mobile-search">{searchControl}</div>
