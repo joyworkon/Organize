@@ -1258,7 +1258,13 @@ export default function ReadingDetailPage() {
       </div>
 
       {/* 底部操作 */}
-      <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
+      {/* 高亮面板打开时（xl 为固定右栏）让出右侧，避免「标记已读 / 写读书笔记」被面板遮住 */}
+      <div
+        className={cn(
+          "organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left,right] duration-200",
+          showHighlightsPanel && "xl:right-80"
+        )}
+      >
         <div
           className={cn(
             "mx-auto w-full flex items-center justify-between",
