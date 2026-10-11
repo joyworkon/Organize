@@ -102,8 +102,6 @@ export function Sidebar() {
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
-  // 「最近」分组折叠态：折叠时显示 6 条，展开显示全部（12 条）；记忆到 localStorage
-  const [recentsExpanded, setRecentsExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
@@ -146,7 +144,6 @@ const visibleNavItems = useMemo(() => {
       localStorage.getItem("organize-sidebar-library-expanded") === "true" ||
         pathname.startsWith("/library")
     );
-    setRecentsExpanded(localStorage.getItem("organize-sidebar-recents-expanded") === "true");
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
@@ -393,54 +390,6 @@ const visibleNavItems = useMemo(() => {
       </div>
 
       <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
-        {/* 最近打开的笔记（来自标签页 store 的访问记录）：折叠显示 6 条，展开 12 条 */}
-        {!compact && !onClose && recentNotes.length > 0 && (
-          <div className="pb-2">
-            <button
-              type="button"
-              className="flex w-full items-center gap-1 rounded px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => {
-                const next = !recentsExpanded;
-                setRecentsExpanded(next);
-                localStorage.setItem("organize-sidebar-recents-expanded", String(next));
-              }}
-              aria-expanded={recentsExpanded}
-              title={recentsExpanded ? "收起最近列表" : "展开更多最近笔记"}
-            >
-              {recentsExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-              最近
-            </button>
-            {recentNotes
-              .slice(0, recentsExpanded ? 12 : 6)
-              .map((item) => {
-                const active = pathname === `/notes/${item.id}`;
-                return (
-                  <Link
-                    key={item.id}
-                    href={`/notes/${item.id}`}
-                    onClick={() => setMobileOpen(false)}
-                    className={cn(
-                      "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                      active
-                        ? "bg-accent font-medium text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                    title={item.title || "无标题笔记"}
-                  >
-                    <span className="shrink-0 text-[13px] leading-none">
-                      {item.icon || "📄"}
-                    </span>
-                    <span className="truncate">{item.title || "无标题笔记"}</span>
-                  </Link>
-                );
-              })}
-            <div className="mt-2 border-t" />
-          </div>
-        )}
         {visibleNavItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
@@ -644,6 +593,32 @@ const visibleNavItems = useMemo(() => {
                     )}
                   </button>
                 </div>
+                {/* 侧栏只保留一处「最近」：笔记树收起时在笔记分组下显示最近打开的 5 篇，
+                    展开树时由树替代——不再在导航顶部另起一个与树重复的「最近」列表 */}
+                {!notesExpanded && !onClose && recentNotes.length > 0 && (
+                  <div className="mt-1 px-2" aria-label="最近打开的笔记" role="group">
+                    {recentNotes.slice(0, 5).map((recent) => {
+                      const active = pathname === `/notes/${recent.id}`;
+                      return (
+                        <Link
+                          key={recent.id}
+                          href={`/notes/${recent.id}`}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            "flex min-w-0 items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-colors",
+                            active
+                              ? "bg-accent font-medium text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                          )}
+                          title={recent.title || "无标题笔记"}
+                        >
+                          <span className="shrink-0 leading-none">{recent.icon || "📄"}</span>
+                          <span className="truncate">{recent.title || "无标题笔记"}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
                 {notesExpanded && (
                   <div className="mt-1 px-2">
                     {notesLoading && noteTree.length === 0 ? (
