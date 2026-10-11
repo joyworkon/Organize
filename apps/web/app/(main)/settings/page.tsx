@@ -362,7 +362,7 @@ export default function SettingsPage() {
               <div>
                 <span className="font-medium text-foreground">包含（28 张表）：</span>
                 <span className="text-muted-foreground">
-                  阅读条目、笔记（含层级/页面设置/版本历史/评论/建议）、任务（清单/依赖/提醒/附件元数据/动态/模板）、速记、任务↔笔记双链、标签、高亮、收藏、同步块、数据库块、倒数日、经验
+                  阅读条目、笔记（含层级/页面设置/版本历史/评论/建议）、任务（清单/依赖/提醒/附件元数据/动态/模板）、速记、任务↔笔记双链、标签、高亮、收藏、同步块、数据库块、倒数日、复盘
                 </span>
               </div>
               <div>

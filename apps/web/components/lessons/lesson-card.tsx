@@ -60,7 +60,7 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
             <div className="min-w-0">
               {/* 裸 h2 替代 CardTitle(h3)：页面 h1 下的条目标题不跳级（C02）；类名为 CardTitle 合并后的视觉等价结果 */}
               <h2 className="text-base font-semibold tracking-tight leading-tight line-clamp-2">
-                {lesson.title || "未命名经验"}
+                {lesson.title || "未命名复盘"}
               </h2>
               <CardDescription className="text-xs mt-0.5">
                 {typeConfig.label} · {formatDate(lesson.created_at)}

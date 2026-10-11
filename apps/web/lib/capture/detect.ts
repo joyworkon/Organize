@@ -15,7 +15,7 @@ export const CAPTURE_KIND_LABEL: Record<CaptureKind, string> = {
   memo: "速记",
 };
 
-const TASK_PREFIX = /^\s*(?:-\s*)?(?:\[\s?\]|todo[:：]|待办[:：])\s*/i;
+const TASK_PREFIX = /^\s*(?:-\s*)?(?:\[\s?\]|todo[:：]|待办[:：]|任务[:：])\s*/i;
 
 export function detectCapture(raw: string): { kind: CaptureKind; text: string } {
   const value = raw.trim();

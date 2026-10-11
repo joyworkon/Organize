@@ -371,8 +371,8 @@ export interface LessonWithTags extends Lesson {
 }
 
 export const LESSON_TYPE_CONFIG: Record<LessonType, { label: string; icon: string; color: string; description: string }> = {
-  reflection: { label: "复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
-  lesson: { label: "经验", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
+  reflection: { label: "任务复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
+  lesson: { label: "经验教训", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
   insight: { label: "灵感", icon: "✨", color: "text-purple-500", description: "突发的灵感和想法" },
 };
 

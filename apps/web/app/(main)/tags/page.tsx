@@ -20,6 +20,7 @@ import { PageSearch } from "@/components/layout/page-search";
 import { filterByPageSearch } from "@/lib/search/page-search";
 import { cn } from "@/lib/utils";
 import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
+import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorPicker } from "@/components/tags/tag-color-picker";
@@ -297,7 +298,7 @@ export default function TagsPage() {
               {(selectedTag.reading_item_count || 0) > 0 && ` · ${selectedTag.reading_item_count} 篇文章`}
               {(selectedTag.note_count || 0) > 0 && ` · ${selectedTag.note_count} 条笔记`}
               {(selectedTag.task_count || 0) > 0 && ` · ${selectedTag.task_count} 个任务`}
-              {(selectedTag.lesson_count || 0) > 0 && ` · ${selectedTag.lesson_count} 条经验`}
+              {(selectedTag.lesson_count || 0) > 0 && ` · ${selectedTag.lesson_count} 条复盘`}
             </p>
           </div>
         </div>
@@ -308,7 +309,7 @@ export default function TagsPage() {
             { key: "reading" as const, label: "阅读文章", icon: BookOpen },
             { key: "notes" as const, label: "笔记", icon: FileText },
             { key: "tasks" as const, label: "任务", icon: ListChecks },
-            { key: "lessons" as const, label: "经验", icon: Lightbulb },
+            { key: "lessons" as const, label: "复盘", icon: Lightbulb },
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -430,10 +431,10 @@ export default function TagsPage() {
                         <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium leading-tight line-clamp-1">{lesson.title || "未命名经验"}</h3>
+                        <h3 className="font-medium leading-tight line-clamp-1">{lesson.title || "未命名复盘"}</h3>
                         <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground flex-wrap">
-                          <span>经验</span>
-                          <span>· {lesson.lesson_type === "reflection" ? "复盘" : lesson.lesson_type === "lesson" ? "经验" : "灵感"}</span>
+                          <span>复盘</span>
+                          <span>· {LESSON_TYPE_CONFIG[lesson.lesson_type]?.label ?? "复盘"}</span>
                           <span>· {formatDate(lesson.created_at)}</span>
                           {lesson.tags && lesson.tags.length > 0 && (
                             <div className="flex items-center gap-1 flex-wrap">
