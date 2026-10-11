@@ -115,6 +115,20 @@ describe("insertSectionAfter（Enter / 添加通栏）", () => {
 });
 
 describe("insertColumn（左右加号）", () => {
+  it("手动极端比例增列后，所有列仍可编辑；放不下时拒绝增列", async () => {
+    const { computeScene } = await import("./layout");
+    const { doc, board } = docWithBoard();
+    const section = board.regions[0].sections[1];
+    section.columns.push({ id: "small-col", blocks: [{ id: "small-block", type: "text", role: "body", text: "" }] });
+    section.columnWeights = [9, 1];
+    section.widthMode = "manual";
+    const result = insertColumn(doc, { boardId: board.id, sectionId: section.id, columnId: section.columns[0].id, side: "right" });
+    const widths = computeScene(result.doc, () => 24).boards[0].regions[0].sections[1].columnWidths;
+    expect(widths).toHaveLength(3);
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(120);
+    board.width = 320;
+    expect(insertColumn(doc, { boardId: board.id, sectionId: section.id, columnId: section.columns[0].id, side: "right" }).doc).toBe(doc);
+  });
   it("新增列不影响上方标题分区；权重重分（A02）", () => {
     const { doc, board } = docWithBoard();
     const body = board.regions[0].sections[1];
@@ -391,6 +405,11 @@ describe("结构完整性", () => {
 
 describe("createBoardAutoPlace（A4 视口内落位）", () => {
   const viewport = { x: 5000, y: 5000, width: 1200, height: 800 };
+
+  it("可用视口小于默认版面时仍在该视口起点落位，不退回原点", () => {
+    const res = createBoardAutoPlace(emptyDoc(), { x: 5300, y: 5100, width: 300, height: 200 }, counterIds());
+    expect(res.doc.boards[0]).toMatchObject({ x: 5300, y: 5100 });
+  });
 
   it("空画布：新版面落在视口矩形左上角", () => {
     const res = createBoardAutoPlace(emptyDoc(), viewport, counterIds());

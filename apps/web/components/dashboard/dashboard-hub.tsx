@@ -95,7 +95,10 @@ export function DashboardHub() {
           })}
         </div>
         {/* 搜索独占固定槽位，隐藏时不影响标签页的位置。 */}
-        <div className="dashboard-search-slot">
+        <div
+          className="dashboard-search-slot"
+          aria-hidden={current !== "today"}
+        >
           {current === "today" && (
             <PageSearch
               value={search}

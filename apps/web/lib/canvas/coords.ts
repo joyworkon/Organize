@@ -35,12 +35,12 @@ export function worldToScreen(
 
 /** 视口元素的世界矩形（新建页面自动落位用）。 */
 export function worldViewportRect(
-  rect: { width: number; height: number },
+  rect: { width: number; height: number; x?: number; y?: number },
   vp: CanvasViewportTransform,
 ): { x: number; y: number; width: number; height: number } {
   return {
-    x: -vp.x / vp.zoom,
-    y: -vp.y / vp.zoom,
+    x: ((rect.x ?? 0) - vp.x) / vp.zoom,
+    y: ((rect.y ?? 0) - vp.y) / vp.zoom,
     width: rect.width / vp.zoom,
     height: rect.height / vp.zoom,
   };
@@ -48,11 +48,11 @@ export function worldViewportRect(
 
 /** 视口中心的世界坐标。 */
 export function worldCenter(
-  rect: { width: number; height: number },
+  rect: { width: number; height: number; x?: number; y?: number },
   vp: CanvasViewportTransform,
 ): { x: number; y: number } {
   return {
-    x: (rect.width / 2 - vp.x) / vp.zoom,
-    y: (rect.height / 2 - vp.y) / vp.zoom,
+    x: ((rect.x ?? 0) + rect.width / 2 - vp.x) / vp.zoom,
+    y: ((rect.y ?? 0) + rect.height / 2 - vp.y) / vp.zoom,
   };
 }

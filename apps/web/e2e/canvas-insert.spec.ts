@@ -127,8 +127,13 @@ test.describe("构思画布 B2：统一插入", () => {
 
     // 入口 3：粘贴（指针先移到右列 → 世界坐标命中右列；取列内靠上偏左，
     // 避免右侧属性栏遮挡与列块拉伸后中心点超出视口）
+    await page.getByRole("button", { name: "适合全部", exact: true }).click();
     const rightBlock = page.locator("[data-column-id]").nth(2).locator("[data-block-id]").first();
     const rbox = (await rightBlock.boundingBox())!;
+    const hitId = await page.evaluate(({ x, y }) =>
+      document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-block-id]")?.dataset.blockId,
+      { x: rbox.x + 20, y: rbox.y + 26 });
+    expect(hitId).toBe(await rightBlock.getAttribute("data-block-id"));
     await page.mouse.move(rbox.x + 20, rbox.y + 26);
     await dispatchPaste(page, "paste.png");
     await expect(page.locator("[data-block-type='image']")).toHaveCount(3);
@@ -260,13 +265,14 @@ test.describe("构思画布 B2：加号与悬停预览（多缩放）", () => {
       const b = (await block.boundingBox())!;
       const p = (await plus.boundingBox())!;
       expect(Math.abs(p.x + p.width / 2 - (b.x + b.width / 2))).toBeLessThan(2.5);
+      expect(Math.abs(p.y + p.height / 2 - b.y - b.height - 8 * zoom)).toBeLessThan(2.5);
       await plus.hover();
       const ghost = page.locator(".canvas-insert-preview").first();
       await expect(ghost).toBeVisible();
       const g = (await ghost.boundingBox())!;
       expect(Math.abs(g.width - b.width)).toBeLessThan(2.5);
-      // 预览顶 = 块底 + 半个块距（世界 gap/2 × zoom）
-      expect(Math.abs(g.y - (b.y + b.height) - 8 * zoom)).toBeLessThan(2.5);
+      // 预览使用真实插入后的布局：单列追加新块，完整块距 16px。
+      expect(Math.abs(g.y - (b.y + b.height) - 16 * zoom)).toBeLessThan(2.5);
       // 悬停不写入文档：块数不变
       await expect(page.locator("[data-block-id]")).toHaveCount(1);
       await page.mouse.move(vbox.x + 4, vbox.y + 4);

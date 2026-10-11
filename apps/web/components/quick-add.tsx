@@ -186,7 +186,9 @@ export function QuickAdd() {
   const selected = options.find((option) => option.mode === mode);
   return (
     <>
-      <Button size="icon" aria-label="快速新建" className="fixed bottom-6 right-6 z-40 hidden h-12 w-12 rounded-full shadow-sm md:inline-flex" onClick={() => openPanel()}><Plus className="h-6 w-6" /></Button>
+      {!pathname.startsWith("/canvas/") && (
+        <Button size="icon" aria-label="快速新建" className="fixed bottom-6 right-6 z-40 hidden h-12 w-12 rounded-full shadow-sm md:inline-flex" onClick={() => openPanel()}><Plus className="h-6 w-6" /></Button>
+      )}
       <Dialog open={open} onOpenChange={(next) => { if (!submittingRef.current) setOpen(next); }}>
         <DialogContent className="quick-add-dialog" onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus(); }}>
           <DialogHeader>

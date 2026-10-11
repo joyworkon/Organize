@@ -1,0 +1,107 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+.pnpm-store/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+dist/
+
+# misc
+.DS_Store
+*.pem
+# 加固：Tauri updater 签名私钥等一切 .key 一律不入库（公钥 .pub 才进仓库）
+*.key
+desktop/src-tauri/keys/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env*.local
+!.env.example
+# 加固：覆盖非 .env 开头的命名（keys.ts / secrets.json 等），防止误提交
+*.env
+secrets.*
+**/credentials/**
+**/service-account*.json
+
+# turbo
+.turbo
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# capacitor：原生工程自 M1 起入库（构建产物由 mobile/android/.gitignore、
+# mobile/ios/.gitignore 各自排除：build、Pods、DerivedData、local.properties、
+# 同步生成的 capacitor.config.json / public 资产）
+
+# A02：public/sw.js 由构建期 scripts/gen-sw.mjs 从 sw.template.js 生成（版本随构建变化）
+apps/web/public/sw.js
+
+# supabase
+supabase/.branches
+supabase/.temp
+
+# IDE 会话产物（与已忽略的 .zcode/ 同等对待，避免再次跟踪）
+.zcode/
+.trae/
+.qoder/
+
+# 根目录测试/调试临时截图
+/*-regression.png
+/*-screenshot.png
+.vercel
+.env*
+# Playwright / E2E 临时诊断脚本与截图（每次跑 E2E 重新生成）
+.tmp-e2e/
+playwright-report/
+test-results/
+
+# 对话/设计用的截图素材（非代码资产）
+vibe_images/
+
+# Playwright 运行残留
+test-results/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

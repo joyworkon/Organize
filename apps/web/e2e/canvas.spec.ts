@@ -95,7 +95,7 @@ test.describe("构思画布", () => {
     await page.keyboard.press("Enter"); // 标题分区下新增通栏
 
     const titleBefore = await blockRect(page, 0);
-    expect(titleBefore.width).toBe(640 - 24 * 2); // 标题满内容宽
+    expect(titleBefore.width).toBe(640 - 24 * 2 - 16 * 2); // 标题满区块内容宽
 
     await page.keyboard.type("正文第一段");
     await page.keyboard.press("Enter"); // 正文下再插一个通栏
