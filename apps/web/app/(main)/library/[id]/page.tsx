@@ -130,6 +130,7 @@ export default function ReadingDetailPage() {
   // 「读 → 记 → 复盘」闭环：本文关联的读书笔记（有则直接打开，无则一键创建）
   const [readingNoteId, setReadingNoteId] = useState<string | null>(null);
   const [isCreatingReadingNote, setIsCreatingReadingNote] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [item, setItem] = useState<ReadingItem | null>(null);
@@ -764,6 +765,41 @@ export default function ReadingDetailPage() {
     }
   }, [highlights, isCreatingReadingNote, item, itemId, readingNoteId, router, supabase]);
 
+  // 抓取失败（只存了链接）的条目：在阅读页直接重新抓取，而不是只显示「无法提取正文内容」
+  const handleRefetch = useCallback(async () => {
+    if (!item || isRefetching) return;
+    setIsRefetching(true);
+    try {
+      const res = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: item.url, force: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.content) {
+        toast({
+          title: "仍然无法抓取正文",
+          description: data?.error || "该网站可能需要登录或禁止抓取，可以点「原文」在浏览器中阅读",
+          variant: "destructive",
+        });
+        return;
+      }
+      const patch: Record<string, unknown> = { content: data.content, excerpt: data.excerpt ?? null };
+      if (data.cover_image) patch.cover_image = data.cover_image;
+      // 标题仍是 URL（抓取失败时的占位）才用抓到的标题覆盖，用户改过的标题不动
+      if (data.title && (!item.title || item.title === item.url)) patch.title = data.title;
+      const { error } = await supabase.from("reading_items").update(patch).eq("id", itemId);
+      if (error) {
+        toast({ title: "保存抓取结果失败，请重试", variant: "destructive" });
+        return;
+      }
+      setItem((prev) => (prev ? ({ ...prev, ...patch } as ReadingItem) : prev));
+      toast({ title: "已重新抓取正文" });
+    } finally {
+      setIsRefetching(false);
+    }
+  }, [isRefetching, item, itemId, supabase]);
+
   const handleConvertHighlight = useCallback(async (
     highlightId: string,
     targetType: "note" | "task",
@@ -1149,11 +1185,25 @@ export default function ReadingDetailPage() {
                 </button>
               </div>
             )}
+            {!item.content && !isInternalUrn(item.url) && (
+              <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm">
+                <span className="text-muted-foreground">没能抓取到这篇文章的正文（网站可能需要登录或限制抓取）。</span>
+                <span className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={isRefetching} onClick={() => void handleRefetch()}>
+                    {isRefetching && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    重新抓取
+                  </Button>
+                  <a href={item.url} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="ghost"><ExternalLink className="mr-1.5 h-3.5 w-3.5" />打开原文</Button>
+                  </a>
+                </span>
+              </div>
+            )}
             <HighlightMenu onCreateHighlight={handleCreateHighlight}>
               <div
                 ref={contentRef}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+                dangerouslySetInnerHTML={{ __html: renderedContent || "" }}
               />
             </HighlightMenu>
           </>
