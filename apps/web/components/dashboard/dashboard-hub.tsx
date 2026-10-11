@@ -36,16 +36,15 @@ export function DashboardHub() {
     if (view === "today") params.delete("view");
     else params.set("view", view);
     const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   };
 
   return (
-    <div className="space-y-5">
+    <div className="dashboard-hub space-y-5">
       <div className="dashboard-view-switcher">
-        <div>
-          <strong>工作台</strong>
-        </div>
-        <div className="dashboard-view-switcher-tools">
+        <strong className="dashboard-workbench-label">工作台</strong>
         <div role="tablist" aria-label="工作台视图">
           {VIEWS.map((view) => {
             const Icon = view.icon;
@@ -57,8 +56,32 @@ export function DashboardHub() {
                 role="tab"
                 aria-selected={selected}
                 aria-label={view.label}
+                id={`dashboard-tab-${view.id}`}
+                aria-controls="dashboard-panel"
+                tabIndex={selected ? 0 : -1}
                 className={cn(selected && "is-active")}
                 onClick={() => changeView(view.id)}
+                onKeyDown={(event) => {
+                  const index = VIEWS.findIndex(
+                    (entry) => entry.id === current,
+                  );
+                  const nextIndex =
+                    event.key === "ArrowRight"
+                      ? (index + 1) % VIEWS.length
+                      : event.key === "ArrowLeft"
+                        ? (index + VIEWS.length - 1) % VIEWS.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? VIEWS.length - 1
+                            : null;
+                  if (nextIndex === null) return;
+                  event.preventDefault();
+                  changeView(VIEWS[nextIndex].id);
+                  document
+                    .getElementById(`dashboard-tab-${VIEWS[nextIndex].id}`)
+                    ?.focus();
+                }}
               >
                 <Icon className="h-4 w-4" />
                 <span aria-hidden="true" className="hidden sm:inline">
@@ -71,20 +94,37 @@ export function DashboardHub() {
             );
           })}
         </div>
-        {/* 页内搜索：与「工作台」标题同一行、内容框最右侧。
-            只在「今天」视图渲染——回顾是日历、统计是图表，没有可被关键词筛的列表。 */}
-        {current === "today" && (
-          <PageSearch
-            value={search}
-            onChange={setSearch}
-            placeholder="搜索工作台（标题 / 标签）"
-          />
-        )}
+        {/* 搜索独占固定槽位，隐藏时不影响标签页的位置。 */}
+        <div className="dashboard-search-slot">
+          {current === "today" && (
+            <PageSearch
+              value={search}
+              onChange={setSearch}
+              placeholder="搜索工作台（标题 / 标签）"
+            />
+          )}
         </div>
       </div>
 
-      <div role="tabpanel">
-        {current === "today" && <TodayView search={search} />}
+      <div
+        id="dashboard-panel"
+        role="tabpanel"
+        aria-labelledby={`dashboard-tab-${current}`}
+        tabIndex={0}
+      >
+        {current === "today" && (
+          <TodayView
+            search={search}
+            searchControl={
+              <PageSearch
+                value={search}
+                onChange={setSearch}
+                placeholder="搜索标题或标签"
+                label="搜索工作台（标题 / 标签）"
+              />
+            }
+          />
+        )}
         {current === "review" && <ReviewView />}
         {current === "stats" && <StatsView />}
       </div>

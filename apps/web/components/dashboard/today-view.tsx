@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
-import { Card, CardContent } from "@/components/ui/card";
+import { DashboardSection, DashboardViewHeader } from "./dashboard-layout";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -115,7 +116,7 @@ function getNoteExcerpt(content: Record<string, unknown> | null): string {
   return "";
 }
 
-export default function TodayView({ search = "" }: { search?: string } = {}) {
+export default function TodayView({ search = "", searchControl }: { search?: string; searchControl?: ReactNode } = {}) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
@@ -328,257 +329,279 @@ export default function TodayView({ search = "" }: { search?: string } = {}) {
   }));
   const visibleMemos = filterByPageSearch(recentMemos, search, (memo) => ({ title: memo.content }));
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   return (
     <div className="dashboard-today space-y-5">
-      {/* 首屏行动区：问候语 + 入口 + 快速记录归为一组，卡片区从更靠上开始 */}
-      <div className="dashboard-intro space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-          <h1 className="text-lg font-semibold leading-tight sm:text-xl">
-            {getGreeting()}
-          </h1>
-          <p className="text-xs text-muted-foreground sm:text-sm">
-            {formatDate(today)}
-          </p>
-        </div>
-        <div className="dashboard-quick-links flex items-center gap-2 flex-wrap">
-          <TaskNavigationMenu
-            onCreateList={handleCreateTaskList}
-            trigger={(
-              <Button variant="outline" size="sm" aria-label="打开待办菜单">
-                <ListChecks className="h-4 w-4 mr-1.5" />
-                待办
-                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+      <DashboardViewHeader
+        title={getGreeting()}
+        description={formatDate(today)}
+        actions={
+          <>
+            <div className="dashboard-mobile-search">{searchControl}</div>
+            <div className="dashboard-quick-links flex items-center gap-2 flex-wrap">
+              <TaskNavigationMenu
+                onCreateList={handleCreateTaskList}
+                trigger={
+                  <Button variant="outline" size="sm" aria-label="打开待办菜单">
+                    <ListChecks className="h-4 w-4 mr-1.5" />
+                    待办
+                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                  </Button>
+                }
+              />
+              <Button variant="outline" size="sm" onClick={handleCreateNote}>
+                <FileText className="h-4 w-4 mr-1.5" />
+                笔记
               </Button>
-            )}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCreateNote}
-          >
-            <FileText className="h-4 w-4 mr-1.5" />
-            笔记
-          </Button>
-          <Link
-            href="/library"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-          >
-            <LinkIcon className="h-4 w-4 mr-1.5" />
-            链接
-          </Link>
+              <Link
+                href="/library"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" }),
+                )}
+              >
+                <LinkIcon className="h-4 w-4 mr-1.5" />
+                链接
+              </Link>
+            </div>
+          </>
+        }
+      />
+
+      {loading ? (
+        <div className="dashboard-loading" role="status">
+          <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
         </div>
-      </div>
+      ) : (
+        <>
+          <DashboardCapture onAdded={() => void loadData()} />
 
-      <DashboardCapture onAdded={() => void loadData()} />
-      </div>
-
-      <div className="grid gap-4 lg:gap-5 lg:grid-cols-3">
-        {/* 主列（约 2/3）：继续处理 */}
-        <div className="lg:col-span-2 space-y-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-3 mb-2.5">
-                <div className="flex items-baseline gap-2.5">
-                  <h3 className="text-[15px] font-semibold">继续处理</h3>
-                  {overdueTasks.length > 0 && (
-                    <span className="dashboard-metric-alert">逾期 {overdueTasks.length}</span>
-                  )}
+          <div className="dashboard-content-grid">
+            {/* 主列（约 2/3）：继续处理 */}
+            <div className="lg:col-span-2 space-y-4">
+              <DashboardSection
+                title="继续处理"
+                actions={
+                  <div className="flex items-center gap-3">
+                    {overdueTasks.length > 0 && (
+                      <span className="dashboard-metric-alert">
+                        逾期 {overdueTasks.length}
+                      </span>
+                    )}
+                    <Link href="/tasks" className="dashboard-section-link">
+                      全部待办 <ChevronRight className="h-3 w-3" />
+                    </Link>
+                  </div>
+                }
+              >
+                <div className="dashboard-metric-row mb-3">
+                  <span>
+                    <strong>
+                      {todayCompletion.completed}/{todayCompletion.planned}
+                    </strong>
+                    今日完成
+                  </span>
+                  <span>
+                    <strong>{taskStreak}</strong>
+                    连续天数
+                  </span>
                 </div>
-                <Link href="/tasks" className="dashboard-section-link">
-                  全部待办
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-              <div className="dashboard-metric-row mb-3">
-                <span>
-                  <strong>
-                    {todayCompletion.completed}/{todayCompletion.planned}
-                  </strong>
-                  今日完成
-                </span>
-                <span>
-                  <strong>{taskStreak}</strong>
-                  连续天数
-                </span>
-              </div>
-              {actionableTasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  {search.trim() ? "没有匹配的待办" : "今天没有待办，享受轻松的一天吧"}
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {actionableTasks.slice(0, 5).map((task) => {
-                    const overdue = isOverdue(task.due_date, task.status);
-                    return (
-                      <div
-                        key={task.id}
-                        className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
-                        onClick={() => router.push("/tasks")}
-                      >
-                        <button
-                          aria-label={task.status === "in_progress" ? "标记为待办" : "标记完成"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleTaskStatus(task.id, task.status === "in_progress" ? "todo" : "done");
-                          }}
-                          className={cn(
-                            "mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center transition-colors shrink-0",
-                            task.status === "in_progress"
-                              ? "bg-primary/20 border-primary"
-                              : overdue
-                                ? "border-destructive/50 hover:bg-destructive/20"
-                                : "border-primary hover:bg-primary/20"
-                          )}
+                {actionableTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    {search.trim()
+                      ? "没有匹配的待办"
+                      : "今天没有待办，享受轻松的一天吧"}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {actionableTasks.slice(0, 5).map((task) => {
+                      const overdue = isOverdue(task.due_date, task.status);
+                      return (
+                        <div
+                          key={task.id}
+                          className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
+                          onClick={() => router.push("/tasks")}
                         >
-                          {task.status === "in_progress" && (
-                            <PlayCircle className="h-2.5 w-2.5 text-primary" />
-                          )}
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-                            <span>{TASK_CATEGORY_CONFIG[task.category].icon}</span>
-                            <span className={cn(overdue && "text-destructive")}>
-                              {task.status === "in_progress" ? "进行中" : formatDueTime(task.due_date)}
-                            </span>
+                          <button
+                            aria-label={
+                              task.status === "in_progress"
+                                ? "标记为待办"
+                                : "标记完成"
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleTaskStatus(
+                                task.id,
+                                task.status === "in_progress" ? "todo" : "done",
+                              );
+                            }}
+                            className={cn(
+                              "mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center transition-colors shrink-0",
+                              task.status === "in_progress"
+                                ? "bg-primary/20 border-primary"
+                                : overdue
+                                  ? "border-destructive/50 hover:bg-destructive/20"
+                                  : "border-primary hover:bg-primary/20",
+                            )}
+                          >
+                            {task.status === "in_progress" && (
+                              <PlayCircle className="h-2.5 w-2.5 text-primary" />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium line-clamp-1">
+                              {task.title}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                              <span>
+                                {TASK_CATEGORY_CONFIG[task.category].icon}
+                              </span>
+                              <span
+                                className={cn(overdue && "text-destructive")}
+                              >
+                                {task.status === "in_progress"
+                                  ? "进行中"
+                                  : formatDueTime(task.due_date)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </DashboardSection>
 
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-semibold flex items-center gap-1.5">
-                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                  继续阅读
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-1.5 text-[11px] font-normal text-muted-foreground"
-                    onClick={handleRecommendNext}
-                    disabled={visibleArticles.length === 0}
-                  >
-                    <RefreshCw className="h-3 w-3 mr-1" />
-                    随机一篇
-                  </Button>
-                  <Link href="/library" className="dashboard-section-link">
-                    全部
-                    <ChevronRight className="h-3 w-3" />
+              <DashboardSection
+                title="继续阅读"
+                icon={BookOpen}
+                actions={
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px] font-normal text-muted-foreground"
+                      onClick={handleRecommendNext}
+                      disabled={visibleArticles.length === 0}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      随机一篇
+                    </Button>
+                    <Link href="/library" className="dashboard-section-link">
+                      全部
+                      <ChevronRight className="h-3 w-3" />
+                    </Link>
+                  </div>
+                }
+              >
+                {visibleArticles.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    {search.trim()
+                      ? "没有匹配的文章"
+                      : "阅读清单已清空，去稍后读添加新文章"}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {visibleArticles.slice(0, 4).map((article) => (
+                      <Link
+                        key={article.id}
+                        href={`/library/${article.id}`}
+                        className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
+                      >
+                        <p className="text-sm font-medium line-clamp-1">
+                          {article.title || "无标题"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {article.excerpt
+                            ? article.excerpt.slice(0, 60)
+                            : "未读"}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </DashboardSection>
+            </div>
+
+            {/* 辅列（约 1/3）：最近笔记 + 最近速记 */}
+            <div className="space-y-4">
+              <DashboardSection
+                title="最近笔记"
+                icon={NoteIcon}
+                actions={
+                  <Link href="/notes" className="dashboard-section-link">
+                    全部 <ChevronRight className="h-3 w-3" />
                   </Link>
-                </div>
-              </div>
-              {visibleArticles.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  {search.trim() ? "没有匹配的文章" : "阅读清单已清空，去稍后读添加新文章"}
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {visibleArticles.slice(0, 4).map((article) => (
-                    <Link
-                      key={article.id}
-                      href={`/library/${article.id}`}
-                      className="block p-2 rounded-md hover:bg-accent transition-colors duration-150"
-                    >
-                      <p className="text-sm font-medium line-clamp-1">{article.title || "无标题"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {article.excerpt ? article.excerpt.slice(0, 60) : "未读"}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                }
+              >
+                {visibleNotes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    {search.trim()
+                      ? "没有匹配的笔记"
+                      : "还没有笔记，开始记录你的想法"}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {visibleNotes.slice(0, 5).map((note) => (
+                      <Link
+                        key={note.id}
+                        href={`/notes/${note.id}`}
+                        className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
+                      >
+                        <p className="text-sm font-medium line-clamp-1">
+                          {note.title || "无标题笔记"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(note.updated_at).toLocaleDateString(
+                            "zh-CN",
+                          )}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </DashboardSection>
 
-        {/* 辅列（约 1/3）：最近笔记 + 最近速记 */}
-        <div className="space-y-4">
-          <Card>
-            <CardContent className="p-3.5">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[13px] font-medium text-muted-foreground flex items-center gap-1.5">
-                  <NoteIcon className="h-3.5 w-3.5" />
-                  最近笔记
-                </h3>
-                <Link href="/notes" className="dashboard-section-link">
-                  全部
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-              {visibleNotes.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">{search.trim() ? "没有匹配的笔记" : "还没有笔记，开始记录你的想法"}</p>
-              ) : (
-                <div className="space-y-1">
-                  {visibleNotes.slice(0, 5).map((note) => (
-                    <Link
-                      key={note.id}
-                      href={`/notes/${note.id}`}
-                      className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
-                    >
-                      <p className="text-sm font-medium line-clamp-1">{note.title || "无标题笔记"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(note.updated_at).toLocaleDateString("zh-CN")}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-3.5">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[13px] font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Feather className="h-3.5 w-3.5" />
-                  最近速记
-                </h3>
-                {/* 阶段 C：速记入口并入资料库（?view=memos），/memos 重定向兼容 */}
-                <Link href="/library?view=memos" className="dashboard-section-link">
-                  全部
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-              {visibleMemos.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">{search.trim() ? "没有匹配的速记" : "上方输入框可快速记一条"}</p>
-              ) : (
-                <div className="space-y-1">
-                  {visibleMemos.map((memo) => (
-                    <Link
-                      key={memo.id}
-                      // F05：沿用 ?memo= 深链合同（阶段 C 起指向资料库速记视图），搜索/工作台/外链定位同一目标
-                      href={`/library?view=memos&memo=${memo.id}`}
-                      className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
-                    >
-                      <p className="text-sm line-clamp-2">{memo.content}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(memo.created_at).toLocaleDateString("zh-CN")}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              <DashboardSection
+                title="最近速记"
+                icon={Feather}
+                actions={
+                  <Link
+                    href="/library?view=memos"
+                    className="dashboard-section-link"
+                  >
+                    全部 <ChevronRight className="h-3 w-3" />
+                  </Link>
+                }
+              >
+                {visibleMemos.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    {search.trim()
+                      ? "没有匹配的速记"
+                      : "上方输入框可快速记一条"}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {visibleMemos.map((memo) => (
+                      <Link
+                        key={memo.id}
+                        // F05：沿用 ?memo= 深链合同（阶段 C 起指向资料库速记视图），搜索/工作台/外链定位同一目标
+                        href={`/library?view=memos&memo=${memo.id}`}
+                        className="block rounded-md px-2 py-1.5 hover:bg-accent transition-colors duration-150"
+                      >
+                        <p className="text-sm line-clamp-2">{memo.content}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(memo.created_at).toLocaleDateString(
+                            "zh-CN",
+                          )}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </DashboardSection>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
