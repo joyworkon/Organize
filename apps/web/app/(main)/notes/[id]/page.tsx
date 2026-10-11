@@ -55,6 +55,7 @@ import { downloadNoteExport } from "@/lib/export/note-export";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
+import { isEmptyDoc, shouldDiscardEmptyNote } from "@/lib/notes/empty-note";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
 import {
@@ -227,6 +228,11 @@ export default function NoteEditorPage() {
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // 空笔记自动丢弃：加载时为空 + 离开时仍为空 + 新建不久 → 离开页面即删除，
+  // 避免「点一下新建笔记」在列表里堆出一串无标题空笔记（判定见 lib/notes/empty-note）
+  const loadedEmptyRef = useRef(false);
+  const createdAtRef = useRef<string | null>(null);
+  const allNotesRef = useRef<NoteTreeItem[]>([]);
   // X1 离线同步：网络状态（未同步标记由保存会话派生）
   const online = useOnlineStatus();
 
@@ -343,7 +349,7 @@ export default function NoteEditorPage() {
         .from("notes")
         .select("*")
         .eq("id", noteId)
-        .single();
+        .maybeSingle();
 
       if (!active) return;
       if (!error && data) {
@@ -384,6 +390,8 @@ export default function NoteEditorPage() {
           page_template: data.page_template === "red-blue" ? "red-blue" : "default",
         };
         draftRef.current = remoteDraft;
+        loadedEmptyRef.current = !loadedTitle.trim() && isEmptyDoc(loadedContent);
+        createdAtRef.current = data.created_at || null;
         appEvents.emit("note:opened", { noteId, title: loadedTitle });
 
         const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
@@ -462,6 +470,10 @@ export default function NoteEditorPage() {
           setLoadFailure("offline");
         } else {
           setLoadFailure("not-found");
+          // 笔记不存在：别让标签页/最近列表留下一个凭空出现的「无标题笔记」
+          window.dispatchEvent(
+            new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } })
+          );
         }
       }
       // 版本恢复的「跳过卸载兜底」标志只该被恢复前那一次 flushSave 消费。
@@ -555,6 +567,48 @@ export default function NoteEditorPage() {
     if (!saveSession) return Promise.resolve(true);
     return saveSession.flushSaved();
   }, [saveSession]);
+
+  useEffect(() => {
+    allNotesRef.current = allNotes;
+  }, [allNotes]);
+  const saveSessionRef = useRef(saveSession);
+  useEffect(() => {
+    saveSessionRef.current = saveSession;
+  }, [saveSession]);
+
+  useEffect(() => {
+    loadedEmptyRef.current = false;
+    createdAtRef.current = null;
+    return () => {
+      let currentContent = draftRef.current.content;
+      try {
+        const editor = editorRef.current;
+        if (editor && !editor.isDestroyed) currentContent = editor.getJSON();
+      } catch {
+        /* 编辑器已销毁时回退到草稿 */
+      }
+      const discard = shouldDiscardEmptyNote({
+        isOwner: noteRoleRef.current === "owner",
+        loadedEmpty: loadedEmptyRef.current,
+        title: draftRef.current.title || "",
+        content: currentContent,
+        hasChildren: allNotesRef.current.some((n) => n.parent_note_id === noteId),
+        createdAt: createdAtRef.current,
+      });
+      if (!discard || !isOnline()) return;
+      saveSessionRef.current?.suppressAutosave();
+      window.dispatchEvent(new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } }));
+      void (async () => {
+        try {
+          await mutateTrash("note", [noteId], "soft_delete");
+          await mutateTrash("note", [noteId], "permanent_delete");
+        } catch {
+          /* 丢弃失败无害：最多留下一篇空笔记 */
+        }
+        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      })();
+    };
+  }, [noteId]);
 
   // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移。
   // loadedRevision 是 state：loadNote 成功拿到数据后必然触发本 effect（P0-1 修复）。
