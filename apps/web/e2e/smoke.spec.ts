@@ -71,10 +71,14 @@ test("任务完成：快速添加后勾选完成", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByText("playwright-smoke-task").first()).toBeVisible();
 
-  await page.getByLabel("标记完成").first().click();
+  const toggle = page.getByRole("checkbox", { name: "完成任务：playwright-smoke-task" });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  // 键盘可勾选：聚焦后空格切换（role=checkbox 的原生 button）
+  await toggle.focus();
+  await page.keyboard.press("Space");
   // 完成后行划线/状态徽标变化；乐观更新即时生效
   await expect(page.getByText("playwright-smoke-task").first()).toBeVisible();
-  await expect(page.getByLabel("标记未完成").first()).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "完成任务：playwright-smoke-task" }).first()).toHaveAttribute("aria-checked", "true");
 });
 
 test("备份恢复：校验合同 + 非空账户 409 拒绝", async ({ page }) => {
