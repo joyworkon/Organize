@@ -805,6 +805,13 @@ export default function NoteEditorPage() {
     titleAutoFocusedRef.current = noteId;
     const el = titleRef.current;
     if (!el) return;
+    // 用户已经点进正文（或其它输入框）就不要抢焦点：否则正在输入的第一个字
+    // 会落进标题、其余落进正文（真实后端加载稍慢时可复现）
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== el && (active as HTMLElement).isContentEditable) return;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+      if (active !== el) return;
+    }
     el.focus();
     const len = el.value.length;
     el.setSelectionRange(len, len);
