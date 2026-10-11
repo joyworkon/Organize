@@ -53,6 +53,26 @@ describe("AutosaveController", () => {
     resolveNext({ ok: true, revision: 2 });
     await vi.waitFor(() => expect(received).toHaveLength(2));
     expect(received[1].localSeq).toBe(2);
+    expect(received[1].expectedRevision).toBe(2);
+    resolveNext({ ok: true, revision: 3 });
+    c.destroy();
+  });
+
+  it("防抖期间立刻通知 pending，排队内容保存完成前不报告 idle", async () => {
+    const { submit, received, resolveNext } = makeSubmitter([]);
+    const seen: string[] = [];
+    const c = new AutosaveController(submit, (state) => seen.push(state), { debounceMs: 10 });
+    c.schedule(snap(1));
+    expect(seen).toEqual(["pending"]);
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    c.schedule(snap(2));
+    resolveNext({ ok: true, revision: 2 });
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    expect(seen).not.toContain("idle");
+    expect(received[1].expectedRevision).toBe(2);
+    resolveNext({ ok: true, revision: 3 });
+    await vi.waitFor(() => expect(seen.at(-1)).toBe("idle"));
+    c.destroy();
   });
 
   it("冲突：暂停自动写回并上报 currentRevision；resume 后恢复", async () => {

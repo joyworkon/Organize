@@ -55,6 +55,7 @@ export interface LastActiveTarget {
 }
 
 export type InsertSelection =
+  | { kind: "blocks"; blockIds: string[] }
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
   | { kind: "board"; boardId: string }

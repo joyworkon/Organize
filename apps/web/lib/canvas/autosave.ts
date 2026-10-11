@@ -67,6 +67,7 @@ export class AutosaveController {
     this.latest = snapshot;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.flush(), this.options.debounceMs ?? 800);
+    this.onChange(this.state);
   }
 
   /** 立即保存（切页/关闭前）。返回是否仍有未完成工作。 */
@@ -95,11 +96,14 @@ export class AutosaveController {
     if (this.destroyed) return false;
 
     if (outcome.ok) {
-      this.onChange("idle", { currentRevision: outcome.revision });
-      if (this.latest) {
+      const queued = this.latest as AutosaveSnapshot | null;
+      if (queued) {
+        // 排队快照是在上次保存完成前产生的；用刚确认的 revision 串行补发。
+        this.latest = { ...queued, expectedRevision: outcome.revision };
         void this.flush(); // 串行补发保存期间的编辑
         return true;
       }
+      this.onChange("idle", { currentRevision: outcome.revision });
       return false;
     }
 

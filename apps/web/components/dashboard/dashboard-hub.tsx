@@ -73,13 +73,13 @@ export function DashboardHub() {
         </div>
         {/* 页内搜索：与「工作台」标题同一行、内容框最右侧。
             只在「今天」视图渲染——回顾是日历、统计是图表，没有可被关键词筛的列表。 */}
-        {current === "today" && (
-          <PageSearch
+        <div className="dashboard-search-slot" aria-hidden={current !== "today"}>
+          {current === "today" && <PageSearch
             value={search}
             onChange={setSearch}
             placeholder="搜索工作台（标题 / 标签）"
-          />
-        )}
+          />}
+        </div>
         </div>
       </div>
 
