@@ -180,7 +180,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
         </span>
       )}
       {onStatus && (
-        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
+        <button type="button" role="checkbox" aria-checked={task.status === "done"} aria-label={`完成任务：${task.title}`} onClick={(event) => { event.stopPropagation(); onStatus(); }} className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-md border", task.status === "done" ? "border-muted bg-muted" : "border-muted-foreground/30 hover:border-primary")}>
           {task.status === "done" && <Check className="h-3.5 w-3.5" />}
         </button>
       )}

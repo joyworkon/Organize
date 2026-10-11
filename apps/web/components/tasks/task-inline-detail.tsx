@@ -281,7 +281,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
   return (
     <aside className="organize-task-detail flex min-w-0 flex-1 flex-col bg-background lg:w-[34.5vw] lg:min-w-[420px] lg:max-w-[640px] lg:flex-none">
       <header className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
-        <button type="button" aria-label={task.status === "done" ? "标记未完成" : "标记完成"} onClick={() => {
+        <button type="button" role="checkbox" aria-checked={task.status === "done"} aria-label={`完成任务：${task.title}`} onClick={() => {
           const toDone = task.status !== "done";
           if (toDone && !confirmBlocking(blockingPrerequisites)) return;
           void onUpdate(task.id, { status: toDone ? "done" : "todo", completed_at: toDone ? new Date().toISOString() : null });
