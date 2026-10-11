@@ -25,12 +25,12 @@ async function openPage(page: Page, path: string) {
   await page.waitForTimeout(1200);
 }
 
-test("登录：邮箱密码登录后进入阅读库", async ({ page }) => {
+test("登录：邮箱密码登录后进入工作台", async ({ page }) => {
   await openPage(page, "/login");
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(/\/library/);
+  await expect(page).toHaveURL(/127\.0\.0\.1:3100\/$/);
 });
 
 test("稍后读保存：统一输入框粘贴链接回车保存，列表出现抓取标题", async ({ page }) => {

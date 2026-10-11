@@ -1,6 +1,8 @@
 "use client";
 
 // 资料库「全部」视图（阶段 C）：统一游标列表（/api/library/items），
+// 主列表只放阅读物（文章 / 导入文件），速记单独收在顶部「最近速记」条里——
+// 速记是想法碎片不是读物，混排会把待读文章淹没；搜索时才把两者合在一起找。
 // 页内搜索走服务端 q（防抖重新取第一页），标签筛选走 p_tags（标签名）。
 // 连续翻页靠三元组游标保证不重不漏（lib/library/cursor.ts + 089 RPC 同一语义）。
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -11,7 +13,8 @@ import { TagFilter } from "@/components/tags/tag-filter";
 import { useAllTags } from "@/components/tags/use-tags";
 import { toast } from "@/hooks/use-toast";
 import type { LibraryItem } from "@organize/shared";
-import { BookOpen, Loader2 } from "@/components/icons";
+import Link from "next/link";
+import { BookOpen, ChevronRight, Feather, Loader2 } from "@/components/icons";
 
 const PAGE_SIZE = 30;
 
@@ -27,6 +30,7 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [recentMemos, setRecentMemos] = useState<LibraryItem[]>([]);
   // 标签筛选（p_tags 走标签名；TagFilter 以 id 为值，这里只把选中 id 映射回 name）
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const { tags: allTags } = useAllTags();
@@ -41,8 +45,8 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
       if (append) setLoadingMore(true);
       else setLoading(true);
       try {
-        const params = new URLSearchParams({ view: "all", limit: String(PAGE_SIZE) });
         const q = search.trim();
+        const params = new URLSearchParams({ view: q ? "all" : "reading", limit: String(PAGE_SIZE) });
         if (q) params.set("q", q);
         if (selectedTagNamesKey) params.set("tags", selectedTagNamesKey.split("\n").join(","));
         if (cursor) params.set("cursor", cursor);
@@ -76,6 +80,20 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
     return () => clearTimeout(timer);
   }, [fetchPage, refreshTick]);
 
+  // 最近速记（不受搜索/标签影响；搜索时主列表已包含速记，条带隐藏）
+  useEffect(() => {
+    let active = true;
+    void fetch(`/api/library/items?${new URLSearchParams({ view: "memo", limit: "3" })}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { items?: LibraryItem[] } | null) => {
+        if (active && data?.items) setRecentMemos(data.items);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [refreshTick]);
+
   const loadMore = () => {
     if (nextCursor) void fetchPage(nextCursor, true);
   };
@@ -90,6 +108,22 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
         </div>
       )}
 
+      {!hasFilter && recentMemos.length > 0 && (
+        <section aria-label="最近速记" className="rounded-lg border bg-card px-3 py-2">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5"><Feather className="h-3.5 w-3.5" />最近速记</span>
+            <Link href="/library?view=memos" className="inline-flex items-center hover:text-foreground">
+              全部速记<ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <ul className="divide-y">
+            {recentMemos.map((memo) => (
+              <li key={memo.id} className="truncate py-1.5 text-sm">{memo.excerpt}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {loading ? (
         <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="资料库加载中">
           {Array.from({ length: 5 }).map((_, index) => (
@@ -99,8 +133,8 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
       ) : items.length === 0 ? (
         <EmptyState
           icon={BookOpen}
-          title={hasFilter ? "没有找到匹配的内容" : "资料库还是空的"}
-          description={hasFilter ? "试试调整搜索或标签筛选" : "在上方输入框写点什么、粘贴链接，或拖入文件"}
+          title={hasFilter ? "没有找到匹配的内容" : "还没有待读的文章"}
+          description={hasFilter ? "试试调整搜索或标签筛选" : "在上方输入框粘贴链接，或拖入文件"}
         />
       ) : (
         <div className="grid gap-2 sm:gap-3">
