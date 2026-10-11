@@ -77,9 +77,14 @@ export function NoteTabsBar() {
 
   const activeId = pathname.match(NOTE_ID_RE)?.[1] ?? null;
 
+  // 已确认不存在 / 已删除的笔记 id：ownerId 异步就绪会让下面的 effect 重跑，
+  // 不记住的话会把刚移除的「无标题笔记」标签又加回来
+  const removedIdsRef = useRef<Set<string>>(new Set());
+
   // 路由进入某篇笔记 → 确保它有标签页（标题先占位，笔记页加载后事件回填）
   useEffect(() => {
     if (!activeId || !ownerId) return;
+    if (removedIdsRef.current.has(activeId)) return;
     openTab({ id: activeId, title: "", icon: null });
   }, [activeId, ownerId, openTab]);
 
@@ -87,17 +92,23 @@ export function NoteTabsBar() {
   useEffect(() => {
     const handleMeta = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string; title: string; icon: string | null }>).detail;
-      if (detail?.id) updateMeta({ id: detail.id, title: detail.title, icon: detail.icon });
+      if (!detail?.id) return;
+      // 笔记成功加载（例如从垃圾箱恢复后再次打开）→ 解除「已移除」标记并补回标签页
+      if (removedIdsRef.current.delete(detail.id)) openTab({ id: detail.id, title: detail.title, icon: detail.icon });
+      updateMeta({ id: detail.id, title: detail.title, icon: detail.icon });
     };
     window.addEventListener("organize:note-tab", handleMeta);
     return () => window.removeEventListener("organize:note-tab", handleMeta);
-  }, [updateMeta]);
+  }, [updateMeta, openTab]);
 
   // 笔记被删除/移入垃圾箱 → 从标签页与最近列表中移除
   useEffect(() => {
     const handleRemove = (event: Event) => {
       const id = (event as CustomEvent<{ id: string }>).detail?.id;
-      if (id) forgetNote(id);
+      if (id) {
+        removedIdsRef.current.add(id);
+        forgetNote(id);
+      }
     };
     window.addEventListener("organize:note-tab-remove", handleRemove);
     return () => window.removeEventListener("organize:note-tab-remove", handleRemove);
