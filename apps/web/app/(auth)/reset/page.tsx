@@ -3,6 +3,7 @@
 import { useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { localizeAuthError } from "@/lib/auth/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,11 +34,11 @@ function ResetPasswordContent() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
         setStatus("error");
-        setMessage(error.message);
+        setMessage(localizeAuthError(error.message));
         return;
       }
       setStatus("done");
-      setTimeout(() => router.push("/library"), 1500);
+      setTimeout(() => router.push("/"), 1500);
     } catch (err) {
       setStatus("error");
       setMessage(err instanceof Error ? err.message : "重置失败，请重试");
