@@ -18,6 +18,7 @@ import { isImeComposing } from "@/lib/input/submit-guard";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { toast } from "@/hooks/use-toast";
+import { CAPTURE_KIND_LABEL, detectCapture } from "@/lib/capture/detect";
 
 const options = [
   { mode: "memo", label: "速记", description: "随手记下一个想法", icon: Feather },
@@ -27,7 +28,7 @@ const options = [
 ] as const;
 type EntryMode = (typeof options)[number]["mode"];
 type QuickAddMode = "menu" | EntryMode;
-const emptyDrafts = { url: "", memo: "", task: "", note: "" };
+const emptyDrafts = { url: "", memo: "", task: "", note: "", auto: "" };
 
 export function QuickAdd() {
   const router = useRouter();
@@ -88,8 +89,11 @@ export function QuickAdd() {
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
-      const requested = (event as CustomEvent<{ mode?: QuickAddMode }>).detail?.mode;
+      const detail = (event as CustomEvent<{ mode?: QuickAddMode; text?: string }>).detail;
+      const requested = detail?.mode;
       if (requested === "note") { void createNote(); return; }
+      // 工作台「其它类型…」把已输入的文字带进来，作为统一输入框的初值
+      if (detail?.text?.trim()) setDrafts((previous) => ({ ...previous, auto: detail.text!.trim() }));
       openPanel(requested && options.some((entry) => entry.mode === requested) ? requested : "menu");
     };
     const handleQuickSave = () => openPanel();
@@ -125,14 +129,21 @@ export function QuickAdd() {
   }, [open, openPanel]);
 
   const updateDraft = (value: string) => {
-    if (mode === "menu") return;
-    setDrafts((previous) => ({ ...previous, [mode]: value }));
-    if (userIdRef.current) saveMemoDraft(localStorage, userIdRef.current, `quick-add:${mode}`, value);
+    const key = mode === "menu" ? "auto" : mode;
+    setDrafts((previous) => ({ ...previous, [key]: value }));
+    if (userIdRef.current) saveMemoDraft(localStorage, userIdRef.current, `quick-add:${key}`, value);
+  };
+  const currentMode = mode;
+  const autoDetected = detectCapture(drafts.auto);
+  const submitAuto = () => {
+    if (!autoDetected.text) return;
+    void submit({ mode: autoDetected.kind, text: autoDetected.text });
   };
 
-  const submit = async () => {
+  const submit = async (override?: { mode: Exclude<EntryMode, "note">; text: string }) => {
+    const mode = override?.mode ?? currentMode;
     if (mode === "menu" || mode === "note" || submittingRef.current) return;
-    const text = drafts[mode].trim();
+    const text = (override?.text ?? drafts[mode]).trim();
     if (!text || (mode === "memo" && text.length > 5000)) return;
     submittingRef.current = true;
     setIsSubmitting(true);
@@ -175,8 +186,11 @@ export function QuickAdd() {
         window.dispatchEvent(new CustomEvent("organize:memos-synced"));
         void emitDataChanged({ topic: "memos", origin: "main" });
       }
-      setDrafts((previous) => ({ ...previous, [mode]: "" }));
-      if (userIdRef.current) clearMemoDraft(localStorage, userIdRef.current, `quick-add:${mode}`);
+      setDrafts((previous) => ({ ...previous, [mode]: "", ...(override ? { auto: "" } : {}) }));
+      if (userIdRef.current) {
+        clearMemoDraft(localStorage, userIdRef.current, `quick-add:${mode}`);
+        if (override) clearMemoDraft(localStorage, userIdRef.current, "quick-add:auto");
+      }
       setOpen(false);
     } catch (error) {
       toast({ title: "保存失败，输入已保留", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -197,8 +211,36 @@ export function QuickAdd() {
           </DialogHeader>
           {mode === "menu" ? (
             <div className="space-y-1">
+              {/* 统一快速记录：一个输入框自动识别类型（链接→稍后读，「待办：」→待办，其余→速记），下方类型列表用于改选 */}
+              <form className="mb-3 space-y-2" onSubmit={(event) => { event.preventDefault(); submitAuto(); }}>
+                <textarea
+                  autoFocus
+                  aria-label="快速记录"
+                  aria-describedby="quick-add-auto-hint"
+                  placeholder="记录想法、粘贴链接，或以「待办：」开头…"
+                  value={drafts.auto}
+                  disabled={isSubmitting}
+                  onChange={(event) => updateDraft(event.target.value)}
+                  onKeyDown={(event) => { if (!isImeComposing(event) && event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitAuto(); } }}
+                  rows={2}
+                  className="w-full resize-none rounded-xl border bg-card p-3 text-base leading-relaxed outline-none focus:ring-2 focus:ring-ring/30"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p id="quick-add-auto-hint" className="text-xs text-muted-foreground" aria-live="polite">
+                    {autoDetected.text ? `回车保存为「${CAPTURE_KIND_LABEL[autoDetected.kind]}」· Shift+回车换行` : "或从下方选择类型"}
+                  </p>
+                  <Button type="submit" size="sm" disabled={isSubmitting || !autoDetected.text}>
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : autoDetected.text ? `保存为${CAPTURE_KIND_LABEL[autoDetected.kind]}` : "保存"}
+                  </Button>
+                </div>
+              </form>
               {options.map(({ mode: next, label, description, icon: Icon }) => (
-                <button key={next} type="button" disabled={isSubmitting} className="flex min-h-[72px] w-full items-center gap-4 rounded-xl px-3 text-left hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => { if (next === "note") void createNote(); else setMode(next); }}>
+                <button key={next} type="button" disabled={isSubmitting} className="flex min-h-[72px] w-full items-center gap-4 rounded-xl px-3 text-left hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => {
+                  if (next === "note") { void createNote(); return; }
+                  // 改选类型时把统一输入框里的内容带过去，不用重输
+                  if (drafts.auto.trim() && !drafts[next].trim()) setDrafts((previous) => ({ ...previous, [next]: detectCapture(previous.auto).text || previous.auto }));
+                  setMode(next);
+                }}>
                   <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary text-primary"><Icon className="h-5 w-5" /></span>
                   <span className="min-w-0 flex-1"><span className="block text-base font-medium">{label}</span><span className="mt-0.5 block text-xs text-muted-foreground">{description}</span></span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
