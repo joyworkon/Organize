@@ -85,7 +85,7 @@ export async function getAISettingsView(_supabase: SupabaseClient, userId: strin
     row = (data as AISettingsRow | null) ?? null;
   } else {
     const admin = createAdminClient();
-    if (!admin) return { configured: false, base_url: "", text_model: "", transcription_model: "", api_key_masked: "", has_key: false };
+    if (!admin) return { configured: false, base_url: "", text_model: "", transcription_model: "", api_key_masked: "", has_key: false, available: envAIAvailable() };
     const { data } = await admin
       .from("user_ai_settings")
       .select("base_url, api_key, text_model, transcription_model")
@@ -100,7 +100,13 @@ export async function getAISettingsView(_supabase: SupabaseClient, userId: strin
     transcription_model: row?.transcription_model || "",
     api_key_masked: row?.api_key ? maskApiKey(row.api_key) : "",
     has_key: !!row?.api_key,
+    // 能否真正调用 AI：用户配置齐全，或服务端环境变量兜底（与 getAIConfig 的判定一致）
+    available: !!(row?.base_url && row?.api_key) || envAIAvailable(),
   };
+}
+
+function envAIAvailable(): boolean {
+  return !!(process.env.AI_BASE_URL && process.env.AI_API_KEY);
 }
 
 async function request(url: string, init: { method: "GET" | "POST"; headers: Record<string, string>; body?: Buffer | string }, timeoutMs = 90_000) {

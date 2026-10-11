@@ -6,6 +6,7 @@
 // base_url 在保存时由服务端做 SSRF 校验（localhost / 内网 / 元数据地址等一律拒绝）。
 
 import { useEffect, useState } from "react";
+import { invalidateAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,6 +89,7 @@ export function AISettingsSection() {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "保存失败");
       toast({ title: "已保存", description: "AI 功能已启用：笔记问 AI / AI 速记 / 标签智能推荐" });
+      invalidateAiAvailability();
       // 重新拉取展示态（掩码刷新）
       const refreshed = await fetch("/api/ai/settings", { cache: "no-store" });
       if (refreshed.ok) {
@@ -111,6 +113,7 @@ export function AISettingsSection() {
     try {
       const res = await fetch("/api/ai/settings", { method: "DELETE" });
       if (!res.ok) throw new Error("清除失败");
+      invalidateAiAvailability();
       setView(EMPTY_VIEW);
       setForm({ base_url: "", api_key: "", text_model: "", transcription_model: "" });
       toast({ title: "已清除", description: "已删除 AI 配置" });
