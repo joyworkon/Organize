@@ -64,6 +64,7 @@ import { TaskAttachmentsDialog } from "@/components/tasks/task-attachments-dialo
 import { TaskDatePopover, formatTaskDate } from "@/components/tasks/task-date-popover";
 import { toast } from "@/hooks/use-toast";
 import { useNotifications } from "@/hooks/use-notifications";
+import { NotificationDeniedHelp } from "@/components/tasks/notification-denied-help";
 import { cn } from "@/lib/utils";
 import type { TagWithCount, Task, TaskCategory, TaskDependency, TaskPriority, TaskStatus, TaskWithTags } from "@organize/shared";
 import { TASK_PRIORITY_CONFIG } from "@organize/shared";
@@ -1003,14 +1004,7 @@ function TasksPageInner() {
                 🔔 开启通知
               </button>
             )}
-            {permission === "denied" && (
-              <span
-                className="text-xs text-muted-foreground"
-                title="通知权限已被浏览器禁止：提醒将无法送达。可在浏览器地址栏的站点设置里把「通知」改为「允许」，然后刷新页面。"
-              >
-                🔕 通知已禁用
-              </span>
-            )}
+            {permission === "denied" && <NotificationDeniedHelp />}
             <TaskFilterMenu value={taskFilter} onChange={applyTaskFilter} tags={tags} />
             <Button
               variant={groupByDate ? "default" : "outline"}
@@ -1079,8 +1073,8 @@ function TasksPageInner() {
             {/* U03/U-layout：通知状态短摘要；桌面收进清单头 chip，移动端保留这条细带 */}
             {permission === "default" && <div className="mb-3 flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:hidden"><span>🔔 浏览器通知未开启</span><button type="button" onClick={() => requestPermission()} className="font-medium text-primary">开启</button></div>}
             {permission === "denied" && (
-              <div className="mb-3 rounded-lg bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground md:hidden">
-                🔕 通知已禁用
+              <div className="mb-3 md:hidden">
+                <NotificationDeniedHelp className="w-full text-left" />
               </div>
             )}
 
