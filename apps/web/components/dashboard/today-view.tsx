@@ -399,15 +399,14 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                 }
               >
                 <div className="dashboard-metric-row mb-3">
-                  <span>
-                    <strong>
-                      {todayCompletion.completed}/{todayCompletion.planned}
-                    </strong>
-                    今日完成
+                  {/* 文案直说含义：「1/1 今日完成」「1 连续天数」读不出分子分母各是什么 */}
+                  <span title="今天到期或计划在今天的任务中，已完成的数量">
+                    <strong>{todayCompletion.completed}</strong>
+                    今天已完成（共 {todayCompletion.planned} 项）
                   </span>
-                  <span>
+                  <span title="连续每天都至少完成一项任务的天数">
                     <strong>{taskStreak}</strong>
-                    连续天数
+                    天连续完成
                   </span>
                 </div>
                 {actionableTasks.length === 0 ? (
