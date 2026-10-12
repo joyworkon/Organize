@@ -54,7 +54,8 @@ test("C02 读屏名称回归：核心页面全部按钮有可访问名称", asyn
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(/\/library/);
+  // 登录后进入工作台首页
+  await expect(page).toHaveURL((url) => url.pathname === "/");
 
   for (const route of ["/library", "/notes", "/tasks", "/tasks/lessons", "/memos", "/favorites", "/settings"]) {
     await openPage(page, route);
@@ -80,7 +81,8 @@ test("C02 标题层级回归：页面有 h1 且标题不跳级", async ({ page }
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(/\/library/);
+  // 登录后进入工作台首页
+  await expect(page).toHaveURL((url) => url.pathname === "/");
 
   for (const route of ["/library", "/notes", "/tasks", "/tasks/lessons", "/memos", "/favorites", "/trash"]) {
     await openPage(page, route);
@@ -116,7 +118,8 @@ test("C02 对比度与嵌套交互回归：核心页面与笔记编辑页无违�
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(/\/library/);
+  // 登录后进入工作台首页
+  await expect(page).toHaveURL((url) => url.pathname === "/");
 
   for (const route of ["/library", "/notes", "/tasks", "/tasks/lessons", "/memos", "/favorites", "/settings"]) {
     await openPage(page, route);

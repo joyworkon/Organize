@@ -20,14 +20,15 @@ async function saveMemo(page: Page, text: string) {
   await page.getByLabel("资料库统一输入").fill(text);
   await page.keyboard.press("Enter");
   await expect(page.getByText("已保存为速记").first()).toBeVisible();
+  // 「全部」主列表只放阅读物，速记卡片在「速记」标签
+  await page.getByRole("tab", { name: "速记" }).click();
 }
 
 test("资料库「添加到画布」→ 新建画布 → 快照卡片可见（标题 + 来源行）", async ({ page }) => {
   await openPage(page, "/library");
   await saveMemo(page, "E2E 画布联动标题\n\n这段正文会被引用进画布。");
 
-  const card = page.getByRole("link", { name: /E2E 画布联动标题/ }).first();
-  await card.getByRole("button", { name: /添加到画布/ }).click();
+  await page.getByRole("button", { name: /把「E2E 画布联动标题」添加到画布/ }).first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("选择画布")).toHaveValue("__new__");
@@ -50,11 +51,7 @@ test("快照独立性：画布改卡片标题，原速记不变（验收 22）",
   await openPage(page, "/library");
   await saveMemo(page, "快照独立性标题\n\n原文内容保持不变。");
 
-  await page
-    .getByRole("link", { name: /快照独立性标题/ })
-    .first()
-    .getByRole("button", { name: /添加到画布/ })
-    .click();
+  await page.getByRole("button", { name: /把「快照独立性标题」添加到画布/ }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "添加" }).click();
   await page.getByRole("link", { name: "打开画布查看 →" }).click();

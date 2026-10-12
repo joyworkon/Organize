@@ -87,14 +87,14 @@ test("侧栏：资料库入口保留标签分组，行内「+」聚焦统一输�
 
 test("全部视图：两页游标翻页无重复无遗漏（主列表只含阅读物）", async ({ page }) => {
   await openPage(page, "/library");
-  // mock 种子 7 篇阅读物（速记在顶部「最近速记」条，不进主列表）；再补 25 条链接 → 32 条 > PAGE_SIZE(30)
+  // 主列表只含阅读物（mock 种子里能进「稍后读」口径的阅读物 + 新补的 30 条链接）> PAGE_SIZE(30)，必然翻到第二页
   const urls = Array.from(
-    { length: 25 },
+    { length: 30 },
     (_, i) => `https://example.com/paged-item-${String(i).padStart(2, "0")}`
   );
   await page.getByLabel("资料库统一输入").fill(urls.join(" "));
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Paged item 24").first()).toBeVisible();
+  await expect(page.getByText("Paged item 29").first()).toBeVisible();
   // 「Paged item 21」只证明末条已入库；列表刷新有 300ms 防抖（refreshTick 效应），
   // 此刻读 h2 可能撞上中间态（种子+部分新条 < 30）。「加载更多」可见 ⇔ 首屏
   // fetch 完成且还有下一页——中间批次不足 30 条时按钮不渲染，是稳定信号。
@@ -106,8 +106,9 @@ test("全部视图：两页游标翻页无重复无遗漏（主列表只含阅�
   await page.getByRole("button", { name: "加载更多" }).click();
   await expect(page.getByText("Paged item 00").first()).toBeVisible();
   const allTitles = await page.locator("h2").allTextContents();
-  expect(allTitles).toHaveLength(32);
-  expect(new Set(allTitles).size).toBe(32);
+  expect(allTitles.length).toBeGreaterThan(30);
+  expect(new Set(allTitles).size).toBe(allTitles.length);
+  for (let i = 0; i < 30; i += 1) expect(allTitles).toContain(`Paged item ${String(i).padStart(2, "0")}`);
 });
 
 test("全部视图：速记不混入主列表，收在「最近速记」条并可跳转", async ({ page }) => {
