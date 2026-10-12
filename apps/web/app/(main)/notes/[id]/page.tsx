@@ -1363,7 +1363,6 @@ export default function NoteEditorPage() {
           font === "serif" && "note-page-serif",
           font === "mono" && "note-page-mono",
           smallFont && "note-page-small",
-          tocOpen && "note-page-toc-open",
           historyOpen && "note-page-history-open"
         )}
         data-collab-session={
