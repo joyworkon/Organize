@@ -11,6 +11,9 @@ import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { AddToCanvasButton } from "./add-to-canvas-dialog";
+import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
+import type { LibraryItem } from "@organize/shared";
 import { filterByPageSearch } from "@/lib/search/page-search";
 import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
 import { submitMemo, MEMO_MAX_LENGTH } from "@/lib/memos/save-memo";
@@ -47,6 +50,23 @@ function renderContent(content: string, onTagClick: (tag: string) => void) {
       </button>
     );
   });
+}
+
+/** 速记 → 资料库统一条目（「添加到画布」按统一条目取标题/摘要） */
+function memoAsLibraryItem(memo: Memo): LibraryItem {
+  return {
+    id: memo.id,
+    source_type: "memo",
+    title: null,
+    excerpt: memo.content.slice(0, 280),
+    url: null,
+    tags: memo.tags || [],
+    reading_status: null,
+    is_pinned: false,
+    reading_progress: null,
+    is_link_only: false,
+    created_at: memo.created_at,
+  };
 }
 
 export interface MemosViewProps {
@@ -562,6 +582,7 @@ export function MemosView({ search }: MemosViewProps) {
                   <div
                     key={memo.id}
                     id={`memo-${memo.id}`}
+                    data-library-card="memo"
                     className={cn(
                       "group rounded-lg border bg-card p-3 shadow-sm transition-shadow",
                       highlightId === memo.id && "ring-2 ring-primary border-primary"
@@ -656,6 +677,14 @@ export function MemosView({ search }: MemosViewProps) {
                                 </Button>
                               );
                             })()}
+                            {/* 「全部」主列表不再混排速记后，加入集合 / 添加到画布在速记卡片上直接提供 */}
+                            <AddToCollectionsButton
+                              sourceType="memo"
+                              id={memo.id}
+                              hintTitle={memo.content.split("\n")[0]}
+                              hintTags={memo.tags || []}
+                            />
+                            <AddToCanvasButton item={memoAsLibraryItem(memo)} />
                             <Button
                               variant="ghost"
                               size="icon"
