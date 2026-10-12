@@ -1,5 +1,6 @@
 "use client";
 
+import { prefetchAiAvailability } from "@/hooks/use-ai-availability";
 import "katex/dist/katex.min.css";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -1260,6 +1261,10 @@ export function TipTapEditor({
       bounds,
     };
   }, [actionMenu, commandMenu, editor, tablePicker]);
+
+  useEffect(() => {
+    prefetchAiAvailability();
+  }, []);
 
   useEffect(() => {
     document.addEventListener("mousedown", beginSelectDrag);

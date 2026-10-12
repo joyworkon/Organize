@@ -25,6 +25,11 @@ function load(): Promise<boolean | null> {
   return inflight;
 }
 
+/** 编辑器挂载时预取，避免第一次打开斜杠菜单时结果还没回来（未知按「可用」显示） */
+export function prefetchAiAvailability() {
+  void load();
+}
+
 /** 设置页保存 / 清除 AI 配置后调用，下次读取重新请求 */
 export function invalidateAiAvailability() {
   cached = null;
