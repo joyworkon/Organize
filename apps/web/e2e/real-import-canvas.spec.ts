@@ -73,7 +73,8 @@ test.describe("真实后端导入与画布联动（收口阶段 5）", () => {
 
     // 打开条目：提取正文真实入库
     await row.getByRole("link", { name: "打开条目" }).click();
-    await expect(page.getByText("真实导入标题").first()).toBeVisible({ timeout: 15_000 });
+    // 标题回填后移动端顶栏（md:hidden）也会出现同名文本，只取可见的那处
+    await expect(page.getByText("真实导入标题").filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
 
     // 下载原件：私有桶经鉴权路由返回原始字节
     const download = await page.evaluate(async (name) => {
