@@ -186,15 +186,29 @@ export async function transcribeAudio(config: AIConfig, file: File) {
     model: config.transcriptionModel,
     response_format: "json",
   });
-  const response = await request(
-    `${config.baseUrl}/audio/transcriptions`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": contentType },
-      body,
-    },
-    180_000
-  );
+  let response: Awaited<ReturnType<typeof request>>;
+  try {
+    response = await request(
+      `${config.baseUrl}/audio/transcriptions`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": contentType },
+        body,
+      },
+      180_000
+    );
+  } catch (error) {
+    // 部分 OpenAI 兼容服务（如 Xiaomi MiMo 的 ASR 走 chat/completions）没有 /audio/transcriptions：
+    // 给出可操作的说明，而不是把对方网关的 404 HTML 原样抛给用户
+    if (error instanceof AIRequestError && (error.statusCode === 404 || error.statusCode === 405)) {
+      throw new AIRequestError(
+        "HTTP_ERROR",
+        "当前 AI 服务不提供录音转写接口（/audio/transcriptions），请在「设置 › AI 服务」换用支持 Whisper 兼容转写的服务商，或清空转写模型",
+        error.statusCode
+      );
+    }
+    throw error;
+  }
   const data = JSON.parse(response.text());
   const transcript = data.text || data.transcript;
   if (typeof transcript !== "string" || !transcript.trim()) throw new Error("转写服务未返回文本");
