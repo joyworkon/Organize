@@ -34,7 +34,7 @@ import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
-import { NoteTocPanel } from "@/components/notes/note-toc-panel";
+import { TocMinimap } from "@/components/toc/toc-minimap";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "@/components/icons";
 import Link from "next/link";
@@ -842,11 +842,13 @@ export default function NoteEditorPage() {
     );
   }, [noteLoaded, noteId, title, icon]);
 
-  // 目录开关初始值：localStorage 记忆，默认关闭
+  // 目录开关初始值：localStorage 记忆；目录改为正文左侧的轻量刻度，默认显示（用户关过才隐藏）
   useEffect(() => {
     try {
-      setTocOpen(localStorage.getItem(tocKeyFor(noteId)) === "1");
-    } catch { /* 默认关闭 */ }
+      setTocOpen(localStorage.getItem(tocKeyFor(noteId)) !== "0");
+    } catch {
+      setTocOpen(true);
+    }
   }, [noteId]);
 
   // T1/T2：在标题里按回车，把拆分点之后的文字迁移到正文顶部的新段落。
@@ -924,8 +926,9 @@ export default function NoteEditorPage() {
   // 目录开合仍写 localStorage 偏好（既有行为）。
   const openPanelExclusive = useCallback(
     (panel: "toc" | "comments" | "history" | "attachments" | "none") => {
+      // 目录刻度在正文左侧，不占右侧面板位：打开评论/历史等不再顺带关掉目录
       setTocOpen((prevToc) => {
-        const next = panel === "toc";
+        const next = panel === "toc" ? true : prevToc;
         if (next !== prevToc) {
           try {
             localStorage.setItem(tocKeyFor(noteId), next ? "1" : "0");
@@ -948,13 +951,6 @@ export default function NoteEditorPage() {
       } catch { /* localStorage 不可用时仅内存态 */ }
       return next;
     });
-  }, [noteId]);
-
-  const closeToc = useCallback(() => {
-    setTocOpen(false);
-    try {
-      localStorage.setItem(tocKeyFor(noteId), "0");
-    } catch { /* ignore */ }
   }, [noteId]);
 
   // ---- 版本历史：预览 / 恢复 ----
@@ -1625,10 +1621,8 @@ export default function NoteEditorPage() {
         <NoteChildPages noteId={noteId} notes={allNotes} />
       </div>
 
-      {/* 页面目录：右侧固定栏，与正文之间灰色竖线分隔 */}
-      {tocOpen && (
-        <NoteTocPanel editor={editorInstance} content={content} onClose={closeToc} />
-      )}
+      {/* 页面目录：正文左侧的刻度导航（与阅读页共用 TocMinimap） */}
+      {tocOpen && !loading && <TocMinimap root={editorInstance && !editorInstance.isDestroyed ? (editorInstance.view.dom as HTMLElement) : null} />}
 
       {/* 轻量内联提示 */}
       {toast && (

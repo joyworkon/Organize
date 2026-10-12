@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { buildReadingNoteContent, readingNoteTitle } from "@/lib/reading/reading-note";
 import { StatusBadge } from "@/components/reading/status-badge";
-import { Toc, extractHeadings } from "@/components/reading/toc";
+import { TocMinimap } from "@/components/toc/toc-minimap";
 import { HighlightMenu } from "@/components/reading/highlight-menu";
 import { HighlightsPanel } from "@/components/reading/highlights-panel";
 import {
@@ -114,7 +114,7 @@ export default function ReadingDetailPage() {
       })),
     [itemTags, allTagOptions]
   );
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   // 整理稿（阶段 4）：独立可编辑文章的编辑态开关
   const [editingDigest, setEditingDigest] = useState(false);
   const focusContentRef = useRef<HTMLDivElement>(null);
@@ -155,10 +155,8 @@ export default function ReadingDetailPage() {
     () => prepareReadingContent(item?.content || ""),
     [item?.content]
   );
-  const headings = useMemo(() => {
-    if (!item?.content) return [];
-    return extractHeadings(item.content);
-  }, [item?.content]);
+  // 目录刻度直接读正文 DOM：正文节点挂载/替换后交给它
+  const [tocRoot, setTocRoot] = useState<HTMLDivElement | null>(null);
 
   const recommendedItem = useMemo(() => {
     return getNextRecommendation(otherItems, itemId);
@@ -971,7 +969,7 @@ export default function ReadingDetailPage() {
         showHighlightsPanel && "xl:pr-80"
       )}
     >
-      <Toc headings={headings} containerRef={contentRef} />
+      <TocMinimap root={tocRoot} mobileSheet />
       <HighlightsPanel
         isOpen={showHighlightsPanel}
         onClose={() => setShowHighlightsPanel(false)}
@@ -1201,7 +1199,10 @@ export default function ReadingDetailPage() {
             )}
             <HighlightMenu onCreateHighlight={handleCreateHighlight}>
               <div
-                ref={contentRef}
+                ref={(el) => {
+                  contentRef.current = el;
+                  setTocRoot(el);
+                }}
                 className="reader-content"
                 dangerouslySetInnerHTML={{ __html: renderedContent || "" }}
               />
@@ -1262,6 +1263,8 @@ export default function ReadingDetailPage() {
       <div
         className={cn(
           "organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left,right] duration-200",
+          // 右下角「＋」快速新建悬浮按钮（md 起显示）会压住右侧按钮，留出位置
+          "md:pr-20",
           showHighlightsPanel && "xl:right-80"
         )}
       >
