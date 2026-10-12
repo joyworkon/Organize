@@ -166,6 +166,16 @@ function inferTitle(doc: Record<string, unknown>): string {
 }
 
 /**
+ * 只做 Markdown → TipTap 区块转换（GFM），不推断/移除标题、不截断。
+ * 用于把 AI 返回的 Markdown 片段插入到现有笔记中。
+ */
+export function markdownToTiptapBlocks(markdown: string): Array<Record<string, unknown>> {
+  const rawHtml = marked.parse(markdown, { gfm: true, breaks: false, async: false }) as string;
+  const doc = generateJSON(normalizeTaskLists(rawHtml), IMPORT_EXTENSIONS) as Record<string, unknown>;
+  return (doc.content as Array<Record<string, unknown>>) || [];
+}
+
+/**
  * 把 Markdown 转成可直接写入 notes.content 的 TipTap 文档 JSON。
  *
  * 流程：截断超大表格 → 字符数上限截断 → marked 转 HTML（开启 GFM）→

@@ -1,5 +1,6 @@
 "use client";
 
+import { aiResultToBlocks } from "@/lib/ai/result-blocks";
 import { prefetchAiAvailability } from "@/hooks/use-ai-availability";
 import "katex/dist/katex.min.css";
 import { useEditor, EditorContent, BubbleMenu, type Editor } from "@tiptap/react";
@@ -864,7 +865,8 @@ export function TipTapEditor({
                 if (!editor) return;
                 const found = findBlockById(editor.state.doc, target.id);
                 if (!found) return;
-                editor.chain().focus().insertContentAt(found.pos + found.node.nodeSize, { type: "paragraph", content: [{ type: "text", text: result }] }).run();
+                const blocks = aiResultToBlocks(result);
+                if (blocks.length) editor.chain().focus().insertContentAt(found.pos + found.node.nodeSize, blocks).run();
               }
             } else await (extension as ToolbarActionExtension).handler(context);
           },
