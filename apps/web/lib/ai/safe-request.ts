@@ -48,6 +48,11 @@ export interface SafeAIRequestOptions {
   timeoutMs?: number;
   maxRedirects?: number;
   lookup?: AddressLookup;
+  /**
+   * 放行 198.18.0.0/15 合成地址（本机开了 Clash/Surge 等 TUN/Fake-IP 代理时，所有公网域名都解析到这一段）。
+   * 缺省读环境变量 AI_ALLOW_SYNTHETIC_DNS，未设置时沿用抓取的 SCRAPER_ALLOW_SYNTHETIC_DNS（同一台机器的网络环境）。
+   */
+  allowSyntheticAddresses?: boolean;
   /** 测试注入：替换底层 HTTP 传输 */
   transport?: (context: SafeAIRequestContext) => Promise<SafeAIResponse>;
 }
@@ -75,10 +80,15 @@ export async function safeAIRequest(
     options.transport ??
     ((context: SafeAIRequestContext) => pinnedRequest(context, options.body));
   let currentUrl: string = input;
+  const allowSyntheticAddresses =
+    options.allowSyntheticAddresses ??
+    (process.env.AI_ALLOW_SYNTHETIC_DNS
+      ? process.env.AI_ALLOW_SYNTHETIC_DNS === "true"
+      : process.env.SCRAPER_ALLOW_SYNTHETIC_DNS === "true");
 
   try {
     for (let redirectCount = 0; ; redirectCount += 1) {
-      const target = await validateTarget(currentUrl, options.lookup);
+      const target = await validateTarget(currentUrl, options.lookup, allowSyntheticAddresses);
       const response = await transport({
         url: target.url,
         address: target.addresses[0],
@@ -123,9 +133,9 @@ export async function safeAIRequest(
   }
 }
 
-async function validateTarget(url: string, lookup?: AddressLookup) {
+async function validateTarget(url: string, lookup: AddressLookup | undefined, allowSyntheticAddresses: boolean) {
   try {
-    return await validatePublicUrl(url, lookup);
+    return await validatePublicUrl(url, lookup, { allowSyntheticAddresses });
   } catch (error) {
     if (error instanceof UrlSafetyError) {
       throw new AIRequestError(error.code, error.message);
