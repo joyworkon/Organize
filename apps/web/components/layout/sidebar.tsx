@@ -34,7 +34,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
+import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
+
+/** 侧栏笔记列表默认只显示的顶层笔记数 */
+const SIDEBAR_NOTES_LIMIT = 5;
+const NOTES_SHOW_ALL_KEY = "organize-sidebar-notes-show-all";
 import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
@@ -159,7 +163,7 @@ const visibleNavItems = useMemo(() => {
       if (!user) return;
       const { data } = await supabase
         .from("notes")
-        .select("id, title, icon, parent_note_id, updated_at")
+        .select("id, title, icon, parent_note_id, updated_at, is_pinned")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .order("updated_at", { ascending: false });
@@ -171,6 +175,7 @@ const visibleNavItems = useMemo(() => {
             icon: note.icon || null,
             parent_note_id: note.parent_note_id || null,
             updated_at: note.updated_at,
+            is_pinned: !!note.is_pinned,
           }))
         )
       );
@@ -709,12 +714,42 @@ function SidebarNoteTree({
   nodes,
   pathname,
   onNavigate,
+  limit = SIDEBAR_NOTES_LIMIT,
+  showAllKey = NOTES_SHOW_ALL_KEY,
+  emptyText = "还没有笔记",
 }: {
   nodes: NoteTreeNode[];
   pathname: string;
   onNavigate: () => void;
+  /** 顶层最多显示几篇，其余收进「查看更多」 */
+  limit?: number;
+  /** 「查看更多」展开状态的 localStorage 键（每个列表各记各的） */
+  showAllKey?: string;
+  emptyText?: string;
 }) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    try {
+      setShowAll(localStorage.getItem(showAllKey) === "1");
+    } catch {
+      /* 存储不可用时按默认收起 */
+    }
+  }, [showAllKey]);
+  const toggleShowAll = () => {
+    setShowAll((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(showAllKey, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+  const activeId = pathname.startsWith("/notes/") ? pathname.slice("/notes/".length) : null;
+  const { visible, hiddenCount } = limitNoteRoots(nodes, limit, activeId);
+  const roots = showAll ? limitNoteRoots(nodes, Number.MAX_SAFE_INTEGER).visible : visible;
 
   const toggle = (id: string) => {
     setCollapsedIds((current) => {
@@ -777,7 +812,26 @@ function SidebarNoteTree({
   );
 
   if (nodes.length === 0) {
-    return <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有笔记</p>;
+    return <p className="px-3 py-1.5 text-sm text-muted-foreground">{emptyText}</p>;
   }
-  return <>{renderNodes(nodes, 0)}</>;
+  return (
+    <>
+      {renderNodes(roots, 0)}
+      {(hiddenCount > 0 || showAll) && nodes.length > limit && (
+        <div className="mt-0.5 flex items-center justify-between gap-2 pl-[30px] pr-2">
+          <button
+            type="button"
+            onClick={toggleShowAll}
+            aria-expanded={showAll}
+            className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {showAll ? "收起" : `查看更多（${hiddenCount}）`}
+          </button>
+          <Link href="/notes" onClick={onNavigate} className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+            全部笔记
+          </Link>
+        </div>
+      )}
+    </>
+  );
 }
