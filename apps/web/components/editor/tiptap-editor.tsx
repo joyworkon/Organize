@@ -1239,6 +1239,9 @@ export function TipTapEditor({
     if (!startedInsideEditor || target === editorDom) {
       // 画布左右留白 / 编辑器 padding：没有原生文本选择，直接按行框选。
       event.preventDefault();
+      // preventDefault 会连带取消浏览器「按下即聚焦」，编辑器要等到松开鼠标才被聚焦；
+      // 这段间隙里键入的字会落进之前的焦点（新建笔记时自动聚焦的标题）。按下时就同步把焦点交给编辑器。
+      if (!editor.view.hasFocus()) editor.view.focus();
       selectDragRef.current = { startX: event.clientX, startY: event.clientY, active: false, fromText: false, blockTop: 0, blockBottom: 0, bounds };
       return;
     }

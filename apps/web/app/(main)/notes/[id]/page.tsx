@@ -798,20 +798,33 @@ export default function NoteEditorPage() {
   }, [title, fullWidth, loading, autoGrowTitle]);
 
   // 新建/无标题笔记：加载完成后自动聚焦标题（光标闪动），便于立即输入。
+  // 根因（偶发「首字落进标题」）：笔记数据异步加载，正文编辑器可能先于 loading=false 可点击；
+  // 用户点进正文后，加载完成触发本 effect 时焦点已因编辑器重建等回到 body，
+  // 旧的「检查 activeElement」判断失效，标题把焦点抢走。
+  // 修复：以「用户自打开本笔记后是否有过任何指针/键盘操作」为准——一旦有，就永不自动聚焦。
+  // 监听在捕获阶段、按 noteId 重置，不依赖任何定时器。
   const titleAutoFocusedRef = useRef<string | null>(null);
+  const userInteractedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mark = () => {
+      userInteractedRef.current = noteId;
+    };
+    window.addEventListener("pointerdown", mark, true);
+    window.addEventListener("keydown", mark, true);
+    return () => {
+      window.removeEventListener("pointerdown", mark, true);
+      window.removeEventListener("keydown", mark, true);
+    };
+  }, [noteId]);
   useEffect(() => {
     if (loading || !content || title) return;
     if (titleAutoFocusedRef.current === noteId) return;
     titleAutoFocusedRef.current = noteId;
+    if (userInteractedRef.current === noteId) return;
     const el = titleRef.current;
     if (!el) return;
-    // 用户已经点进正文（或其它输入框）就不要抢焦点：否则正在输入的第一个字
-    // 会落进标题、其余落进正文（真实后端加载稍慢时可复现）
     const active = document.activeElement;
-    if (active && active !== document.body && active !== el && (active as HTMLElement).isContentEditable) return;
-    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
-      if (active !== el) return;
-    }
+    if (active && active !== document.body && active !== el) return;
     el.focus();
     const len = el.value.length;
     el.setSelectionRange(len, len);
