@@ -34,7 +34,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
-import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
+import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
+import { useNoteGroups } from "@/hooks/use-note-groups";
+import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged } from "@/lib/notes/groups";
+import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
+
+/** 侧栏笔记列表默认只显示的顶层笔记数 */
+const SIDEBAR_NOTES_LIMIT = 5;
+const NOTES_SHOW_ALL_KEY = "organize-sidebar-notes-show-all";
 import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
@@ -102,8 +109,6 @@ export function Sidebar() {
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
-  // 「最近」分组折叠态：折叠时显示 6 条，展开显示全部（12 条）；记忆到 localStorage
-  const [recentsExpanded, setRecentsExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
@@ -146,7 +151,6 @@ const visibleNavItems = useMemo(() => {
       localStorage.getItem("organize-sidebar-library-expanded") === "true" ||
         pathname.startsWith("/library")
     );
-    setRecentsExpanded(localStorage.getItem("organize-sidebar-recents-expanded") === "true");
     document.documentElement.dataset.sidebarCollapsed = String(stored);
     return () => {
       delete document.documentElement.dataset.sidebarCollapsed;
@@ -162,7 +166,7 @@ const visibleNavItems = useMemo(() => {
       if (!user) return;
       const { data } = await supabase
         .from("notes")
-        .select("id, title, icon, parent_note_id, updated_at")
+        .select("id, title, icon, parent_note_id, updated_at, is_pinned")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .order("updated_at", { ascending: false });
@@ -174,6 +178,7 @@ const visibleNavItems = useMemo(() => {
             icon: note.icon || null,
             parent_note_id: note.parent_note_id || null,
             updated_at: note.updated_at,
+            is_pinned: !!note.is_pinned,
           }))
         )
       );
@@ -393,54 +398,6 @@ const visibleNavItems = useMemo(() => {
       </div>
 
       <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
-        {/* 最近打开的笔记（来自标签页 store 的访问记录）：折叠显示 6 条，展开 12 条 */}
-        {!compact && !onClose && recentNotes.length > 0 && (
-          <div className="pb-2">
-            <button
-              type="button"
-              className="flex w-full items-center gap-1 rounded px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => {
-                const next = !recentsExpanded;
-                setRecentsExpanded(next);
-                localStorage.setItem("organize-sidebar-recents-expanded", String(next));
-              }}
-              aria-expanded={recentsExpanded}
-              title={recentsExpanded ? "收起最近列表" : "展开更多最近笔记"}
-            >
-              {recentsExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-              最近
-            </button>
-            {recentNotes
-              .slice(0, recentsExpanded ? 12 : 6)
-              .map((item) => {
-                const active = pathname === `/notes/${item.id}`;
-                return (
-                  <Link
-                    key={item.id}
-                    href={`/notes/${item.id}`}
-                    onClick={() => setMobileOpen(false)}
-                    className={cn(
-                      "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                      active
-                        ? "bg-accent font-medium text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                    title={item.title || "无标题笔记"}
-                  >
-                    <span className="shrink-0 text-[13px] leading-none">
-                      {item.icon || "📄"}
-                    </span>
-                    <span className="truncate">{item.title || "无标题笔记"}</span>
-                  </Link>
-                );
-              })}
-            <div className="mt-2 border-t" />
-          </div>
-        )}
         {visibleNavItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
@@ -644,6 +601,32 @@ const visibleNavItems = useMemo(() => {
                     )}
                   </button>
                 </div>
+                {/* 侧栏只保留一处「最近」：笔记树收起时在笔记分组下显示最近打开的 5 篇，
+                    展开树时由树替代——不再在导航顶部另起一个与树重复的「最近」列表 */}
+                {!notesExpanded && !onClose && recentNotes.length > 0 && (
+                  <div className="mt-1 px-2" aria-label="最近打开的笔记" role="group">
+                    {recentNotes.slice(0, 5).map((recent) => {
+                      const active = pathname === `/notes/${recent.id}`;
+                      return (
+                        <Link
+                          key={recent.id}
+                          href={`/notes/${recent.id}`}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            "flex min-w-0 items-center gap-2 rounded-md px-3 py-1 text-[13px] transition-colors",
+                            active
+                              ? "bg-accent font-medium text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                          )}
+                          title={recent.title || "无标题笔记"}
+                        >
+                          <span className="shrink-0 leading-none">{recent.icon || "📄"}</span>
+                          <span className="truncate">{recent.title || "无标题笔记"}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
                 {notesExpanded && (
                   <div className="mt-1 px-2">
                     {notesLoading && noteTree.length === 0 ? (
@@ -652,7 +635,7 @@ const visibleNavItems = useMemo(() => {
                         加载笔记...
                       </div>
                     ) : (
-                      <SidebarNoteTree
+                      <SidebarGroupedNotes
                         nodes={noteTree}
                         pathname={pathname}
                         onNavigate={() => setMobileOpen(false)}
@@ -730,7 +713,13 @@ const visibleNavItems = useMemo(() => {
   );
 }
 
-function SidebarNoteTree({
+const GROUP_COLLAPSED_KEY = "organize-sidebar-note-groups-collapsed";
+
+/**
+ * 侧栏笔记：有分组时按「各分组 → 未分组」分段（按顶层笔记归组，子页面跟随父页面），
+ * 每段各自「前 5 篇 + 查看更多」；分组标题可折叠（记住状态），也可以把侧栏里的笔记拖到分组标题上归类。
+ */
+function SidebarGroupedNotes({
   nodes,
   pathname,
   onNavigate,
@@ -739,7 +728,138 @@ function SidebarNoteTree({
   pathname: string;
   onNavigate: () => void;
 }) {
+  const { supabase, userId, groups, membership } = useNoteGroups();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setCollapsedGroups(new Set(JSON.parse(localStorage.getItem(GROUP_COLLAPSED_KEY) || "[]")));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  if (groups.length === 0) {
+    return <SidebarNoteTree nodes={nodes} pathname={pathname} onNavigate={onNavigate} />;
+  }
+
+  const sections = [
+    ...groups.map((g) => ({ key: g.id, name: g.name, nodes: nodes.filter((n) => membership.get(n.id) === g.id) })),
+    { key: UNGROUPED_KEY, name: "未分组", nodes: nodes.filter((n) => !membership.has(n.id)) },
+  ];
+
+  const drop = async (noteId: string, key: string) => {
+    if (!userId) return;
+    try {
+      await moveNotesToGroup(supabase, userId, [noteId], key === UNGROUPED_KEY ? null : key);
+      notifyNoteGroupsChanged();
+    } catch {
+      /* 失败时列表保持原样 */
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      {sections.map((section) => {
+        const open = !collapsedGroups.has(section.key);
+        return (
+          <div key={section.key} data-sidebar-group={section.name}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(section.key)}
+              aria-expanded={open}
+              onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes(NOTE_DRAG_MIME)) return;
+                event.preventDefault();
+                setDropKey(section.key);
+              }}
+              onDragLeave={() => setDropKey((k) => (k === section.key ? null : k))}
+              onDrop={(event) => {
+                const noteId = event.dataTransfer.getData(NOTE_DRAG_MIME);
+                setDropKey(null);
+                if (noteId) {
+                  event.preventDefault();
+                  void drop(noteId, section.key);
+                }
+              }}
+              className={cn(
+                "flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                dropKey === section.key && "bg-primary/10 text-foreground ring-1 ring-primary"
+              )}
+            >
+              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+              <span className="text-[11px] font-normal">{section.nodes.length}</span>
+            </button>
+            {open && (
+              <SidebarNoteTree
+                nodes={section.nodes}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                showAllKey={`${NOTES_SHOW_ALL_KEY}:${section.key}`}
+                emptyText="拖笔记到这里"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SidebarNoteTree({
+  nodes,
+  pathname,
+  onNavigate,
+  limit = SIDEBAR_NOTES_LIMIT,
+  showAllKey = NOTES_SHOW_ALL_KEY,
+  emptyText = "还没有笔记",
+}: {
+  nodes: NoteTreeNode[];
+  pathname: string;
+  onNavigate: () => void;
+  /** 顶层最多显示几篇，其余收进「查看更多」 */
+  limit?: number;
+  /** 「查看更多」展开状态的 localStorage 键（每个列表各记各的） */
+  showAllKey?: string;
+  emptyText?: string;
+}) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    try {
+      setShowAll(localStorage.getItem(showAllKey) === "1");
+    } catch {
+      /* 存储不可用时按默认收起 */
+    }
+  }, [showAllKey]);
+  const toggleShowAll = () => {
+    setShowAll((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(showAllKey, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+  const activeId = pathname.startsWith("/notes/") ? pathname.slice("/notes/".length) : null;
+  const { visible, hiddenCount } = limitNoteRoots(nodes, limit, activeId);
+  const roots = showAll ? limitNoteRoots(nodes, Number.MAX_SAFE_INTEGER).visible : visible;
 
   const toggle = (id: string) => {
     setCollapsedIds((current) => {
@@ -787,6 +907,7 @@ function SidebarNoteTree({
               <Link
                 href={`/notes/${note.id}`}
                 onClick={onNavigate}
+                onDragStart={(event) => event.dataTransfer.setData(NOTE_DRAG_MIME, note.id)}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
                 title={note.title || "无标题笔记"}
               >
@@ -802,7 +923,26 @@ function SidebarNoteTree({
   );
 
   if (nodes.length === 0) {
-    return <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有笔记</p>;
+    return <p className="px-3 py-1.5 text-sm text-muted-foreground">{emptyText}</p>;
   }
-  return <>{renderNodes(nodes, 0)}</>;
+  return (
+    <>
+      {renderNodes(roots, 0)}
+      {(hiddenCount > 0 || showAll) && nodes.length > limit && (
+        <div className="mt-0.5 flex items-center justify-between gap-2 pl-[30px] pr-2">
+          <button
+            type="button"
+            onClick={toggleShowAll}
+            aria-expanded={showAll}
+            className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {showAll ? "收起" : `查看更多（${hiddenCount}）`}
+          </button>
+          <Link href="/notes" onClick={onNavigate} className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+            全部笔记
+          </Link>
+        </div>
+      )}
+    </>
+  );
 }

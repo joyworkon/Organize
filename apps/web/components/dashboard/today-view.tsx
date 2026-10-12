@@ -121,6 +121,12 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const supabase = useMemo(() => createClient(), []);
 
   const [loading, setLoading] = useState(true);
+  // 问候语与日期依赖浏览器本地时区：SSR 与客户端时区不同会触发 hydration
+  // 不匹配，所以首帧渲染中性文案，挂载后再按本地时间计算。
+  const [greeting, setGreeting] = useState<{ title: string; date: string } | null>(null);
+  useEffect(() => {
+    setGreeting({ title: getGreeting(), date: formatDate(new Date()) });
+  }, []);
   const [overdueTasks, setOverdueTasks] = useState<TaskWithTags[]>([]);
   const [todayTasks, setTodayTasks] = useState<TaskWithTags[]>([]);
   const [inProgressTasks, setInProgressTasks] = useState<TaskWithTags[]>([]);
@@ -332,8 +338,8 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   return (
     <div className="dashboard-today space-y-5">
       <DashboardViewHeader
-        title={getGreeting()}
-        description={formatDate(today)}
+        title={greeting?.title ?? "你好"}
+        description={greeting?.date ?? "\u00a0"}
         actions={
           <>
             <div className="dashboard-mobile-search">{searchControl}</div>
@@ -393,15 +399,14 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                 }
               >
                 <div className="dashboard-metric-row mb-3">
-                  <span>
-                    <strong>
-                      {todayCompletion.completed}/{todayCompletion.planned}
-                    </strong>
-                    今日完成
+                  {/* 文案直说含义：「1/1 今日完成」「1 连续天数」读不出分子分母各是什么 */}
+                  <span title="今天到期或计划在今天的任务中，已完成的数量">
+                    <strong>{todayCompletion.completed}</strong>
+                    今天已完成（共 {todayCompletion.planned} 项）
                   </span>
-                  <span>
+                  <span title="连续每天都至少完成一项任务的天数">
                     <strong>{taskStreak}</strong>
-                    连续天数
+                    天连续完成
                   </span>
                 </div>
                 {actionableTasks.length === 0 ? (

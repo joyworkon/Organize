@@ -1,5 +1,6 @@
 "use client";
 
+import { aiResultToBlocks } from "@/lib/ai/result-blocks";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import type { AIBlockResult, CommentThread, EditSuggestion, Note } from "@organize/shared";
@@ -289,9 +290,11 @@ function AskAIDialog({ editor, target, onClose }: { editor: Editor; target: Edit
   const insert = (replace: boolean) => {
     const node = editor.state.doc.nodeAt(target.pos);
     if (!node || !result) return;
-    const paragraph = { type: "paragraph", content: [{ type: "text", text: result }] };
-    if (replace) editor.chain().focus().insertContentAt({ from: target.pos, to: target.pos + node.nodeSize }, paragraph).run();
-    else editor.chain().focus().insertContentAt(target.pos + node.nodeSize, paragraph).run();
+    // 模型常返回 Markdown：解析成标题/列表/加粗等节点，而不是把 ## / ** 原样塞进段落
+    const blocks = aiResultToBlocks(result);
+    if (blocks.length === 0) return;
+    if (replace) editor.chain().focus().insertContentAt({ from: target.pos, to: target.pos + node.nodeSize }, blocks).run();
+    else editor.chain().focus().insertContentAt(target.pos + node.nodeSize, blocks).run();
     onClose();
   };
   return (

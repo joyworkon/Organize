@@ -104,14 +104,14 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
                 跳过，直接完成
               </Button>
               <Button onClick={() => setWritingReflection(true)} disabled={saving} className="sm:flex-1">
-                写经验总结
+                写复盘
               </Button>
             </DialogFooter>
           </>
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>写经验总结</DialogTitle>
+              <DialogTitle>写复盘</DialogTitle>
               <DialogDescription>
                 关联任务：{task.title}
               </DialogDescription>
@@ -121,7 +121,7 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
               <div className="grid gap-2">
                 <Label>类型</Label>
                 <Select value={lessonType} onValueChange={(v: LessonType) => setLessonType(v)}>
-                  <SelectTrigger aria-label="经验类型">
+                  <SelectTrigger aria-label="复盘类型">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

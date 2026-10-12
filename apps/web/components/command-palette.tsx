@@ -84,7 +84,7 @@ const NAV_ITEMS = [
   { label: "笔记", path: "/notes", icon: FileText, shortcut: "G N" },
   { label: "构思画布", path: "/canvas", icon: LayoutGrid, shortcut: "G C" },
   { label: "待办", path: "/tasks", icon: ListChecks, shortcut: "G D" },
-  { label: "经验", path: "/tasks/lessons", icon: Lightbulb, shortcut: "G E" },
+  { label: "复盘", path: "/tasks/lessons", icon: Lightbulb, shortcut: "G E" },
   // 速记并入资料库（阶段 C）：/memos 重定向兼容，直达速记视图
   { label: "速记", path: "/library?view=memos", icon: Zap, shortcut: "G M" },
   { label: "图谱", path: "/graph", icon: Network, shortcut: "G G" },
@@ -132,7 +132,7 @@ function getTypeLabel(type: SearchResult["type"]) {
     case "task":
       return "任务";
     case "lesson":
-      return "经验";
+      return "复盘";
     case "tag":
       return "标签";
     case "memo":
@@ -219,8 +219,8 @@ function getTaskStatusLabel(status: TaskStatus): string {
 
 function getLessonTypeLabel(type: LessonType): string {
   const labels: Record<LessonType, string> = {
-    reflection: "复盘",
-    lesson: "经验",
+    reflection: "任务复盘",
+    lesson: "经验教训",
     insight: "灵感",
   };
   return labels[type];
@@ -669,7 +669,7 @@ export function CommandPalette() {
       subtitle = parts.join(" · ");
     } else if (result.type === "lesson") {
       const item = result.item as Lesson;
-      title = item.title || "无标题经验";
+      title = item.title || "无标题复盘";
       meta = getLessonTypeLabel(item.lesson_type);
     } else if (result.type === "tag") {
       const item = result.item as TagType;
@@ -846,7 +846,7 @@ export function CommandPalette() {
                   )}
                   {renderMoreIndicator("task", counts.task)}
                   {groupedResults.lesson.length > 0 && (
-                    <CommandGroup heading="经验">
+                    <CommandGroup heading="复盘">
                       {groupedResults.lesson.map((r) => renderSearchResultItem(r, searchQuery))}
                     </CommandGroup>
                   )}

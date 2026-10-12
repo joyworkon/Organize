@@ -194,8 +194,11 @@ export function TaskCard({
           )}
           {!showCheckbox && (
             <button
+              type="button"
+              role="checkbox"
+              aria-checked={task.status === "done"}
               onClick={handleToggleComplete}
-              aria-label={task.status === "done" ? "标记未完成" : "标记完成"}
+              aria-label={`完成任务：${task.title}`}
               className={cn(
                 "organize-touch-target relative mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
                 task.status === "done"

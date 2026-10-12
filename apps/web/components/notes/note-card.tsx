@@ -25,6 +25,7 @@ import {
   Link2,
   Star,
   FolderInput,
+  Layers,
 } from "@/components/icons";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
@@ -34,6 +35,7 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { nodeText } from "@/components/editor/block-utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
 import type { NoteSearchMatch } from "@/lib/notes/search-match";
 
 export type NoteViewMode = "card" | "list";
@@ -62,6 +64,8 @@ interface NoteCardProps {
   onDelete?: (id: string) => void;
   onTagsApplied?: (id: string, names: string[]) => void;
   onMove?: (id: string) => void;
+  /** 提供时：菜单出现「移到分组…」，卡片可拖到笔记页分组条上归类 */
+  onMoveToGroup?: (id: string) => void;
 }
 
 function extractExcerpt(content: Record<string, unknown> | null, maxLength = 120): string {
@@ -83,6 +87,7 @@ export function NoteCard({
   onDelete,
   onTagsApplied,
   onMove,
+  onMoveToGroup,
 }: NoteCardProps) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -91,6 +96,16 @@ export function NoteCard({
   const [isFavorited, setIsFavorited] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
 
+  // 拖到笔记页分组条上归类（只在提供 onMoveToGroup 时启用）
+  const dragProps = onMoveToGroup
+    ? {
+        draggable: true,
+        onDragStart: (event: React.DragEvent) => {
+          event.dataTransfer.setData(NOTE_DRAG_MIME, note.id);
+          event.dataTransfer.effectAllowed = "move";
+        },
+      }
+    : {};
   const excerpt = searchMatch?.snippet || extractExcerpt(note.content);
   const tags = note.tags || [];
   const href =
@@ -334,6 +349,18 @@ export function NoteCard({
           </DropdownMenuItem>
         )}
 
+        {onMoveToGroup && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveToGroup(note.id);
+            }}
+          >
+            <Layers className="h-3.5 w-3.5 mr-2" />
+            移到分组…
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
@@ -433,6 +460,7 @@ export function NoteCard({
         <Card
           onClick={handleCardClick}
           onMouseDown={handleCardAuxClick}
+          {...dragProps}
           className={cn(cardBaseClass)}
         >
           <CardContent className="p-3 sm:p-4">
@@ -473,6 +501,7 @@ export function NoteCard({
       <Card
         onClick={handleCardClick}
         onMouseDown={handleCardAuxClick}
+        {...dragProps}
         className={cn(cardBaseClass, "h-full flex flex-col")}
       >
         <CardContent className="p-3 sm:p-4 flex-1 flex flex-col">

@@ -703,6 +703,9 @@ export const mockDb: Record<string, any[]> = {
   memos,
   // 构思画布（idea-canvas）：mock 内存表，api-shim 按 /api/canvases 真实契约读写
   canvas_documents: [],
+  // 094 笔记分组：mock 下空表起步，分组 / 归属关系由笔记页与侧栏读写
+  note_groups: [],
+  note_group_members: [],
   // P0-03：AI 配置经 /api/ai/settings 受控读写（密钥只回掩码），mock 下空表起步
   user_ai_settings: [],
   // 插件配置演示：内置两个插件各存一行（启用/停用各一），插件页开关有初值

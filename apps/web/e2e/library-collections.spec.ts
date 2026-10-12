@@ -48,9 +48,11 @@ test("新建集合 → 网页与速记加入 → 详情三源可见 → 深链�
   await page.keyboard.press("Enter");
   await expect(page.getByText(/已保存/).first()).toBeVisible({ timeout: 10_000 });
 
-  // 卡片列表在「全部」标签
+  // 网页卡片在「全部」标签
   await page.getByRole("tab", { name: "全部" }).click();
   await addCardToCollection(page, "Launch plan", "产品发布");
+  // 速记不进「全部」主列表，在「速记」标签里加入集合
+  await page.getByRole("tab", { name: "速记" }).click();
   await addCardToCollection(page, "发布会注意事项", "产品发布");
 
   // 详情：URL 深链同步 + 两条引用可见（来源徽标）

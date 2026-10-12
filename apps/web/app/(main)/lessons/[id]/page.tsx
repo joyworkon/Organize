@@ -237,7 +237,7 @@ export default function LessonEditorPage() {
 
       const payload = {
         user_id: user.id,
-        title: title.trim() || "未命名经验",
+        title: title.trim() || "未命名复盘",
         content: contentText.trim() ? textToContent(contentText) : null,
         lesson_type: lessonType,
         task_id: linkTaskId || null,
@@ -283,14 +283,14 @@ export default function LessonEditorPage() {
     }
     const confirmed = await showConfirm({
       title: "移入垃圾箱？",
-      description: "这条经验会移入垃圾箱，之后可以恢复。",
+      description: "这条复盘会移入垃圾箱，之后可以恢复。",
       confirmText: "移入垃圾箱",
       destructive: true,
     });
     if (!confirmed) return;
     try {
       await mutateTrash("lesson", [lessonId], "soft_delete");
-      toast({ title: "经验已移入垃圾箱" });
+      toast({ title: "复盘已移入垃圾箱" });
       router.push("/tasks/lessons");
     } catch (error) {
       toast({
@@ -315,12 +315,12 @@ export default function LessonEditorPage() {
     return (
       <EmptyState
         icon={Lightbulb}
-        title="经验不存在或已被删除"
-        description="已删除的经验可以在垃圾箱中恢复"
+        title="复盘不存在或已被删除"
+        description="已删除的复盘可以在垃圾箱中恢复"
         action={
           <div className="flex items-center gap-2">
             <Link href="/tasks/lessons">
-              <Button variant="outline">返回经验列表</Button>
+              <Button variant="outline">返回复盘列表</Button>
             </Link>
             <Link href="/trash">
               <Button>打开垃圾箱</Button>
@@ -332,9 +332,9 @@ export default function LessonEditorPage() {
   }
 
   const getCurrentPageText = () => {
-    if (isNew) return "新建经验";
+    if (isNew) return "新建复盘";
     if (editing) return "编辑";
-    return title || "经验";
+    return title || "复盘";
   };
 
   return (
@@ -343,7 +343,7 @@ export default function LessonEditorPage() {
       <div className="organize-detail-bar -mx-4 -mt-4 mb-2 md:-mx-6 md:-mt-6">
         <div className="organize-detail-bar-inner">
           <div className="organize-detail-bar-group organize-detail-bar-nav">
-            <Link href="/tasks/lessons" className="organize-detail-bar-back" aria-label="返回经验总结">
+            <Link href="/tasks/lessons" className="organize-detail-bar-back" aria-label="返回复盘">
               <ArrowLeft className="h-4 w-4" />
               返回
             </Link>
@@ -354,7 +354,7 @@ export default function LessonEditorPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator className="hidden sm:block" />
             <BreadcrumbItem>
-              <BreadcrumbLink href="/tasks/lessons">经验总结</BreadcrumbLink>
+              <BreadcrumbLink href="/tasks/lessons">复盘</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem className="min-w-0">
@@ -409,7 +409,7 @@ export default function LessonEditorPage() {
             <div className="space-y-2">
               <Label htmlFor="type">类型</Label>
               <Select value={lessonType} onValueChange={(v: LessonType) => setLessonType(v)}>
-                <SelectTrigger id="type" aria-label="经验类型">
+                <SelectTrigger id="type" aria-label="复盘类型">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -428,7 +428,7 @@ export default function LessonEditorPage() {
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="给这条经验起个标题..."
+                placeholder="给这条复盘起个标题..."
                 autoFocus
               />
             </div>
@@ -536,7 +536,7 @@ export default function LessonEditorPage() {
               <span className={cn("text-2xl", typeConfig.color)}>{typeConfig.icon}</span>
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-muted-foreground mb-1">{typeConfig.label}</div>
-                <h2 className="text-xl font-bold">{title || "未命名经验"}</h2>
+                <h2 className="text-xl font-bold">{title || "未命名复盘"}</h2>
               </div>
             </div>
             {loadedTags.length > 0 && (

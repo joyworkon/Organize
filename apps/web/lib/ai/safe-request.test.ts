@@ -239,3 +239,33 @@ describe("buildMultipartBody / maskApiKey", () => {
 
 // 类型引用占位：AddressLookup 由实现侧导出，保持 import 有效
 export type { AddressLookup };
+
+describe("safeAIRequest 合成地址（TUN/Fake-IP 代理）", () => {
+  const SYNTHETIC: ResolvedAddress = { address: "198.18.0.191", family: 4 };
+
+  it("默认拒绝解析到 198.18/15 的域名", async () => {
+    await expect(
+      safeAIRequest("https://api.example.com/v1/chat/completions", {
+        lookup: lookupResolving(SYNTHETIC),
+        allowSyntheticAddresses: false,
+        transport: vi.fn(async () => okResponse()),
+      })
+    ).rejects.toBeInstanceOf(AIRequestError);
+  });
+
+  it("allowSyntheticAddresses 时放行，并钉扎到该地址", async () => {
+    const transport: MockTransport = vi.fn(async () => okResponse());
+    await safeAIRequest("https://api.example.com/v1/chat/completions", {
+      lookup: lookupResolving(SYNTHETIC),
+      allowSyntheticAddresses: true,
+      transport,
+    });
+    expect(transport).toHaveBeenCalledWith(expect.objectContaining({ address: SYNTHETIC }));
+  });
+
+  it("放行合成地址不放行私网字面量", async () => {
+    await expect(
+      safeAIRequest("http://10.1.2.3/v1", { allowSyntheticAddresses: true, transport: vi.fn(async () => okResponse()) })
+    ).rejects.toMatchObject({ code: "URL_BLOCKED" });
+  });
+});

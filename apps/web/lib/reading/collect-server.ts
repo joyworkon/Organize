@@ -94,7 +94,7 @@ export async function collectImportItem(
           .select("id").single();
         if (error || !tag) throw new Error("标签保存失败");
         const linked = await supabase
-          .from("item_tags").upsert({ item_id: inserted.id, tag_id: tag.id }, { onConflict: "item_id,tag_id" });
+          .from("item_tags").upsert({ item_id: inserted.id, tag_id: tag.id }, { onConflict: "item_id,tag_id", ignoreDuplicates: true });
         if (linked.error) throw new Error("标签关联失败");
       }
     } catch { warning = "正文已保存，但部分标签未保存"; }

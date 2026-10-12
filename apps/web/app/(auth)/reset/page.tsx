@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { localizeAuthError } from "@/lib/auth/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +24,21 @@ function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+  // 邮件链接先经 /auth/callback 换取会话再跳到这里（URL 不再带 code），
+  // 所以以「当前是否有会话」判断链接是否有效；直接带 code 打开时就地兑换。
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const code = searchParams.get("code");
+      if (code) await supabase.auth.exchangeCodeForSession(code).catch(() => null);
+      const { data } = await supabase.auth.getSession();
+      if (active) setHasSession(!!data.session);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [supabase, searchParams]);
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,11 +49,11 @@ function ResetPasswordContent() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
         setStatus("error");
-        setMessage(error.message);
+        setMessage(localizeAuthError(error.message));
         return;
       }
       setStatus("done");
-      setTimeout(() => router.push("/library"), 1500);
+      setTimeout(() => router.push("/"), 1500);
     } catch (err) {
       setStatus("error");
       setMessage(err instanceof Error ? err.message : "重置失败，请重试");
@@ -46,8 +62,10 @@ function ResetPasswordContent() {
     }
   };
 
-  // 邮件链接缺 code（直接访问/链接失效）
-  if (!searchParams.get("code") && status === "form") {
+  if (hasSession === null) return null;
+
+  // 没有恢复会话（直接访问 / 链接失效 / 已过期）
+  if (!hasSession && status === "form") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <Card className="w-full max-w-md">

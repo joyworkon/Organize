@@ -57,8 +57,8 @@ export function NoteHierarchyBar({
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           {index === path.length - 1 ? (
             <span className="note-hierarchy-current" title={note.title || "无标题笔记"}>
-              <span>{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
-              {note.title || "无标题笔记"}
+              <span className="note-hierarchy-icon">{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
+              <span className="note-hierarchy-label">{note.title || "无标题笔记"}</span>
             </span>
           ) : (
             <Link
@@ -66,8 +66,8 @@ export function NoteHierarchyBar({
               className="note-hierarchy-link"
               title={note.title || "无标题笔记"}
             >
-              <span>{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
-              {note.title || "无标题笔记"}
+              <span className="note-hierarchy-icon">{note.icon || <FileText className="h-4 w-4 text-muted-foreground" />}</span>
+              <span className="note-hierarchy-label">{note.title || "无标题笔记"}</span>
             </Link>
           )}
         </span>

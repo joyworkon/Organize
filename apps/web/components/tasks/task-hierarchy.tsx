@@ -205,7 +205,9 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
           >
             <button
               type="button"
-              aria-label={child.status === "done" ? "标记未完成" : "标记完成"}
+              role="checkbox"
+              aria-checked={child.status === "done"}
+              aria-label={`完成任务：${child.title}`}
               onClick={() => void toggleSubtask(child)}
               className={cn(
                 "grid h-5 w-5 shrink-0 place-items-center rounded-md border",

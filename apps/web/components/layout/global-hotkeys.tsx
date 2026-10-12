@@ -27,7 +27,7 @@ export const GOTO_ROUTES: GotoRoute[] = [
   { sequence: ["g", "n"], path: "/notes", label: "笔记" },
   { sequence: ["g", "c"], path: "/canvas", label: "构思画布" },
   { sequence: ["g", "d"], path: "/tasks", label: "待办" },
-  { sequence: ["g", "e"], path: "/tasks/lessons", label: "经验" },
+  { sequence: ["g", "e"], path: "/tasks/lessons", label: "复盘" },
   // 速记并入资料库（阶段 C）：/memos 重定向兼容，直达速记视图
   { sequence: ["g", "m"], path: "/library?view=memos", label: "速记" },
   { sequence: ["g", "g"], path: "/graph", label: "图谱" },
@@ -80,9 +80,9 @@ export const PAGE_SHORTCUTS = [
     ],
   },
   {
-    page: "经验",
+    page: "复盘",
     items: [
-      { keys: "n", desc: "记录经验" },
+      { keys: "n", desc: "写复盘" },
       { keys: "/", desc: "聚焦搜索框" },
       { keys: "Esc", desc: "清空搜索" },
     ],

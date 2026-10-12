@@ -18,7 +18,8 @@ import {
 } from "@tiptap/pm/tables";
 
 export const TABLE_GRID_SIZE = 10;
-export const TOP_LEVEL_BLOCK_PLACEHOLDER = "输入内容，或按 ⌘/ 打开区块菜单…";
+// 用「/」作提示：所有平台（含手机、Windows）都可用，⌘/ 仅是 Mac 键盘的快捷方式
+export const TOP_LEVEL_BLOCK_PLACEHOLDER = "输入内容，或输入「/」插入区块…";
 
 export const TABLE_COLOR_SCHEMES = [
   "default",

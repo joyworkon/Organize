@@ -4,7 +4,9 @@ import {
   getDescendantIds,
   getNoteAncestors,
   getParentCandidates,
+  limitNoteRoots,
   type NoteTreeItem,
+  type NoteTreeNode,
 } from "./tree";
 
 const notes: NoteTreeItem[] = [
@@ -73,5 +75,34 @@ describe("note tree", () => {
   it("returns empty descendant set for a leaf note with no children", () => {
     expect(getDescendantIds(notes, "leaf").size).toBe(0);
     expect(getDescendantIds(notes, "other").size).toBe(0);
+  });
+});
+
+describe("limitNoteRoots", () => {
+  const mk = (id: string, extra: Partial<NoteTreeNode> = {}): NoteTreeNode => ({
+    id,
+    title: id,
+    icon: null,
+    parent_note_id: null,
+    children: [],
+    ...extra,
+  });
+
+  it("只保留前 N 个，并报告隐藏数量", () => {
+    const roots = ["a", "b", "c", "d", "e", "f", "g"].map((id) => mk(id));
+    const { visible, hiddenCount } = limitNoteRoots(roots, 5);
+    expect(visible.map((n) => n.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(hiddenCount).toBe(2);
+  });
+
+  it("置顶笔记排最前且总是可见；包含当前笔记的顶层笔记超出也保留", () => {
+    const roots = [
+      ...["a", "b", "c", "d", "e", "f"].map((id) => mk(id)),
+      mk("g", { children: [mk("g1", { parent_note_id: "g" })] }),
+      mk("p", { is_pinned: true }),
+    ];
+    const { visible, hiddenCount } = limitNoteRoots(roots, 3, "g1");
+    expect(visible.map((n) => n.id)).toEqual(["p", "a", "b", "g"]);
+    expect(hiddenCount).toBe(4);
   });
 });

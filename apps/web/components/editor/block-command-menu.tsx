@@ -5,11 +5,14 @@ import { Puzzle, Search, X } from "@/components/icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createEditorBridge } from "@/lib/plugin/editor-bridge";
 import { slashCommandRegistry } from "@/lib/plugin/slash-commands";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { BLOCK_COMMANDS, commandMatches, executeNestedCommand, isCommandAvailableInContext } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
 import { resolveTriggerDeleteRange } from "./slash-trigger";
 import type { BlockCommandDefinition, BlockCommandContext } from "./types";
 import type { EditorMenuPoint } from "./types";
+
+const CATEGORY_ORDER = ["基本区块", "媒体", "布局", "AI", "插件"] as const;
 
 export function BlockCommandMenu({
   editor,
@@ -63,7 +66,17 @@ export function BlockCommandMenu({
     return [...builtin, ...pluginCommands];
   }, [nested, pluginSlashCommands]);
 
-  const options = useMemo(() => availableCommands.filter((item) => commandMatches(item, query)), [availableCommands, query]);
+  // 按分组顺序排序，保证键盘上下移动的顺序与视觉顺序一致；常用的基础区块在最前，
+  // AI 类放在后面且未配置时置灰（不再占据「建议」首位、点了才报错）
+  const options = useMemo(() => {
+    const matched = availableCommands.filter((item) => commandMatches(item, query));
+    return matched
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => CATEGORY_ORDER.indexOf(a.item.category) - CATEGORY_ORDER.indexOf(b.item.category) || a.index - b.index)
+      .map(({ item }) => item);
+  }, [availableCommands, query]);
+  const aiAvailable = useAiAvailability();
+  const isDisabled = (command: BlockCommandDefinition) => command.requiresAI === true && aiAvailable === false;
 
   useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => setActiveIndex(0), [query]);
@@ -109,7 +122,7 @@ export function BlockCommandMenu({
 
   const execute = (index: number) => {
     const command = options[index];
-    if (!command) return;
+    if (!command || isDisabled(command)) return;
 
     if (nested && range) {
       // 嵌套场景：只有能真实处理的命令才消费触发字符（R06 一致性约定）；
@@ -127,7 +140,7 @@ export function BlockCommandMenu({
     onClose();
   };
 
-  const categories = ["建议", "基本区块", "媒体", "布局", "插件"] as const;
+  const categories = CATEGORY_ORDER;
 
   return (
     <EditorPopover point={point} onClose={handleClose} className="block-command-popover">
@@ -165,18 +178,21 @@ export function BlockCommandMenu({
               {entries.map((command) => {
                 const index = options.indexOf(command);
                 const Icon = command.icon;
+                const disabled = isDisabled(command);
                 return (
                   <button
                     key={command.id}
                     type="button"
                     role="option"
                     aria-selected={index === activeIndex}
-                    className={index === activeIndex ? "is-active" : ""}
+                    aria-disabled={disabled || undefined}
+                    title={disabled ? "AI 服务未配置：请到「设置 › AI 服务」填写 API 地址和密钥" : undefined}
+                    className={[index === activeIndex ? "is-active" : "", disabled ? "is-disabled opacity-50 cursor-not-allowed" : ""].join(" ").trim()}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => execute(index)}
                   >
                     <Icon className="h-5 w-5" />
-                    <span><strong>{command.label}</strong>{command.description && <small>{command.description}</small>}</span>
+                    <span><strong>{command.label}</strong>{(disabled || command.description) && <small>{disabled ? "需先在「设置 › AI 服务」配置" : command.description}</small>}</span>
                     {command.shortcut && <kbd>{command.shortcut}</kbd>}
                   </button>
                 );

@@ -34,7 +34,7 @@ import { LinkedTaskBanner } from "@/components/notes/linked-task-banner";
 import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { NoteChildPages } from "@/components/notes/note-child-pages";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
-import { NoteTocPanel } from "@/components/notes/note-toc-panel";
+import { TocMinimap } from "@/components/toc/toc-minimap";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ArrowLeft, Loader2, Check, FileText, Share2, WifiOff, ListTree, Tag as TagIcon } from "@/components/icons";
 import Link from "next/link";
@@ -55,6 +55,7 @@ import { downloadNoteExport } from "@/lib/export/note-export";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
+import { isEmptyDoc, shouldDiscardEmptyNote } from "@/lib/notes/empty-note";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
 import {
@@ -227,6 +228,11 @@ export default function NoteEditorPage() {
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // 空笔记自动丢弃：加载时为空 + 离开时仍为空 + 新建不久 → 离开页面即删除，
+  // 避免「点一下新建笔记」在列表里堆出一串无标题空笔记（判定见 lib/notes/empty-note）
+  const loadedEmptyRef = useRef(false);
+  const createdAtRef = useRef<string | null>(null);
+  const allNotesRef = useRef<NoteTreeItem[]>([]);
   // X1 离线同步：网络状态（未同步标记由保存会话派生）
   const online = useOnlineStatus();
 
@@ -343,7 +349,7 @@ export default function NoteEditorPage() {
         .from("notes")
         .select("*")
         .eq("id", noteId)
-        .single();
+        .maybeSingle();
 
       if (!active) return;
       if (!error && data) {
@@ -384,6 +390,8 @@ export default function NoteEditorPage() {
           page_template: data.page_template === "red-blue" ? "red-blue" : "default",
         };
         draftRef.current = remoteDraft;
+        loadedEmptyRef.current = !loadedTitle.trim() && isEmptyDoc(loadedContent);
+        createdAtRef.current = data.created_at || null;
         appEvents.emit("note:opened", { noteId, title: loadedTitle });
 
         const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
@@ -462,6 +470,10 @@ export default function NoteEditorPage() {
           setLoadFailure("offline");
         } else {
           setLoadFailure("not-found");
+          // 笔记不存在：别让标签页/最近列表留下一个凭空出现的「无标题笔记」
+          window.dispatchEvent(
+            new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } })
+          );
         }
       }
       // 版本恢复的「跳过卸载兜底」标志只该被恢复前那一次 flushSave 消费。
@@ -555,6 +567,48 @@ export default function NoteEditorPage() {
     if (!saveSession) return Promise.resolve(true);
     return saveSession.flushSaved();
   }, [saveSession]);
+
+  useEffect(() => {
+    allNotesRef.current = allNotes;
+  }, [allNotes]);
+  const saveSessionRef = useRef(saveSession);
+  useEffect(() => {
+    saveSessionRef.current = saveSession;
+  }, [saveSession]);
+
+  useEffect(() => {
+    loadedEmptyRef.current = false;
+    createdAtRef.current = null;
+    return () => {
+      let currentContent = draftRef.current.content;
+      try {
+        const editor = editorRef.current;
+        if (editor && !editor.isDestroyed) currentContent = editor.getJSON();
+      } catch {
+        /* 编辑器已销毁时回退到草稿 */
+      }
+      const discard = shouldDiscardEmptyNote({
+        isOwner: noteRoleRef.current === "owner",
+        loadedEmpty: loadedEmptyRef.current,
+        title: draftRef.current.title || "",
+        content: currentContent,
+        hasChildren: allNotesRef.current.some((n) => n.parent_note_id === noteId),
+        createdAt: createdAtRef.current,
+      });
+      if (!discard || !isOnline()) return;
+      saveSessionRef.current?.suppressAutosave();
+      window.dispatchEvent(new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } }));
+      void (async () => {
+        try {
+          await mutateTrash("note", [noteId], "soft_delete");
+          await mutateTrash("note", [noteId], "permanent_delete");
+        } catch {
+          /* 丢弃失败无害：最多留下一篇空笔记 */
+        }
+        window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      })();
+    };
+  }, [noteId]);
 
   // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移。
   // loadedRevision 是 state：loadNote 成功拿到数据后必然触发本 effect（P0-1 修复）。
@@ -744,13 +798,33 @@ export default function NoteEditorPage() {
   }, [title, fullWidth, loading, autoGrowTitle]);
 
   // 新建/无标题笔记：加载完成后自动聚焦标题（光标闪动），便于立即输入。
+  // 根因（偶发「首字落进标题」）：笔记数据异步加载，正文编辑器可能先于 loading=false 可点击；
+  // 用户点进正文后，加载完成触发本 effect 时焦点已因编辑器重建等回到 body，
+  // 旧的「检查 activeElement」判断失效，标题把焦点抢走。
+  // 修复：以「用户自打开本笔记后是否有过任何指针/键盘操作」为准——一旦有，就永不自动聚焦。
+  // 监听在捕获阶段、按 noteId 重置，不依赖任何定时器。
   const titleAutoFocusedRef = useRef<string | null>(null);
+  const userInteractedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const mark = () => {
+      userInteractedRef.current = noteId;
+    };
+    window.addEventListener("pointerdown", mark, true);
+    window.addEventListener("keydown", mark, true);
+    return () => {
+      window.removeEventListener("pointerdown", mark, true);
+      window.removeEventListener("keydown", mark, true);
+    };
+  }, [noteId]);
   useEffect(() => {
     if (loading || !content || title) return;
     if (titleAutoFocusedRef.current === noteId) return;
     titleAutoFocusedRef.current = noteId;
+    if (userInteractedRef.current === noteId) return;
     const el = titleRef.current;
     if (!el) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== el) return;
     el.focus();
     const len = el.value.length;
     el.setSelectionRange(len, len);
@@ -768,11 +842,13 @@ export default function NoteEditorPage() {
     );
   }, [noteLoaded, noteId, title, icon]);
 
-  // 目录开关初始值：localStorage 记忆，默认关闭
+  // 目录开关初始值：localStorage 记忆；目录改为正文左侧的轻量刻度，默认显示（用户关过才隐藏）
   useEffect(() => {
     try {
-      setTocOpen(localStorage.getItem(tocKeyFor(noteId)) === "1");
-    } catch { /* 默认关闭 */ }
+      setTocOpen(localStorage.getItem(tocKeyFor(noteId)) !== "0");
+    } catch {
+      setTocOpen(true);
+    }
   }, [noteId]);
 
   // T1/T2：在标题里按回车，把拆分点之后的文字迁移到正文顶部的新段落。
@@ -850,8 +926,9 @@ export default function NoteEditorPage() {
   // 目录开合仍写 localStorage 偏好（既有行为）。
   const openPanelExclusive = useCallback(
     (panel: "toc" | "comments" | "history" | "attachments" | "none") => {
+      // 目录刻度在正文左侧，不占右侧面板位：打开评论/历史等不再顺带关掉目录
       setTocOpen((prevToc) => {
-        const next = panel === "toc";
+        const next = panel === "toc" ? true : prevToc;
         if (next !== prevToc) {
           try {
             localStorage.setItem(tocKeyFor(noteId), next ? "1" : "0");
@@ -874,13 +951,6 @@ export default function NoteEditorPage() {
       } catch { /* localStorage 不可用时仅内存态 */ }
       return next;
     });
-  }, [noteId]);
-
-  const closeToc = useCallback(() => {
-    setTocOpen(false);
-    try {
-      localStorage.setItem(tocKeyFor(noteId), "0");
-    } catch { /* ignore */ }
   }, [noteId]);
 
   // ---- 版本历史：预览 / 恢复 ----
@@ -1293,7 +1363,6 @@ export default function NoteEditorPage() {
           font === "serif" && "note-page-serif",
           font === "mono" && "note-page-mono",
           smallFont && "note-page-small",
-          tocOpen && "note-page-toc-open",
           historyOpen && "note-page-history-open"
         )}
         data-collab-session={
@@ -1551,10 +1620,8 @@ export default function NoteEditorPage() {
         <NoteChildPages noteId={noteId} notes={allNotes} />
       </div>
 
-      {/* 页面目录：右侧固定栏，与正文之间灰色竖线分隔 */}
-      {tocOpen && (
-        <NoteTocPanel editor={editorInstance} content={content} onClose={closeToc} />
-      )}
+      {/* 页面目录：正文左侧的刻度导航（与阅读页共用 TocMinimap） */}
+      {tocOpen && !loading && <TocMinimap root={editorInstance && !editorInstance.isDestroyed ? (editorInstance.view.dom as HTMLElement) : null} />}
 
       {/* 轻量内联提示 */}
       {toast && (

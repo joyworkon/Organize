@@ -9,8 +9,10 @@ import { createClient } from "@/lib/supabase/client";
 import { appEvents } from "@/lib/plugin/events";
 import { setCurrentReadingItem } from "@/lib/plugin/current-context";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { buildReadingNoteContent, readingNoteTitle } from "@/lib/reading/reading-note";
 import { StatusBadge } from "@/components/reading/status-badge";
-import { Toc, extractHeadings } from "@/components/reading/toc";
+import { TocMinimap } from "@/components/toc/toc-minimap";
 import { HighlightMenu } from "@/components/reading/highlight-menu";
 import { HighlightsPanel } from "@/components/reading/highlights-panel";
 import {
@@ -22,7 +24,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import type { ReadingItem, ReadingStatus, Highlight, HighlightColor, Tag } from "@organize/shared";
-import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, Maximize2, Minimize2, X, Share2, StretchHorizontal, Tag as TagIcon } from "@/components/icons";
+import { ArrowLeft, ExternalLink, Loader2, Clock, Zap, BookOpen, Inbox, Highlighter, FileText, PenLine, Check, Maximize2, Minimize2, X, Share2, StretchHorizontal, Tag as TagIcon } from "@/components/icons";
 import { estimateReadingTime, formatReadingTime } from "@/lib/reading-time";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -46,7 +48,7 @@ interface RecommendedItem {
   id: string;
   title: string | null;
   url: string;
-  site_name: string | null;
+  site_name?: string | null;
   content: string | null;
   reading_status: ReadingStatus;
   created_at: string;
@@ -112,7 +114,7 @@ export default function ReadingDetailPage() {
       })),
     [itemTags, allTagOptions]
   );
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   // 整理稿（阶段 4）：独立可编辑文章的编辑态开关
   const [editingDigest, setEditingDigest] = useState(false);
   const focusContentRef = useRef<HTMLDivElement>(null);
@@ -125,6 +127,10 @@ export default function ReadingDetailPage() {
   // E02-2 深链 ?hl={highlightId}：loadItem（跳过进度恢复）与定位 effect 共用
   const deepLinkHighlightIdRef = useRef<string | null>(null);
   const [isConvertingToNote, setIsConvertingToNote] = useState(false);
+  // 「读 → 记 → 复盘」闭环：本文关联的读书笔记（有则直接打开，无则一键创建）
+  const [readingNoteId, setReadingNoteId] = useState<string | null>(null);
+  const [isCreatingReadingNote, setIsCreatingReadingNote] = useState(false);
+  const [isRefetching, setIsRefetching] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
 
   const [item, setItem] = useState<ReadingItem | null>(null);
@@ -149,10 +155,8 @@ export default function ReadingDetailPage() {
     () => prepareReadingContent(item?.content || ""),
     [item?.content]
   );
-  const headings = useMemo(() => {
-    if (!item?.content) return [];
-    return extractHeadings(item.content);
-  }, [item?.content]);
+  // 目录刻度直接读正文 DOM：正文节点挂载/替换后交给它
+  const [tocRoot, setTocRoot] = useState<HTMLDivElement | null>(null);
 
   const recommendedItem = useMemo(() => {
     return getNextRecommendation(otherItems, itemId);
@@ -186,7 +190,7 @@ export default function ReadingDetailPage() {
         .from("reading_items")
         .select("*, tags:tags!item_tags(id, name)")
         .eq("id", itemId)
-        .single();
+        .maybeSingle();
 
       if (!error && data) {
         setItem(data as ReadingItem);
@@ -296,7 +300,7 @@ export default function ReadingDetailPage() {
       if (!user) return;
       const { data } = await supabase
         .from("reading_items")
-        .select("id, title, url, site_name, content, reading_status, created_at, reading_progress, is_pinned, tags:tags!item_tags(id, name)")
+        .select("id, title, url, content, reading_status, created_at, reading_progress, is_pinned, tags:tags!item_tags(id, name)")
         .eq("user_id", user.id)
         .neq("id", itemId)
         .order("created_at", { ascending: false })
@@ -708,6 +712,92 @@ export default function ReadingDetailPage() {
     }
   }, [highlights, item, itemId, supabase, router, isConvertingToNote]);
 
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .from("notes")
+      .select("id")
+      .eq("reading_item_id", itemId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) setReadingNoteId(data?.id ?? null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [itemId, supabase]);
+
+  const handleReadingNote = useCallback(async () => {
+    if (!item || isCreatingReadingNote) return;
+    if (readingNoteId) {
+      router.push(`/notes/${readingNoteId}`);
+      return;
+    }
+    setIsCreatingReadingNote(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      const content = buildReadingNoteContent(
+        { id: item.id, title: item.title, url: item.url, isInternal: isInternalUrn(item.url) },
+        [...highlights].reverse().map((h) => ({ content: h.content, note: h.note }))
+      );
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({ title: readingNoteTitle(item), content, user_id: session.user.id, reading_item_id: itemId })
+        .select("id")
+        .single();
+      if (error || !data) {
+        toast({ title: "创建读书笔记失败，请重试", variant: "destructive" });
+        return;
+      }
+      setReadingNoteId(data.id);
+      router.push(`/notes/${data.id}`);
+    } finally {
+      setIsCreatingReadingNote(false);
+    }
+  }, [highlights, isCreatingReadingNote, item, itemId, readingNoteId, router, supabase]);
+
+  // 抓取失败（只存了链接）的条目：在阅读页直接重新抓取，而不是只显示「无法提取正文内容」
+  const handleRefetch = useCallback(async () => {
+    if (!item || isRefetching) return;
+    setIsRefetching(true);
+    try {
+      const res = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: item.url, force: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.content) {
+        toast({
+          title: "仍然无法抓取正文",
+          description: data?.error || "该网站可能需要登录或禁止抓取，可以点「原文」在浏览器中阅读",
+          variant: "destructive",
+        });
+        return;
+      }
+      const patch: Record<string, unknown> = { content: data.content, excerpt: data.excerpt ?? null };
+      if (data.cover_image) patch.cover_image = data.cover_image;
+      // 标题仍是 URL（抓取失败时的占位）才用抓到的标题覆盖，用户改过的标题不动
+      if (data.title && (!item.title || item.title === item.url)) patch.title = data.title;
+      const { error } = await supabase.from("reading_items").update(patch).eq("id", itemId);
+      if (error) {
+        toast({ title: "保存抓取结果失败，请重试", variant: "destructive" });
+        return;
+      }
+      setItem((prev) => (prev ? ({ ...prev, ...patch } as ReadingItem) : prev));
+      toast({ title: "已重新抓取正文" });
+    } finally {
+      setIsRefetching(false);
+    }
+  }, [isRefetching, item, itemId, supabase]);
+
   const handleConvertHighlight = useCallback(async (
     highlightId: string,
     targetType: "note" | "task",
@@ -827,13 +917,19 @@ export default function ReadingDetailPage() {
 
   if (!item) {
     return (
-      <div className="text-center py-20 text-muted-foreground">
-        内容不存在或已被删除
-        <br />
-        <Link href="/library" className="text-primary underline text-sm mt-2 inline-block">
-          返回稍后读
-        </Link>
-      </div>
+      <EmptyState
+        icon={FileText}
+        title="内容不存在"
+        description="内容可能已被删除或链接无效"
+        action={
+          <Link href="/library">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回资料库
+            </Button>
+          </Link>
+        }
+      />
     );
   }
 
@@ -873,7 +969,7 @@ export default function ReadingDetailPage() {
         showHighlightsPanel && "xl:pr-80"
       )}
     >
-      <Toc headings={headings} containerRef={contentRef} />
+      <TocMinimap root={tocRoot} mobileSheet />
       <HighlightsPanel
         isOpen={showHighlightsPanel}
         onClose={() => setShowHighlightsPanel(false)}
@@ -969,7 +1065,7 @@ export default function ReadingDetailPage() {
                   ) : (
                     <FileText className="mr-2 h-4 w-4" />
                   )}
-                  转为笔记
+                  全文转为笔记
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setShareDialogOpen(true)}>
                   <Share2 className="mr-2 h-4 w-4" />
@@ -990,7 +1086,7 @@ export default function ReadingDetailPage() {
               <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label="阅读工具"><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="mobile-reading-menu w-60">
                 <DropdownMenuItem onSelect={() => setShowHighlightsPanel(true)}><Highlighter className="mr-2 h-4 w-4" />高亮与摘记{highlights.length ? ` · ${highlights.length}` : ""}</DropdownMenuItem>
-                <DropdownMenuItem disabled={isConvertingToNote} onSelect={() => void handleConvertToNote()}><FileText className="mr-2 h-4 w-4" />转为笔记</DropdownMenuItem>
+                <DropdownMenuItem disabled={isConvertingToNote} onSelect={() => void handleConvertToNote()}><FileText className="mr-2 h-4 w-4" />全文转为笔记</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setShareDialogOpen(true)}><Share2 className="mr-2 h-4 w-4" />分享文章</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setBionicMode(!bionicMode)}><Zap className="mr-2 h-4 w-4" />{bionicMode ? "关闭速读" : "开启速读"}</DropdownMenuItem>
@@ -1087,11 +1183,28 @@ export default function ReadingDetailPage() {
                 </button>
               </div>
             )}
+            {!item.content && !isInternalUrn(item.url) && (
+              <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm">
+                <span className="text-muted-foreground">没能抓取到这篇文章的正文（网站可能需要登录或限制抓取）。</span>
+                <span className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={isRefetching} onClick={() => void handleRefetch()}>
+                    {isRefetching && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    重新抓取
+                  </Button>
+                  <a href={item.url} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" variant="ghost"><ExternalLink className="mr-1.5 h-3.5 w-3.5" />打开原文</Button>
+                  </a>
+                </span>
+              </div>
+            )}
             <HighlightMenu onCreateHighlight={handleCreateHighlight}>
               <div
-                ref={contentRef}
+                ref={(el) => {
+                  contentRef.current = el;
+                  setTocRoot(el);
+                }}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+                dangerouslySetInnerHTML={{ __html: renderedContent || "" }}
               />
             </HighlightMenu>
           </>
@@ -1146,7 +1259,15 @@ export default function ReadingDetailPage() {
       </div>
 
       {/* 底部操作 */}
-      <div className="organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left] duration-200">
+      {/* 高亮面板打开时（xl 为固定右栏）让出右侧，避免「标记已读 / 写读书笔记」被面板遮住 */}
+      <div
+        className={cn(
+          "organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left,right] duration-200",
+          // 右下角「＋」快速新建悬浮按钮（md 起显示）会压住右侧按钮，留出位置
+          "md:pr-20",
+          showHighlightsPanel && "xl:right-80"
+        )}
+      >
         <div
           className={cn(
             "mx-auto w-full flex items-center justify-between",
@@ -1157,18 +1278,24 @@ export default function ReadingDetailPage() {
             阅读进度: {Math.round(scrollProgress)}%
           </span>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => updateStatus("unread")}
-            >
-              标记未读
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => updateStatus("read")}
-            >
-              标记已读
+            {/* 阅读状态是单一开关：已读时只提供「撤销」，未读/在读时只提供「标记已读」 */}
+            {item.reading_status === "read" ? (
+              <Button variant="ghost" size="sm" onClick={() => updateStatus("unread")} title="标记为未读">
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+                已读 · 撤销
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => updateStatus("read")}>
+                标记已读
+              </Button>
+            )}
+            <Button size="sm" disabled={isCreatingReadingNote} onClick={() => void handleReadingNote()}>
+              {isCreatingReadingNote ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PenLine className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {readingNoteId ? "打开读书笔记" : "写读书笔记"}
             </Button>
           </div>
         </div>

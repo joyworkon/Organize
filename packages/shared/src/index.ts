@@ -28,6 +28,23 @@ export type NoteTemplate = "default" | "red-blue";
 export type NoteFont = "default" | "serif" | "mono";
 
 // 笔记
+/** 笔记分组（094）：用户手动建组或确认自动分组建议后写入；归属关系在 note_group_members */
+export interface NoteGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteGroupMember {
+  note_id: string;
+  group_id: string;
+  user_id: string;
+  created_at: string;
+}
+
 export interface Note {
   id: string;
   user_id: string;
@@ -371,8 +388,8 @@ export interface LessonWithTags extends Lesson {
 }
 
 export const LESSON_TYPE_CONFIG: Record<LessonType, { label: string; icon: string; color: string; description: string }> = {
-  reflection: { label: "复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
-  lesson: { label: "经验", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
+  reflection: { label: "任务复盘", icon: "📝", color: "text-blue-500", description: "任务完成后的总结反思" },
+  lesson: { label: "经验教训", icon: "💡", color: "text-amber-500", description: "学到的知识和技巧" },
   insight: { label: "灵感", icon: "✨", color: "text-purple-500", description: "突发的灵感和想法" },
 };
 

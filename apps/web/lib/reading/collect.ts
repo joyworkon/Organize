@@ -123,7 +123,7 @@ export async function collectReadingItem(rawInput: string | MaterialCollectInput
       for (const name of article.tags) {
         const { data: tag, error } = await supabase.from("tags").upsert({ user_id: user.id, name }, { onConflict: "user_id,name" }).select("id").single();
         if (error || !tag) throw new Error("标签保存失败");
-        const linked = await supabase.from("item_tags").upsert({ item_id: itemId, tag_id: tag.id }, { onConflict: "item_id,tag_id" });
+        const linked = await supabase.from("item_tags").upsert({ item_id: itemId, tag_id: tag.id }, { onConflict: "item_id,tag_id", ignoreDuplicates: true });
         if (linked.error) throw new Error("标签关联失败");
       }
     } catch { return "正文已保存，但部分标签未保存；可重试保存补齐标签"; }

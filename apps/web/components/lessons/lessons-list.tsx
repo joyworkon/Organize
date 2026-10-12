@@ -105,11 +105,11 @@ export function LessonsList() {
   }, [fetchLessons]);
 
   const handleDelete = async (lessonId: string) => {
-    if (!confirm("将这条经验移入垃圾箱？之后可以恢复。")) return;
+    if (!confirm("将这条复盘移入垃圾箱？之后可以恢复。")) return;
     try {
       await mutateTrash("lesson", [lessonId], "soft_delete");
       await fetchLessons();
-      toast({ title: "经验已移入垃圾箱" });
+      toast({ title: "复盘已移入垃圾箱" });
     } catch (error) {
       toast({
         title: "删除失败",
@@ -123,7 +123,7 @@ export function LessonsList() {
     router.push("/lessons/new");
   };
 
-  // 页面快捷键：n 记录经验、/ 聚焦搜索、Esc 清空搜索（弹层打开时让位）
+  // 页面快捷键：n 写复盘、/ 聚焦搜索、Esc 清空搜索（弹层打开时让位）
   useHotkey([
     {
       key: "n",
@@ -163,19 +163,19 @@ export function LessonsList() {
     <div className="space-y-4 sm:space-y-6">
       <PageHeader
         icon={Lightbulb}
-        title="经验总结"
+        title="复盘"
         search={
           <PageSearch
             ref={searchInputRef}
             value={search}
             onChange={setSearch}
-            placeholder="搜索经验（标题 / 标签，按 / 聚焦）"
+            placeholder="搜索复盘（标题 / 标签，按 / 聚焦）"
           />
         }
         actions={
-          <Button onClick={handleCreate} className="shrink-0" title="记录经验（按 n）">
+          <Button onClick={handleCreate} className="shrink-0" title="写复盘（按 n）">
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline ml-2">记录经验</span>
+            <span className="hidden sm:inline ml-2">写复盘</span>
           </Button>
         }
       />
@@ -203,7 +203,7 @@ export function LessonsList() {
       </div>
 
       {loading ? (
-        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="经验加载中">
+        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="复盘加载中">
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="h-[110px] animate-pulse rounded-lg bg-muted/60" />
           ))}
@@ -214,11 +214,11 @@ export function LessonsList() {
           return (
             <EmptyState
               icon={Lightbulb}
-              title={hasFilter ? "没有匹配的经验" : "还没有记录经验"}
-              description="记录你的经验和复盘，持续成长"
+              title={hasFilter ? "没有匹配的复盘" : "还没有复盘"}
+              description="记录收获与教训，持续成长"
               action={!hasFilter ? (
                 <Link href="/lessons/new" className={cn(buttonVariants({ variant: "default" }))}>
-                  记录经验
+                  写复盘
                 </Link>
               ) : undefined}
             />

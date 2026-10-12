@@ -25,12 +25,12 @@ async function openPage(page: Page, path: string) {
   await page.waitForTimeout(1200);
 }
 
-test("登录：邮箱密码登录后进入阅读库", async ({ page }) => {
+test("登录：邮箱密码登录后进入工作台", async ({ page }) => {
   await openPage(page, "/login");
   await page.getByPlaceholder("邮箱地址").fill("smoke@example.com");
   await page.getByPlaceholder("密码").fill("smoke-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page).toHaveURL(/\/library/);
+  await expect(page).toHaveURL(/127\.0\.0\.1:3100\/$/);
 });
 
 test("稍后读保存：统一输入框粘贴链接回车保存，列表出现抓取标题", async ({ page }) => {
@@ -71,10 +71,14 @@ test("任务完成：快速添加后勾选完成", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByText("playwright-smoke-task").first()).toBeVisible();
 
-  await page.getByLabel("标记完成").first().click();
+  const toggle = page.getByRole("checkbox", { name: "完成任务：playwright-smoke-task" });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  // 键盘可勾选：聚焦后空格切换（role=checkbox 的原生 button）
+  await toggle.focus();
+  await page.keyboard.press("Space");
   // 完成后行划线/状态徽标变化；乐观更新即时生效
   await expect(page.getByText("playwright-smoke-task").first()).toBeVisible();
-  await expect(page.getByLabel("标记未完成").first()).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "完成任务：playwright-smoke-task" }).first()).toHaveAttribute("aria-checked", "true");
 });
 
 test("备份恢复：校验合同 + 非空账户 409 拒绝", async ({ page }) => {

@@ -1,7 +1,7 @@
 import type { DsIconComponent } from "@/components/icons";
 import type { Editor, JSONContent } from "@tiptap/core";
 
-export type BlockCommandCategory = "建议" | "基本区块" | "媒体" | "布局" | "插件";
+export type BlockCommandCategory = "基本区块" | "媒体" | "布局" | "AI" | "插件";
 
 /** 斜杠命令的插入上下文：top = 文档顶层块；nested = 列表/表格单元格/分栏等嵌套结构内 */
 export type BlockCommandContext = "top" | "nested";
@@ -38,6 +38,8 @@ export interface BlockCommandDefinition {
   /** 支持的插入上下文；缺省 = top + nested 都支持（由 isCommandAvailableInContext 统一判定）。
    *  第一轮（R06）嵌套未实现的命令必须标 ["top"] 隐藏，禁止为凑全支持填 true */
   supportedContexts?: readonly BlockCommandContext[];
+  /** 依赖 AI 服务：未配置时在菜单中置灰并说明原因 */
+  requiresAI?: boolean;
   run: (editor: Editor, pos: number) => void;
 }
 

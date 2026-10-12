@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { BookOpen, Link as LinkIcon, FileText, ListChecks } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,16 +14,28 @@ import { cn } from "@/lib/utils";
 
 const ONBOARDED_KEY = "organize:onboarded";
 
+function readOnboarded(): string | null {
+  try {
+    return localStorage.getItem(ONBOARDED_KEY);
+  } catch {
+    return "1";
+  }
+}
+
 export function Onboarding() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
 
+  const pathname = usePathname();
+
+  // 只在工作台首页自动弹出：深链（分享 / 邀请 / 具体笔记）进来的用户先看到内容本身，
+  // 不被全屏引导挡住；localStorage 不可用（隐私模式）时视为已看过，避免每次都弹。
   useEffect(() => {
-    const onboarded = localStorage.getItem(ONBOARDED_KEY);
-    if (onboarded !== "1") {
+    if (pathname !== "/") return;
+    if (readOnboarded() !== "1") {
       setOpen(true);
     }
-  }, []);
+  }, [pathname]);
 
   // 防御：Radix Dialog 存在一个时序 bug —— 弹窗关闭后偶发不还原
   // document.body 的 pointer-events，导致整页点击被禁用（表现为“卡死”，
@@ -50,7 +63,11 @@ export function Onboarding() {
   }, []);
 
   const handleClose = () => {
-    localStorage.setItem(ONBOARDED_KEY, "1");
+    try {
+      localStorage.setItem(ONBOARDED_KEY, "1");
+    } catch {
+      /* 存储不可用时仅关闭本次 */
+    }
     setOpen(false);
   };
 
@@ -72,15 +89,22 @@ export function Onboarding() {
     }
   };
 
-  const openOnboarding = () => {
-    localStorage.removeItem(ONBOARDED_KEY);
-    setStep(0);
-    setOpen(true);
-  };
-
-  if (typeof window !== "undefined") {
-    (window as any).openOnboarding = openOnboarding;
-  }
+  // 供设置页「重新查看引导」调用；在 effect 里挂载，避免渲染期副作用
+  useEffect(() => {
+    const w = window as unknown as { openOnboarding?: () => void };
+    w.openOnboarding = () => {
+      try {
+        localStorage.removeItem(ONBOARDED_KEY);
+      } catch {
+        /* ignore */
+      }
+      setStep(0);
+      setOpen(true);
+    };
+    return () => {
+      delete w.openOnboarding;
+    };
+  }, []);
 
   const steps = [
     {
@@ -188,6 +212,7 @@ export function Onboarding() {
         hideCloseButton={true}
       >
         <button
+          type="button"
           onClick={handleSkip}
           className="absolute right-4 top-4 z-10 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
@@ -198,9 +223,12 @@ export function Onboarding() {
           {steps[step].content}
 
           <div className="flex items-center justify-center gap-2 my-4">
-            {steps.map((_, idx) => (
-              <div
+            {steps.map((item, idx) => (
+              <button
+                type="button"
                 key={idx}
+                aria-label={`第 ${idx + 1} 步：${item.title}`}
+                aria-current={idx === step ? "step" : undefined}
                 className={cn(
                   "h-2 w-2 rounded-full transition-all duration-200",
                   idx === step

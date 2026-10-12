@@ -9,7 +9,7 @@ const tabs = [
   { key: "tasks", label: "任务", icon: ListChecks },
   { key: "calendar", label: "日历", icon: CalendarDays },
   { key: "countdown", label: "倒数日", icon: Timer },
-  { key: "lessons", label: "经验", icon: Lightbulb },
+  { key: "lessons", label: "复盘", icon: Lightbulb },
   { key: "search", label: "搜索", icon: Search },
 ] as const;
 

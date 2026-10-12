@@ -16,6 +16,20 @@ import type { NoteTreeItem } from "@/lib/notes/tree";
 import { Plus, FileText, ArrowUpDown, ListChecks, Trash2, Pin, Upload, WifiOff } from "@/components/icons";
 import { NoteCard, NoteFavoritesContext, type NoteViewMode } from "@/components/notes/note-card";
 import { NoteMoveDialog } from "@/components/notes/note-move-dialog";
+import { NoteGroupsBar } from "@/components/notes/note-groups-bar";
+import { MoveToGroupDialog } from "@/components/notes/move-to-group-dialog";
+import { AutoGroupDialog } from "@/components/notes/auto-group-dialog";
+import { useNoteGroups } from "@/hooks/use-note-groups";
+import { showConfirm, showPrompt } from "@/components/ui/prompt-dialog";
+import type { NoteGroup } from "@organize/shared";
+import {
+  UNGROUPED_KEY,
+  createNoteGroup,
+  deleteNoteGroup,
+  moveNotesToGroup,
+  notifyNoteGroupsChanged,
+  renameNoteGroup,
+} from "@/lib/notes/groups";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -571,13 +585,91 @@ export default function NotesPage() {
 
   // 页内搜索的最终口径在客户端收口：服务端只能 ilike 标题 / 正文（mock 后端更是不实现），
   // 标签命中必须在这里补齐——"只搜当前功能内的标题和标签"是页头搜索框的统一契约
-  const visibleNotes = useMemo(
+  const searchedNotes = useMemo(
     () =>
       filterByPageSearch(notes, search, (note) => ({
         title: note.title,
         tags: note.tags,
       })),
     [notes, search]
+  );
+
+  // ---- 笔记分组（094）：分组条筛选 + 移到分组 + 自动分组 ----
+  const { userId: groupsUserId, groups, membership } = useNoteGroups();
+  const [activeGroup, setActiveGroup] = useState<string>("all");
+  const [groupDialogNoteId, setGroupDialogNoteId] = useState<string | null>(null);
+  const [autoGroupOpen, setAutoGroupOpen] = useState(false);
+  useEffect(() => {
+    // 当前筛选的分组被删掉后回到「全部」
+    if (activeGroup !== "all" && activeGroup !== UNGROUPED_KEY && !groups.some((g) => g.id === activeGroup)) {
+      setActiveGroup("all");
+    }
+  }, [groups, activeGroup]);
+  const groupKeyOf = useCallback((noteId: string) => membership.get(noteId) ?? UNGROUPED_KEY, [membership]);
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>([["all", searchedNotes.length]]);
+    for (const note of searchedNotes) {
+      const key = groupKeyOf(note.id);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [searchedNotes, groupKeyOf]);
+  const visibleNotes = useMemo(
+    () => (activeGroup === "all" ? searchedNotes : searchedNotes.filter((note) => groupKeyOf(note.id) === activeGroup)),
+    [searchedNotes, activeGroup, groupKeyOf]
+  );
+
+  const runGroupOp = useCallback(async (op: () => Promise<void>, success?: string) => {
+    try {
+      await op();
+      notifyNoteGroupsChanged();
+      if (success) toast({ title: success });
+    } catch (err) {
+      toast({ title: "分组操作失败", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+    }
+  }, []);
+  const handleCreateGroup = useCallback(async () => {
+    if (!groupsUserId) return;
+    const name = await showPrompt({ title: "新建分组", placeholder: "分组名称，如「读书笔记」", confirmText: "创建" });
+    if (!name?.trim()) return;
+    await runGroupOp(async () => {
+      const created = await createNoteGroup(supabase, groupsUserId, name, groups.length);
+      setActiveGroup(created.id);
+    }, `已创建分组「${name.trim()}」`);
+  }, [groupsUserId, groups.length, runGroupOp, supabase]);
+  const handleRenameGroup = useCallback(async (group: NoteGroup) => {
+    const name = await showPrompt({ title: "重命名分组", defaultValue: group.name, confirmText: "保存" });
+    if (!name?.trim() || name.trim() === group.name) return;
+    await runGroupOp(() => renameNoteGroup(supabase, group.id, name));
+  }, [runGroupOp, supabase]);
+  const handleDeleteGroup = useCallback(async (group: NoteGroup) => {
+    const ok = await showConfirm({
+      title: `删除分组「${group.name}」？`,
+      description: "只删除分组，组内笔记不会被删除，会回到「未分组」。",
+      confirmText: "删除分组",
+      destructive: true,
+    });
+    if (!ok) return;
+    await runGroupOp(() => deleteNoteGroup(supabase, group.id), "分组已删除");
+  }, [runGroupOp, supabase]);
+  const handleMoveNoteToGroup = useCallback(async (noteId: string, groupId: string | null) => {
+    if (!groupsUserId) return;
+    const name = groupId ? groups.find((g) => g.id === groupId)?.name : "未分组";
+    await runGroupOp(() => moveNotesToGroup(supabase, groupsUserId, [noteId], groupId), `已移到「${name ?? "分组"}」`);
+  }, [groups, groupsUserId, runGroupOp, supabase]);
+  const groupDialogNote = useMemo(
+    () => (groupDialogNoteId ? notes.find((n) => n.id === groupDialogNoteId) ?? null : null),
+    [groupDialogNoteId, notes]
+  );
+  const autoGroupNotes = useMemo(
+    () =>
+      notes.map((note) => ({
+        id: note.id,
+        title: note.title,
+        text: String((note as { search_text?: string | null }).search_text || ""),
+        tags: (note.tags || []).map((tag) => tag.name),
+      })),
+    [notes]
   );
 
   // 列表视图 + 默认排序（更新时间降序）+ 非搜索态时按时间分组（今天/昨天/本周/更早），
@@ -633,6 +725,7 @@ export default function NotesPage() {
     onDelete: deleteNote,
     onTagsApplied: () => fetchNotes(),
     onMove: (id: string) => setMoveDialogNoteId(id),
+    onMoveToGroup: (id: string) => setGroupDialogNoteId(id),
   });
 
   const moveTargetNote = useMemo(
@@ -865,6 +958,18 @@ export default function NotesPage() {
         </div>
       </div>
 
+      <NoteGroupsBar
+        groups={groups}
+        counts={groupCounts}
+        active={activeGroup}
+        onActiveChange={setActiveGroup}
+        onCreate={() => void handleCreateGroup()}
+        onRename={(group) => void handleRenameGroup(group)}
+        onDelete={(group) => void handleDeleteGroup(group)}
+        onDropNote={(noteId, groupId) => void handleMoveNoteToGroup(noteId, groupId)}
+        onAutoGroup={() => setAutoGroupOpen(true)}
+      />
+
       {isSelectMode && (
         <BatchActionsBar
           selectedCount={selectedIds.size}
@@ -896,14 +1001,14 @@ export default function NotesPage() {
       ) : visibleNotes.length === 0 ? (
         <EmptyState
           icon={FileText}
-          title={search.trim() || selectedTagIds.length > 0 ? "没有找到匹配的笔记" : "还没有笔记"}
+          title={search.trim() || selectedTagIds.length > 0 || activeGroup !== "all" ? activeGroup !== "all" && !search.trim() ? "这个分组里还没有笔记" : "没有找到匹配的笔记" : "还没有笔记"}
           description={
-            search.trim() || selectedTagIds.length > 0
-              ? "换个关键词或筛选条件试试"
+            search.trim() || selectedTagIds.length > 0 || activeGroup !== "all"
+              ? activeGroup !== "all" && !search.trim() ? "可以把笔记拖到上方分组上，或在笔记菜单里选「移到分组…」" : "换个关键词或筛选条件试试"
               : "记录你的想法、灵感和阅读笔记"
           }
           action={
-            search.trim() || selectedTagIds.length > 0 ? undefined : (
+            search.trim() || selectedTagIds.length > 0 || activeGroup !== "all" ? undefined : (
               <Button onClick={createNote} disabled={creating}>
                 <Plus className="h-4 w-4 mr-2" />
                 新建笔记
@@ -948,6 +1053,34 @@ export default function NotesPage() {
           </div>
         </NoteFavoritesContext.Provider>
       )}
+
+      {groupDialogNote && (
+        <MoveToGroupDialog
+          open={!!groupDialogNote}
+          onOpenChange={(open) => { if (!open) setGroupDialogNoteId(null); }}
+          noteTitle={groupDialogNote.title || "无标题笔记"}
+          groups={groups}
+          currentGroupId={membership.get(groupDialogNote.id) ?? null}
+          onSelect={(groupId) => handleMoveNoteToGroup(groupDialogNote.id, groupId)}
+          onCreateAndSelect={(name) =>
+            runGroupOp(async () => {
+              if (!groupsUserId) return;
+              const created = await createNoteGroup(supabase, groupsUserId, name, groups.length);
+              await moveNotesToGroup(supabase, groupsUserId, [groupDialogNote.id], created.id);
+            }, `已移到「${name.trim()}」`)
+          }
+        />
+      )}
+
+      <AutoGroupDialog
+        open={autoGroupOpen}
+        onOpenChange={setAutoGroupOpen}
+        notes={autoGroupNotes}
+        groups={groups}
+        membership={membership}
+        supabase={supabase}
+        userId={groupsUserId}
+      />
 
       {moveTargetNote && (
         <NoteMoveDialog

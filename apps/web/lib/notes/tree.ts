@@ -4,6 +4,7 @@ export interface NoteTreeItem {
   icon: string | null;
   parent_note_id: string | null;
   updated_at?: string;
+  is_pinned?: boolean;
 }
 
 export interface NoteTreeNode extends NoteTreeItem {
@@ -108,4 +109,24 @@ export function getParentCandidates(
   const excluded = getDescendantIds(items, noteId);
   excluded.add(noteId);
   return items.filter((item) => !excluded.has(item.id)).sort(compareNotes);
+}
+
+function containsNote(node: NoteTreeNode, id: string): boolean {
+  return node.id === id || node.children.some((child) => containsNote(child, id));
+}
+
+/**
+ * 侧栏折叠展示：置顶笔记排最前，只显示前 limit 个顶层笔记；
+ * 置顶笔记和「包含当前打开笔记」的顶层笔记即使超出 limit 也保留，避免当前位置从侧栏消失。
+ */
+export function limitNoteRoots(
+  roots: NoteTreeNode[],
+  limit: number,
+  activeId?: string | null
+): { visible: NoteTreeNode[]; hiddenCount: number } {
+  const ordered = [...roots.filter((n) => n.is_pinned), ...roots.filter((n) => !n.is_pinned)];
+  const visible = ordered.filter(
+    (node, index) => index < limit || node.is_pinned || (!!activeId && containsNote(node, activeId))
+  );
+  return { visible, hiddenCount: ordered.length - visible.length };
 }

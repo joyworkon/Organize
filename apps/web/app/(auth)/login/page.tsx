@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { localizeAuthError } from "@/lib/auth/messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 成功/提示类信息与错误分开存放：之前靠文案里是否含「成功」判断颜色，
+  // 「重置链接已发送」这类成功提示会被显示成红色错误
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -20,23 +24,30 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNotice(null);
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setError("注册成功！请检查邮箱确认链接。");
+        if (data.session) {
+          // 未开启邮箱确认时注册即登录，直接进入工作台
+          router.push("/");
+          router.refresh();
+          return;
+        }
+        setNotice("注册成功！请查收确认邮件，点击链接后即可登录。");
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
-        router.push("/library");
+        router.push("/");
         router.refresh();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(localizeAuthError(err instanceof Error ? err.message : null));
     } finally {
       setLoading(false);
     }
@@ -49,14 +60,17 @@ export default function LoginPage() {
     }
     setLoading(true);
     setError(null);
+    setNotice(null);
     try {
+      // 邮件链接先回到 /auth/callback 换取会话，再跳到 /reset 设置新密码
+      // （之前指向不存在的 /auth/reset，点开邮件链接是 404）
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/auth/reset`,
+        redirectTo: `${window.location.origin}/auth/callback?next=/reset`,
       });
       if (error) throw error;
-      setError("重置链接已发送到邮箱，请查收（可能在垃圾邮件里）");
+      setNotice("重置链接已发送到邮箱，请查收（可能在垃圾邮件里）");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发送失败，请稍后重试");
+      setError(localizeAuthError(err instanceof Error ? err.message : "发送失败，请稍后重试"));
     } finally {
       setLoading(false);
     }
@@ -100,8 +114,13 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className={`text-sm ${error.includes("成功") ? "text-green-600" : "text-red-600"}`}>
+              <p role="alert" className="text-sm text-destructive">
                 {error}
+              </p>
+            )}
+            {notice && (
+              <p role="status" className="text-sm text-green-600 dark:text-green-400">
+                {notice}
               </p>
             )}
 
@@ -176,6 +195,7 @@ export default function LoginPage() {
               onClick={() => {
                 setIsSignUp(!isSignUp);
                 setError(null);
+                setNotice(null);
               }}
             >
               {isSignUp ? "去登录" : "去注册"}
