@@ -56,7 +56,8 @@ async function login(page: Page, email: string, password: string) {
   await page.getByPlaceholder("邮箱地址").fill(email);
   await page.getByPlaceholder("密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.waitForURL("**/library");
+  // 登录后进入工作台首页
+  await page.waitForURL((url) => url.pathname === "/");
 }
 
 async function openNote(page: Page) {

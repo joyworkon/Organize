@@ -34,7 +34,8 @@ test.describe("B03 反链读路径（v2 切读）", () => {
     await page.getByPlaceholder("邮箱地址").fill(seed.userA.email);
     await page.getByPlaceholder("密码").fill(seed.userA.password);
     await page.getByRole("button", { name: "登录", exact: true }).click();
-    await page.waitForURL("**/library");
+    // 登录后进入工作台首页
+    await page.waitForURL((url) => url.pathname === "/");
   }
 
   test("打开被引用笔记，反链面板列出来源标题", async ({ page }) => {

@@ -50,7 +50,8 @@ test.describe("真实后端导入与画布联动（收口阶段 5）", () => {
     await page.getByPlaceholder("邮箱地址").fill(email);
     await page.getByPlaceholder("密码").fill(password);
     await page.getByRole("button", { name: "登录", exact: true }).click();
-    await page.waitForURL("**/library");
+    // 登录后进入工作台首页
+    await page.waitForURL((url) => url.pathname === "/");
   }
 
   test("导入链路 + 中断回收 + 重试 + 刷新恢复", async ({ page }) => {
