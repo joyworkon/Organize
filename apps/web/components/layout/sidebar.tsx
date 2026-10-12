@@ -35,6 +35,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ThemeToggle } from "./theme-toggle";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
+import { useNoteGroups } from "@/hooks/use-note-groups";
+import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged } from "@/lib/notes/groups";
+import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
 
 /** 侧栏笔记列表默认只显示的顶层笔记数 */
 const SIDEBAR_NOTES_LIMIT = 5;
@@ -632,7 +635,7 @@ const visibleNavItems = useMemo(() => {
                         加载笔记...
                       </div>
                     ) : (
-                      <SidebarNoteTree
+                      <SidebarGroupedNotes
                         nodes={noteTree}
                         pathname={pathname}
                         onNavigate={() => setMobileOpen(false)}
@@ -707,6 +710,113 @@ const visibleNavItems = useMemo(() => {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+const GROUP_COLLAPSED_KEY = "organize-sidebar-note-groups-collapsed";
+
+/**
+ * 侧栏笔记：有分组时按「各分组 → 未分组」分段（按顶层笔记归组，子页面跟随父页面），
+ * 每段各自「前 5 篇 + 查看更多」；分组标题可折叠（记住状态），也可以把侧栏里的笔记拖到分组标题上归类。
+ */
+function SidebarGroupedNotes({
+  nodes,
+  pathname,
+  onNavigate,
+}: {
+  nodes: NoteTreeNode[];
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const { supabase, userId, groups, membership } = useNoteGroups();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setCollapsedGroups(new Set(JSON.parse(localStorage.getItem(GROUP_COLLAPSED_KEY) || "[]")));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  if (groups.length === 0) {
+    return <SidebarNoteTree nodes={nodes} pathname={pathname} onNavigate={onNavigate} />;
+  }
+
+  const sections = [
+    ...groups.map((g) => ({ key: g.id, name: g.name, nodes: nodes.filter((n) => membership.get(n.id) === g.id) })),
+    { key: UNGROUPED_KEY, name: "未分组", nodes: nodes.filter((n) => !membership.has(n.id)) },
+  ];
+
+  const drop = async (noteId: string, key: string) => {
+    if (!userId) return;
+    try {
+      await moveNotesToGroup(supabase, userId, [noteId], key === UNGROUPED_KEY ? null : key);
+      notifyNoteGroupsChanged();
+    } catch {
+      /* 失败时列表保持原样 */
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      {sections.map((section) => {
+        const open = !collapsedGroups.has(section.key);
+        return (
+          <div key={section.key} data-sidebar-group={section.name}>
+            <button
+              type="button"
+              onClick={() => toggleGroup(section.key)}
+              aria-expanded={open}
+              onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes(NOTE_DRAG_MIME)) return;
+                event.preventDefault();
+                setDropKey(section.key);
+              }}
+              onDragLeave={() => setDropKey((k) => (k === section.key ? null : k))}
+              onDrop={(event) => {
+                const noteId = event.dataTransfer.getData(NOTE_DRAG_MIME);
+                setDropKey(null);
+                if (noteId) {
+                  event.preventDefault();
+                  void drop(noteId, section.key);
+                }
+              }}
+              className={cn(
+                "flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                dropKey === section.key && "bg-primary/10 text-foreground ring-1 ring-primary"
+              )}
+            >
+              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <span className="min-w-0 flex-1 truncate text-left">{section.name}</span>
+              <span className="text-[11px] font-normal">{section.nodes.length}</span>
+            </button>
+            {open && (
+              <SidebarNoteTree
+                nodes={section.nodes}
+                pathname={pathname}
+                onNavigate={onNavigate}
+                showAllKey={`${NOTES_SHOW_ALL_KEY}:${section.key}`}
+                emptyText="拖笔记到这里"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -797,6 +907,7 @@ function SidebarNoteTree({
               <Link
                 href={`/notes/${note.id}`}
                 onClick={onNavigate}
+                onDragStart={(event) => event.dataTransfer.setData(NOTE_DRAG_MIME, note.id)}
                 className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
                 title={note.title || "无标题笔记"}
               >
