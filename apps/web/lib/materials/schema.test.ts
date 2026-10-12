@@ -16,6 +16,9 @@ describe("material boundaries", () => {
 
   it("accepts fenced JSON and strips arbitrary model attributes", () => {
     expect(parseMaterialResult(`\`\`\`json\n${JSON.stringify(result)}\n\`\`\``)).toEqual(result);
+    // 模型在 JSON 前后加了说明文字
+    expect(parseMaterialResult(`好的，整理结果如下：\n\`\`\`json\n${JSON.stringify(result)}\n\`\`\`\n如需调整请告诉我。`)).toEqual(result);
+    expect(parseMaterialResult(`整理结果：${JSON.stringify(result)}`)).toEqual(result);
     expect(validateMaterialResult({ ...result, attrs: { onClick: "evil" }, blocks: [{ type: "paragraph", text: "safe", attrs: { id: "existing" } }] }).blocks).toEqual([{ type: "paragraph", text: "safe" }]);
   });
 

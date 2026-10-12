@@ -82,8 +82,23 @@ export function validateMaterialResult(value: unknown): MaterialResult {
   return result;
 }
 
+/** 模型可能在 JSON 前后加说明文字或代码围栏（如 MiMo、DeepSeek）：依次尝试整段、围栏内、首个 { 到末个 }。 */
+function jsonCandidates(raw: string): string[] {
+  const text = raw.trim();
+  const candidates = [text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")];
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidates.push(fenced[1].trim());
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  return candidates;
+}
+
 export function parseMaterialResult(raw: string): MaterialResult {
-  const json = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try { return validateMaterialResult(JSON.parse(json)); }
-  catch { throw new Error("模型未返回完整的整理结果，请重试或减少物料"); }
+  for (const candidate of jsonCandidates(raw)) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(candidate); } catch { continue; }
+    try { return validateMaterialResult(parsed); } catch { break; }
+  }
+  throw new Error("模型未返回完整的整理结果，请重试或减少物料");
 }
