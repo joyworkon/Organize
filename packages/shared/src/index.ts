@@ -28,6 +28,23 @@ export type NoteTemplate = "default" | "red-blue";
 export type NoteFont = "default" | "serif" | "mono";
 
 // 笔记
+/** 笔记分组（094）：用户手动建组或确认自动分组建议后写入；归属关系在 note_group_members */
+export interface NoteGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteGroupMember {
+  note_id: string;
+  group_id: string;
+  user_id: string;
+  created_at: string;
+}
+
 export interface Note {
   id: string;
   user_id: string;
