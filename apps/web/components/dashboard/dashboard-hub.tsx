@@ -103,7 +103,7 @@ export function DashboardHub() {
             <PageSearch
               value={search}
               onChange={setSearch}
-              placeholder="搜索工作台（标题 / 标签）"
+              placeholder="搜索已加载内容（标题 / 标签）"
             />
           )}
         </div>
@@ -115,19 +115,19 @@ export function DashboardHub() {
         aria-labelledby={`dashboard-tab-${current}`}
         tabIndex={0}
       >
-        {current === "today" && (
+        <div className={current === "today" ? "" : "hidden"}>
           <TodayView
             search={search}
             searchControl={
               <PageSearch
                 value={search}
                 onChange={setSearch}
-                placeholder="搜索标题或标签"
+                placeholder="搜索已加载内容"
                 label="搜索工作台（标题 / 标签）"
               />
             }
           />
-        )}
+        </div>
         {current === "review" && <ReviewView />}
         {current === "stats" && <StatsView />}
       </div>

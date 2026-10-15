@@ -17,6 +17,8 @@ import {
   Calendar,
 } from "@/components/icons";
 import { EmptyState } from "@/components/ui/empty-state";
+import { fetchAllRows } from "@/lib/dashboard/paginated-query";
+import { computeReadCompletionBuckets } from "@/lib/dashboard/workbench-stats";
 
 interface DailyBucket {
   date: string;
@@ -110,50 +112,24 @@ export default function StatsView() {
     setError(null);
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        setData(DEFAULT_DATA);
-        return;
-      }
-
-      const since = new Date();
-      since.setDate(since.getDate() - (DAYS - 1));
-      since.setHours(0, 0, 0, 0);
+      if (authError) throw authError;
+      if (!user) throw new Error("无法读取当前账户统计数据");
 
       const weekStart = getWeekStart(new Date());
 
-      const results = await Promise.allSettled([
-        supabase
-          .from("reading_items")
-          .select("id, reading_status, reading_progress, created_at, updated_at, url, is_pinned")
-          .eq("user_id", user.id),
-        supabase.from("notes").select("id, created_at").eq("user_id", user.id),
-        supabase.from("reading_items").select("id").eq("user_id", user.id).eq("is_pinned", true),
-        supabase.from("tasks").select("id, status, completed_at, created_at").eq("user_id", user.id),
-        supabase.from("highlights").select("id").eq("user_id", user.id),
-        supabase.from("favorites").select("id").eq("user_id", user.id),
-        supabase.from("item_tags").select("tag_id"),
-        supabase.from("note_tags").select("tag_id"),
+      const [items, notes, pinnedItems, tasks, highlights, favorites, itemTags, noteTags, tagRows] = await Promise.all([
+        fetchAllRows(supabase.from("reading_items").select("id, reading_status, reading_progress, created_at, completed_reading_at, url, is_pinned").eq("user_id", user.id).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("notes").select("id, created_at").eq("user_id", user.id).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("reading_items").select("id").eq("user_id", user.id).eq("is_pinned", true).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("tasks").select("id, status, completed_at, created_at").eq("user_id", user.id).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("highlights").select("id").eq("user_id", user.id).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("favorites").select("id").eq("user_id", user.id).order("id", { ascending: true })),
+        fetchAllRows(supabase.from("item_tags").select("tag_id, item_id").order("tag_id", { ascending: true }).order("item_id", { ascending: true })),
+        fetchAllRows(supabase.from("note_tags").select("tag_id, note_id").order("tag_id", { ascending: true }).order("note_id", { ascending: true })),
+        fetchAllRows(supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("id", { ascending: true })),
       ]);
-
-      const [
-        itemsRes,
-        notesRes,
-        pinnedItemsRes,
-        tasksRes,
-        highlightsRes,
-        favoritesRes,
-        itemTagsRes,
-        noteTagsRes,
-      ] = results;
-
-      const items = itemsRes.status === "fulfilled" && !itemsRes.value.error ? (itemsRes.value.data || []) : [];
-      const notes = notesRes.status === "fulfilled" && !notesRes.value.error ? (notesRes.value.data || []) : [];
-      const pinnedItems = pinnedItemsRes.status === "fulfilled" && !pinnedItemsRes.value.error ? (pinnedItemsRes.value.data || []) : [];
-      const tasks = tasksRes.status === "fulfilled" && !tasksRes.value.error ? (tasksRes.value.data || []) : [];
-      const highlightsCount = highlightsRes.status === "fulfilled" && !highlightsRes.value.error ? (highlightsRes.value.data?.length || 0) : 0;
-      const favoritesCount = favoritesRes.status === "fulfilled" && !favoritesRes.value.error ? (favoritesRes.value.data?.length || 0) : 0;
-      const itemTags = itemTagsRes.status === "fulfilled" && !itemTagsRes.value.error ? (itemTagsRes.value.data || []) : [];
-      const noteTags = noteTagsRes.status === "fulfilled" && !noteTagsRes.value.error ? (noteTagsRes.value.data || []) : [];
+      const highlightsCount = highlights.length;
+      const favoritesCount = favorites.length;
 
       const totals = {
         items: items.length,
@@ -176,14 +152,14 @@ export default function StatsView() {
           : items.reduce((sum: number, i: any) => sum + (i.reading_progress || 0), 0) / items.length;
 
       const dailyMap = new Map<string, number>();
-      const readMap = new Map<string, number>();
+      const readDates: string[] = [];
       const taskMap = new Map<string, number>();
       for (let i = DAYS - 1; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateStr = formatDate(d);
         dailyMap.set(dateStr, 0);
-        readMap.set(dateStr, 0);
+        readDates.push(dateStr);
         taskMap.set(dateStr, 0);
       }
 
@@ -199,12 +175,6 @@ export default function StatsView() {
         const itemCreatedAt = new Date(item.created_at);
         if (itemCreatedAt >= weekStart) {
           weeklyItemsAdded++;
-        }
-        if (item.reading_status === "read" && item.updated_at) {
-          const updatedDate = formatDate(new Date(item.updated_at));
-          if (new Date(item.updated_at) >= since && readMap.has(updatedDate)) {
-            readMap.set(updatedDate, (readMap.get(updatedDate) || 0) + 1);
-          }
         }
       }
 
@@ -229,7 +199,10 @@ export default function StatsView() {
       }
 
       const dailyItems = Array.from(dailyMap, ([date, count]) => ({ date, count }));
-      const dailyRead = Array.from(readMap, ([date, count]) => ({ date, count }));
+      const dailyRead = computeReadCompletionBuckets(
+        items.map((item) => item.completed_reading_at),
+        readDates,
+      );
       const dailyTasks = Array.from(taskMap, ([date, count]) => ({ date, count }));
 
       const weeklyStats: WeeklyStats = {
@@ -245,25 +218,12 @@ export default function StatsView() {
       for (const r of noteTags) {
         tagUse.set(r.tag_id, (tagUse.get(r.tag_id) || 0) + 1);
       }
-      const usedTagIds = Array.from(tagUse.keys());
-      let topTags: StatsData["topTags"] = [];
-      if (usedTagIds.length > 0) {
-        try {
-          const { data: tagRows, error: tagError } = await supabase
-            .from("tags")
-            .select("id, name, color")
-            .eq("user_id", user.id)
-            .in("id", usedTagIds);
-          if (!tagError) {
-            topTags = (tagRows || [])
-              .map((t: any) => ({ id: t.id, name: t.name, color: t.color, count: tagUse.get(t.id) || 0 }))
-              .sort((a, b) => b.count - a.count)
-              .slice(0, 5);
-          }
-        } catch {
-          topTags = [];
-        }
-      }
+      const usedTagIds = new Set(tagUse.keys());
+      const topTags = tagRows
+        .filter((tag) => usedTagIds.has(tag.id))
+        .map((tag) => ({ id: tag.id, name: tag.name, color: tag.color, count: tagUse.get(tag.id) || 0 }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
 
       const hostMap = new Map<string, number>();
       for (const item of items) {
@@ -291,7 +251,6 @@ export default function StatsView() {
     } catch (err) {
       console.error("Failed to load stats:", err);
       setError(err instanceof Error ? err.message : "加载统计数据失败");
-      setData(DEFAULT_DATA);
     } finally {
       setLoading(false);
     }
@@ -330,7 +289,7 @@ export default function StatsView() {
         <div className="dashboard-loading" role="status">
           <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
         </div>
-      ) : error ? (
+      ) : error && (!data || !hasAnyData) ? (
         <EmptyState
           icon={TrendingUp}
           title="加载失败"
@@ -349,6 +308,12 @@ export default function StatsView() {
         />
       ) : (
         <>
+          {error && (
+            <div className="flex items-center justify-between rounded-lg border border-destructive/30 px-3 py-2 text-sm" role="alert">
+              <span>统计刷新失败，当前显示上次成功的数据。</span>
+              <Button variant="outline" size="sm" onClick={() => void loadStats()}>重试</Button>
+            </div>
+          )}
           <div className="dashboard-content-grid">
             <MetricGroup
               title="文章"
