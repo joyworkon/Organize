@@ -205,6 +205,13 @@ export default function TodayView({ search = "", searchControl }: { search?: str
             tags: linksByTask.get(t.id) || [],
           }));
           setAllTasks(tasksWithTags);
+          const latestTasks = new Map(tasksWithTags.map((task) => [task.id, task]));
+          setJustCreatedTasks((current) => current.flatMap((task) => {
+            const latest = latestTasks.get(task.id);
+            // 尚未同步的离线创建项仍留在首页；已读到新状态的任务跟随数据库。
+            if (!latest) return [task];
+            return latest.status === "done" || latest.status === "cancelled" ? [] : [latest];
+          }));
 
           const overdue = tasksWithTags.filter((t) => isOverdue(t.due_date, t.status));
           const dueToday = tasksWithTags.filter(

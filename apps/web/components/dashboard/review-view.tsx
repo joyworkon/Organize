@@ -128,6 +128,12 @@ export default function ReviewView() {
   const [error, setError] = useState<string | null>(null);
   const supabase = useMemo(() => createClient(), []);
   const requestId = useRef(0);
+  const reviewDateParam = searchParams.get("reviewDate");
+
+  useEffect(() => {
+    const date = parseDateParam(reviewDateParam);
+    setSelectedDate((current) => dateParam(current) === dateParam(date) ? current : date);
+  }, [reviewDateParam]);
 
   const today = new Date();
 
