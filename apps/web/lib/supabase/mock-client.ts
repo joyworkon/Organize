@@ -67,7 +67,7 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
     return mockDb[this.table] || (mockDb[this.table] = []);
   }
 
-  // 按 eq / in 过滤（其它过滤器忽略，UI 预览够用）
+  // 保持核心等值与日期范围语义；NULL 不参与 SQL 范围比较。
   private applyFilters(rows: any[]): any[] {
     const hideSoftDeleted =
       this.op === "select" &&
@@ -81,6 +81,8 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
         if (f.method === "eq") return row[f.column] === f.value;
         if (f.method === "neq") return row[f.column] !== f.value;
         if (f.method === "in") return (f.value as unknown[]).includes(row[f.column]);
+        if (f.method === "gte") return row[f.column] != null && row[f.column] >= (f.value as string | number);
+        if (f.method === "lte") return row[f.column] != null && row[f.column] <= (f.value as string | number);
         if (f.method === "is") {
           return f.value === null
             ? row[f.column] == null
@@ -149,10 +151,12 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   like() {
     return this;
   }
-  gte() {
+  gte(column: string, value: unknown) {
+    this.filters.push({ method: "gte", column, value });
     return this;
   }
-  lte() {
+  lte(column: string, value: unknown) {
+    this.filters.push({ method: "lte", column, value });
     return this;
   }
   contains() {

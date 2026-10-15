@@ -43,3 +43,18 @@ test("全部待办入口保持全部范围，继续阅读包含在读文章", as
   await expect(page).toHaveURL(/\/tasks\?scope=all$/);
   await expect(page.getByRole("heading", { name: "全部任务", exact: true })).toBeVisible();
 });
+
+test("手机回顾日期控件不挤压标题，历史空日期不混入今天的数据", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "日历回顾", exact: true }).click();
+  const dateInput = page.getByLabel("选择回顾日期", { exact: true });
+  await dateInput.fill("2000-01-02");
+  await expect(page).toHaveURL(/reviewDate=2000-01-02/);
+  await expect(page.getByText("这一天还没有完成任务，加油 💪", { exact: true })).toBeVisible();
+  await expect(page.getByText("这一天还没有阅读记录", { exact: true })).toBeVisible();
+  const title = await page.getByRole("heading", { name: "日历回顾", exact: true }).boundingBox();
+  const picker = await dateInput.boundingBox();
+  expect(title!.width).toBeGreaterThan(100);
+  expect(picker!.y).toBeGreaterThan(title!.y + title!.height);
+  expect(picker!.x + picker!.width).toBeLessThanOrEqual(390);
+});

@@ -3425,6 +3425,12 @@
   .dashboard-view-header h1 { font-size: 18px; }
   .dashboard-view-header p { font-size: 12px; }
   .dashboard-view-actions { align-self: flex-start; }
+  .dashboard-review .dashboard-view-header {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    gap: 8px;
+  }
+  .dashboard-review .dashboard-view-actions { grid-column: 1; grid-row: 3; }
 }
 /* 工作台卡片层级（2026-09-17 Cairn 第五步）：
    主卡指标条 + 第三档「全部」文字导航链——四张卡不再用同一套 ghost 按钮头，

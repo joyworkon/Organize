@@ -202,9 +202,11 @@ export default function ReviewView() {
 
         const readingItemsById = new Map<string, ReadingItem>();
         for (const item of readingStartedRes.data || []) {
+          if (!item.started_reading_at) continue;
           readingItemsById.set(item.id, { ...item, activity_at: item.started_reading_at, activity_type: "started" } as ReadingItem);
         }
         for (const item of readingCompletedRes.data || []) {
+          if (!item.completed_reading_at) continue;
           readingItemsById.set(item.id, { ...item, activity_at: item.completed_reading_at, activity_type: "completed" } as ReadingItem);
         }
         const readingItems = [...readingItemsById.values()]
@@ -256,7 +258,7 @@ export default function ReviewView() {
   const isToday = isSameDay(selectedDate, today);
 
   return (
-    <div className="dashboard-view space-y-5">
+    <div className="dashboard-view dashboard-review space-y-5">
       <DashboardViewHeader
         title="日历回顾"
         description={formatDateDisplay(selectedDate)}
