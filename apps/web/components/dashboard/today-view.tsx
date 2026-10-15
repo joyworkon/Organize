@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,6 +39,9 @@ import {
 } from "@/components/icons";
 import { TaskNavigationMenu } from "@/components/tasks/task-navigation-menu";
 import { DashboardCapture } from "./dashboard-capture";
+import { mergeActionableTasks } from "@/lib/dashboard/workbench-tasks";
+import { fetchAllRows } from "@/lib/dashboard/paginated-query";
+import { localCalendarDayDifference } from "@/lib/dashboard/workbench-stats";
 
 function formatDate(date: Date): string {
   const year = date.getFullYear();
@@ -84,7 +87,7 @@ function formatDueTime(dateStr: string | null): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diff = date.getTime() - now.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const days = localCalendarDayDifference(now, date);
   const hours = Math.floor(diff / (1000 * 60 * 60));
 
   if (isToday(dateStr)) {
@@ -121,6 +124,9 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const supabase = useMemo(() => createClient(), []);
 
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [loadedModules, setLoadedModules] = useState({ tasks: false, reading: false, notes: false, memos: false });
   // 问候语与日期依赖浏览器本地时区：SSR 与客户端时区不同会触发 hydration
   // 不匹配，所以首帧渲染中性文案，挂载后再按本地时间计算。
   const [greeting, setGreeting] = useState<{ title: string; date: string } | null>(null);
@@ -136,93 +142,136 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const [recentMemos, setRecentMemos] = useState<Array<{ id: string; content: string; created_at: string }>>([]);
   // 全量任务驻留内存：完成率与连续天数都由它即时计算（纯函数，见 lib/dashboard/workbench-stats）
   const [allTasks, setAllTasks] = useState<TaskWithTags[]>([]);
+  const [justCreatedTasks, setJustCreatedTasks] = useState<TaskWithTags[]>([]);
+  const [taskBusyIds, setTaskBusyIds] = useState<Set<string>>(() => new Set());
+  const requestGeneration = useRef(0);
 
   const today = new Date();
 
   const loadData = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
+    setLoadError(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
       if (!user) {
         router.push("/login");
         return;
       }
 
       const results = await Promise.allSettled([
-        supabase.from("tasks").select("*").eq("user_id", user.id),
+        fetchAllRows(supabase.from("tasks").select("*").eq("user_id", user.id).order("id", { ascending: true })),
         supabase.from("reading_items")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("reading_status", "unread")
-          .order("is_pinned", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(5),
+          .select("*, item_tags(tag_id, tags(id, name))")
+          .eq("user_id", user.id).eq("reading_status", "reading")
+          .order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(5),
+        supabase.from("reading_items")
+          .select("*, item_tags(tag_id, tags(id, name))")
+          .eq("user_id", user.id).eq("reading_status", "unread")
+          .order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(5),
         supabase.from("notes")
-          .select("*, reading_item:reading_items(id, title, url)")
+          .select("*, reading_item:reading_items(id, title, url), note_tags(tag_id, tags(id, name))")
           .eq("user_id", user.id)
           .order("updated_at", { ascending: false })
           .limit(5),
       ]);
 
+      if (generation !== requestGeneration.current) return;
+
+      if (results.some((result) => result.status === "rejected" || (result.status === "fulfilled" && "error" in result.value && !!result.value.error))) setLoadError(true);
+
       if (results[0].status === "fulfilled") {
-        const { data: tasksData } = results[0].value;
-        const tasksList = (tasksData || []) as Task[];
-
-        const { data: tagLinks } = await supabase.from("task_tags").select("task_id, tag_id");
-        const { data: tagsData } = await supabase.from("tags").select("id, name").eq("user_id", user.id);
-        const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
-        const linksByTask = new Map<string, Tag[]>();
-        for (const link of tagLinks || []) {
-          const tag = tagMap.get(link.tag_id);
-          if (tag) {
-            const existing = linksByTask.get(link.task_id) || [];
-            existing.push(tag);
-            linksByTask.set(link.task_id, existing);
+        const tasksList = results[0].value as Task[];
+        try {
+          const [tagLinks, tagsData] = await Promise.all([
+            fetchAllRows(supabase.from("task_tags").select("task_id, tag_id").order("task_id", { ascending: true }).order("tag_id", { ascending: true })),
+            fetchAllRows(supabase.from("tags").select("id, name").eq("user_id", user.id).order("id", { ascending: true })),
+          ]);
+          if (generation !== requestGeneration.current) return;
+          const tagMap = new Map(tagsData.map((t) => [t.id, t as Tag]));
+          const linksByTask = new Map<string, Tag[]>();
+          for (const link of tagLinks) {
+            const tag = tagMap.get(link.tag_id);
+            if (tag) {
+              const existing = linksByTask.get(link.task_id) || [];
+              existing.push(tag);
+              linksByTask.set(link.task_id, existing);
+            }
           }
+
+          const tasksWithTags: TaskWithTags[] = tasksList.map((t) => ({
+            ...t,
+            tags: linksByTask.get(t.id) || [],
+          }));
+          setAllTasks(tasksWithTags);
+          const latestTasks = new Map(tasksWithTags.map((task) => [task.id, task]));
+          setJustCreatedTasks((current) => current.flatMap((task) => {
+            const latest = latestTasks.get(task.id);
+            // 尚未同步的离线创建项仍留在首页；已读到新状态的任务跟随数据库。
+            if (!latest) return [task];
+            return latest.status === "done" || latest.status === "cancelled" ? [] : [latest];
+          }));
+
+          const overdue = tasksWithTags.filter((t) => isOverdue(t.due_date, t.status));
+          const dueToday = tasksWithTags.filter(
+            (t) => isToday(t.due_date) && t.status !== "done" && t.status !== "cancelled"
+          );
+          const inProgress = tasksWithTags.filter((t) => t.status === "in_progress");
+
+          overdue.sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime());
+          dueToday.sort((a, b) => {
+            if (!a.due_date) return 1;
+            if (!b.due_date) return -1;
+            return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+          });
+
+          setOverdueTasks(overdue);
+          setTodayTasks(dueToday);
+          setInProgressTasks(inProgress);
+          setLoadedModules((current) => ({ ...current, tasks: true }));
+        } catch (error) {
+          console.error("Failed to load dashboard task tags:", error);
+          if (generation === requestGeneration.current) setLoadError(true);
         }
+      }
 
-        const tasksWithTags: TaskWithTags[] = tasksList.map((t) => ({
-          ...t,
-          tags: linksByTask.get(t.id) || [],
+      if (results[1].status === "fulfilled" && !results[1].value.error && results[2].status === "fulfilled" && !results[2].value.error) {
+        const mapTags = (rows: unknown) => ((rows || []) as Array<ReadingItem & { item_tags?: Array<{ tags?: Tag }> }>).map((article) => ({
+          ...article,
+          tags: article.item_tags?.flatMap((link) => link.tags ? [link.tags] : []) ?? article.tags ?? [],
         }));
-        setAllTasks(tasksWithTags);
-
-        const overdue = tasksWithTags.filter((t) => isOverdue(t.due_date, t.status));
-        const dueToday = tasksWithTags.filter(
-          (t) => isToday(t.due_date) && t.status !== "done" && t.status !== "cancelled"
-        );
-        const inProgress = tasksWithTags.filter((t) => t.status === "in_progress");
-
-        overdue.sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime());
-        dueToday.sort((a, b) => {
-          if (!a.due_date) return 1;
-          if (!b.due_date) return -1;
-          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-        });
-
-        setOverdueTasks(overdue);
-        setTodayTasks(dueToday);
-        setInProgressTasks(inProgress);
+        setUnreadArticles([...mapTags(results[1].value.data), ...mapTags(results[2].value.data)].slice(0, 5));
+        setLoadedModules((current) => ({ ...current, reading: true }));
       }
 
-      if (results[1].status === "fulfilled") {
-        setUnreadArticles((results[1].value.data || []) as ReadingItem[]);
-      }
-
-      if (results[2].status === "fulfilled") {
-        setRecentNotes((results[2].value.data || []) as NoteWithTags[]);
+      if (results[3].status === "fulfilled" && !results[3].value.error) {
+        const notes = (results[3].value.data || []) as Array<NoteWithTags & { note_tags?: Array<{ tags?: Tag }> }>;
+        setRecentNotes(notes.map((note) => ({ ...note, tags: note.note_tags?.flatMap((link) => link.tags ? [link.tags] : []) ?? note.tags ?? [] })));
+        setLoadedModules((current) => ({ ...current, notes: true }));
       }
 
       try {
         const res = await fetch("/api/memos?limit=3", { cache: "no-store" });
-        if (res.ok) setRecentMemos((await res.json()).slice(0, 3));
+        if (res.ok) {
+          const memos = await res.json();
+          if (generation === requestGeneration.current) {
+            setRecentMemos(memos.slice(0, 3));
+            setLoadedModules((current) => ({ ...current, memos: true }));
+          }
+        } else if (generation === requestGeneration.current) setLoadError(true);
       } catch {
         // 速记加载失败不阻塞工作台其余模块
+        if (generation === requestGeneration.current) setLoadError(true);
       }
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
+      if (generation === requestGeneration.current) setLoadError(true);
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) {
+        setLoading(false);
+        setHasLoaded(true);
+      }
     }
   }, [supabase, router]);
 
@@ -233,6 +282,7 @@ export default function TodayView({ search = "", searchControl }: { search?: str
     window.addEventListener("organize:tasks-changed", reload);
     window.addEventListener("reading:item-created", reload);
     return () => {
+      requestGeneration.current += 1;
       window.removeEventListener("organize:memos-synced", reload);
       window.removeEventListener("organize:tasks-changed", reload);
       window.removeEventListener("reading:item-created", reload);
@@ -240,28 +290,38 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   }, [loadData]);
 
   const handleToggleTaskStatus = async (taskId: string, status: Task["status"]) => {
-    const updates: Partial<Task> = { status };
-    if (status === "done") {
-      updates.completed_at = new Date().toISOString();
-    } else {
-      updates.completed_at = null;
+    if (taskBusyIds.has(taskId)) return;
+    setTaskBusyIds((previous) => new Set(previous).add(taskId));
+    try {
+      const updates: Partial<Task> = { status };
+      updates.completed_at = status === "done" ? new Date().toISOString() : null;
+      const expectedVersion = allTasks.find((task) => task.id === taskId)?.sync_version ?? null;
+      const result = await applyTaskUpdate(supabase, taskId, updates as Record<string, unknown>, expectedVersion, crypto.randomUUID());
+      if (result.status === "conflict" || result.status === "not_found") {
+        toast({ title: result.status === "conflict" ? "任务已在其他设备被修改，已刷新" : "任务不存在或已被删除", variant: "destructive" });
+      } else if (result.status === "error" && isNetworkSaveError(result.error)) {
+        toast({ title: "网络异常，请稍后重试", variant: "destructive" });
+      } else if (result.status === "error") {
+        toast({ title: "更新失败，请重试", variant: "destructive" });
+      }
+      if (result.status === "applied" && status === "done") {
+        const newId = await generateNextRecurringTask(supabase, taskId);
+        if (newId) window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      }
+      if (result.status === "applied") {
+        setJustCreatedTasks((current) => current.filter((task) => task.id !== taskId));
+      }
+      await loadData();
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "更新失败，请重试", variant: "destructive" });
+      await loadData();
+    } finally {
+      setTaskBusyIds((previous) => {
+        const next = new Set(previous);
+        next.delete(taskId);
+        return next;
+      });
     }
-    // 在线与离线更新共用原子协议（P1-03）；冲突/失败 toast 可见，刷新取回服务端状态
-    const expectedVersion = allTasks.find((task) => task.id === taskId)?.sync_version ?? null;
-    const result = await applyTaskUpdate(supabase, taskId, updates as Record<string, unknown>, expectedVersion, crypto.randomUUID());
-    if (result.status === "conflict" || result.status === "not_found") {
-      toast({ title: result.status === "conflict" ? "任务已在其他设备被修改，已刷新" : "任务不存在或已被删除", variant: "destructive" });
-    } else if (result.status === "error" && isNetworkSaveError(result.error)) {
-      toast({ title: "网络异常，请稍后重试", variant: "destructive" });
-    } else if (result.status === "error") {
-      toast({ title: "更新失败，请重试", variant: "destructive" });
-    }
-    if (result.status === "applied" && status === "done") {
-      // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
-      const newId = await generateNextRecurringTask(supabase, taskId);
-      if (newId) window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-    }
-    loadData();
   };
 
   const handleCreateNote = async () => {
@@ -308,9 +368,9 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   };
 
   const handleRecommendNext = () => {
-    if (unreadArticles.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * unreadArticles.length);
-    const article = unreadArticles[randomIndex];
+    if (visibleArticles.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * visibleArticles.length);
+    const article = visibleArticles[randomIndex];
     router.push(`/library/${article.id}`);
   };
 
@@ -320,7 +380,7 @@ export default function TodayView({ search = "", searchControl }: { search?: str
 
   // D03 §5.1「继续处理」：逾期 → 今日到期 → 进行中 合并的待办清单（各段保持原排序）
   const actionableTasks: TaskWithTags[] = filterByPageSearch(
-    [...overdueTasks, ...todayTasks, ...inProgressTasks],
+    mergeActionableTasks(overdueTasks, todayTasks, inProgressTasks, justCreatedTasks),
     search,
     (task) => ({ title: task.title, tags: task.tags })
   );
@@ -328,6 +388,7 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const visibleArticles = filterByPageSearch(unreadArticles, search, (article) => ({
     title: article.title || article.url,
     extra: [article.excerpt],
+    tags: article.tags,
   }));
   const visibleNotes = filterByPageSearch(recentNotes, search, (note) => ({
     title: note.title,
@@ -372,13 +433,25 @@ export default function TodayView({ search = "", searchControl }: { search?: str
         }
       />
 
-      {loading ? (
+      {loading && !hasLoaded ? (
         <div className="dashboard-loading" role="status">
           <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
         </div>
       ) : (
         <>
-          <DashboardCapture onAdded={() => void loadData()} />
+          <DashboardCapture onAdded={(task) => {
+            if (task) setJustCreatedTasks((current) => [
+              { ...task, tags: [] } as TaskWithTags,
+              ...current.filter((item) => item.id !== task.id),
+            ]);
+            void loadData();
+          }} />
+          {loadError && (
+            <div className="flex items-center justify-between rounded-lg border border-destructive/30 px-3 py-2 text-sm" role="alert">
+              <span>部分内容暂时无法加载，已加载的内容仍可查看。请重试。</span>
+              <Button variant="outline" size="sm" onClick={() => void loadData()}>重试</Button>
+            </div>
+          )}
 
           <div className="dashboard-content-grid">
             {/* 主列（约 2/3）：继续处理 */}
@@ -392,13 +465,13 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                         逾期 {overdueTasks.length}
                       </span>
                     )}
-                    <Link href="/tasks" className="dashboard-section-link">
+                    <Link href="/tasks?scope=all" className="dashboard-section-link">
                       全部待办 <ChevronRight className="h-3 w-3" />
                     </Link>
                   </div>
                 }
               >
-                <div className="dashboard-metric-row mb-3">
+                {loadedModules.tasks && <div className="dashboard-metric-row mb-3">
                   {/* 文案直说含义：「1/1 今日完成」「1 连续天数」读不出分子分母各是什么 */}
                   <span title="今天到期或计划在今天的任务中，已完成的数量">
                     <strong>{todayCompletion.completed}</strong>
@@ -408,8 +481,10 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                     <strong>{taskStreak}</strong>
                     天连续完成
                   </span>
-                </div>
-                {actionableTasks.length === 0 ? (
+                </div>}
+                {!loadedModules.tasks ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">待办数据暂时无法加载</p>
+                ) : actionableTasks.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     {search.trim()
                       ? "没有匹配的待办"
@@ -423,21 +498,18 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                         <div
                           key={task.id}
                           className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
-                          onClick={() => router.push("/tasks")}
+                          onClick={() => router.push(`/tasks?scope=all&task=${task.id}`)}
                         >
                           <button
-                            aria-label={
-                              task.status === "in_progress"
-                                ? "标记为待办"
-                                : "标记完成"
-                            }
+                            aria-label="标记完成"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleToggleTaskStatus(
                                 task.id,
-                                task.status === "in_progress" ? "todo" : "done",
+                                "done",
                               );
                             }}
+                            disabled={taskBusyIds.has(task.id)}
                             className={cn(
                               "mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center transition-colors shrink-0",
                               task.status === "in_progress"
@@ -497,7 +569,9 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                   </div>
                 }
               >
-                {visibleArticles.length === 0 ? (
+                {!loadedModules.reading ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">阅读数据暂时无法加载</p>
+                ) : visibleArticles.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     {search.trim()
                       ? "没有匹配的文章"
@@ -515,6 +589,7 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                           {article.title || "无标题"}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
+                          {article.reading_status === "reading" && <span>在读 · {Math.round((article.reading_progress || 0) * 100)}% · </span>}
                           {article.excerpt
                             ? article.excerpt.slice(0, 60)
                             : "未读"}
@@ -537,7 +612,9 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                   </Link>
                 }
               >
-                {visibleNotes.length === 0 ? (
+                {!loadedModules.notes ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">笔记数据暂时无法加载</p>
+                ) : visibleNotes.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     {search.trim()
                       ? "没有匹配的笔记"
@@ -577,7 +654,9 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                   </Link>
                 }
               >
-                {visibleMemos.length === 0 ? (
+                {!loadedModules.memos ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">速记数据暂时无法加载</p>
+                ) : visibleMemos.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">
                     {search.trim()
                       ? "没有匹配的速记"

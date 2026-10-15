@@ -25,6 +25,33 @@ function localDayKey(date: Date): string {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
+export function localDateKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** Difference between local calendar dates, independent of 23/25-hour DST days. */
+export function localCalendarDayDifference(from: Date, to: Date): number {
+  const fromUtc = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const toUtc = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((toUtc - fromUtc) / 86400000);
+}
+
+/** Count only explicit completion timestamps. Null lifecycle dates stay absent. */
+export function computeReadCompletionBuckets(
+  completedAtList: Array<string | null | undefined>,
+  dates: string[],
+): Array<{ date: string; count: number }> {
+  const counts = new Map(dates.map((date) => [date, 0]));
+  for (const value of completedAtList) {
+    if (!value) continue;
+    const key = localDateKey(new Date(value));
+    if (counts.has(key)) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return dates.map((date) => ({ date, count: counts.get(date) || 0 }));
+}
+
 /**
  * 今日完成率——分母与分子基于**同一时间窗口**（今天这个日历日）：
  * - 窗口内的「计划」：未取消且（今日到期 或 逾期未完成）的任务，
@@ -85,18 +112,17 @@ export function computeTaskStreak(completedAtList: Array<string | null | undefin
     activeDays.add(localDayKey(new Date(completedAt)));
   }
 
-  const dayMs = 24 * 60 * 60 * 1000;
   // 从「今天」或「今天无活动时的昨天」开始往回数
   let cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (!activeDays.has(localDayKey(cursor))) {
-    cursor = new Date(cursor.getTime() - dayMs);
+    cursor.setDate(cursor.getDate() - 1);
     if (!activeDays.has(localDayKey(cursor))) return 0;
   }
 
   let streak = 0;
   while (activeDays.has(localDayKey(cursor))) {
     streak += 1;
-    cursor = new Date(cursor.getTime() - dayMs);
+    cursor.setDate(cursor.getDate() - 1);
   }
   return streak;
 }

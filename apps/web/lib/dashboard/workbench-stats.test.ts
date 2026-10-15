@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeTodayCompletion, computeTaskStreak } from "@/lib/dashboard/workbench-stats";
+import { computeTodayCompletion, computeTaskStreak, computeReadCompletionBuckets, localCalendarDayDifference } from "@/lib/dashboard/workbench-stats";
 
 // 固定时钟：2026-08-29（周六）15:00 本地时间。全部用例不依赖真实当前时间，
 // 同一组输入永远得到同一输出（= 刷新与换设备一致的保证，因为结果只源于持久化数据）。
@@ -71,6 +71,10 @@ describe("computeTodayCompletion 同窗口完成率", () => {
 });
 
 describe("computeTaskStreak 持久化活动连续天数", () => {
+  it("跨春季夏令时仍按本地日历日连续计数", () => {
+    const now = new Date(2026, 2, 9, 12);
+    expect(computeTaskStreak([at(2026, 3, 8, 12), at(2026, 3, 7, 12)], now)).toBe(2);
+  });
   it("今天、昨天、前天都有完成 → 连续 3 天", () => {
     const completions = [
       at(2026, 8, 29, 9),
@@ -100,5 +104,21 @@ describe("computeTaskStreak 持久化活动连续天数", () => {
     expect(computeTaskStreak([at(2026, 8, 20, 9)], NOW)).toBe(0);
     expect(computeTaskStreak([], NOW)).toBe(0);
     expect(computeTaskStreak([null, undefined], NOW)).toBe(0);
+  });
+});
+
+describe("localCalendarDayDifference", () => {
+  it("按日历日计算夏令时切换前后的到期差", () => {
+    expect(localCalendarDayDifference(new Date(2026, 2, 8, 12), new Date(2026, 2, 9, 12))).toBe(1);
+  });
+});
+
+describe("computeReadCompletionBuckets", () => {
+  it("只按 completed_reading_at 计数，null 不被 updated_at 等字段替代", () => {
+    const values = [at(2026, 8, 29, 12), null, undefined, at(2026, 8, 28, 15)];
+    expect(computeReadCompletionBuckets(values, ["2026-08-28", "2026-08-29"])).toEqual([
+      { date: "2026-08-28", count: 1 },
+      { date: "2026-08-29", count: 1 },
+    ]);
   });
 });

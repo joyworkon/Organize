@@ -143,3 +143,7 @@ Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登�
 - `user_ai_settings` 客户端角色已无表权限（057）——前端**不得直查该表**（会权限拒绝），读写一律走 `/api/ai/settings`（GET 只回掩码，PUT 时 SSRF 校验）
 - 错误消息经 `redactSecret` 脱敏（防恶意端点回显 Authorization）
 - mock 后端：设置读写走内存 client，SSRF 校验同样生效；真实 AI 调用不可用（无外部服务）
+
+## 统一 UI 设计方向（2026-10-15）
+
+修改界面前先读根目录 [DESIGN.md](DESIGN.md)，再按 [页面规格](docs/design/page-specs.md) 和 [迁移计划](docs/design/migration-plan.md) 定位范围。中性灰 Codex 风格方案当前为已交付提案，预览在 `docs/design/preview/index.html`；不代表正式页面已全部迁移。正式接入仍复用现有 token、Radix 原语、保存和权限合同；数值源为 `docs/design/tokens.json`。

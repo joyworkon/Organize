@@ -80,6 +80,12 @@ E01 导入迁移工作台、E03 每日回顾、E04 AI 体验整理、E05 插件�
 |---|---|---|---|---|---|---|---|---|
 | E02 | 阅读→行动闭环 | M | 完成（E02-1 提案 + E02-2 锚点回跳） | 决策 B4 | engineering-agent | E02-1 #298；E02-2 本 PR | 提案 `docs/e02-reading-action-proposal.md`：盘点发现卡面验收路径**已由 042 迁移时代的高亮引用关联体系完整实现**——显式转换按钮（高亮→任务/笔记）、RPC `convert_highlight_reference` 幂等（existing 分支不重复建）、双向来源回跳（高亮面板「打开任务/笔记」+ 任务侧 TaskLinkedContent「关联阅读/笔记」）、源删除三态（active/deleted/missing + 垃圾箱/失效文案）、无任何自动创建；逐条验收对照全满足（file:line 证据在提案 §2/§3）。**E02-2 已实现（本 PR，实现方式对提案 §4 有一处事实修正）**：014 的 anchor_path/anchor_offset 创建高亮时从未写入（insert 仅 user_id/reading_item_id/content/color），无存量锚点可用 → 定位采用空白归一化文本匹配（`lib/reading/highlight-locate.ts`：TreeWalker 拼接正文、连续空白折叠投影、跨内联节点 Range 包裹 `mark.hl-{color}`、跨块级或包裹失败时降级为只滚动起始块不包裹）；任务侧 TaskLinkedContent 反查 `highlights.task_id` 取最早来源高亮、阅读链接带 `?hl={id}`（笔记链接不变）；阅读页一次性消费 hl 参数定位并滚动闪烁（600ms 补滚抗图片撑动布局），带 hl 时跳过阅读进度恢复避免双滚动打架，高亮已删/匹配不到时静默降级条目顶部。**验证**：单测 +7（跨内联节点/空白归一化/跨块降级/未命中/闪烁生命周期），Vitest 163 文件/1,239 用例全绿；mock E2E 新增 `e2e/highlight-deep-link.spec.ts` 全闭环（选中→转任务→任务页链接带 hl→回阅读页 mark 重建且滚入视口），mock 全套 9/9；tsc/lint 零告警；mock 生产构建 ✓ | 真实抓取长文与重复文本段落的定位边界保留——重复文本命中第一处（与既有面板行为一致，提案登记的风险在面板原路径未改）；staging 部署后建议随 D01 人工核对真实文章 mark 视觉与滚动 |
 
+## 2026-10-15 工作台检查与统一 UI 方案
+
+| ID | 卡 | 状态 | 证据 | 未完成项 |
+|---|---|---|---|---|
+| UI-01 | 工作台可靠性修复与 Codex 风格设计规范 | 完成 | 快速记录按账号保留草稿与隔离异步结果；待办去重、完成和深链；在读优先与标签搜索；回顾生命周期日期；分页统计及日历日连续天数。根 DESIGN.md、页面规格、tokens.json、迁移计划和六类交互样稿已交付。全量 Vitest 217 文件通过、1 文件既有跳过（1668 通过/2 既有跳过）；tsc、lint、隔离 mock 构建通过；工作台 Playwright 7/7 通过，含手机日期选择与历史空日。开发 mock 范围过滤补齐。PR [#341](https://github.com/joyworkon/Organize/pull/341) 记录完整 CI 门禁。 | 全站正式 UI 尚未迁移；移动 Safari/Android 真机、Tauri 原生窗口未验收。 |
+
 ## 易混淆项分流（A01 验收要求）
 
 以下三组最容易把「部分完成」误读为「全部完成」，任何 Agent 领卡前先对照：
