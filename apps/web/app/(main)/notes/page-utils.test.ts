@@ -8,6 +8,7 @@ import {
   applyPinnedBatch,
   removeNotes,
   sortNotesLocal,
+  persistNoteMove,
 } from "./page-utils";
 
 function makeNote(id: string, pinned = false): NoteWithTags {
@@ -106,5 +107,33 @@ describe("sortNotesLocal（置顶后立即重排）", () => {
     const b = { ...makeNote("b", false), title: "aaa" } as NoteWithTags;
     const result = sortNotesLocal([a, b], "title", "asc");
     expect(result.map((x) => x.title)).toEqual(["aaa", "bbb"]);
+  });
+});
+
+describe("persistNoteMove", () => {
+  function fakeClient(order: string[], updateError: unknown = null) {
+    return {
+      from: () => ({
+        select: () => ({ eq: () => ({ single: async () => { order.push("read"); return { data: { content_revision: 4 } }; } }) }),
+        update: (patch: { parent_note_id: string | null; content_revision: number }) => ({
+          eq: async () => {
+            await new Promise((r) => setTimeout(r, 5));
+            order.push(`update:${patch.parent_note_id}:${patch.content_revision}`);
+            return { error: updateError };
+          },
+        }),
+      }),
+    };
+  }
+  it("notifies only after the write commits and bumps the revision", async () => {
+    const order: string[] = [];
+    await persistNoteMove(fakeClient(order), "n1", "p1", () => order.push("notify"));
+    expect(order).toEqual(["read", "update:p1:5", "notify"]);
+  });
+  it("does not notify and rethrows when the write fails", async () => {
+    const order: string[] = [];
+    const err = new Error("denied");
+    await expect(persistNoteMove(fakeClient(order, err), "n1", null, () => order.push("notify"))).rejects.toBe(err);
+    expect(order).not.toContain("notify");
   });
 });
