@@ -32,8 +32,8 @@ export function LibraryCard({ item }: { item: LibraryItem }) {
       : `/library/${item.id}`;
 
   return (
-    <article className="group flex min-w-0 items-start gap-3 border-b py-4 last:border-b-0 hover:bg-accent/50">
-      <Link href={href} className="min-w-0 flex-1 rounded-md px-1" data-library-card>
+    <article data-library-card className="group flex min-w-0 items-start gap-3 border-b py-4 last:border-b-0 hover:bg-accent/50">
+      <Link href={href} className="min-w-0 flex-1 rounded-md px-1">
         <h2 className="line-clamp-2 text-sm font-medium leading-6">{cardTitle(item)}</h2>
         {item.excerpt && item.source_type === "reading" && (
           <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground">{item.excerpt}</p>
