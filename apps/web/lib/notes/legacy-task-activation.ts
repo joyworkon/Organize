@@ -12,8 +12,11 @@
  */
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
-/** 超过该数量的 legacy 项不自动激活（先跳过；>20 预览确认 UI 是另一个后续项）。 */
+/** 超过该数量的 legacy 项不自动激活，由调用方先弹预览确认（G3）。 */
 export const LEGACY_TASK_ACTIVATION_LIMIT = 20;
+
+/** 预览样例标题数（buildLegacyActivationPreview 取前 N 条）。 */
+export const LEGACY_ACTIVATION_SAMPLE_SIZE = 5;
 
 export interface LegacyTaskItem {
   /** 块 id：文档里已有的 attrs.id，或为缺 id 的节点新生成（须先落进文档再发网络请求）。 */
@@ -75,6 +78,44 @@ export function collectLegacyTaskItems(doc: ProseMirrorNode): LegacyTaskItem[] {
     return true;
   });
   return items;
+}
+
+/**
+ * >20 预览确认（G3）的弹窗数据：数量与前若干条标题。标题直接用 collect 出的
+ * item.title（首段纯文本/「未命名任务」），不再二次处理。
+ */
+export interface LegacyActivationPreview {
+  count: number;
+  sampleTitles: string[];
+}
+
+/** >20 时需要先弹确认；=20 及以内保持自动激活。 */
+export function needsLegacyActivationConfirm(count: number): boolean {
+  return count > LEGACY_TASK_ACTIVATION_LIMIT;
+}
+
+/** 取数量 + 前 LEGACY_ACTIVATION_SAMPLE_SIZE 条标题做预览。 */
+export function buildLegacyActivationPreview(items: LegacyTaskItem[]): LegacyActivationPreview {
+  return {
+    count: items.length,
+    sampleTitles: items.slice(0, LEGACY_ACTIVATION_SAMPLE_SIZE).map((item) => item.title),
+  };
+}
+
+/** 预览确认弹窗文案（结构兼容 prompt-dialog 的 ConfirmOptions）。 */
+export function buildLegacyActivationConfirmOptions(preview: LegacyActivationPreview): {
+  title: string;
+  description: string;
+  confirmText: string;
+} {
+  const quoted = preview.sampleTitles.map((t) => `「${t}」`).join("、");
+  const more = preview.count - preview.sampleTitles.length;
+  const suffix = more > 0 ? `……等共 ${preview.count} 项` : "";
+  return {
+    title: `批量创建 ${preview.count} 个关联任务？`,
+    description: `将创建 ${preview.count} 个关联任务并绑定到对应待办块：${quoted}${suffix}`,
+    confirmText: "创建任务",
+  };
 }
 
 /**

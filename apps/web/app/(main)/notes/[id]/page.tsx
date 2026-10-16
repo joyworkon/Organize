@@ -58,11 +58,14 @@ import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { isEmptyDoc, shouldDiscardEmptyNote } from "@/lib/notes/empty-note";
 import {
-  LEGACY_TASK_ACTIVATION_LIMIT,
+  buildLegacyActivationConfirmOptions,
+  buildLegacyActivationPreview,
   collectLegacyTaskItems,
+  needsLegacyActivationConfirm,
   planBlockIdAssignment,
   planLegacyBackfill,
 } from "@/lib/notes/legacy-task-activation";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
 import {
@@ -1330,8 +1333,17 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     // 必须在发网络请求前先把 id 写进文档，否则建完任务无法按 id 找回节点。
     const legacy = collectLegacyTaskItems(editor.state.doc);
     if (legacy.length === 0) return;
-    // 超 LEGACY_TASK_ACTIVATION_LIMIT 项先不自动激活（任务书：超过 20 项先预览确认；此处先跳过，后续 G3 加预览 UI）
-    if (legacy.length > LEGACY_TASK_ACTIVATION_LIMIT) return;
+    // 超 LEGACY_TASK_ACTIVATION_LIMIT 项：弹预览确认（G3）——展示数量与前几条标题，
+    // 确认后走与 ≤20 相同的激活路径；取消/被顶替（resolve false）则保持 legacy 不动作。
+    if (needsLegacyActivationConfirm(legacy.length)) {
+      const confirmed = await showConfirm(
+        buildLegacyActivationConfirmOptions(buildLegacyActivationPreview(legacy))
+      );
+      if (!confirmed) return;
+      // showConfirm 与网络请求一样是 await 窗口：期间可能切笔记/编辑器销毁，重新校验实例
+      // （与下方网络后校验一致；放弃时已分配的内存 blockId 随之丢弃，无副作用）。
+      if (editorRef.current !== editor || editor.isDestroyed) return;
+    }
 
     // 同步补缺失的 block id（hydrate + 不进 Undo，与回填同一套系统事务语义）。
     // 必须先于任何 await：id 落进文档后，网络窗口内的编辑也不会使块失去定位依据。

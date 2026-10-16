@@ -12,8 +12,12 @@ import { TaskItemLinked } from "@/components/editor/extensions/task-item-linked"
 import {
   LEGACY_TASK_ACTIVATION_LIMIT,
   collectLegacyTaskItems,
+  needsLegacyActivationConfirm,
+  buildLegacyActivationPreview,
+  buildLegacyActivationConfirmOptions,
   planBlockIdAssignment,
   planLegacyBackfill,
+  type LegacyTaskItem,
   type NodeAttrUpdate,
 } from "./legacy-task-activation";
 
@@ -149,6 +153,54 @@ describe("collectLegacyTaskItems", () => {
     expect(LEGACY_TASK_ACTIVATION_LIMIT).toBe(20);
     expect(items.length).toBeGreaterThan(LEGACY_TASK_ACTIVATION_LIMIT);
     expect(new Set(items.map((i) => i.blockId)).size).toBe(21);
+  });
+});
+
+// >20 预览确认（G3）的纯辅助：输入直接用 LegacyTaskItem，无需编辑器。
+function legacyItems(n: number): LegacyTaskItem[] {
+  return Array.from({ length: n }, (_, i) => ({
+    blockId: `blk-${i + 1}`,
+    title: `任务${i + 1}`,
+    checked: false,
+    hasStoredId: true,
+  }));
+}
+
+describe(">20 预览确认辅助", () => {
+  it("buildLegacyActivationPreview：0 项 → count 0、无样例", () => {
+    expect(buildLegacyActivationPreview([])).toEqual({ count: 0, sampleTitles: [] });
+  });
+
+  it("buildLegacyActivationPreview：≤5 项 → 全量样例", () => {
+    const preview = buildLegacyActivationPreview(legacyItems(3));
+    expect(preview).toEqual({ count: 3, sampleTitles: ["任务1", "任务2", "任务3"] });
+  });
+
+  it("buildLegacyActivationPreview：>5 项 → 截断为前 5 条，count 仍为全量", () => {
+    const preview = buildLegacyActivationPreview(legacyItems(7));
+    expect(preview.count).toBe(7);
+    expect(preview.sampleTitles).toEqual(["任务1", "任务2", "任务3", "任务4", "任务5"]);
+  });
+
+  it("needsLegacyActivationConfirm：边界 20 不确认、21 需确认", () => {
+    expect(needsLegacyActivationConfirm(0)).toBe(false);
+    expect(needsLegacyActivationConfirm(LEGACY_TASK_ACTIVATION_LIMIT)).toBe(false);
+    expect(needsLegacyActivationConfirm(LEGACY_TASK_ACTIVATION_LIMIT + 1)).toBe(true);
+  });
+
+  it("confirm 文案：写清创建数量、顿号列出全部样例标题", () => {
+    const options = buildLegacyActivationConfirmOptions(buildLegacyActivationPreview(legacyItems(2)));
+    expect(options.title).toBe("批量创建 2 个关联任务？");
+    expect(options.description).toBe("将创建 2 个关联任务并绑定到对应待办块：「任务1」、「任务2」");
+    expect(options.confirmText).toBe("创建任务");
+  });
+
+  it("confirm 文案：超出样例数时带「等共 N 项」后缀", () => {
+    const options = buildLegacyActivationConfirmOptions(buildLegacyActivationPreview(legacyItems(21)));
+    expect(options.title).toBe("批量创建 21 个关联任务？");
+    expect(options.description).toContain("「任务1」、「任务2」、「任务3」、「任务4」、「任务5」");
+    expect(options.description).toContain("……等共 21 项");
+    expect(options.description).not.toContain("「任务6」");
   });
 });
 
