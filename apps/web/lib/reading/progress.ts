@@ -29,3 +29,24 @@ export function readyHighlightDeepLink(
   if (state.loading || !state.hasContainer || state.highlightCount === 0) return null;
   return pendingId;
 }
+
+/** 阅读状态/进度是属主私有数据：只有条目属主可写；分享来的条目（含只读）一律不回写 */
+export function canWriteReadingState(itemUserId: string | null | undefined, currentUserId: string | null | undefined): boolean {
+  return Boolean(itemUserId && currentUserId && itemUserId === currentUserId);
+}
+
+/** 按高亮 id 精确找到正文中的 mark（重复文本不会误中其他段落） */
+export function findHighlightMarks(root: ParentNode, highlightId: string): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("mark[data-highlight-id]")).filter(
+    (mark) => mark.dataset.highlightId === highlightId,
+  );
+}
+
+/** 去掉 mark 外壳、保留其中文本 */
+export function unwrapMark(mark: HTMLElement): void {
+  const parent = mark.parentNode;
+  if (!parent) return;
+  while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+  parent.removeChild(mark);
+  (parent as Element).normalize?.();
+}

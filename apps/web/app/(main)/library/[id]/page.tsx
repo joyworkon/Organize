@@ -44,7 +44,7 @@ import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
-import { nextReadingProgress, readyHighlightDeepLink } from "@/lib/reading/progress";
+import { canWriteReadingState, findHighlightMarks, nextReadingProgress, readyHighlightDeepLink, unwrapMark } from "@/lib/reading/progress";
 
 interface RecommendedItem {
   id: string;
@@ -195,6 +195,9 @@ export default function ReadingDetailPage() {
 
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /** 当前用户是否条目属主：只有属主回写阅读状态/进度（分享来的只读条目不写） */
+  const canWriteStateRef = useRef(false);
+  const [canWriteState, setCanWriteState] = useState(false);
   useEffect(() => {
     let active = true;
     // 切换到另一篇（如「下一篇推荐」）时先清空旧条目，避免旧正文/进度串到新条目
@@ -204,12 +207,14 @@ export default function ReadingDetailPage() {
     setHighlights([]);
     setHighlightReferences({});
     progressRef.current = 0;
+    canWriteStateRef.current = false;
+    setCanWriteState(false);
     async function loadItem() {
-      const { data, error } = await supabase
+      const [{ data, error }, { data: sessionData }] = await Promise.all([supabase
         .from("reading_items")
         .select("*, tags:tags!item_tags(id, name)")
         .eq("id", itemId)
-        .maybeSingle();
+        .maybeSingle(), supabase.auth.getSession()]);
       if (!active) return;
       if (error) {
         setLoadError(true);
@@ -218,10 +223,13 @@ export default function ReadingDetailPage() {
       }
 
       if (data) {
+        const writable = canWriteReadingState(data.user_id, sessionData.session?.user.id);
+        canWriteStateRef.current = writable;
+        setCanWriteState(writable);
         setItem(data as ReadingItem);
         setFullWidth(data.full_width ?? false);
         progressRef.current = data.reading_progress || 0;
-        if (data.reading_status === "unread") {
+        if (writable && data.reading_status === "unread") {
           const { error: statusError } = await supabase
             .from("reading_items")
             .update({ reading_status: "reading" })
@@ -325,6 +333,7 @@ export default function ReadingDetailPage() {
     if (!highlight) return;
     const target = findAndWrapHighlightText(container, highlight.content, highlight.color);
     if (target) {
+      target.el.dataset.highlightId = highlight.id;
       focusHighlight(target.el);
     }
   }, [item, highlights, loading]);
@@ -407,6 +416,7 @@ export default function ReadingDetailPage() {
     progressTimerRef.current = setTimeout(() => {
       progressTimerRef.current = null;
 
+      if (!canWriteStateRef.current) return; // 非属主（含只读分享）：只显示进度，不回写
       const previousStatus = item?.reading_status || "unread";
       const next = nextReadingProgress(progressPercent, progressRef.current, previousStatus);
       if (!next) return;
@@ -621,6 +631,7 @@ export default function ReadingDetailPage() {
   }, [itemId]);
 
   const updateStatus = async (status: ReadingStatus) => {
+    if (!canWriteStateRef.current) return;
     const { error } = await supabase
       .from("reading_items")
       .update({ reading_status: status })
@@ -652,17 +663,39 @@ export default function ReadingDetailPage() {
     }
   }, [fullWidth, itemId, supabase]);
 
+  /** 两个笔记入口共用的互斥锁：防止同时点两个入口各建一篇 */
+  const noteLockRef = useRef(false);
+  const findExistingReadingNote = useCallback(async (): Promise<string | null> => {
+    const { data } = await supabase
+      .from("notes")
+      .select("id")
+      .eq("reading_item_id", itemId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return data?.id ?? null;
+  }, [itemId, supabase]);
+
   const handleConvertToNote = useCallback(async () => {
-    if (!item || isConvertingToNote) return;
+    if (!item || isConvertingToNote || noteLockRef.current) return;
+    noteLockRef.current = true;
     setIsConvertingToNote(true);
     try {
-      toast({ title: "正在创建笔记..." });
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         toast({ title: "请先登录", variant: "destructive" });
         return;
       }
+      // 同一篇文章只关联一篇笔记：「转为笔记」与「读书笔记」共用，已有则直接打开
+      const existingId = await findExistingReadingNote();
+      if (existingId) {
+        setReadingNoteId(existingId);
+        toast({ title: "这篇文章已有关联笔记，已为你打开" });
+        router.push(`/notes/${existingId}`);
+        return;
+      }
+      toast({ title: "正在创建笔记..." });
 
       const title = item.title || "无标题笔记";
       const paragraphs = htmlToTextParagraphs(item.content || "");
@@ -744,14 +777,16 @@ export default function ReadingDetailPage() {
         return;
       }
 
+      setReadingNoteId(data.id);
       toast({ title: "笔记创建成功" });
       router.push(`/notes/${data.id}`);
     } catch {
       toast({ title: "创建笔记失败", variant: "destructive" });
     } finally {
+      noteLockRef.current = false;
       setIsConvertingToNote(false);
     }
-  }, [highlights, item, itemId, supabase, router, isConvertingToNote]);
+  }, [highlights, item, itemId, supabase, router, isConvertingToNote, findExistingReadingNote]);
 
   useEffect(() => {
     let active = true;
@@ -772,16 +807,24 @@ export default function ReadingDetailPage() {
   }, [itemId, supabase]);
 
   const handleReadingNote = useCallback(async () => {
-    if (!item || isCreatingReadingNote) return;
+    if (!item || isCreatingReadingNote || noteLockRef.current) return;
     if (readingNoteId) {
       router.push(`/notes/${readingNoteId}`);
       return;
     }
+    noteLockRef.current = true;
     setIsCreatingReadingNote(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         toast({ title: "请先登录", variant: "destructive" });
+        return;
+      }
+      // 初次查询可能还没回来，或另一入口刚建过：落库前再查一次
+      const existingId = await findExistingReadingNote();
+      if (existingId) {
+        setReadingNoteId(existingId);
+        router.push(`/notes/${existingId}`);
         return;
       }
       const content = buildReadingNoteContent(
@@ -800,9 +843,10 @@ export default function ReadingDetailPage() {
       setReadingNoteId(data.id);
       router.push(`/notes/${data.id}`);
     } finally {
+      noteLockRef.current = false;
       setIsCreatingReadingNote(false);
     }
-  }, [highlights, isCreatingReadingNote, item, itemId, readingNoteId, router, supabase]);
+  }, [highlights, isCreatingReadingNote, item, itemId, readingNoteId, router, supabase, findExistingReadingNote]);
 
   // 抓取失败（只存了链接）的条目：在阅读页直接重新抓取，而不是只显示「无法提取正文内容」
   const handleRefetch = useCallback(async () => {
@@ -879,7 +923,8 @@ export default function ReadingDetailPage() {
   const handleCreateHighlight = useCallback(async (
     content: string,
     color: HighlightColor,
-    targetType?: "note" | "task"
+    targetType?: "note" | "task",
+    mark?: HTMLElement | null
   ) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -898,10 +943,12 @@ export default function ReadingDetailPage() {
         .select()
         .single();
       if (error) {
+        if (mark) unwrapMark(mark); // 保存失败：撤掉乐观包上的 mark，避免显示一个不存在的高亮
         toast({ title: "高亮保存失败", variant: "destructive" });
         return;
       }
       if (data) {
+        if (mark) mark.dataset.highlightId = data.id;
         setHighlights((prev) => [data as Highlight, ...prev]);
         if (targetType) {
           await handleConvertHighlight(data.id, targetType, true);
@@ -930,23 +977,13 @@ export default function ReadingDetailPage() {
         delete next[id];
         return next;
       });
-      const marks = document.querySelectorAll(`mark.hl-yellow, mark.hl-green, mark.hl-blue, mark.hl-pink, mark.hl-purple`);
-      for (const mark of Array.from(marks)) {
-        const highlight = highlights.find((h) => h.id === id);
-        if (highlight && mark.textContent?.trim() === highlight.content.trim()) {
-          const parent = mark.parentNode;
-          while (mark.firstChild) {
-            parent?.insertBefore(mark.firstChild, mark);
-          }
-          parent?.removeChild(mark);
-          break;
-        }
-      }
+      // 按高亮 id 精确移除（不再按文本匹配，重复文本不会删错段落）
+      findHighlightMarks(document, id).forEach(unwrapMark);
       toast({ title: "高亮已删除" });
     } catch {
       toast({ title: "删除失败", variant: "destructive" });
     }
-  }, [highlights, supabase]);
+  }, [supabase]);
 
   if (loading) {
     return (
@@ -1329,7 +1366,7 @@ export default function ReadingDetailPage() {
           </span>
           <div className="flex gap-2">
             {/* 阅读状态是单一开关：已读时只提供「撤销」，未读/在读时只提供「标记已读」 */}
-            {item.reading_status === "read" ? (
+            {!canWriteState ? null : item.reading_status === "read" ? (
               <Button variant="ghost" size="sm" onClick={() => updateStatus("unread")} title="标记为未读">
                 <Check className="mr-1.5 h-3.5 w-3.5" />
                 已读 · 撤销
