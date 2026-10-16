@@ -31,13 +31,57 @@ export function sortGroups(groups: NoteGroup[]): NoteGroup[] {
   );
 }
 
+/** nextGroupsStateAfterLoad 的返回：UI 该落到什么状态、本次是否失败、是否沿用了旧数据 */
+export interface NoteGroupsLoadPlan {
+  groups: NoteGroup[];
+  membership: Map<string, string>;
+  failed: boolean;
+  /** 失败但保留了旧数据（重设同引用是无害的，React 会跳过重渲染） */
+  keptPrevious: boolean;
+}
+
+/**
+ * 分组加载结果落到 UI 状态的纯逻辑（供 useNoteGroups 接线并单测）：
+ * - 成功：整体替换；
+ * - 失败且此前成功过：保留旧数据——把任意失败伪装成「全部未分组」等于撒谎；
+ * - 失败且从未成功过：只能落到空态，failed 标记留给调用方区分「没有分组」与「加载失败」。
+ */
+export function nextGroupsStateAfterLoad(
+  previous: NoteGroupsState | null,
+  result: NoteGroupsState | null
+): NoteGroupsLoadPlan {
+  if (result) {
+    return { groups: result.groups, membership: result.membership, failed: false, keptPrevious: false };
+  }
+  if (previous) {
+    return { groups: previous.groups, membership: previous.membership, failed: true, keptPrevious: true };
+  }
+  return { groups: [], membership: new Map(), failed: true, keptPrevious: false };
+}
+
+/**
+ * 「分组表未迁移（094 未应用）」判定：PGRST205 / 42P01，或这两种错误的典型文案。
+ * 只有这种情况沿用空态退化；其余失败（网络/RLS/权限/5xx）按普通失败保留旧值并提示。
+ */
+export function isNoteGroupsTableMissing(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "PGRST205" || code === "42P01") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /could not find the table|does not exist/i.test(message);
+}
+
+/** 抛错时保留 PostgREST/Postgres 错误码，供调用方区分「表未迁移」与瞬时失败 */
+function throwPostgrestError(error: { message: string; code?: string }): never {
+  throw Object.assign(new Error(error.message), { code: error.code });
+}
+
 export async function loadNoteGroups(supabase: SupabaseClient, userId: string): Promise<NoteGroupsState> {
   const [groupsRes, membersRes] = await Promise.all([
     supabase.from("note_groups").select("*").eq("user_id", userId),
     supabase.from("note_group_members").select("note_id, group_id").eq("user_id", userId),
   ]);
-  if (groupsRes.error) throw new Error(groupsRes.error.message);
-  if (membersRes.error) throw new Error(membersRes.error.message);
+  if (groupsRes.error) throwPostgrestError(groupsRes.error);
+  if (membersRes.error) throwPostgrestError(membersRes.error);
   const groups = sortGroups((groupsRes.data || []) as NoteGroup[]);
   const known = new Set(groups.map((g) => g.id));
   const membership = new Map<string, string>();
