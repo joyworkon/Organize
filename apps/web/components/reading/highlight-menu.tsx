@@ -19,7 +19,9 @@ interface HighlightMenuProps {
   onCreateHighlight: (
     content: string,
     color: HighlightColor,
-    targetType?: "note" | "task"
+    targetType?: "note" | "task",
+    /** 本次选区包上的 mark（跨元素选区包不上时为 null）；页面保存成功后写入 data-highlight-id */
+    mark?: HTMLElement | null
   ) => Promise<void>;
 }
 
@@ -119,16 +121,18 @@ export function HighlightMenu({ children, onCreateHighlight }: HighlightMenuProp
 
     const range = selection.getRangeAt(0);
 
+    let wrapped: HTMLElement | null = null;
     try {
       const mark = document.createElement("mark");
       mark.className = `hl-${color}`;
       mark.dataset.highlightColor = color;
       range.surroundContents(mark);
+      wrapped = mark;
     } catch {
       console.log("surroundContents failed (cross-element selection), will save to DB only");
     }
 
-    void onCreateHighlight(selectedText, color, targetType);
+    void onCreateHighlight(selectedText, color, targetType, wrapped);
 
     selection.removeAllRanges();
     hideMenu();
