@@ -21,8 +21,12 @@ const CHANGE_EVENT = "organize:theme-mode-change";
 
 export function readThemeMode(): ThemeMode {
   if (typeof window === "undefined") return "system";
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  return stored === "dark" || stored === "light" ? stored : "system";
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored === "dark" || stored === "light" ? stored : "system";
+  } catch {
+    return "system";
+  }
 }
 
 export function systemPrefersDark(): boolean {

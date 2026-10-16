@@ -368,14 +368,14 @@ function WeekGridView({
             key={i}
             className={cn(
               "flex-1 border-l px-1 py-2 text-center",
-              isSameDay(day, today) && "bg-blue-50/50 dark:bg-blue-950/20"
+              isSameDay(day, today) && "bg-accent/60"
             )}
           >
             <div className="text-xs text-muted-foreground">{WEEK_DAY_LABELS[i]}</div>
             <div
               className={cn(
                 "mx-auto mt-0.5 grid h-6 w-6 place-items-center rounded-full text-sm",
-                isSameDay(day, today) && "bg-blue-500 font-semibold text-white"
+                isSameDay(day, today) && "bg-primary font-semibold text-primary-foreground"
               )}
             >
               {day.getDate()}
@@ -397,7 +397,7 @@ function WeekGridView({
               key={di}
               className={cn(
                 "min-h-[38px] flex-1 space-y-1 border-l p-1",
-                isSameDay(day, today) && "bg-blue-50/50 dark:bg-blue-950/20"
+                isSameDay(day, today) && "bg-accent/60"
               )}
             >
               {chips_countdown.map((item) => (
@@ -473,7 +473,7 @@ function WeekGridView({
                   key={di}
                   className={cn(
                     "relative border-l",
-                    isSameDay(day, today) && "bg-blue-50/40 dark:bg-blue-950/20",
+                    isSameDay(day, today) && "bg-accent/50",
                     target && "bg-primary/5"
                   )}
                   onClick={
@@ -766,13 +766,8 @@ export function layoutWeekSegments(
 }
 
 function categoryClass(task: TaskWithTags) {
-  if (task.status === "done") return "bg-muted text-muted-foreground";
-  switch (task.category) {
-    case "work": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
-    case "study": return "bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100";
-    case "life": return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100";
-    default: return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-  }
+  if (task.status === "done") return "bg-muted text-muted-foreground line-through";
+  return "border border-border bg-accent text-foreground";
 }
 
 interface TaskMonthViewProps {
@@ -790,7 +785,7 @@ function CountdownChip({ item, compact = false }: { item: CountdownDay; compact?
     <span
       title={`倒数日 · ${item.title}`}
       className={cn(
-        "inline-flex min-w-0 items-center gap-0.5 truncate rounded bg-rose-100 px-1 text-[10px] leading-4 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100",
+        "inline-flex min-w-0 items-center gap-0.5 truncate rounded bg-muted px-1 text-[10px] leading-4 text-foreground",
         compact && "leading-3"
       )}
     >
@@ -880,9 +875,9 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
 
   return (
     <div className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-3 border-b px-5 py-3 md:px-8">
-        <CalendarDays className="h-6 w-6" />
-        <h2 className="text-xl font-semibold">{title}</h2>
+      <header className="task-calendar-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3 md:px-6">
+        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">{title}</h2>
         <div className="ml-auto flex items-center gap-1">
           <div className="mr-2 flex rounded-lg bg-muted p-1 text-sm">
             {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
@@ -890,9 +885,10 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                 key={item}
                 type="button"
                 onClick={() => switchMode(item)}
-                className={cn("rounded-md px-3 py-1.5", mode === item ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
+                aria-pressed={mode === item}
+                className={cn("min-h-8 rounded-md px-3 py-1.5", mode === item ? "bg-background font-medium" : "text-muted-foreground")}
               >
-                {item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}
+                <span className="hidden md:inline">{item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}</span><span className="md:hidden">{item === "month" ? "议程" : item === "day" ? "日" : item === "week" ? "周" : "年"}</span>
               </button>
             ))}
           </div>
@@ -992,12 +988,12 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                       <div
                         key={cellKey}
                         onClick={onDateClick ? () => onDateClick(date) : undefined}
-                        className={cn("relative border-b border-r p-1.5 last:border-r-0", onDateClick && "cursor-pointer hover:bg-muted/40", !inMonth && "bg-muted/10 text-muted-foreground/50", isSameDay(date, today) && "bg-blue-50/70 dark:bg-blue-950/20", dragOverDate === cellKey && "bg-primary/10 ring-2 ring-inset ring-primary")}
+                        className={cn("relative border-b border-r p-1.5 last:border-r-0", onDateClick && "cursor-pointer hover:bg-muted/40", !inMonth && "bg-muted/20 text-muted-foreground", isSameDay(date, today) && "bg-accent/70", dragOverDate === cellKey && "bg-primary/10 ring-2 ring-inset ring-primary")}
                       >
-                        <div className={cn("flex h-7 w-7 items-center justify-center rounded-full text-sm", isSameDay(date, today) && "bg-blue-500 font-semibold text-white")}>{date.getDate()}</div>
+                        <div className={cn("flex h-7 w-7 items-center justify-center rounded-full text-sm", isSameDay(date, today) && "bg-primary font-semibold text-primary-foreground")}>{date.getDate()}</div>
                         <div className="absolute inset-x-1.5 bottom-1 flex items-center gap-1 overflow-hidden">
                           {dayCountdowns[0] && <CountdownChip item={dayCountdowns[0]} />}
-                          {dayCountdowns.length > 1 && <span className="shrink-0 text-[10px] text-rose-500">+{dayCountdowns.length - 1}</span>}
+                          {dayCountdowns.length > 1 && <span className="shrink-0 text-[10px] text-muted-foreground">+{dayCountdowns.length - 1}</span>}
                           {hiddenByCol[col] > 0 && <span className="ml-auto shrink-0 text-xs text-muted-foreground">+{hiddenByCol[col]}</span>}
                         </div>
                       </div>
@@ -1057,7 +1053,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                     </button>
                     <div className="overflow-hidden rounded-xl border bg-background">
                       {(monthCountdowns.get(keyFor(group.date)) || []).map((item) => (
-                        <div key={item.id} className="flex min-h-12 items-center gap-2 border-b bg-rose-50/50 px-3 py-2 dark:bg-rose-950/20">
+                        <div key={item.id} className="flex min-h-12 items-center gap-2 border-b bg-muted/40 px-3 py-2 ">
                           <CountdownChip item={item} />
                         </div>
                       ))}
@@ -1120,7 +1116,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                         </button>
                         <div className="overflow-hidden rounded-xl border bg-background">
                           {items.map((item) => (
-                            <div key={item.id} className="flex min-h-12 items-center gap-2 bg-rose-50/50 px-3 py-2 dark:bg-rose-950/20">
+                            <div key={item.id} className="flex min-h-12 items-center gap-2 bg-muted/40 px-3 py-2 ">
                               <CountdownChip item={item} />
                             </div>
                           ))}
@@ -1206,8 +1202,8 @@ function DayView({
           <div className="mb-2 text-sm font-semibold text-muted-foreground">倒数日</div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {dayCountdowns.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 rounded-xl border bg-rose-50/60 p-3 dark:bg-rose-950/20">
-                <Hourglass className="h-4 w-4 shrink-0 text-rose-500" />
+              <div key={item.id} className="flex items-center gap-2 rounded-xl border bg-muted/40 p-3 ">
+                <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title}</span>
                 {item.repeat_annually && <span className="shrink-0 text-xs text-muted-foreground">每年</span>}
               </div>
@@ -1322,14 +1318,14 @@ function YearView({
                             title={onDateClick ? "点击添加任务或倒数日" : undefined}
                             className={cn(
                               "relative mx-auto grid h-6 w-6 place-items-center rounded-full text-[11px] hover:bg-muted",
-                              isToday && "bg-blue-500 font-semibold text-white hover:bg-blue-500"
+                              isToday && "bg-primary font-semibold text-primary-foreground hover:bg-primary"
                             )}
                           >
                             {date.getDate()}
                             {(hasTask || hasCountdown) && !isToday && (
                               <span className="absolute bottom-0 flex h-1 gap-px">
-                                {hasTask && <span className="block h-1 w-1 rounded-full bg-blue-500" />}
-                                {hasCountdown && <span className="block h-1 w-1 rounded-full bg-rose-500" />}
+                                {hasTask && <span className="block h-1 w-1 rounded-full bg-primary" />}
+                                {hasCountdown && <span className="block h-1 w-1 rounded-full bg-muted-foreground" />}
                               </span>
                             )}
                           </button>
@@ -1343,8 +1339,8 @@ function YearView({
         ))}
       </div>
       <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" />任务</span>
-        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-rose-500" />倒数日</span>
+        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-primary" />任务</span>
+        <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />倒数日</span>
       </div>
     </div>
   );

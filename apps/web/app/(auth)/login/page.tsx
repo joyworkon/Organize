@@ -85,8 +85,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
+      <Card className="w-full max-w-[400px]">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">Cairn</CardTitle>
           <CardDescription>智能笔记与阅读管理工具</CardDescription>
@@ -97,6 +97,7 @@ export default function LoginPage() {
               <Input
                 type="email"
                 placeholder="邮箱地址"
+                aria-label="邮箱地址"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -106,6 +107,7 @@ export default function LoginPage() {
               <Input
                 type="password"
                 placeholder="密码"
+                aria-label="密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -119,7 +121,7 @@ export default function LoginPage() {
               </p>
             )}
             {notice && (
-              <p role="status" className="text-sm text-green-600 dark:text-green-400">
+              <p role="status" className="text-sm text-success">
                 {notice}
               </p>
             )}

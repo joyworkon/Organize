@@ -165,7 +165,7 @@ export function ShareDialog({
             <div className="flex gap-2">
               <Input readOnly value={fullUrl} className="font-mono text-xs" />
               <Button variant="outline" size="icon" onClick={copyLink} title="复制链接">
-                {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
               </Button>
             </div>
 

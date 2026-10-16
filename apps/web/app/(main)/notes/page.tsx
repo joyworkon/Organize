@@ -922,7 +922,7 @@ export default function NotesPage() {
               onClick={() => setView("card")}
               className={cn(
                 "p-1.5 transition-colors",
-                view === "card" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                view === "card" ? "bg-selected text-foreground" : "hover:bg-accent"
               )}
               title="卡片视图"
             >
@@ -932,7 +932,7 @@ export default function NotesPage() {
               onClick={() => setView("list")}
               className={cn(
                 "p-1.5 transition-colors",
-                view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                view === "list" ? "bg-selected text-foreground" : "hover:bg-accent"
               )}
               title="列表视图"
             >
@@ -993,7 +993,7 @@ export default function NotesPage() {
       )}
 
       {loading ? (
-        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="笔记加载中">
+        <div className="grid gap-0" aria-busy="true" aria-label="笔记加载中">
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="h-[88px] animate-pulse rounded-lg bg-muted/60" />
           ))}
@@ -1026,7 +1026,7 @@ export default function NotesPage() {
                   <span className="ml-1.5">{section.items.length}</span>
                 </h2>
                 <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
-                  <div className="grid gap-2 sm:gap-3">
+                  <div className="grid gap-0">
                     {section.items.map((note) => (
                       <NoteCard key={note.id} {...noteCardProps(note)} />
                     ))}
@@ -1037,7 +1037,7 @@ export default function NotesPage() {
           </div>
         ) : (
           <NoteFavoritesContext.Provider value={{ favoritedIds, toggleFavorite: toggleFavoriteById }}>
-            <div className="grid gap-2 sm:gap-3">
+            <div className="grid gap-0">
               {visibleNotes.map((note) => (
                 <NoteCard key={note.id} {...noteCardProps(note)} />
               ))}

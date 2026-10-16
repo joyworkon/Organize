@@ -135,7 +135,7 @@ function CountdownPageInner() {
     [sorted, search]
   );
   return (
-    <section className="min-h-[calc(100vh-11rem)] w-full rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
+    <section className="w-full space-y-4 sm:space-y-6">
       <PageHeader
         icon={CalendarDays}
         title="倒数日"
@@ -153,26 +153,27 @@ function CountdownPageInner() {
       ) : visibleDays.length === 0 ? (
         <EmptyState icon={CalendarDays} title={search.trim() ? "没有匹配的倒数日" : "还没有倒数日"} description={search.trim() ? "只搜本页的倒数日标题，换个关键词试试" : "添加一个重要日期，随时掌握剩余时间"} action={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>} />
       ) : (
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 divide-y border-y">
           {visibleDays.map((item) => {
             const display = countdownDisplay(item);
             return (
-              <article key={item.id} className="rounded-xl border bg-card p-4 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"><CalendarDays className="h-5 w-5" /></div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="truncate font-medium">{item.title}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{formatCountdownDate(item.target_date)}{item.repeat_annually && <span className="ml-2 inline-flex items-center gap-1"><Repeat2 className="h-3.5 w-3.5" />每年</span>}</p>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
+              <article key={item.id} className="group flex min-h-14 items-center gap-3 px-2 py-2 transition-colors duration-100 motion-reduce:duration-0 hover:bg-accent/50 sm:px-3">
+                <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate font-medium">{item.title}</h2>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>{formatCountdownDate(item.target_date)}</span>
+                    {item.repeat_annually && <span className="inline-flex items-center gap-1"><Repeat2 className="h-3.5 w-3.5" />每年重复</span>}
+                    {item.repeat_annually && display.occurrenceDate !== item.target_date && <span>本年度日期：{formatCountdownDate(display.occurrenceDate)}</span>}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-medium tabular-nums text-foreground">
+                  {display.label === "今天" ? "今天" : `${display.label} ${display.days} 天`}
+                </span>
+                <div className="flex shrink-0 gap-1">
                     <Button variant="ghost" size="icon" aria-label={`编辑${item.title}`} onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /></Button>
                     <Button variant="ghost" size="icon" aria-label={`删除${item.title}`} onClick={() => void remove(item)}><Trash2 className="h-4 w-4" /></Button>
-                  </div>
                 </div>
-                <p className="mt-5 text-xl font-semibold text-primary">
-                  {display.label === "今天" ? "今天" : `${display.label} ${display.days} 天`}
-                </p>
-                {item.repeat_annually && display.occurrenceDate !== item.target_date && <p className="mt-1 text-xs text-muted-foreground">本年度日期：{formatCountdownDate(display.occurrenceDate)}</p>}
               </article>
             );
           })}

@@ -4,45 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>离线 - Cairn</title>
+    <script>
+      try {
+        var savedTheme = localStorage.getItem('organize-theme');
+        document.documentElement.dataset.theme = savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : 'system';
+      } catch (_) {}
+    </script>
     <style>
-      :root { color-scheme: light dark; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-        background: #f8f8f7;
-        color: #26251f;
-      }
+      :root { color-scheme: light; --page: #fff; --text: #202020; --secondary: #666; --button: #202020; --on-button: #fff; }
+      :root[data-theme="dark"] { color-scheme: dark; --page: #191919; --text: #eee; --secondary: #a3a3a3; --button: #eee; --on-button: #191919; }
       @media (prefers-color-scheme: dark) {
-        body { background: #1b1b18; color: #ecebe6; }
-        button { border-color: #3d3d38; }
+        :root:not([data-theme="light"]) { color-scheme: dark; --page: #191919; --text: #eee; --secondary: #a3a3a3; --button: #eee; --on-button: #191919; }
       }
-      .card {
-        max-width: 26rem;
-        margin: 1rem;
-        padding: 2rem;
-        text-align: center;
-        border: 1px solid #e4e3de;
-        border-radius: 12px;
-        background: inherit;
-      }
-      h1 { font-size: 1.125rem; margin: 0 0 0.75rem; }
-      p { font-size: 0.875rem; line-height: 1.6; opacity: 0.75; margin: 0 0 1.5rem; }
-      button {
-        font: inherit;
-        font-size: 0.875rem;
-        padding: 0.5rem 1.25rem;
-        border-radius: 8px;
-        border: 1px solid #d8d7d0;
-        background: transparent;
-        color: inherit;
-        cursor: pointer;
-      }
-      button:hover { background: rgba(127, 127, 127, 0.1); }
+      body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: var(--page); color: var(--text); }
+      .card { max-width: 26rem; padding: 24px; text-align: center; }
+      h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0 0 12px; }
+      p { color: var(--secondary); margin: 0 0 24px; }
+      button { font: inherit; min-height: 44px; padding: 8px 20px; border-radius: 8px; border: 0; background: var(--button); color: var(--on-button); cursor: pointer; }
+      button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
     </style>
   </head>
   <body>

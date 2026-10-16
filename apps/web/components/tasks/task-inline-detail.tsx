@@ -285,7 +285,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
           const toDone = task.status !== "done";
           if (toDone && !confirmBlocking(blockingPrerequisites)) return;
           void onUpdate(task.id, { status: toDone ? "done" : "todo", completed_at: toDone ? new Date().toISOString() : null });
-        }} className={cn("grid h-6 w-6 place-items-center rounded-md border", task.status === "done" ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30 hover:border-primary")}>
+        }} className={cn("grid h-11 w-11 place-items-center rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8", task.status === "done" ? "border-success bg-success text-primary-foreground" : "border-muted-foreground/30 hover:border-primary")}>
           {task.status === "done" && <Check className="h-4 w-4" />}
         </button>
         <span className="h-6 w-px bg-border" />
@@ -293,7 +293,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
           value={dateValue}
           overdue={isTaskOverdue(task)}
           onChange={(value) => onUpdate(task.id, { schedule_start_at: value.schedule_start_at, schedule_end_at: value.schedule_end_at, due_date: value.schedule_end_at || value.schedule_start_at, all_day: value.all_day, timezone: value.timezone, recurrence_rule: value.recurrence_rule })}
-          trigger={<button type="button" className={cn("inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium hover:bg-accent", isTaskOverdue(task) ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" : "text-muted-foreground hover:text-foreground")}><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
+          trigger={<button type="button" className={cn("inline-flex min-h-11 md:min-h-8 items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] hover:bg-accent", isTaskOverdue(task) ? "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20" : "text-muted-foreground hover:text-foreground")}><CalendarDays className="h-4 w-4" />{formatTaskDate(dateValue.schedule_start_at)}</button>}
           align="start"
         />
         <Select value={task.priority} onValueChange={(value: TaskPriority) => void onUpdate(task.id, { priority: value })}>
@@ -308,8 +308,8 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
             ))}
           </SelectContent>
         </Select>
-        <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto rounded-md p-2 hover:bg-muted", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
-        <button type="button" aria-label="关闭任务详情" onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button>
+        <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
+        <button type="button" aria-label="关闭任务详情" onClick={onClose} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8"><X className="h-5 w-5" /></button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
@@ -366,7 +366,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
         </div>
 
         {showActivity && (
-          <section className="mt-8 rounded-lg bg-muted/30 p-3">
+          <section className="mt-8 rounded-lg border p-3">
             <h2 className="mb-2 flex items-center gap-2 text-sm font-medium"><Activity className="h-4 w-4" />任务动态</h2>
             {activities.length === 0 ? <p className="text-xs text-muted-foreground">暂无动态</p> : activities.map((activity) => <div key={activity.id} className="flex items-center gap-2 py-1 text-xs text-muted-foreground"><Circle className="h-2 w-2 fill-current" />{activity.action}<span className="ml-auto">{new Date(activity.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric" })}</span></div>)}
           </section>

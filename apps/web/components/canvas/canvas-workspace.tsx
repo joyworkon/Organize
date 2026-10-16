@@ -1016,7 +1016,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         )}
       </header>
 
-      {/* 状态横幅 */}
+      {/* 状态横幅独立堆叠，避免恢复草稿与冲突提示相互覆盖。 */}
+      <div className="canvas-feedback">
       {recovered && !readOnly && (
         <div className="canvas-banner" role="alert" data-testid="canvas-draft-banner">
           <span>已恢复本机未保存的草稿（可能比云端更新）。</span>
@@ -1068,6 +1069,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           </button>
         </div>
       )}
+
+      </div>
 
       {/* 左侧添加面板（B2：分组文字面板，替代孤立图标工具条） */}
       {interactive &&

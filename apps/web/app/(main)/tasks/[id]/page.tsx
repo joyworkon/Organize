@@ -640,8 +640,8 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-6 space-y-6">
+      <Card className="border-0 bg-transparent shadow-none">
+        <CardContent className="p-0 space-y-6">
           <div>
             {isEditingTitle ? (
               <Input
@@ -656,11 +656,11 @@ export default function TaskDetailPage() {
                   }
                 }}
                 autoFocus
-                className="text-2xl font-bold"
+                className="text-xl font-semibold leading-7"
               />
             ) : (
               <h1
-                className="text-2xl font-bold cursor-text hover:bg-accent/50 -mx-2 px-2 py-1 rounded-md transition-colors"
+                className="text-xl font-semibold leading-7 cursor-text hover:bg-accent/50 -mx-2 px-2 py-1 rounded-md transition-colors"
                 onClick={() => setIsEditingTitle(true)}
               >
                 {task.title}
@@ -838,33 +838,33 @@ export default function TaskDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="border-0 bg-transparent shadow-none">
+        <CardHeader className="px-0 pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <CheckSquare className="h-4 w-4" />
             子任务
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0">
           <TaskHierarchy task={task} />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="border-0 bg-transparent shadow-none">
+        <CardHeader className="px-0 pb-3">
           <CardTitle className="text-base">任务依赖</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0">
           <TaskDependencies task={task} />
         </CardContent>
       </Card>
 
       {checklists.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
+        <Card className="border-0 bg-transparent shadow-none">
+          <CardHeader className="px-0 pb-3">
             <CardTitle className="text-base">清单项（旧数据）</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-2 px-0">
             {checklists.map((item) => (
               <div key={item.id} className="group flex items-center gap-3 rounded-md p-2 hover:bg-accent/50">
                 <button
@@ -878,7 +878,7 @@ export default function TaskDetailPage() {
                   {item.is_completed && <CheckCircle2 className="h-3.5 w-3.5" />}
                 </button>
                 <span className={cn("flex-1 text-sm", item.is_completed && "text-muted-foreground line-through")}>{item.content}</span>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100" onClick={() => void deleteChecklist(item.id)}>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" onClick={() => void deleteChecklist(item.id)}>
                   <X className="h-3 w-3" />
                 </Button>
               </div>

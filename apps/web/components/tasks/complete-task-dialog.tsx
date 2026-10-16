@@ -81,8 +81,8 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
           <>
             <DialogHeader>
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success/10">
+                  <CheckCircle2 className="h-5 w-5 text-success" />
                 </div>
                 <div>
                   <DialogTitle>任务完成！</DialogTitle>

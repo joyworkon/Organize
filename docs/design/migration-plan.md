@@ -1,12 +1,12 @@
 # 渐进迁移与验收
 
-这是一份设计接入计划，本设计交付仅规范文档和隔离离线预览；同批工作台可靠性修复不属于全站视觉接入。禁止将预览的localStorage、contenteditable、状态定时器或原生dialog视为生产实现。正式改版按特性分支+PR，CI通过才合并；设计规范更新不顺手变更数据模型/授权/保存协议。
+初版仅交付规范和隔离预览；用户随后确认统一方向并授权正式全站接入。本轮按下表接入基础层、壳、列表/详情和特殊工作区，实际证据与未验证项见 [接入记录](adoption-report.md)。以下阶段保留为后续改版的检查顺序。禁止将预览的localStorage、contenteditable、状态定时器或原生dialog视为生产实现。正式改版按特性分支+PR，CI通过才合并；设计规范更新不顺手变更数据模型/授权/保存协议。
 
 ## 责任映射（真实路径相对仓库根）
 
 | 责任 | 接入位置 | 约束/相邻回归 |
 |---|---|---|
-| semantic token / prose /泳道 | `apps/web/app/globals.css`；`apps/web/tailwind.config.ts` | 现注释仍写石板蓝，但真实root浅蓝底+红primary。只以实际数值为基线。保持textColor.primary到primary-text和primary-foreground子键。新token通过现变量映射，业务层不散写hex。 |
+| semantic token / prose /泳道 | `apps/web/app/globals.css`；`apps/web/tailwind.config.ts` | 本轮已映射中性明暗值，以 tokens.json 与实际 computed style 为准。保持textColor.primary到primary-text和primary-foreground子键。新token通过现变量映射，业务层不散写hex。 |
 | inline品牌覆盖 | `apps/web/hooks/use-theme-color.ts`、`.test.ts` | applyThemeColor写四变量覆盖CSS。阶段1同时将BRAND_COLOR明暗值映射至中性primary/focus；保留MutationObserver、调用者与API；不可只改CSS导致运行时重回红色。测试里的PAGE_LIGHT/PAGE_DARK/CARD_DARK须同步底色，增加文字/焦点对比断言。 |
 | 主题偏好 | `apps/web/hooks/use-theme-mode.ts`、`components/layout/theme-toggle.tsx`、`components/settings/appearance-section.tsx` | 保留organize-theme键、跟随系统=删键、theme-mode-change广播；不重置偏好。 |
 | 原语 | `apps/web/components/ui/button.tsx`、`dialog.tsx`、`dropdown-menu.tsx`、`popover.tsx`、`command.tsx`、`input.tsx`等 | 一套Radix/shadcn，不安装Apps SDK UI/Tailwind4；改视觉变体与触控命中区。button accessible name、嵌套dismissable layer与FocusScope不变。 |

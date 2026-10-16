@@ -199,16 +199,16 @@ export default function FavoritesPage() {
 
             return (
               <Link key={fav.id} href={href}>
-                <div className="hover:bg-accent border rounded-md p-3 mb-2 transition-colors cursor-pointer group flex items-start gap-3">
+                <div className="hover:bg-accent border-0 border-b rounded-none px-1 py-3 mb-0 transition-colors cursor-pointer group flex items-start gap-3">
                   <div className={cn(
                     "h-8 w-8 rounded-md flex items-center justify-center shrink-0 mt-0.5",
-                    isReading && "bg-blue-500/10",
-                    isNote && "bg-purple-500/10",
-                    isTask && "bg-green-500/10"
+                    isReading && "bg-muted",
+                    isNote && "bg-muted",
+                    isTask && "bg-muted"
                   )}>
-                    {isReading && <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
-                    {isNote && <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
-                    {isTask && <ListChecks className="h-4 w-4 text-green-600 dark:text-green-400" />}
+                    {isReading && <BookOpen className="h-4 w-4 text-muted-foreground" />}
+                    {isNote && <FileText className="h-4 w-4 text-muted-foreground" />}
+                    {isTask && <ListChecks className="h-4 w-4 text-muted-foreground" />}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -241,7 +241,7 @@ export default function FavoritesPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-yellow-500 hover:text-yellow-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    className="h-8 w-8 text-yellow-500 hover:text-yellow-600 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 transition-opacity shrink-0"
                     onClick={(e) => handleUnfavorite(e, fav)}
                     title="取消收藏"
                   >

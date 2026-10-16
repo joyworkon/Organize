@@ -157,7 +157,7 @@ export function AutoTagDialog({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-purple-500" />
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
               AI 自动打标签
             </DialogTitle>
             <DialogDescription>
@@ -168,7 +168,7 @@ export function AutoTagDialog({
 
           {loading ? (
             <div className="flex flex-col items-center py-8 gap-2">
-              <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               <p className="text-sm text-muted-foreground">分析内容中...</p>
             </div>
           ) : error ? (

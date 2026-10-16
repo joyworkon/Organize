@@ -89,11 +89,11 @@ function ShareContent() {
 
           {status === "saved" && (
             <div className="flex flex-col items-center gap-2">
-              <Check className="h-8 w-8 text-green-500" />
+              <Check className="h-8 w-8 text-success" />
               <p className="text-sm font-medium">已保存到稍后读</p>
               <p className="text-xs text-muted-foreground line-clamp-2">{title}</p>
               {linkOnly && (
-                <p className="text-xs text-amber-600">正文抓取失败，仅存链接</p>
+                <p className="text-xs text-warning">正文抓取失败，仅存链接</p>
               )}
               <Button size="sm" onClick={() => router.push("/library")}>
                 查看稍后读
@@ -103,7 +103,7 @@ function ShareContent() {
 
           {status === "duplicate" && (
             <div className="flex flex-col items-center gap-2">
-              <Check className="h-8 w-8 text-amber-500" />
+              <Check className="h-8 w-8 text-warning" />
               <p className="text-sm font-medium">该链接已在稍后读中</p>
               <p className="text-xs text-muted-foreground line-clamp-2">{title}</p>
               <Button size="sm" onClick={() => router.push("/library")}>

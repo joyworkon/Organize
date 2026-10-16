@@ -397,7 +397,7 @@ export default function TodayView({ search = "", searchControl }: { search?: str
   const visibleMemos = filterByPageSearch(recentMemos, search, (memo) => ({ title: memo.content }));
 
   return (
-    <div className="dashboard-today space-y-5">
+    <div className="dashboard-today space-y-4">
       <DashboardViewHeader
         title={greeting?.title ?? "你好"}
         description={greeting?.date ?? "\u00a0"}

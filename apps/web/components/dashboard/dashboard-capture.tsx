@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PenLine, Loader2 } from "@/components/icons";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
@@ -154,24 +154,28 @@ export function DashboardCapture({ onAdded }: { onAdded: (task?: import("@organi
 
   return (
     <div className="dashboard-capture flex flex-col gap-1.5">
-      <div className="flex gap-2 items-center">
-        <div className="relative flex-1">
-          <PenLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
+      <div className="dashboard-capture-fields">
+        <div className="dashboard-capture-input relative">
+          <PenLine className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+          <Textarea
             value={text}
             onChange={(e) => {
               if (!hydrated.current) editedBeforeHydration.current = true;
               setText(e.target.value);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !isImeComposing(e) && !submitting) void handleSubmit();
+              if (e.key === "Enter" && !e.shiftKey && !isImeComposing(e)) {
+                e.preventDefault();
+                if (!submitting) void handleSubmit();
+              }
             }}
             placeholder="记录想法、粘贴链接，或以「待办：」开头添加待办…"
             aria-label="快速记录"
             aria-describedby="dashboard-capture-hint"
-            className="pl-9"
+            className="min-h-20 resize-y border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
+        <div className="dashboard-capture-actions">
         <Button
           type="button"
           variant="outline"
@@ -185,6 +189,7 @@ export function DashboardCapture({ onAdded }: { onAdded: (task?: import("@organi
           {submitting && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
           保存{detected.text ? `为${CAPTURE_KIND_LABEL[detected.kind]}` : ""}
         </Button>
+        </div>
       </div>
       <p id="dashboard-capture-hint" className="min-h-4 pl-1 text-xs text-muted-foreground" aria-live="polite">
         {detected.text ? `回车保存为「${CAPTURE_KIND_LABEL[detected.kind]}」` : ""}

@@ -135,7 +135,7 @@ export function AutoGroupDialog({
       <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-purple-500" />
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
             按内容自动分组
           </DialogTitle>
           <DialogDescription>

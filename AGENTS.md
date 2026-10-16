@@ -146,4 +146,4 @@ Supabase Auth（邮箱）。`middleware.ts` 保护 `(main)` 路由组，未登�
 
 ## 统一 UI 设计方向（2026-10-15）
 
-修改界面前先读根目录 [DESIGN.md](DESIGN.md)，再按 [页面规格](docs/design/page-specs.md) 和 [迁移计划](docs/design/migration-plan.md) 定位范围。中性灰 Codex 风格方案当前为已交付提案，预览在 `docs/design/preview/index.html`；不代表正式页面已全部迁移。正式接入仍复用现有 token、Radix 原语、保存和权限合同；数值源为 `docs/design/tokens.json`。
+修改界面前先读根目录 [DESIGN.md](DESIGN.md)，再按 [页面规格](docs/design/page-specs.md) 和 [迁移计划](docs/design/migration-plan.md) 定位范围。中性灰 Codex 风格已接入正式页面，范围与验证边界见 [接入记录](docs/design/adoption-report.md)。`docs/design/preview/index.html` 保留为提案样稿。修改时复用现有 token、Radix 原语、保存和权限合同；数值源为 `docs/design/tokens.json`。用户内容色板和显式笔记模板不随界面主题去色。

@@ -323,7 +323,7 @@ export function NoteCard({
             setDialog("autotag");
           }}
         >
-          <Sparkles className="h-3.5 w-3.5 mr-2 text-purple-500" />
+          <Sparkles className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
           AI 自动打标签
         </DropdownMenuItem>
 
@@ -461,9 +461,9 @@ export function NoteCard({
           onClick={handleCardClick}
           onMouseDown={handleCardAuxClick}
           {...dragProps}
-          className={cn(cardBaseClass)}
+          className={cn(cardBaseClass, "rounded-none border-0 border-b bg-transparent")}
         >
-          <CardContent className="p-3 sm:p-4">
+          <CardContent className="px-1 py-3">
             <div className="flex items-center gap-3">
               {CheckboxEl}
               {pinnedChip}

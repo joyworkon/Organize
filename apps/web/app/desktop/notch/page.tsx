@@ -47,7 +47,7 @@ export default function NotchDesktopPage() {
 /** 浏览器演示态：静态预览胶囊观感与面板布局，不加载任何 Tauri 能力 */
 function NotchDemo() {
   return (
-    <div className="flex min-h-screen flex-col items-center gap-8 bg-neutral-100 p-10">
+    <div className="flex min-h-screen flex-col items-center gap-8 bg-background p-10">
       <div className="space-y-2 text-center">
         <h1 className="text-lg font-semibold">刘海激发器（演示态）</h1>
         <p className="text-sm text-muted-foreground">

@@ -69,8 +69,8 @@ export function AppearanceSection() {
       </div>
 
       <p className="mt-4 text-sm text-muted-foreground">
-        Cairn 使用单一品牌色（石板蓝），不提供主题色切换——彩色只留给可点的地方与状态提示，
-        其余界面一律中性灰，避免颜色抢走内容的注意力。
+        界面采用中性灰，提供浅色、深色和跟随系统三种显示模式。
+        彩色用于标签、内容和状态提示。
       </p>
     </section>
   );

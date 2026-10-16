@@ -1,5 +1,4 @@
 import type { ComponentType, ReactNode } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export function DashboardViewHeader({
@@ -36,8 +35,8 @@ export function DashboardSection({
   children: ReactNode;
 }) {
   return (
-    <Card className={cn("dashboard-card", className)}>
-      <CardContent className="p-4">
+    <section className={cn("dashboard-card", className)}>
+      <div className="dashboard-section-body">
         <div className="dashboard-section-heading">
           <h2>
             {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
@@ -46,7 +45,7 @@ export function DashboardSection({
           {actions}
         </div>
         {children}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

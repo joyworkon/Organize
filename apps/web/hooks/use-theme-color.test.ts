@@ -43,10 +43,10 @@ function tintOver(rgb: [number, number, number], base: [number, number, number],
 }
 
 // 镜像 app/globals.css 的 --background（改动时两边同步）
-const PAGE_LIGHT = hslToRgb(0, 0, 98);
-const PAGE_DARK = hslToRgb(220, 8, 10);
+const PAGE_LIGHT = hslToRgb(0, 0, 100);
+const PAGE_DARK = hslToRgb(0, 0, 9.8);
 // 卡片纸面：亮色为纯白（已由 WHITE 覆盖），暗色为 --card
-const CARD_DARK = hslToRgb(220, 8, 13);
+const CARD_DARK = hslToRgb(0, 0, 12.94);
 const WHITE = hslToRgb(0, 0, 100);
 
 describe("品牌安全文本 token 对比度契约（单一品牌色）", () => {

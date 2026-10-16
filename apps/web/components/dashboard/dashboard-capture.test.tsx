@@ -16,10 +16,10 @@ vi.mock("@/lib/reading/collect", () => ({ collectReadingItem: vi.fn(), collectRe
 const { DashboardCapture } = await import("./dashboard-capture");
 let root: Root;
 let container: HTMLDivElement;
-function input() { return container.querySelector("input")!; }
+function input() { return container.querySelector("textarea")!; }
 function type(value: string) {
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input(), value);
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input(), value);
     input().dispatchEvent(new Event("input", { bubbles: true }));
   });
 }

@@ -8,6 +8,7 @@ import "./mobile.css";
 import { ServiceWorkerRegistrar } from "@/components/layout/sw-registrar";
 import { WebViewCompat } from "@/components/platform/webview-compat";
 import { FontReadyBridge } from "@/components/platform/font-ready-bridge";
+import { ThemeBridge } from "@/components/layout/theme-bridge";
 
 export const metadata: Metadata = {
   title: "Cairn - 智能笔记工具",
@@ -29,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body>
+        <ThemeBridge />
         {children}
         <WebViewCompat />
         <NavigateBridge />

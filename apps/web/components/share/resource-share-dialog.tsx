@@ -522,9 +522,9 @@ function InviteSection({
           </div>
         </div>
       )}
-      {done && <p className="text-sm text-green-600">已邀请并完成授权</p>}
+      {done && <p className="text-sm text-success">已邀请并完成授权</p>}
       {inviteSent && (
-        <p className="text-sm text-green-600">
+        <p className="text-sm text-success">
           邀请邮件已发送，对方点击链接注册后会自动获得访问权
         </p>
       )}
@@ -1100,7 +1100,7 @@ function PublicLinkSection({
           <div className="flex gap-2">
             <Input readOnly value={fullUrl} className="font-mono text-xs" />
             <Button variant="outline" size="icon" onClick={() => void copyLink()} title="复制链接">
-              {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">

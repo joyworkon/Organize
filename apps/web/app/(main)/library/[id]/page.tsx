@@ -1,6 +1,7 @@
 "use client";
 
 import { isDigestUrl, isInternalUrn, readingSourceLabel } from "@/lib/reading/source";
+import { bionicProcessText } from "@/lib/reading/bionic";
 import { DigestEditor } from "@/components/reading/digest-editor";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
@@ -148,7 +149,7 @@ export default function ReadingDetailPage() {
   // 协作角色（069 移交属主）：属主无需 RPC（行的 user_id 即事实）；
   // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理
   const [readingRole, setReadingRole] = useState<CollabRole | null>(null);
-  const [fullWidth, setFullWidth] = useState(true);
+  const [fullWidth, setFullWidth] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
   const renderedContent = useMemo(
@@ -194,7 +195,7 @@ export default function ReadingDetailPage() {
 
       if (!error && data) {
         setItem(data as ReadingItem);
-        setFullWidth(data.full_width ?? true);
+        setFullWidth(data.full_width ?? false);
         progressRef.current = data.reading_progress || 0;
         if (data.reading_status === "unread") {
           await supabase
@@ -477,17 +478,8 @@ export default function ReadingDetailPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusMode]);
 
-  const bionicWord = useCallback((word: string): string => {
-    if (!word) return word;
-    const mid = Math.ceil(word.length / 2);
-    return `<b>${word.slice(0, mid)}</b>${word.slice(mid)}`;
-  }, []);
-
-  const bionicProcessText = useCallback((text: string): string => {
-    return text.replace(/([\u4e00-\u9fa5]+|[a-zA-Z]+)/g, (match) => bionicWord(match));
-  }, [bionicWord]);
-
   const applyBionicToElement = useCallback((el: HTMLElement) => {
+    if (el.querySelector("[data-bionic-node='true']")) return;
     const walker = document.createTreeWalker(
       el,
       NodeFilter.SHOW_TEXT,
@@ -496,7 +488,12 @@ export default function ReadingDetailPage() {
           const parent = node.parentElement;
           if (!parent) return NodeFilter.FILTER_REJECT;
           const tagName = parent.tagName.toLowerCase();
-          if (tagName === "script" || tagName === "style" || tagName === "b") {
+          if (
+            tagName === "script" ||
+            tagName === "style" ||
+            tagName === "b" ||
+            parent.closest("[data-bionic-node='true']")
+          ) {
             return NodeFilter.FILTER_REJECT;
           }
           if (!node.textContent || node.textContent.trim() === "") {
@@ -519,17 +516,22 @@ export default function ReadingDetailPage() {
       const processedHtml = bionicProcessText(originalText);
 
       const tempSpan = document.createElement("span");
+      tempSpan.setAttribute("data-bionic-node", "true");
       tempSpan.innerHTML = processedHtml;
 
-      const parent = textNode.parentNode;
-      if (parent) {
-        while (tempSpan.firstChild) {
-          parent.insertBefore(tempSpan.firstChild, textNode);
-        }
-        parent.removeChild(textNode);
-      }
+      textNode.parentNode?.replaceChild(tempSpan, textNode);
     });
-  }, [bionicProcessText]);
+  }, []);
+
+  const unwrapBionicElement = useCallback((el: HTMLElement): boolean => {
+    const nodes = el.querySelectorAll("[data-bionic-node='true']");
+    if (nodes.length === 0) return false;
+    nodes.forEach((node) => {
+      node.replaceWith(document.createTextNode(node.textContent || ""));
+    });
+    el.normalize();
+    return true;
+  }, []);
 
   const applyBionicReading = useCallback(() => {
     const contentEl = contentRef.current;
@@ -551,17 +553,21 @@ export default function ReadingDetailPage() {
 
   const restoreOriginalContent = useCallback(() => {
     const contentEl = contentRef.current;
-    if (contentEl && originalContentRef.current !== null) {
-      contentEl.innerHTML = originalContentRef.current;
+    if (contentEl) {
+      if (!unwrapBionicElement(contentEl) && originalContentRef.current !== null) {
+        contentEl.innerHTML = originalContentRef.current;
+      }
       originalContentRef.current = null;
     }
 
     const focusEl = focusContentRef.current;
-    if (focusEl && originalFocusContentRef.current !== null) {
-      focusEl.innerHTML = originalFocusContentRef.current;
+    if (focusEl) {
+      if (!unwrapBionicElement(focusEl) && originalFocusContentRef.current !== null) {
+        focusEl.innerHTML = originalFocusContentRef.current;
+      }
       originalFocusContentRef.current = null;
     }
-  }, []);
+  }, [unwrapBionicElement]);
 
   useEffect(() => {
     if (loading || !item) return;
@@ -1110,7 +1116,7 @@ export default function ReadingDetailPage() {
       >
         {/* 文章标题 */}
         <header className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold leading-tight">
+          <h1 className="text-[32px] font-semibold leading-[42px]">
             {item.title}
           </h1>
           <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">
@@ -1263,8 +1269,6 @@ export default function ReadingDetailPage() {
       <div
         className={cn(
           "organize-sidebar-fixed-left fixed bottom-0 left-0 right-0 border-t bg-background/95 p-3 backdrop-blur transition-[left,right] duration-200",
-          // 右下角「＋」快速新建悬浮按钮（md 起显示）会压住右侧按钮，留出位置
-          "md:pr-20",
           showHighlightsPanel && "xl:right-80"
         )}
       >
@@ -1319,7 +1323,7 @@ export default function ReadingDetailPage() {
             )}
           >
             <header className="mb-8">
-              <h1 className="text-2xl md:text-3xl font-bold leading-tight">
+              <h1 className="text-[32px] font-semibold leading-[42px]">
                 {item.title}
               </h1>
               <div className="flex items-center gap-3 mt-3 text-sm text-muted-foreground flex-wrap">

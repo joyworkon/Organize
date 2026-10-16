@@ -104,6 +104,9 @@ test("全部视图：两页游标翻页无重复无遗漏（主列表只含阅�
   expect(firstPageTitles).toHaveLength(30);
 
   await page.getByRole("button", { name: "加载更多" }).click();
+  // Newly imported rows can share timestamps: item 00 may already be on page one.
+  // Await the actual append before checking completeness, rather than that title.
+  await expect.poll(() => page.locator("[data-library-card]").count()).toBeGreaterThan(30);
   await expect(page.getByText("Paged item 00").first()).toBeVisible();
   const allTitles = await page.locator("h2").allTextContents();
   expect(allTitles.length).toBeGreaterThan(30);
