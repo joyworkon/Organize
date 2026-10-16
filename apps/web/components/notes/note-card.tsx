@@ -37,6 +37,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
 import type { NoteSearchMatch } from "@/lib/notes/search-match";
+import { favoriteToggleFailureTitle } from "@/lib/notes/favorites-state";
 
 export type NoteViewMode = "card" | "list";
 
@@ -135,13 +136,15 @@ export function NoteCard({
     async function checkFavorite() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("favorites")
         .select("id")
         .eq("user_id", user.id)
         .eq("target_type", "note")
         .eq("target_id", note.id)
         .maybeSingle();
+      // 查询失败保持现状，不得把失败伪装成「未收藏」
+      if (error) return;
       if (mounted) {
         setIsFavorited(!!data);
       }
@@ -172,7 +175,8 @@ export function NoteCard({
           .eq("user_id", user.id)
           .eq("target_type", "note")
           .eq("target_id", note.id);
-        if (error) throw error;
+        // 归一成 Error，让 catch 里的 description 能取到 message（PostgrestError 不是 Error 实例）
+        if (error) throw new Error(error.message);
         setIsFavorited(false);
         toast({ title: "已取消收藏" });
       } else {
@@ -183,12 +187,17 @@ export function NoteCard({
             target_type: "note",
             target_id: note.id,
           });
-        if (error) throw error;
+        if (error) throw new Error(error.message);
         setIsFavorited(true);
         toast({ title: "已收藏" });
       }
-    } catch {
-      toast({ title: "操作失败", variant: "destructive" });
+    } catch (error) {
+      // 状态未变（成功才 setIsFavorited），按点击时的方向如实提示
+      toast({
+        title: favoriteToggleFailureTitle(isFavorited),
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     } finally {
       setIsTogglingFavorite(false);
     }
