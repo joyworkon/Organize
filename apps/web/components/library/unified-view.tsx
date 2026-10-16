@@ -30,6 +30,8 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** 首屏（非追加）加载失败：显示错误 + 重试，而不是空库 */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [recentMemos, setRecentMemos] = useState<LibraryItem[]>([]);
   // 标签筛选（p_tags 走标签名；TagFilter 以 id 为值，这里只把选中 id 映射回 name）
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -54,15 +56,22 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
         if (myReqId !== reqIdRef.current) return;
         if (!res.ok) {
           const data = await res.json().catch(() => null);
-          toast({ title: data?.error || "资料库加载失败", variant: "destructive" });
+          if (myReqId !== reqIdRef.current) return;
+          const message = data?.error || "资料库加载失败";
+          if (append) toast({ title: message, variant: "destructive" });
+          else setLoadError(message);
           return;
         }
         const data = (await res.json()) as { items: LibraryItem[]; nextCursor: string | null };
+        // await json 期间参数可能已变化：再次复检请求版本，旧结果不得覆盖
+        if (myReqId !== reqIdRef.current) return;
+        if (!append) setLoadError(null);
         setItems((prev) => (append ? [...prev, ...data.items] : data.items));
         setNextCursor(data.nextCursor);
       } catch {
         if (myReqId === reqIdRef.current) {
-          toast({ title: "资料库加载失败", description: "网络异常，请稍后重试", variant: "destructive" });
+          if (append) toast({ title: "资料库加载失败", description: "网络异常，请稍后重试", variant: "destructive" });
+          else setLoadError("网络异常，资料库加载失败");
         }
       } finally {
         if (myReqId === reqIdRef.current) {
@@ -76,6 +85,8 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
 
   // 搜索防抖后重新取第一页；标签/外部刷新同理
   useEffect(() => {
+    // 参数一变立即作废在途请求（防抖等待期间旧请求也不能再写入）
+    reqIdRef.current += 1;
     const timer = setTimeout(() => fetchPage(null, false), 300);
     return () => clearTimeout(timer);
   }, [fetchPage, refreshTick]);
@@ -130,6 +141,13 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
             <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError ? (
+        <EmptyState
+          icon={BookOpen}
+          title="资料库加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => void fetchPage(null, false)}>重试</Button>}
+        />
       ) : items.length === 0 ? (
         <EmptyState
           icon={BookOpen}

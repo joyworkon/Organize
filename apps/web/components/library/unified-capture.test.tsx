@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   collect: vi.fn(),
   submitMemo: vi.fn(),
   toast: vi.fn(),
+  dismiss: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/client", () => ({
@@ -14,7 +15,7 @@ vi.mock("@/lib/supabase/client", () => ({
     auth: { getSession: async () => ({ data: { session: { user: { id: "user-a" } } } }) },
   }),
 }));
-vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast }));
+vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast, dismiss: mocks.dismiss }));
 vi.mock("@/lib/memos/save-memo", () => ({ submitMemo: mocks.submitMemo }));
 vi.mock("@/lib/reading/collect", () => ({
   collectReadingItem: mocks.collect,
@@ -37,7 +38,7 @@ beforeEach(async () => {
   await act(async () => root.render(createElement(UnifiedCapture)));
 });
 afterEach(() => {
-  act(() => root.unmount());
+  try { act(() => root.unmount()); } catch { /* already unmounted */ }
   container.remove();
   vi.clearAllMocks();
 });
@@ -86,5 +87,35 @@ describe("UnifiedCapture save failures keep the draft", () => {
     expect(textarea.value).toBe("just a short memo");
     expect(onCaptured).not.toHaveBeenCalled();
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: "destructive" }));
+  });
+
+  it("passes the boundary userId to collect without reading the session itself", async () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(createElement(UnifiedCapture, { userId: "user-b" })));
+    mocks.collect.mockResolvedValueOnce({ status: "saved" });
+    const textarea = await type("https://a.example/1");
+    await submit(textarea);
+    expect(mocks.collect).toHaveBeenCalledWith("https://a.example/1", { expectedUserId: "user-b" });
+  });
+});
+
+describe("UnifiedCapture account change / unmount", () => {
+  it("stops the remaining batch and dismisses its toasts after unmount", async () => {
+    mocks.toast.mockImplementation(() => ({ id: `t-${mocks.toast.mock.calls.length}` }));
+    let release!: (v: unknown) => void;
+    mocks.collect
+      .mockResolvedValueOnce({ status: "saved" })
+      .mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    const textarea = await type("https://a.example/1\nhttps://b.example/2\nhttps://c.example/3");
+    await submit(textarea);
+    expect(mocks.collect).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+    expect(mocks.dismiss).toHaveBeenCalledWith("t-1");
+    const toastsBefore = mocks.toast.mock.calls.length;
+    await act(async () => { release({ status: "saved" }); });
+    expect(mocks.collect).toHaveBeenCalledTimes(2); // third link never saved under the old account
+    expect(mocks.toast.mock.calls.length).toBe(toastsBefore); // no stale toast after unmount
+    mocks.toast.mockReset();
   });
 });

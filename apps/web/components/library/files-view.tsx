@@ -42,6 +42,7 @@ export function FilesView({
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchFiles = useCallback(async (cursor?: string | null, append = false) => {
@@ -49,8 +50,13 @@ export function FilesView({
       const params = new URLSearchParams({ limit: "50" });
       if (cursor) params.set("cursor", cursor);
       const res = await fetch(`/api/imports?${params}`, { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (!append) setLoadError(`服务器返回 ${res.status}，请稍后重试`);
+        else toast({ title: "加载更多失败", variant: "destructive" });
+        return;
+      }
       const data = (await res.json()) as { files: ImportFileResult[]; nextCursor: string | null };
+      if (!append) setLoadError(null);
       setFiles((prev) => (append ? [...prev, ...data.files] : data.files));
       setNextCursor(data.nextCursor);
       // 仍有进行中文件 → 2s 后轮询（中断回收在服务端惰性执行：卡住的行超阈值后
@@ -63,7 +69,7 @@ export function FilesView({
         timerRef.current = setTimeout(() => void fetchFiles(null, false), 2000);
       }
     } catch {
-      /* 网络异常静默，下轮刷新或用户操作重试 */
+      if (!append) setLoadError("网络异常，文件列表加载失败");
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -149,6 +155,13 @@ export function FilesView({
             <div key={i} className="h-[64px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError && files.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="文件列表加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => { setLoading(true); void fetchFiles(null, false); }}>重试</Button>}
+        />
       ) : files.length === 0 ? (
         <EmptyState
           icon={FileText}
