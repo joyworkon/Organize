@@ -1511,6 +1511,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
               pendingSyncedBlocks={pendingSyncedBlocks}
               saveError={saveError}
               saveState={sessionUi ?? undefined}
+              onRetry={() => { void flushSave(); }}
               saving={saving}
               lastSaved={lastSaved}
               isViewer={capabilities.isViewer}

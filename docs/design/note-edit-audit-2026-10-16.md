@@ -4,7 +4,7 @@
 
 ## 本轮修复
 
-- 保存状态接入会话 phase，新增修改不沿用旧“已保存”；桌面和手机均显示 dirty、saving、offline、error、conflict 和 viewer，状态通过 live region 读出。
+- 保存状态接入会话 phase，新增修改不沿用旧“已保存”；桌面和手机均显示 dirty、saving、offline、error、conflict 和 viewer，状态通过 live region 读出；在线保存失败提供44px“重试保存”入口，复用现有 flush，冲突不走普通重试。
 - 加载错误与在线确认不存在分开；请求异常提供局部重试，离线失败联网后重试。笔记身份切换隔离页面状态，旧请求不再注水新页面。
 - 账号变化先保全旧账号的待保存稿并封闭旧会话，再加载新账号；同账号认证事件保持编辑器。会话回调与依赖绑定当前 generation，旧响应不更新新会话 UI。
 - 离线创建回退核对队列的账号归属，并读取后续本地草稿；恢复选择未完成前阻止自动保存覆盖草稿。创建仍先于保存，外账号队列不回放或删除。
@@ -14,10 +14,10 @@
 
 ## 验证证据
 
-- 旧 HEAD 的状态组件执行新增展示回归：4/4 失败；修改后：4/4 通过。
+- 旧 HEAD 的状态组件执行新增展示回归：4/4 失败；修改后连同新增显式重试回归：5/5 通过。
 - `corepack pnpm --filter @organize/web exec tsc --noEmit`：通过。
 - `corepack pnpm --filter @organize/web exec next lint --dir lib --dir components --dir app --max-warnings 0`，以及改动 hook/测试单文件 ESLint：通过。扩展扫描全部 hooks 曾遇到未改的 `use-linked-task-sync.ts` 引用不存在规则；未扩大修改该既有配置问题。
-- `corepack pnpm --filter @organize/web test`：227 文件通过、1 文件既有跳过；1722 用例通过、2 用例既有跳过。包含 editor-layout、block-interaction、保存协议与新增页面/hook/状态回归。
+- `corepack pnpm --filter @organize/web test`：227 文件通过、1 文件既有跳过；1723 用例通过、2 用例既有跳过。包含 editor-layout、block-interaction、保存协议与新增页面/hook/状态回归。
 - 隔离 mock `corepack pnpm build`：通过。
 - `corepack pnpm --filter @organize/web exec playwright test e2e/note-edit-state.spec.ts e2e/note-first-keystroke.spec.ts e2e/note-templates.spec.ts e2e/ui-adoption.spec.ts --grep 'note|offline|pending|IME'`：最终 9/9 通过。覆盖离线创建刷新/恢复/联网/SPA回读及稳定块 ID、外账号队列不展示不删除、320/390/1440 浅暗状态与无整页横滚、IME确认不拆分标题且保存后同一 editor DOM、首字与标题换行、显式模板保留。
 - 首次浏览器整组模板测试在程序选区后加粗失败，单独重跑通过，最终整组也通过；未为偶发时序改动产品或弱化断言。

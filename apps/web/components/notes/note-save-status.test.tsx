@@ -33,7 +33,7 @@ describe("NoteSaveStatus", () => {
     container.remove();
   });
 
-  function render(state: NoteSaveUiState, online = true, isViewer = false) {
+  function render(state: NoteSaveUiState, online = true, isViewer = false, onRetry?: () => void) {
     act(() => root.render(createElement(NoteSaveStatus, {
       online,
       offlinePending: false,
@@ -43,6 +43,7 @@ describe("NoteSaveStatus", () => {
       lastSaved: new Date("2026-01-01T00:00:00Z"),
       isViewer,
       saveState: state,
+      onRetry,
     })));
     return container.querySelector('[role="status"]')!;
   }
@@ -66,6 +67,24 @@ describe("NoteSaveStatus", () => {
     const conflict = render(cleanState({ phase: "conflict", saveError: "检测到其他位置的修改" }));
     expect(conflict.textContent).toContain("保存冲突");
     expect(conflict.textContent).toContain("检测到其他位置的修改");
+  });
+
+  it("在线 error 提供 Button 重试入口；冲突、离线和 viewer 不显示", () => {
+    let retries = 0;
+    render(cleanState({ phase: "error", saveError: "保存失败" }), true, false, () => { retries += 1; });
+    const retry = container.querySelector("button");
+    expect(retry?.textContent).toBe("重试保存");
+    expect(retry?.className).toContain("min-h-11");
+    act(() => retry?.click());
+    expect(retries).toBe(1);
+
+    render(cleanState({ phase: "conflict", saveError: "请处理冲突" }), true, false, () => { retries += 1; });
+    expect(container.querySelector("button")).toBeNull();
+    render(cleanState({ phase: "error", saveError: "离线" }), false, false, () => { retries += 1; });
+    expect(container.querySelector("button")).toBeNull();
+    render(cleanState({ phase: "error", saveError: "保存失败" }), true, true, () => { retries += 1; });
+    expect(container.querySelector("button")).toBeNull();
+    expect(retries).toBe(1);
   });
 
   it("clean 时只显示会话确认过的已保存状态，viewer 明确只读", () => {
