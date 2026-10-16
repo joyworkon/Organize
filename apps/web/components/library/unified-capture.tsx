@@ -105,15 +105,20 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
       [userId]
     );
 
-    const collectUrls = useCallback(async (urls: string[]) => {
+    /** 逐条收集；返回是否全部成功（saved / link-only / duplicate）。任一失败时调用方保留原稿 */
+    const collectUrls = useCallback(async (urls: string[]): Promise<boolean> => {
+      let allOk = true;
       for (const url of urls) {
-        const result = await collectReadingItem(url);
+        const result = await collectReadingItem(url, userId ? { expectedUserId: userId } : {});
         toast({ ...collectResultToast(result), description: shortUrl(url) });
         if (result.status === "saved" || result.status === "saved-link-only") {
           onCapturedRef.current?.();
+        } else if (result.status !== "duplicate") {
+          allOk = false;
         }
       }
-    }, []);
+      return allOk;
+    }, [userId]);
 
     const handleSubmit = async () => {
       const rawInput = inputRef.current;
@@ -124,8 +129,10 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
         switch (cls.kind) {
           case "url":
           case "urls": {
-            await collectUrls(cls.kind === "url" ? [cls.url] : cls.urls);
-            clearInputIfSame(rawInput);
+            // 部分/全部失败时保留完整原稿，重试由 collectReadingItem 去重兜底
+            if (await collectUrls(cls.kind === "url" ? [cls.url] : cls.urls)) {
+              clearInputIfSame(rawInput);
+            }
             break;
           }
           case "memo":
@@ -135,13 +142,14 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
               toast({ title: "保存失败", description: result.message, variant: "destructive" });
               break;
             }
+            if (result.status === "queued" && !result.persisted) {
+              // 未能落本地队列：保留输入，不报成功
+              toast({ title: "本地存储不可用，内容未保存，请稍后重试", variant: "destructive" });
+              break;
+            }
             clearInputIfSame(rawInput);
             if (result.status === "queued") {
-              toast(
-                result.persisted
-                  ? { title: "当前离线，已本地保存，联网后自动同步" }
-                  : { title: "本地存储不可用，离线创建可能丢失", variant: "destructive" }
-              );
+              toast({ title: "当前离线，已本地保存，联网后自动同步" });
             } else {
               toast({
                 title: "已保存为速记",
@@ -171,7 +179,7 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
                 key,
                 result,
                 sources: ["统一输入框粘贴的长文本"],
-              });
+              }, userId ? { expectedUserId: userId } : {});
               toast(collectResultToast(saved));
               if (saved.status === "saved" || saved.status === "saved-link-only") {
                 clearInputIfSame(rawInput);

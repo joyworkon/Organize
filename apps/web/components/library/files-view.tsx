@@ -15,6 +15,7 @@ import { FileText, Loader2, RotateCcw } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
 import { cn } from "@/lib/utils";
+import { filterByPageSearch } from "@/lib/search/page-search";
 
 const KIND_LABEL: Record<string, string> = {
   text: "文本", markdown: "Markdown", csv: "CSV", json: "JSON",
@@ -30,8 +31,10 @@ function formatSize(size: number): string {
 export function FilesView({
   refreshTick,
   onImported,
+  search = "",
 }: {
   refreshTick: number;
+  search?: string;
   /** 重试提交成功后通知父级递增 refreshTick（本视图随之刷新，导入面板同步） */
   onImported?: () => void;
 }) {
@@ -76,6 +79,10 @@ export function FilesView({
   }, [fetchFiles, refreshTick]);
 
   // ---- 单文件重试（阶段 1）----
+  const visibleFiles = filterByPageSearch(files, search, (file) => ({ title: file.fileName }));
+
+  const clearSearch = () => window.dispatchEvent(new CustomEvent("organize:page-search-clear"));
+
   const retryInputRef = useRef<HTMLInputElement>(null);
   const retryTargetRef = useRef<ImportFileResult | null>(null);
   const [retryingKey, setRetryingKey] = useState<string | null>(null);
@@ -148,8 +155,14 @@ export function FilesView({
           title="还没有导入过文件"
           description="用上方「导入文件」拖入或选择文件：原件存档，正文提取后进入稍后读"
         />
+      ) : visibleFiles.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="没有匹配的文件"
+          action={<Button variant="ghost" onClick={clearSearch}>清空搜索</Button>}
+        />
       ) : (
-        files.map((file) => (
+        visibleFiles.map((file) => (
           <div
             key={file.id}
             className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card px-3 py-2.5 text-sm"

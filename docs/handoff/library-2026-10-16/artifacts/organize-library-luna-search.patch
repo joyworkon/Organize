@@ -1,0 +1,178 @@
+--- a/apps/web/components/library/files-view.tsx
++++ b/apps/web/components/library/files-view.tsx
+@@ -15,6 +15,7 @@
+ import { toast } from "@/hooks/use-toast";
+ import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
+ import { cn } from "@/lib/utils";
++import { filterByPageSearch } from "@/lib/search/page-search";
+ 
+ const KIND_LABEL: Record<string, string> = {
+   text: "文本", markdown: "Markdown", csv: "CSV", json: "JSON",
+@@ -30,8 +31,10 @@
+ export function FilesView({
+   refreshTick,
+   onImported,
++  search = "",
+ }: {
+   refreshTick: number;
++  search?: string;
+   /** 重试提交成功后通知父级递增 refreshTick（本视图随之刷新，导入面板同步） */
+   onImported?: () => void;
+ }) {
+@@ -76,6 +79,10 @@
+   }, [fetchFiles, refreshTick]);
+ 
+   // ---- 单文件重试（阶段 1）----
++  const visibleFiles = filterByPageSearch(files, search, (file) => ({ title: file.fileName }));
++
++  const clearSearch = () => window.dispatchEvent(new CustomEvent("organize:page-search-clear"));
++
+   const retryInputRef = useRef<HTMLInputElement>(null);
+   const retryTargetRef = useRef<ImportFileResult | null>(null);
+   const [retryingKey, setRetryingKey] = useState<string | null>(null);
+@@ -148,8 +155,14 @@
+           title="还没有导入过文件"
+           description="用上方「导入文件」拖入或选择文件：原件存档，正文提取后进入稍后读"
+         />
++      ) : visibleFiles.length === 0 ? (
++        <EmptyState
++          icon={FileText}
++          title="没有匹配的文件"
++          action={<Button variant="ghost" onClick={clearSearch}>清空搜索</Button>}
++        />
+       ) : (
+-        files.map((file) => (
++        visibleFiles.map((file) => (
+           <div
+             key={file.id}
+             className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card px-3 py-2.5 text-sm"
+--- a/apps/web/components/collections/collections-view.tsx
++++ b/apps/web/components/collections/collections-view.tsx
+@@ -5,38 +5,42 @@
+ //   详情（?collection=<id>）：引用行列表——实时 join 来源标题，软删/不可达来源显示
+ //   「来源不可用」角标（绝不隐藏行）；移出；搜索；游标分页「加载更多」。
+ // 深链：/library?view=collections&collection=<id>（旧 view 参数全部不受影响）。
+-import { useCallback, useEffect, useRef, useState } from "react";
++import { useCallback, useEffect, useState } from "react";
+ import { Button } from "@/components/ui/button";
+ import { EmptyState } from "@/components/ui/empty-state";
+ import { Input } from "@/components/ui/input";
+ import { Loader2, FilePlus, Pencil, Trash2 } from "@/components/icons";
+ import { toast } from "@/hooks/use-toast";
+ import { cn } from "@/lib/utils";
++import { filterByPageSearch } from "@/lib/search/page-search";
+ import { DigestPreviewDialog, type DigestRequest } from "./digest-preview-dialog";
+ import type { CollectionItemView, CollectionSummary } from "@/lib/collections/types";
+ 
+ export function CollectionsView({
+   collectionId,
+   onCollectionIdChange,
++  search = "",
+ }: {
+   /** 详情态：集合 id（null = 列表态） */
+   collectionId: string | null;
+   onCollectionIdChange: (id: string | null) => void;
++  search?: string;
+ }) {
+   if (collectionId) {
+     return (
+       <CollectionItems
+         collectionId={collectionId}
++        search={search}
+         onBack={() => onCollectionIdChange(null)}
+       />
+     );
+   }
+-  return <CollectionList onOpen={onCollectionIdChange} />;
++  return <CollectionList onOpen={onCollectionIdChange} search={search} />;
+ }
+ 
+ // ---------------- 列表态 ----------------
+ 
+-function CollectionList({ onOpen }: { onOpen: (id: string) => void }) {
++function CollectionList({ onOpen, search }: { onOpen: (id: string) => void; search: string }) {
+   const [collections, setCollections] = useState<CollectionSummary[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [creating, setCreating] = useState(false);
+@@ -104,6 +108,9 @@
+     void load();
+   };
+ 
++  const visibleCollections = filterByPageSearch(collections, search, (collection) => ({ title: collection.name }));
++  const clearSearch = () => window.dispatchEvent(new CustomEvent("organize:page-search-clear"));
++
+   const remove = async (collection: CollectionSummary) => {
+     if (!window.confirm(`删除集合「${collection.name}」？来源资料不会被删除。`)) return;
+     const res = await fetch(`/api/collections/${collection.id}`, { method: "DELETE" });
+@@ -148,9 +155,15 @@
+           title="还没有集合"
+           description="在资料卡片或导入文件的「加入集合」里创建；集合只保存引用，不复制内容"
+         />
++      ) : visibleCollections.length === 0 ? (
++        <EmptyState
++          icon={FilePlus}
++          title="没有匹配的集合"
++          action={<Button variant="ghost" onClick={clearSearch}>清空搜索</Button>}
++        />
+       ) : (
+         <ul className="grid gap-2" aria-label="集合列表">
+-          {collections.map((c) => (
++          {visibleCollections.map((c) => (
+             <li key={c.id}>
+               {renaming?.id === c.id ? (
+                 <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2.5">
+@@ -216,9 +229,11 @@
+ 
+ function CollectionItems({
+   collectionId,
++  search,
+   onBack,
+ }: {
+   collectionId: string;
++  search: string;
+   onBack: () => void;
+ }) {
+   const [items, setItems] = useState<CollectionItemView[]>([]);
+@@ -227,14 +242,12 @@
+   const [nextCursor, setNextCursor] = useState<string | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [loadingMore, setLoadingMore] = useState(false);
+-  const [q, setQ] = useState("");
+-  const qDebouncedRef = useRef("");
+   const [qDebounced, setQDebounced] = useState("");
+ 
+   useEffect(() => {
+-    const timer = setTimeout(() => setQDebounced(qDebouncedRef.current = q), 300);
++    const timer = setTimeout(() => setQDebounced(search.trim()), 300);
+     return () => clearTimeout(timer);
+-  }, [q]);
++  }, [search]);
+ 
+   const fetchPage = useCallback(async (cursor: string | null, append: boolean, q: string) => {
+     if (!append) setLoading(true);
+@@ -297,13 +310,6 @@
+         <Button variant="ghost" size="sm" className="h-8" onClick={onBack}>
+           ← 全部集合
+         </Button>
+-        <Input
+-          value={q}
+-          onChange={(event) => setQ(event.target.value)}
+-          placeholder="在集合内搜索…"
+-          aria-label="集合内搜索"
+-          className="h-8 max-w-64 text-sm"
+-        />
+       </div>
+ 
+       {selected.size > 0 && (
+@@ -342,8 +348,9 @@
+       ) : items.length === 0 ? (
+         <EmptyState
+           icon={FilePlus}
+-          title="集合里还没有内容"
+-          description="在资料卡片或导入文件上点「加入集合」"
++          title={qDebounced ? "没有匹配的内容" : "集合里还没有内容"}
++          description={qDebounced ? undefined : "在资料卡片或导入文件上点「加入集合」"}
++          action={qDebounced ? <Button variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent("organize:page-search-clear"))}>清空搜索</Button> : undefined}
+         />
+       ) : (
+         <ul className="grid gap-2" aria-label="集合内容">

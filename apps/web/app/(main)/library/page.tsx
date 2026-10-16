@@ -53,6 +53,8 @@ function LibraryPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const view = normalizeView(searchParams.get("view"));
+  const [tabStopView, setTabStopView] = useState(view);
+  useEffect(() => setTabStopView(view), [view]);
   // 集合详情深链：/library?view=collections&collection=<id>
   const collectionId = searchParams.get("collection");
   const setCollectionId = useCallback(
@@ -133,8 +135,12 @@ function LibraryPageInner() {
       : view === "reading"
         ? "搜索稍后读（标题 / 标签）"
         : view === "files"
-          ? "搜索导入文件"
-          : "搜索资料库（标题 / 正文 / 标签）";
+          ? "搜索已加载文件（文件名）"
+          : view === "collections"
+            ? collectionId
+              ? "搜索集合内容"
+              : "搜索已加载集合（名称）"
+            : "搜索资料库（标题 / 正文 / 标签）";
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -162,11 +168,36 @@ function LibraryPageInner() {
         {viewTabs.map((tab) => (
           <button
             key={tab.value}
+            type="button"
             role="tab"
+            id={`library-tab-${tab.value}`}
+            aria-controls="library-panel"
             aria-selected={view === tab.value}
-            onClick={() => setView(tab.value)}
+            tabIndex={tabStopView === tab.value ? 0 : -1}
+            onClick={() => {
+              setTabStopView(tab.value);
+              setView(tab.value);
+            }}
+            onKeyDown={(event) => {
+              const index = viewTabs.findIndex((entry) => entry.value === tab.value);
+              const nextIndex = event.key === "ArrowRight"
+                ? (index + 1) % viewTabs.length
+                : event.key === "ArrowLeft"
+                  ? (index - 1 + viewTabs.length) % viewTabs.length
+                  : event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? viewTabs.length - 1
+                      : null;
+              if (nextIndex === null) return;
+              event.preventDefault();
+              const nextView = viewTabs[nextIndex].value;
+              setTabStopView(nextView);
+              setView(nextView);
+              document.getElementById(`library-tab-${nextView}`)?.focus();
+            }}
             className={cn(
-              "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "min-h-11 px-3 py-1.5 rounded-md text-sm font-medium transition-colors md:min-h-8",
               view === tab.value
                 ? "bg-background shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -177,21 +208,23 @@ function LibraryPageInner() {
         ))}
       </div>
 
-      {view === "all" ? (
-        <UnifiedView search={search} refreshTick={refreshTick} />
-      ) : view === "reading" ? (
-        <>
-          {/* AI 物料整理（可选）：不保存原件，生成派生整理稿；文件导入走上方导入面板 */}
-          <MaterialImport onAdded={bumpRefresh} />
-          <ReadingView search={search} refreshTick={refreshTick} registerEscape={registerEscape} />
-        </>
-      ) : view === "files" ? (
-        <FilesView refreshTick={refreshTick} onImported={bumpRefresh} />
-      ) : view === "collections" ? (
-        <CollectionsView collectionId={collectionId} onCollectionIdChange={setCollectionId} />
-      ) : (
-        <MemosView search={search} />
-      )}
+      <div id="library-panel" role="tabpanel" aria-labelledby={`library-tab-${view}`}>
+        {view === "all" ? (
+          <UnifiedView search={search} refreshTick={refreshTick} />
+        ) : view === "reading" ? (
+          <>
+            {/* AI 物料整理（可选）：不保存原件，生成派生整理稿；文件导入走上方导入面板 */}
+            <MaterialImport onAdded={bumpRefresh} />
+            <ReadingView search={search} refreshTick={refreshTick} registerEscape={registerEscape} />
+          </>
+        ) : view === "files" ? (
+          <FilesView search={search} refreshTick={refreshTick} onImported={bumpRefresh} />
+        ) : view === "collections" ? (
+          <CollectionsView search={search} collectionId={collectionId} onCollectionIdChange={setCollectionId} />
+        ) : (
+          <MemosView search={search} />
+        )}
+      </div>
     </div>
   );
 }
