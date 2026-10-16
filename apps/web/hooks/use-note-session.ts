@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { NoteDraftSnapshot } from "@/lib/notes/local-draft";
 import {
   createNoteSaveSession,
@@ -35,7 +35,9 @@ export function useNoteSaveSession(options: {
   const [session, setSession] = useState<NoteSaveSession | null>(null);
   const [ui, setUi] = useState<NoteSaveUiState | null>(null);
   // 依赖项用 ref 装载，避免把每次渲染的新函数当成重建会话的依据
-  const optionsRef = useRef(options);
+  // Each identity owns its callbacks, including a pending cleanup flush.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const optionsRef = useMemo(() => ({ current: options }), [noteId, accountId, draftRef]);
   optionsRef.current = options;
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export function useNoteSaveSession(options: {
       setUi(null);
       return;
     }
+    let active = true;
     const deps: NoteSaveSessionDeps = {
       noteId,
       accountId,
@@ -68,13 +71,13 @@ export function useNoteSaveSession(options: {
       callbacks: {
         onUiState: () => {
           // 必须传快照：会话内部原地变异同一 ui 对象，同引用 setState 会被 React bailout
-          if (sessionRef.current) setUi({ ...sessionRef.current.getUiState() });
+          if (active && sessionRef.current === created) setUi({ ...created.getUiState() });
         },
         onNotesChanged: () => {
-          window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+          if (active) window.dispatchEvent(new CustomEvent("organize:notes-changed"));
         },
         onSaved: (info) => {
-          optionsRef.current.onSaved?.(info);
+          if (active) optionsRef.current.onSaved?.(info);
         },
       },
     };
@@ -83,6 +86,7 @@ export function useNoteSaveSession(options: {
     setSession(created);
     setUi(created.getUiState());
     return () => {
+      active = false;
       // 兜底 flush 先于销毁：SPA 切笔记/卸载时把防抖窗口内的未落库改动真实发出去
       //（旧页面 pagehide cleanup 语义）；flush 拒绝已销毁会话，因此不能先 destroy
       void created
@@ -95,7 +99,8 @@ export function useNoteSaveSession(options: {
           }
         });
     };
-  }, [noteId, accountId, draftRef]);
+  }, [noteId, accountId, draftRef, optionsRef]);
 
-  return { session: sessionRef.current, ui };
+  const current = session?.noteId === noteId && session.accountId === accountId ? session : null;
+  return { session: current, ui: current ? ui : null };
 }

@@ -205,6 +205,7 @@ describe("note-save-session：冲突", () => {
       error: null,
     });
     session.resolveConflictOverwriteRemote();
+    await session.flush();
     await vi.waitFor(() => {
       expect(transport.save).toHaveBeenCalledTimes(2);
     });
@@ -238,7 +239,7 @@ describe("note-save-session：离线与离线创建", () => {
     const { deps, transport } = makeDeps();
     const pending: PendingNoteCreate = {
       op_id: "op-1",
-      note: { title: "离线新建", content: { type: "doc" } },
+      note: { user_id: "user-1", title: "离线新建", content: { type: "doc" } },
       created_at: Date.now(),
     };
     (transport.findPendingCreate as ReturnType<typeof vi.fn>).mockReturnValue(pending);
@@ -343,5 +344,79 @@ describe("note-save-session：历史恢复与生命周期", () => {
     }
     session.queueSave();
     expect(session.getUiState().localPersistence).toBe("ok");
+  });
+});
+
+describe("note-save-session：异常与隔离回归", () => {
+  it("RPC Promise reject 保留本机稿与 dirty，网络退避后复用 mutationId", async () => {
+    vi.useFakeTimers();
+    try {
+      const { deps, transport } = makeDeps();
+      vi.mocked(transport.save).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      const session = createNoteSaveSession(deps);
+      session.patchDraft({ title: "网络中断前的新稿" });
+      const result = await session.flush();
+      expect(result.status).toBe("error");
+      expect(session.isDirty()).toBe(true);
+      expect(session.getUiState().phase).toBe("error");
+      expect(localStorage.getItem("organize:note-draft:user-1:note-1")).not.toBeNull();
+      await vi.runAllTimersAsync();
+      expect(transport.save).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(transport.save).mock.calls[1][0].pMutationId).toBe(vi.mocked(transport.save).mock.calls[0][0].pMutationId);
+      expect(session.isDirty()).toBe(false);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("冲突补拉失败仍保留 current revision 并停止自动保存", async () => {
+    const { deps, transport } = makeDeps();
+    vi.mocked(transport.save).mockResolvedValueOnce({ data: { status: "conflict_note", current_revision: 9 }, error: null });
+    vi.mocked(transport.fetchRemoteDraft).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const session = createNoteSaveSession(deps);
+    session.patchDraft({ title: "本机稿" });
+    expect((await session.flush()).status).toBe("conflict");
+    expect(session.getUiState().conflict?.currentRevision).toBe(9);
+    expect(session.isDirty()).toBe(true);
+    expect(transport.save).toHaveBeenCalledTimes(1);
+    session.destroy();
+  });
+
+  it("其他账号的离线创建不插入、不移除", async () => {
+    const { deps, transport } = makeDeps();
+    vi.mocked(transport.findPendingCreate).mockReturnValue({ op_id: "other", note: { id: "note-1", user_id: "user-2" }, created_at: Date.now() });
+    const session = createNoteSaveSession(deps);
+    expect((await session.flush()).status).toBe("not-needed");
+    expect(transport.insertPendingCreate).not.toHaveBeenCalled();
+    expect(transport.removePendingCreate).not.toHaveBeenCalled();
+    session.destroy();
+  });
+
+  it("创建在途时失去草稿归属不移除队列、不继续保存", async () => {
+    const { deps, draftRef, transport } = makeDeps();
+    vi.mocked(transport.findPendingCreate).mockReturnValue({ op_id: "own", note: { id: "note-1", user_id: "user-1" }, created_at: Date.now() });
+    let resolveCreate!: (result: { error: unknown }) => void;
+    vi.mocked(transport.insertPendingCreate).mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve; }));
+    const session = createNoteSaveSession(deps);
+    session.patchDraft({ title: "A" });
+    const saving = session.flush();
+    draftRef.current = draft({ title: "B" });
+    resolveCreate({ error: null });
+    expect((await saving).status).toBe("superseded");
+    expect(transport.removePendingCreate).not.toHaveBeenCalled();
+    expect(transport.save).not.toHaveBeenCalled();
+    session.patchDraft({ title: "旧会话修改" });
+    expect(draftRef.current.title).toBe("B");
+    session.destroy();
+  });
+
+  it("角色尚未判定时不写入", async () => {
+    const { deps, transport } = makeDeps();
+    const session = createNoteSaveSession({ ...deps, getRole: () => null });
+    session.patchDraft({ title: "未知身份" });
+    expect((await session.flush()).status).toBe("not-needed");
+    expect(transport.save).not.toHaveBeenCalled();
+    session.destroy();
   });
 });

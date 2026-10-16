@@ -210,10 +210,10 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
         ? "conflict"
         : savingPromise
           ? "saving"
-          : dirty
-            ? (deps.isOnline() ? "dirty" : "local-only")
-            : ui.saveError
-              ? "error"
+          : ui.saveError
+            ? "error"
+            : dirty
+              ? (deps.isOnline() ? "dirty" : "local-only")
               : "clean";
     ui.conflict = conflict;
     ui.localPersistence = localPersistence;
@@ -222,7 +222,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
   }
 
   function persistDraft(baseRevision = revision): DraftWriteResult | null {
-    if (destroyed) return null;
+    if (destroyed || draftOwnershipLost()) return null;
     const result = writeLocalNoteDraft(localStorage, accountId, noteId, baseRevision, {
       ...draftRef.current,
     });
@@ -299,7 +299,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       pTaskMutations: mutations.mutations.length > 0 ? mutations.mutations : null,
       pMutationId: mutationId,
       pNoteSnapshot: snapshot,
-    });
+    }).catch((error: unknown) => ({ data: null, error }));
     if (probe) {
       const saveOk = !rpcErr && result?.status === "ok";
       probe.recordSave({
@@ -317,16 +317,16 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     if (status === "conflict_note" || status === "conflict_task") {
       dirty = true;
       persistDraft();
-      const remote = await transport.fetchRemoteDraft();
-      if (destroyed) return { kind: "superseded" };
+      const remote = await transport.fetchRemoteDraft().catch(() => null);
+      if (destroyed || draftOwnershipLost()) return { kind: "superseded" };
       // 归因冲突对方（066 last_edit_by）
       let actor: ConflictActor = { kind: "unknown", name: null };
       const lastEditBy = remote?.lastEditBy ?? null;
       if (lastEditBy && lastEditBy === accountId) {
         actor = { kind: "self", name: null };
       } else if (lastEditBy) {
-        const name = await transport.fetchProfileName(lastEditBy);
-        if (destroyed) return { kind: "superseded" };
+        const name = await transport.fetchProfileName(lastEditBy).catch(() => null);
+        if (destroyed || draftOwnershipLost()) return { kind: "superseded" };
         if (name) actor = { kind: "collaborator", name };
       }
       const built: NoteSaveConflict = {
@@ -397,6 +397,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
     accountId,
     getDraft: () => draftRef.current,
     patchDraft(patch, opts) {
+      if (destroyed || draftOwnershipLost()) return;
       Object.assign(draftRef.current, patch);
       if (opts?.markDirty !== false) {
         dirty = true;
@@ -414,6 +415,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
       }
     },
     restoreDraft(draft, opts) {
+      if (destroyed || draftOwnershipLost()) return;
       if (opts?.skipNextFlush) {
         // 历史恢复：卸载兜底 flush 不得把旧草稿写回；下次 flush 直接消费该标志
         dirty = false;
@@ -461,7 +463,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
         saveTimer = null;
       }
       // 协作 viewer 只读：编辑器已禁输入，不存在可落库改动
-      if (deps.getRole() === "viewer") return { status: "not-needed" };
+      if (deps.getRole() === "viewer" || deps.getRole() === null) return { status: "not-needed" };
       // 历史恢复后：本地草稿已被服务端快照替代，跳过兜底保存
       try {
         if (deps.consumeSkipFlush()) {
@@ -485,8 +487,10 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
         }
         // X1-2B：本条笔记的创建仍滞留离线队列 → 先落创建（主键幂等）再走保存
         const pendingCreate = transport.findPendingCreate();
-        if (pendingCreate) {
-          const { error: createErr } = await transport.insertPendingCreate(pendingCreate.note);
+        if (pendingCreate && pendingCreate.note.user_id === accountId) {
+          const { error: createErr } = await transport.insertPendingCreate(pendingCreate.note)
+            .catch((error: unknown) => ({ error }));
+          if (destroyed || draftOwnershipLost()) return { status: "superseded" };
           const createCode = (createErr as { code?: unknown } | null)?.code;
           if (createErr && createCode !== "23505") {
             if (isNetworkSaveError(createErr)) {
@@ -496,7 +500,9 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
                 notifyUi();
                 return { status: "offline-pending" };
               }
-              return { status: "error", message: "离线创建尚未同步" };
+              ui.offlinePending = true;
+              setSaveError("离线创建尚未同步，请重试");
+              return { status: "error", message: ui.saveError };
             }
             // 业务错误：移出队列避免死循环，继续走保存暴露真实错误
           }
@@ -508,7 +514,7 @@ export function createNoteSaveSession(deps: NoteSaveSessionDeps): NoteSaveSessio
           lastRound = await runSaveRound();
           if (lastRound.kind !== "ok") break;
         }
-        if (destroyed) return { status: "superseded" };
+        if (destroyed || draftOwnershipLost()) return { status: "superseded" };
         switch (lastRound?.kind) {
           case "ok":
             return { status: "saved", revision: lastRound.revision };

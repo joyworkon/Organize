@@ -102,8 +102,33 @@ type SaveConflict = NoteSaveConflict;
 
 export default function NoteEditorPage() {
   const params = useParams();
-  const router = useRouter();
   const noteId = params.id as string;
+  const supabase = useMemo(() => createClient(), []);
+  const accountRef = useRef<string | null | undefined>(undefined);
+  const invalidateRef = useRef<(() => void) | null>(null);
+  const [accountGeneration, setAccountGeneration] = useState(0);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextAccount = session?.user.id ?? null;
+      // INITIAL_SESSION establishes identity without remounting a loaded editor.
+      if (accountRef.current !== undefined && accountRef.current !== nextAccount) {
+        invalidateRef.current?.();
+        setAccountGeneration((generation) => generation + 1);
+      }
+      accountRef.current = nextAccount;
+    });
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  return <NoteEditorContent key={`${noteId}:${accountGeneration}`} noteId={noteId} invalidateRef={invalidateRef} />;
+}
+
+function NoteEditorContent({ noteId, invalidateRef }: {
+  noteId: string;
+  invalidateRef: { current: (() => void) | null };
+}) {
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
 
   // 页面属性：标签（note_tags，经 /api/notes/[id]/tags 增删，hook 内乐观更新）
@@ -132,7 +157,8 @@ export default function NoteEditorPage() {
   const [pageCommentCount, setPageCommentCount] = useState(0);
   const [loading, setLoading] = useState(true);
   /** 加载失败原因：not-found=在线确认不存在；offline=离线导致查询失败（服务器可能有数据） */
-  const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | null>(null);
+  const [loadFailure, setLoadFailure] = useState<"not-found" | "offline" | "error" | "auth" | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [fullWidth, setFullWidth] = useState(false);
   const [pageTemplate, setPageTemplate] = useState<NoteTemplate>("default");
   const [font, setFont] = useState<NoteFont>("default");
@@ -228,6 +254,7 @@ export default function NoteEditorPage() {
   // 编辑器实例（state 版）：供顶栏附件面板等按编辑器就绪重渲染的组件消费
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  const titleComposingRef = useRef(false);
   // 空笔记自动丢弃：加载时为空 + 离开时仍为空 + 新建不久 → 离开页面即删除，
   // 避免「点一下新建笔记」在列表里堆出一串无标题空笔记（判定见 lib/notes/empty-note）
   const loadedEmptyRef = useRef(false);
@@ -326,7 +353,11 @@ export default function NoteEditorPage() {
     async function loadNote() {
       // 切换笔记：保存协议状态（幂等键/重试/冲突/revision）由保存会话换代处理；
       // 旧会话已在 hook effect 中 destroy，在途保存与重试定时器全部失效
+      setLoading(true);
       setLoadFailure(null);
+      setLoadedRevision(null);
+      setRecoveryDraft(null);
+      migrationRef.current = null;
       noteRoleRef.current = null;
       setNoteRole(null);
       setSeedContent(null);
@@ -336,8 +367,10 @@ export default function NoteEditorPage() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      if (!active) return;
       const user = session?.user;
       if (!user) {
+        setLoadFailure("auth");
         setLoading(false);
         return;
       }
@@ -355,6 +388,7 @@ export default function NoteEditorPage() {
       if (!error && data) {
         const loadedRole: CollabRole =
           data.user_id === user.id ? "owner" : await resolveCollabRole(noteId);
+        if (!active) return;
         noteRoleRef.current = loadedRole;
         setNoteRole(loadedRole);
         const loadedTitle = data.title || "";
@@ -440,7 +474,9 @@ export default function NoteEditorPage() {
         // X1-2B：服务端查不到（尚未回放的离线创建，或离线打开）→ 用队列载荷初始化编辑器；
         // 联网后 flushSave 的「先落创建再走乐观锁保存」管线负责落库。
         const pending = findNoteCreate(localStorage, noteId);
-        if (pending) {
+        if (pending?.note.user_id === user.id) {
+          noteRoleRef.current = "owner";
+          setNoteRole("owner");
           const pendingNote = pending.note as { title?: unknown; content?: unknown };
           const initTitle = typeof pendingNote.title === "string" ? pendingNote.title : "";
           const initContent =
@@ -464,10 +500,16 @@ export default function NoteEditorPage() {
             small_font: false,
             page_template: "default",
           };
+          const localDraft = readLocalNoteDraft(localStorage, user.id, noteId);
+          if (localDraft && !areNoteDraftsEqual(localDraft.draft, draftRef.current)) {
+            setRecoveryDraft(localDraft);
+          }
         } else if (!isOnline()) {
           // 离线打开一篇服务器上已有的笔记：查询失败≠笔记不存在，
           // 明确告知离线不可读，联网后重新进入本页即可恢复
           setLoadFailure("offline");
+        } else if (error) {
+          setLoadFailure("error");
         } else {
           setLoadFailure("not-found");
           // 笔记不存在：别让标签页/最近列表留下一个凭空出现的「无标题笔记」
@@ -485,10 +527,18 @@ export default function NoteEditorPage() {
       setLoading(false);
       void loadNoteTree();
     }
-    void loadNote();
+    void loadNote().catch(() => {
+      if (!active) return;
+      setLoadFailure(isOnline() ? "error" : "offline");
+      setLoading(false);
+    });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 仅用于一次性 localStorage→DB 迁移的延迟落盘，加入会导致 mount 重复
-  }, [loadNoteTree, noteId, supabase]);
+  }, [loadNoteTree, noteId, supabase, loadAttempt]);
+
+  useEffect(() => {
+    if (online && loadFailure === "offline") setLoadAttempt((attempt) => attempt + 1);
+  }, [online, loadFailure]);
 
   useEffect(() => {
     const reload = () => void loadNoteTree();
@@ -560,8 +610,8 @@ export default function NoteEditorPage() {
 
   // ---- R07：保存统一走保存会话（dirty/revision/幂等键/重试/冲突内聚于会话） ----
   const queueSave = useCallback(() => {
-    saveSession?.queueSave();
-  }, [saveSession]);
+    if (!recoveryDraft) saveSession?.queueSave();
+  }, [saveSession, recoveryDraft]);
 
   const flushSave = useCallback((): Promise<boolean> => {
     if (!saveSession) return Promise.resolve(true);
@@ -572,7 +622,7 @@ export default function NoteEditorPage() {
     allNotesRef.current = allNotes;
   }, [allNotes]);
   const saveSessionRef = useRef(saveSession);
-  useEffect(() => {
+  useLayoutEffect(() => {
     saveSessionRef.current = saveSession;
   }, [saveSession]);
 
@@ -610,6 +660,22 @@ export default function NoteEditorPage() {
     };
   }, [noteId]);
 
+  useLayoutEffect(() => {
+    const invalidate = () => {
+      const session = saveSessionRef.current;
+      if (session?.hasPendingWork()) {
+        writeLocalNoteDraft(localStorage, session.accountId, session.noteId, session.getRevision(), session.exportSnapshot());
+      }
+      // Account changes never flush an old draft with the new credentials.
+      noteRoleRef.current = null;
+      session?.destroy();
+    };
+    invalidateRef.current = invalidate;
+    return () => {
+      if (invalidateRef.current === invalidate) invalidateRef.current = null;
+    };
+  }, [invalidateRef]);
+
   // 会话就绪后的注水：以加载到的 revision 为乐观锁基准，并消化一次性排版迁移。
   // loadedRevision 是 state：loadNote 成功拿到数据后必然触发本 effect（P0-1 修复）。
   // 每个会话只注水一次；noteId 不匹配（失败路径残留的旧值）不注水。
@@ -621,27 +687,27 @@ export default function NoteEditorPage() {
     hydratedForRef.current = { session: saveSession };
     saveSession.hydrate(draftRef.current, loadedRevision.revision);
     const patch = migrationRef.current;
-    if (patch) {
+    if (patch && !recoveryDraft) {
       migrationRef.current = null;
       saveSession.patchDraft(patch);
       saveSession.queueSave();
     }
     // 离线创建滞留队列：在线→立即补交创建；离线→如实点亮“待同步”（不制造 dirty）
-    if (findNoteCreate(localStorage, noteId)) {
+    if (findNoteCreate(localStorage, noteId) && !recoveryDraft) {
       if (isOnline()) saveSession.queueSave();
       else saveSession.markOfflinePending();
     }
-  }, [saveSession, loadedRevision, draftRef, noteId]);
+  }, [saveSession, loadedRevision, draftRef, noteId, recoveryDraft]);
 
   // X1：联网后立即同步未保存改动（含滞留的离线创建）；断网瞬间如实点亮待同步
   useEffect(() => {
-    if (!saveSession) return;
+    if (!saveSession || recoveryDraft) return;
     if (online) {
       if (saveSession.isDirty() || findNoteCreate(localStorage, noteId)) void saveSession.flush();
     } else if (saveSession.isDirty()) {
       saveSession.markOfflinePending();
     }
-  }, [online, noteId, saveSession]);
+  }, [online, noteId, saveSession, recoveryDraft]);
 
   // R05：同步块待同步状态聚合——存在未同步块时页面不得宣称全部已同步
   useEffect(() => {
@@ -691,16 +757,23 @@ export default function NoteEditorPage() {
   }, []);
 
   const restoreLocalDraft = useCallback(() => {
-    if (!recoveryDraft) return;
+    if (!recoveryDraft || !capabilities.canEdit || !collabResolved || !saveSession) return;
     saveSession?.restoreDraft(recoveryDraft.draft, { baseRevision: recoveryDraft.baseRevision });
     applyDraftToPage(recoveryDraft.draft);
     setRecoveryDraft(null);
-    queueSave();
-  }, [applyDraftToPage, queueSave, recoveryDraft, saveSession]);
+    migrationRef.current = null;
+    saveSession.queueSave();
+  }, [applyDraftToPage, recoveryDraft, saveSession, capabilities.canEdit, collabResolved]);
 
   const discardLocalDraft = useCallback(() => {
     saveSession?.discardLocalDraft();
     setRecoveryDraft(null);
+    if (migrationRef.current) {
+      saveSession?.patchDraft(migrationRef.current);
+      migrationRef.current = null;
+    }
+    if (editorRef.current && !editorRef.current.isDestroyed) saveSession?.setContent(editorRef.current.getJSON(), "hydrate");
+    saveSession?.queueSave();
   }, [saveSession]);
 
   const reloadRemoteVersion = useCallback(() => {
@@ -776,6 +849,7 @@ export default function NoteEditorPage() {
 
   // 标题始终是不含换行的单字符串（T3）：把粘贴进来的换行折叠成空格。
   const handleTitleChange = (raw: string) => {
+    if (!capabilities.canEdit || !collabResolved) return;
     const newTitle = raw.replace(/\s*\n\s*/g, " ");
     setTitle(newTitle);
     draftRef.current.title = newTitle;
@@ -872,9 +946,10 @@ export default function NoteEditorPage() {
 
   // T1/T2：在标题里按回车，把拆分点之后的文字迁移到正文顶部的新段落。
   const handleTitleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter") return;
+    if (event.key !== "Enter" || !capabilities.canEdit || !collabResolved) return;
     // 输入法组合态下回车只是确认候选词，不触发拆分。
-    if (event.nativeEvent.isComposing) return;
+    if (titleComposingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (!editorRef.current || editorRef.current.isDestroyed || !editorRef.current.isEditable) return;
     event.preventDefault();
 
     const el = event.currentTarget;
@@ -1202,6 +1277,7 @@ export default function NoteEditorPage() {
 
   const handleContentUpdate = (newContent: Record<string, unknown>, source: TransactionSource) => {
     setContent(newContent);
+    if (recoveryDraft || !capabilities.canEdit) return;
     // 来源与标脏/排空判定内聚在保存会话：remote-sync 不标脏不排队（CRDT 收敛语义）
     saveSession?.setContent(newContent, source);
     if (source !== "remote-sync") {
@@ -1313,25 +1389,32 @@ export default function NoteEditorPage() {
     );
   }
 
-  if (!content) {
+  if (!content || loadFailure) {
     // 离线打开一篇服务器上完好的笔记时，查询必然失败——不能误报"笔记不存在"
     const offlineUnavailable = loadFailure === "offline";
     return (
       <EmptyState
         icon={FileText}
-        title={offlineUnavailable ? "离线暂不可读" : "笔记不存在"}
+        title={offlineUnavailable ? "离线暂不可读" : loadFailure === "error" ? "笔记加载失败" : loadFailure === "auth" ? "请重新登录" : "笔记不存在"}
         description={
           offlineUnavailable
             ? "当前无网络连接，联网后将自动恢复阅读与编辑"
-            : "笔记可能已被删除或链接无效"
+            : loadFailure === "error" ? "暂时无法加载笔记，请重试"
+              : loadFailure === "auth" ? "登录状态已失效，请登录后继续"
+                : "笔记可能已被删除或链接无效"
         }
         action={
-          <Link href="/notes">
+          <div className="flex items-center gap-2">
+            {loadFailure !== "not-found" && loadFailure !== "auth" && (
+              <Button variant="outline" size="sm" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>重试</Button>
+            )}
+          <Link href={loadFailure === "auth" ? "/login" : "/notes"}>
             <Button variant="outline" size="sm">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              返回笔记列表
+              {loadFailure === "auth" ? "前往登录" : "返回笔记列表"}
             </Button>
           </Link>
+          </div>
         }
       />
     );
@@ -1427,6 +1510,7 @@ export default function NoteEditorPage() {
               offlinePending={offlinePending}
               pendingSyncedBlocks={pendingSyncedBlocks}
               saveError={saveError}
+              saveState={sessionUi ?? undefined}
               saving={saving}
               lastSaved={lastSaved}
               isViewer={capabilities.isViewer}
@@ -1533,7 +1617,9 @@ export default function NoteEditorPage() {
           <textarea
             ref={titleRef}
             value={title}
-            readOnly={capabilities.isViewer}
+            readOnly={!capabilities.canEdit || !collabResolved}
+            onCompositionStart={() => { titleComposingRef.current = true; }}
+            onCompositionEnd={() => { titleComposingRef.current = false; }}
             onChange={(e) => handleTitleChange(e.target.value)}
             onKeyDown={handleTitleKeyDown}
             onInput={autoGrowTitle}
@@ -1651,7 +1737,7 @@ export default function NoteEditorPage() {
 
       {/* 协作未定形时不弹（A05 D6）：此刻恢复会把草稿插进未同步的空 ydoc，随后房间内容合并导致整篇翻倍 */}
       <NoteRecoveryDialog
-        recoveryDraft={collabResolved ? recoveryDraft : null}
+        recoveryDraft={collabResolved && capabilities.canEdit ? recoveryDraft : null}
         onRestore={restoreLocalDraft}
         onDiscard={discardLocalDraft}
         collabActive={collabConfigured && !!collab.provider}

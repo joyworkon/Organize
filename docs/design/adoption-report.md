@@ -49,3 +49,7 @@
 | 笔记正文 | [桌面](screenshots/adopted/note-desktop-light.png)、[手机](screenshots/adopted/note-mobile-light.png) | [桌面](screenshots/adopted/note-desktop-dark.png) |
 | 正式画布 | [桌面](screenshots/adopted/canvas-desktop-light.png) | [桌面](screenshots/adopted/canvas-desktop-dark.png)、[手机只读](screenshots/adopted/canvas-mobile-dark.png) |
 | 手机导航 | — | [截图](screenshots/adopted/navigation-mobile-dark.png) |
+
+## 笔记编辑可靠性后续审计
+
+2026-10-16 从 master `f6119f6` 开始的保存状态、账号与离线恢复首轮检查，范围、验证及仍开放的问题见 [审计记录](note-edit-audit-2026-10-16.md)。此记录不将尚未验收的平台或历史恢复流程列为完成。
