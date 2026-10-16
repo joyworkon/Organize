@@ -243,14 +243,16 @@ test.describe.serial("同步块双浏览器可靠性（真实后端）", () => {
     await page.waitForTimeout(2500); // 等 note 草稿 + 块 pending 落 localStorage
     await page.close();
 
-    // 仍离线重开：产品合同（X1-2B）是「离线暂不可读/不存在」失败卡片而非草稿
-    // 恢复——SW 缓存的页面壳 + 数据不可达。emulated offline 下 SW 控制的页面
-    // navigator.onLine 不保证为 false，两种失败文案都要接受（无编辑器是关键）
+    // 仍离线重开：SW 仅缓存页面壳，正文数据不可达时展示可重试的加载失败态。
+    // emulated offline 下 SW 控制的页面 navigator.onLine 不保证为 false，
+    // 因此可显示「离线暂不可读」或「笔记加载失败」，不能误报笔记不存在。
     const page2 = await context.newPage();
     await page2.goto(`/notes/${seed.note2Id}`);
     await expect(
-      page2.getByRole("heading", { name: "离线暂不可读" }).or(page2.getByRole("heading", { name: "笔记不存在" }))
+      page2.getByRole("heading", { name: "离线暂不可读" }).or(page2.getByRole("heading", { name: "笔记加载失败" }))
     ).toBeVisible({ timeout: 15_000 });
+    await expect(page2.locator(".tiptap.organize-editor")).toHaveCount(0);
+    await expect(page2.getByRole("button", { name: "重试", exact: true })).toBeVisible();
 
     // 回网重开：远端内容渲染；本地草稿与远端不同 → 恢复对话框弹出（模态）。
     // 选「使用服务器版本」关闭它：本卡验证的是块 pending 的独立收敛（块同步
