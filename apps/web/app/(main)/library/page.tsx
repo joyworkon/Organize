@@ -14,6 +14,7 @@ import { ReadingView } from "@/components/library/reading-view";
 import { MemosView } from "@/components/library/memos-view";
 import { FilesView } from "@/components/library/files-view";
 import { CollectionsView } from "@/components/collections/collections-view";
+import { LibraryAccountBoundary } from "@/components/library/library-account-boundary";
 import { FileImport } from "@/components/library/file-import";
 import { MaterialImport } from "@/components/reading/material-import";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
@@ -43,12 +44,12 @@ export default function LibraryPage() {
   // useSearchParams 需要 Suspense 边界（与 tasks 页同一模式）
   return (
     <Suspense fallback={<div className="grid h-screen place-items-center text-muted-foreground">加载中…</div>}>
-      <LibraryPageInner />
+      <LibraryAccountBoundary>{(userId) => <LibraryPageInner userId={userId} />}</LibraryAccountBoundary>
     </Suspense>
   );
 }
 
-function LibraryPageInner() {
+function LibraryPageInner({ userId }: { userId: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -157,7 +158,7 @@ function LibraryPageInner() {
         }
       />
 
-      <UnifiedCapture ref={unifiedRef} onCaptured={bumpRefresh} />
+      <UnifiedCapture ref={unifiedRef} userId={userId} onCaptured={bumpRefresh} />
 
       {/* 文件导入面板（阶段 D）：三视图共用；统一输入框拖入的文件也交给它
           （organize:import-files 事件） */}

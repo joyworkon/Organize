@@ -11,7 +11,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, PenLine } from "@/components/icons";
-import { toast } from "@/hooks/use-toast";
+import { toast, dismiss as dismissToast } from "@/hooks/use-toast";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { classifyCapture, CAPTURE_MEMO_MAX_LENGTH } from "@/lib/library/classify-capture";
 import { collectReadingItem, collectResultToast } from "@/lib/reading/collect";
@@ -28,6 +28,8 @@ export interface UnifiedCaptureHandle {
 export interface UnifiedCaptureProps {
   /** 任意内容入库成功后回调（页面刷新各视图） */
   onCaptured?: () => void;
+  /** 由 LibraryAccountBoundary 注入的当前账号；换号时整个组件按 key 重建 */
+  userId?: string | null;
 }
 
 /** 拖入文件交给现有物料导入流程（MaterialImport 监听本事件并接管） */
@@ -43,9 +45,27 @@ function shortUrl(url: string): string {
 }
 
 export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCaptureProps>(
-  function UnifiedCapture({ onCaptured }, ref) {
+  function UnifiedCapture({ onCaptured, userId: boundUserId }, ref) {
     const supabase = useMemo(() => createClient(), []);
-    const [userId, setUserId] = useState<string | null>(null);
+    const [userId, setUserId] = useState<string | null>(boundUserId ?? null);
+    /** 卸载（换号 remount）后为 false：停止剩余批量收集，旧 toast 动作失效 */
+    const aliveRef = useRef(true);
+    const toastIdsRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+      aliveRef.current = true;
+      const ids = toastIdsRef.current;
+      return () => {
+        aliveRef.current = false;
+        // 清掉本实例弹出的 toast（含「另存其中链接」按钮），旧账号的动作不再可点
+        ids.forEach((id) => dismissToast(id));
+        ids.clear();
+      };
+    }, []);
+    const notify = useCallback((props: Parameters<typeof toast>[0]) => {
+      if (!aliveRef.current) return;
+      const handle = toast(props);
+      if (handle?.id) toastIdsRef.current.add(handle.id);
+    }, []);
     const [input, setInput] = useState("");
     const [saving, setSaving] = useState(false);
     const [coarsePointer, setCoarsePointer] = useState(false);
@@ -58,11 +78,13 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
     inputRef.current = input;
 
     useEffect(() => {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setUserId(session?.user?.id ?? null);
-      });
+      if (boundUserId === undefined) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (aliveRef.current) setUserId(session?.user?.id ?? null);
+        });
+      }
       setCoarsePointer(window.matchMedia("(pointer: coarse)").matches);
-    }, [supabase]);
+    }, [supabase, boundUserId]);
 
     const focusComposer = useCallback(() => {
       const el = composerRef.current;
@@ -109,8 +131,10 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
     const collectUrls = useCallback(async (urls: string[]): Promise<boolean> => {
       let allOk = true;
       for (const url of urls) {
+        if (!aliveRef.current) return false; // 已换号/卸载：剩余链接不再以旧身份保存
         const result = await collectReadingItem(url, userId ? { expectedUserId: userId } : {});
-        toast({ ...collectResultToast(result), description: shortUrl(url) });
+        if (!aliveRef.current) return false;
+        notify({ ...collectResultToast(result), description: shortUrl(url) });
         if (result.status === "saved" || result.status === "saved-link-only") {
           onCapturedRef.current?.();
         } else if (result.status !== "duplicate") {
@@ -118,7 +142,7 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
         }
       }
       return allOk;
-    }, [userId]);
+    }, [userId, notify]);
 
     const handleSubmit = async () => {
       const rawInput = inputRef.current;
@@ -139,26 +163,26 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
           case "memo-with-urls": {
             const result = await submitMemo({ content: cls.text, userId });
             if (result.status === "error") {
-              toast({ title: "保存失败", description: result.message, variant: "destructive" });
+              notify({ title: "保存失败", description: result.message, variant: "destructive" });
               break;
             }
             if (result.status === "queued" && !result.persisted) {
               // 未能落本地队列：保留输入，不报成功
-              toast({ title: "本地存储不可用，内容未保存，请稍后重试", variant: "destructive" });
+              notify({ title: "本地存储不可用，内容未保存，请稍后重试", variant: "destructive" });
               break;
             }
             clearInputIfSame(rawInput);
             if (result.status === "queued") {
-              toast({ title: "当前离线，已本地保存，联网后自动同步" });
+              notify({ title: "当前离线，已本地保存，联网后自动同步" });
             } else {
-              toast({
+              notify({
                 title: "已保存为速记",
                 description: cls.kind === "memo-with-urls" ? "文字已完整保留，其中的链接未自动保存" : undefined,
                 action: cls.kind === "memo-with-urls" ? (
                   <button
                     type="button"
                     className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
-                    onClick={() => void collectUrls(cls.urls)}
+                    onClick={() => { if (aliveRef.current) void collectUrls(cls.urls); }}
                   >
                     另存其中链接
                   </button>
@@ -180,7 +204,7 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
                 result,
                 sources: ["统一输入框粘贴的长文本"],
               }, userId ? { expectedUserId: userId } : {});
-              toast(collectResultToast(saved));
+              notify(collectResultToast(saved));
               if (saved.status === "saved" || saved.status === "saved-link-only") {
                 clearInputIfSame(rawInput);
                 onCapturedRef.current?.();
@@ -188,7 +212,7 @@ export const UnifiedCapture = forwardRef<UnifiedCaptureHandle, UnifiedCapturePro
                 clearInputIfSame(rawInput);
               }
             } catch (error) {
-              toast({
+              notify({
                 title: error instanceof Error ? error.message : "保存失败",
                 variant: "destructive",
               });

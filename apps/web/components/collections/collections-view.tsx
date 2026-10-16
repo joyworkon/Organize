@@ -5,7 +5,7 @@
 //   详情（?collection=<id>）：引用行列表——实时 join 来源标题，软删/不可达来源显示
 //   「来源不可用」角标（绝不隐藏行）；移出；搜索；游标分页「加载更多」。
 // 深链：/library?view=collections&collection=<id>（旧 view 参数全部不受影响）。
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -47,18 +47,20 @@ function CollectionList({ onOpen, search }: { onOpen: (id: string) => void; sear
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<CollectionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/collections", { cache: "no-store" });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        toast({ title: data?.error || "集合加载失败", variant: "destructive" });
+        setLoadError(data?.error || "集合加载失败");
         return;
       }
+      setLoadError(null);
       setCollections(data.collections ?? []);
     } catch {
-      toast({ title: "集合加载失败：网络异常", variant: "destructive" });
+      setLoadError("集合加载失败：网络异常");
     } finally {
       setLoading(false);
     }
@@ -149,6 +151,13 @@ function CollectionList({ onOpen, search }: { onOpen: (id: string) => void; sear
             <div key={i} className="h-[56px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError && collections.length === 0 ? (
+        <EmptyState
+          icon={FilePlus}
+          title="集合加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => { setLoading(true); void load(); }}>重试</Button>}
+        />
       ) : collections.length === 0 ? (
         <EmptyState
           icon={FilePlus}
@@ -243,6 +252,9 @@ function CollectionItems({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [qDebounced, setQDebounced] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 请求序号：集合/搜索切换后旧响应不得覆盖新结果 */
+  const reqIdRef = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setQDebounced(search.trim()), 300);
@@ -250,6 +262,7 @@ function CollectionItems({
   }, [search]);
 
   const fetchPage = useCallback(async (cursor: string | null, append: boolean, q: string) => {
+    const myReqId = ++reqIdRef.current;
     if (!append) setLoading(true);
     else setLoadingMore(true);
     try {
@@ -260,17 +273,25 @@ function CollectionItems({
       const data = (await res.json().catch(() => null)) as
         | { items?: CollectionItemView[]; nextCursor?: string | null; error?: string }
         | null;
+      if (myReqId !== reqIdRef.current) return;
       if (!res.ok) {
-        toast({ title: data?.error || "集合内容加载失败", variant: "destructive" });
+        const message = data?.error || "集合内容加载失败";
+        if (append) toast({ title: message, variant: "destructive" });
+        else setLoadError(message);
         return;
       }
+      if (!append) setLoadError(null);
       setItems((prev) => (append ? [...prev, ...(data?.items ?? [])] : data?.items ?? []));
       setNextCursor(data?.nextCursor ?? null);
     } catch {
-      toast({ title: "集合内容加载失败：网络异常", variant: "destructive" });
+      if (myReqId !== reqIdRef.current) return;
+      if (append) toast({ title: "集合内容加载失败：网络异常", variant: "destructive" });
+      else setLoadError("集合内容加载失败：网络异常");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (myReqId === reqIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [collectionId]);
 
@@ -345,6 +366,13 @@ function CollectionItems({
             <div key={i} className="h-[56px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError ? (
+        <EmptyState
+          icon={FilePlus}
+          title="集合内容加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => void fetchPage(null, false, qDebounced)}>重试</Button>}
+        />
       ) : items.length === 0 ? (
         <EmptyState
           icon={FilePlus}
