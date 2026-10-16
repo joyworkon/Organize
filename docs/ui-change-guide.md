@@ -10,8 +10,8 @@
 
 | 层 | 内容 | 唯一入口文件 |
 |---|---|---|
-| L0 token | 语义色/圆角/阴影 CSS 变量、`.dark` 覆盖、编辑器节奏变量、**内容泳道宽度**（2026-09-16 起：石墨中性冷灰外壳，`--radius-md` 收到 6px；同日新增 `--organize-lane*` / `--organize-field`） | `app/globals.css`（:14-90 语义色与暗色；:39-54 圆角阴影；:985-1002 编辑器 prose 色映射；`--organize-*` 节奏与侧栏宽、内容泳道段、设置分组卡、`.organize-filter-idle`、`.organize-task-header` 兜底滚动） |
-| L0+ 品牌色 | **单一品牌色**（石板蓝 亮 `215 32% 44.5%` / 暗 `215 29% 58%`）inline 覆盖 primary/primary-foreground/primary-text/ring（D02 后 accent 不随品牌；2026-09-16 起取消 5 色切换与持久化，同日由陶土橙改为石板蓝） | `hooks/use-theme-color.ts`（`BRAND_COLOR`，`applyThemeColor()` 无参，`useThemeColor()` 监听 html class 重放明暗） |
+| L0 token | 中性明暗语义色/圆角/阴影 CSS 变量、编辑器节奏与内容泳道；控件圆角8px、composer/dialog16px，数值源为 `docs/design/tokens.json` | `app/globals.css`（语义色与 `.dark`、圆角阴影、prose 色映射、`--organize-*` 节奏与侧栏宽、内容泳道、筛选与任务工具行） |
+| L0+ 品牌色 | 单一中性主色，亮 `0 0% 12.55%` / 暗 `0 0% 93.33%`；inline 覆盖 primary/primary-foreground/primary-text/ring，hover/选中为中性灰；用户标签与内容色板独立保留 | `hooks/use-theme-color.ts`（`BRAND_COLOR`、`applyThemeColor()`、`useThemeColor()`）；根 `components/layout/theme-bridge.tsx` 初始化独立路由 |
 | L1 原语 | button/dialog/dropdown/select/popover/toast/command 等 18 件 | `components/ui/*`（**全站唯一**，无第二套 Button/Dialog——自查结论见 §5） |
 | L2 业务组件 | 侧边栏/移动壳/命令面板/编辑器/反链面板等 | `components/layout/*`、`components/notes/*`、`components/editor/*`、`components/share/*` |
 | L3 壳 | (main) 路由组装：侧边栏+移动壳+命令面板+全局热键 | `app/(main)/layout.tsx`（:25-45 固定顺序：MobileNavigation → Sidebar → GlobalHotkeys → CommandPalette → Toaster → main(NoteTabsBar) → 桥接器群） |
