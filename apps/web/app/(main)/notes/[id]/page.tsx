@@ -57,6 +57,12 @@ import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
 import { isEmptyDoc, shouldDiscardEmptyNote } from "@/lib/notes/empty-note";
+import {
+  LEGACY_TASK_ACTIVATION_LIMIT,
+  collectLegacyTaskItems,
+  planBlockIdAssignment,
+  planLegacyBackfill,
+} from "@/lib/notes/legacy-task-activation";
 import { copyNoteContent } from "@/lib/export/clipboard";
 import { extractTaskMutations } from "@/lib/task-link";
 import {
@@ -1319,32 +1325,24 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   const runLegacyActivation = async (): Promise<void> => {
     const editor = editorRef.current;
     if (!editor) return;
-    // 收集所有 legacy taskItem 的 {pos, blockId, title, checked}。
-    // 注意：运行时新插入的 taskItem 可能 attrs 里没有 id（block id），
-    // UniqueID 扩展只在 mount 时给历史 JSON 补 id，不会给新插入节点补。
-    // 所以这里若无 id，先生成一个，随 taskId 一起回填。
-    const genBlockId = () =>
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const legacy: { pos: number; blockId: string; title: string; checked: boolean }[] = [];
-    editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === "taskItem" && !node.attrs.taskId) {
-        let title = "";
-        node.forEach((child) => {
-          if (child.type.name === "paragraph") {
-            title = child.textContent || "";
-            return false;
-          }
-          return true;
-        });
-        legacy.push({ pos, blockId: String(node.attrs.id || genBlockId()), title: title || "未命名任务", checked: node.attrs.checked === true });
-      }
-      return true;
-    });
+    // 收集所有 legacy taskItem 的 {blockId, title, checked, hasStoredId}（纯函数，见 lib/notes）。
+    // 注意：缺 attrs.id 的节点会在收集时分配新 blockId，但只存在于内存——
+    // 必须在发网络请求前先把 id 写进文档，否则建完任务无法按 id 找回节点。
+    const legacy = collectLegacyTaskItems(editor.state.doc);
     if (legacy.length === 0) return;
-    // 超 20 项先不自动激活（任务书：超过 20 项先预览确认；此处先跳过，后续 G3 加预览 UI）
-    if (legacy.length > 20) return;
+    // 超 LEGACY_TASK_ACTIVATION_LIMIT 项先不自动激活（任务书：超过 20 项先预览确认；此处先跳过，后续 G3 加预览 UI）
+    if (legacy.length > LEGACY_TASK_ACTIVATION_LIMIT) return;
+
+    // 同步补缺失的 block id（hydrate + 不进 Undo，与回填同一套系统事务语义）。
+    // 必须先于任何 await：id 落进文档后，网络窗口内的编辑也不会使块失去定位依据。
+    const idAssignments = planBlockIdAssignment(editor.state.doc, legacy);
+    if (idAssignments.length > 0) {
+      const idTr = editor.state.tr;
+      idAssignments.forEach(({ pos, attrs }) => idTr.setNodeMarkup(pos, undefined, attrs));
+      idTr.setMeta("transactionSource", "hydrate");
+      idTr.setMeta("addToHistory", false);
+      editor.view.dispatch(idTr);
+    }
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -1359,19 +1357,29 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     const { data: created, error } = await supabase.from("tasks").insert(inserts).select("id").returns<{ id: string }[]>();
     if (error || !created || created.length !== legacy.length) return;
 
-    // 回填 taskId（及缺失的 block id）到编辑器节点（setNodeMarkup，触发新一次 onUpdate——
-    // 此时已有 taskId，flushSave 的 RPC 会建 task_item_refs）。标 source='hydrate' 避免回填本身再触发激活循环。
+    // 两个 await 的网络窗口内用户可能继续编辑（pos 漂移/删块）甚至切走：
+    // 组件按 noteId 重挂（NoteEditorContent key）、编辑器重建都会换 editorRef 指向，
+    // 因此「仍是同一编辑器实例且未销毁」即等价于「编辑器还在、仍是同一篇笔记」；
+    // 不满足则直接放弃回填（已建任务由 orphaned 回收兜底）。
+    if (editorRef.current !== editor || editor.isDestroyed) return;
+
+    // 按当前文档 + block id 重新定位回填（绝不复用扫描时的 pos）：只贴「仍是 taskItem、
+    // id 匹配、仍无 taskId」的块；被删除/已被绑定的块由 planLegacyBackfill 计入 skipped，
+    // 避免 taskId 贴错块。回填标 source='hydrate' 避免再次触发激活循环（触发新一次
+    // onUpdate，flushSave 的 RPC 会为带 taskId 的块建 task_item_refs）。
+    const { updates } = planLegacyBackfill(
+      editor.state.doc,
+      legacy,
+      created.map((c) => c.id)
+    );
+    if (updates.length === 0) return;
     const tr = editor.state.tr;
-    legacy.forEach((l, i) => {
-      const node = editor.state.doc.nodeAt(l.pos);
-      if (node && node.type.name === "taskItem") {
-        // 同时补 block id（若无），taskId 来自新建的任务
-        tr.setNodeMarkup(l.pos, undefined, { ...node.attrs, id: l.blockId, taskId: created[i].id });
-      }
-    });
+    updates.forEach(({ pos, attrs }) => tr.setNodeMarkup(pos, undefined, attrs));
     tr.setMeta("transactionSource", "hydrate");
     tr.setMeta("addToHistory", false); // 激活回填不进 Undo（系统操作）
     editor.view.dispatch(tr);
+    // skipped 对应的任务已建但没绑上块：不新增删除逻辑——reference_managed 任务没有
+    // task_item_refs 时会被保存 RPC 软删为 deleted_reason='orphaned'（g0-protocol §5）。
   };
 
   // 页面信息统计：字数（去空白字符数）与块数（顶层块总数），供三点菜单底部展示。
