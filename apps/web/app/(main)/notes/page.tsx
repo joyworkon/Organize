@@ -86,6 +86,7 @@ import {
   type SortField,
   type SortOrder,
 } from "./page-utils";
+import { favoriteIdsAfterLoad, favoriteIdsAfterToggle } from "@/lib/notes/favorites-state";
 
 export default function NotesPage() {
   const router = useRouter();
@@ -159,13 +160,18 @@ export default function NotesPage() {
     }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("favorites")
       .select("target_id")
       .eq("user_id", user.id)
       .eq("target_type", "note")
       .in("target_id", ids);
-    setFavoritedIds(new Set((data || []).map((row) => row.target_id)));
+    // 查询失败不得当空集清空星星（谎报「全部未收藏」）：保留旧值并如实提示；
+    // 离线时失败是预期行为，由顶栏离线角标表达，不另弹 toast
+    setFavoritedIds((current) => favoriteIdsAfterLoad(current, { data, error }));
+    if (error && isOnline()) {
+      toast({ title: "收藏状态加载失败", description: error.message, variant: "destructive" });
+    }
   }, [supabase]);
 
   const fetchNotes = useCallback(async () => {
@@ -697,24 +703,21 @@ export default function NotesPage() {
       toast({ title: "请先登录", variant: "destructive" });
       return;
     }
-    if (favoritedIds.has(id)) {
-      const { error } = await supabase
-        .from("favorites")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("target_type", "note")
-        .eq("target_id", id);
-      if (error) throw new Error(error.message);
-      setFavoritedIds((current) => { const next = new Set(current); next.delete(id); return next; });
-      toast({ title: "已取消收藏" });
-    } else {
-      const { error } = await supabase
-        .from("favorites")
-        .insert({ user_id: user.id, target_type: "note", target_id: id });
-      if (error) throw new Error(error.message);
-      setFavoritedIds((current) => new Set(current).add(id));
-      toast({ title: "已收藏" });
-    }
+    const wasFavorited = favoritedIds.has(id);
+    const { error } = wasFavorited
+      ? await supabase
+          .from("favorites")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("target_type", "note")
+          .eq("target_id", id)
+      : await supabase
+          .from("favorites")
+          .insert({ user_id: user.id, target_type: "note", target_id: id });
+    // 写失败抛给调用方提示，本地状态保持原样（星星不得停在与服务器相反的一侧）
+    if (error) throw new Error(error.message);
+    setFavoritedIds((current) => favoriteIdsAfterToggle(current, id, false) ?? current);
+    toast({ title: wasFavorited ? "已取消收藏" : "已收藏" });
   }, [supabase, favoritedIds]);
 
   const noteCardProps = (note: NoteWithTags) => ({
