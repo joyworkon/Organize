@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextReadingProgress } from "./progress";
+import { nextReadingProgress, readyHighlightDeepLink } from "./progress";
 
 describe("nextReadingProgress", () => {
   it("only moves forward", () => {
@@ -15,5 +15,15 @@ describe("nextReadingProgress", () => {
   it("stores the same rounded value it compares with", () => {
     expect(nextReadingProgress(33.333, 0, "reading")?.progress).toBe(0.33);
     expect(nextReadingProgress(33.4, 0.33, "reading")).toBeNull();
+  });
+});
+
+describe("readyHighlightDeepLink", () => {
+  it("waits until the body is mounted and highlights are loaded", () => {
+    expect(readyHighlightDeepLink("h1", { loading: true, hasContainer: false, highlightCount: 1 })).toBeNull();
+    expect(readyHighlightDeepLink("h1", { loading: false, hasContainer: false, highlightCount: 1 })).toBeNull();
+    expect(readyHighlightDeepLink("h1", { loading: false, hasContainer: true, highlightCount: 0 })).toBeNull();
+    expect(readyHighlightDeepLink("h1", { loading: false, hasContainer: true, highlightCount: 1 })).toBe("h1");
+    expect(readyHighlightDeepLink(null, { loading: false, hasContainer: true, highlightCount: 1 })).toBeNull();
   });
 });

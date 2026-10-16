@@ -16,3 +16,16 @@ export function nextReadingProgress(
   else if (progressPercent > 5 && status === "unread") status = "reading";
   return { progress, status };
 }
+
+/**
+ * ?hl= 深链只在正文容器已挂载（不在 loading）且高亮已加载时才消费；
+ * 过早消费会导致正文挂载后永远不再定位。返回要定位的高亮 id，或 null（暂不消费）。
+ */
+export function readyHighlightDeepLink(
+  pendingId: string | null,
+  state: { loading: boolean; hasContainer: boolean; highlightCount: number },
+): string | null {
+  if (!pendingId) return null;
+  if (state.loading || !state.hasContainer || state.highlightCount === 0) return null;
+  return pendingId;
+}

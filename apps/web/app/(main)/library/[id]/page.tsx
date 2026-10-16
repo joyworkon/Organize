@@ -44,7 +44,7 @@ import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
-import { nextReadingProgress } from "@/lib/reading/progress";
+import { nextReadingProgress, readyHighlightDeepLink } from "@/lib/reading/progress";
 
 interface RecommendedItem {
   id: string;
@@ -301,21 +301,26 @@ export default function ReadingDetailPage() {
   // E02-2：任务侧「关联阅读」深链 ?hl={highlightId}——内容渲染后按高亮正文定位并
   // 滚动闪烁；高亮已删或正文匹配不到时静默降级为条目顶部（不滚动）。一次性消费。
   useEffect(() => {
-    if (!item || highlights.length === 0) return;
+    if (!item) return;
     if (deepLinkHighlightIdRef.current === null) {
       deepLinkHighlightIdRef.current = new URLSearchParams(window.location.search).get("hl");
     }
-    const highlightId = deepLinkHighlightIdRef.current;
-    if (!highlightId) return;
-    deepLinkHighlightIdRef.current = null;
-    const highlight = highlights.find((h) => h.id === highlightId);
     const container = contentRef.current;
-    if (!highlight || !container) return;
+    // 正文未挂载（仍在 loading）或高亮未到时不消费，等下一次依赖变化再试
+    const highlightId = readyHighlightDeepLink(deepLinkHighlightIdRef.current, {
+      loading,
+      hasContainer: Boolean(container),
+      highlightCount: highlights.length,
+    });
+    if (!highlightId || !container) return;
+    deepLinkHighlightIdRef.current = "";
+    const highlight = highlights.find((h) => h.id === highlightId);
+    if (!highlight) return;
     const target = findAndWrapHighlightText(container, highlight.content, highlight.color);
     if (target) {
       focusHighlight(target.el);
     }
-  }, [item, highlights]);
+  }, [item, highlights, loading]);
 
   useEffect(() => {
     async function loadOtherItems() {
