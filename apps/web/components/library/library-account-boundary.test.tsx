@@ -45,7 +45,7 @@ afterEach(() => { act(() => root.unmount()); container.remove(); });
 describe("LibraryAccountBoundary", () => {
   it("remounts on account change but keeps state for same-account events", async () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: "a" } } }, error: null });
-    await act(async () => root.render(createElement(LibraryAccountBoundary, { children: (id: string) => createElement(Child, { userId: id }) })));
+    await act(async () => root.render(<LibraryAccountBoundary>{(id: string) => <Child userId={id} />}</LibraryAccountBoundary>));
     expect(container.textContent).toBe("a:draft-1");
     await act(async () => emit("a"));
     expect(container.textContent).toBe("a:draft-1");
@@ -57,7 +57,7 @@ describe("LibraryAccountBoundary", () => {
   it("does not let a slow initial getSession overwrite a newer auth event", async () => {
     let resolve!: (v: unknown) => void;
     mocks.getSession.mockReturnValue(new Promise((r) => { resolve = r; }));
-    await act(async () => root.render(createElement(LibraryAccountBoundary, { children: (id: string) => createElement(Child, { userId: id }) })));
+    await act(async () => root.render(<LibraryAccountBoundary>{(id: string) => <Child userId={id} />}</LibraryAccountBoundary>));
     await act(async () => emit("b"));
     await act(async () => resolve({ data: { session: { user: { id: "a" } } }, error: null }));
     expect(container.textContent).toBe("b:draft-1");
