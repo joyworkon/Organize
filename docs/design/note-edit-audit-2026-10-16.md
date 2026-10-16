@@ -22,6 +22,7 @@
 - `corepack pnpm --filter @organize/web exec playwright test e2e/note-edit-state.spec.ts e2e/note-first-keystroke.spec.ts e2e/note-templates.spec.ts e2e/ui-adoption.spec.ts --grep 'note|offline|pending|IME'`：最终 9/9 通过。覆盖离线创建刷新/恢复/联网/SPA回读及稳定块 ID、外账号队列不展示不删除、320/390/1440 浅暗状态与无整页横滚、IME确认不拆分标题且保存后同一 editor DOM、首字与标题换行、显式模板保留。
 - 首次浏览器整组模板测试在程序选区后加粗失败，单独重跑通过，最终整组也通过；未为偶发时序改动产品或弱化断言。
 - 浅暗截图：[320浅色](screenshots/notes-edit/note-320-light.png)、[390深色](screenshots/notes-edit/note-390-dark.png)、[1440浅色](screenshots/notes-edit/note-1440-light.png)。主线程已目视320浅色及390深色。
+- 首轮真实协作 CI 的同步块离线重开用例仍接受“笔记不存在”；下载的失败快照确认实际为“笔记加载失败”且有重试。本轮更新该预期并增加无编辑器/重试可见断言，后续 pending 收敛断言不变；最终真实协作仍以最新 CI 为准。
 - PR 的完整 CI（含真实后端协作与数据库）仍作为合并门禁。
 - 浏览器使用隔离 mock 生产构建，未读取/复制 `.env*`，未修改用户开发 `.next`，未占用或终止 3000/3200 服务。
 
