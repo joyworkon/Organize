@@ -255,8 +255,8 @@ export function RestoreSection() {
       )}
 
       {report && (
-        <div className="mt-3 rounded-md border border-green-500/40 bg-green-500/5 p-3 text-xs space-y-1">
-          <div className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400">
+        <div className="mt-3 rounded-md border border-success/30 bg-success/10 p-3 text-xs space-y-1">
+          <div className="flex items-center gap-1.5 font-medium text-success">
             <CheckCircle2 className="h-3.5 w-3.5" /> 恢复成功
           </div>
           <div className="text-muted-foreground">
@@ -274,7 +274,7 @@ export function RestoreSection() {
                 base64 内联 {report.attachments.inlineBase64Count} 处（自包含）
               </div>
               {report.attachments.missing.length > 0 && (
-                <div className="text-amber-600 dark:text-amber-400">
+                <div className="text-warning">
                   缺失 {report.attachments.missing.length} 个附件（原样保留为失效引用）：
                   {report.attachments.missing
                     .slice(0, 5)

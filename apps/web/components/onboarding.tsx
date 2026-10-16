@@ -135,8 +135,8 @@ export function Onboarding() {
           </DialogTitle>
           <div className="grid gap-4">
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
-              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-950/50">
-                <LinkIcon className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-muted">
+                <LinkIcon className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">保存文章</h3>
@@ -144,8 +144,8 @@ export function Onboarding() {
               </div>
             </div>
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
-              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-950/50">
-                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-muted">
+                <FileText className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">做笔记</h3>
@@ -153,8 +153,8 @@ export function Onboarding() {
               </div>
             </div>
             <div className="flex items-start gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
-              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-green-100 dark:bg-green-950/50">
-                <ListChecks className="h-5 w-5 text-green-600 dark:text-green-400" />
+              <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg bg-muted">
+                <ListChecks className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">任务管理</h3>

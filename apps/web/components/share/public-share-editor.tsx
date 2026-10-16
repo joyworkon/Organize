@@ -263,7 +263,7 @@ function Notice({
     <div
       className={`mb-4 flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
         tone === "warning"
-          ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+          ? "border-warning/30 bg-warning/10 text-warning"
           : "bg-muted text-muted-foreground"
       }`}
     >

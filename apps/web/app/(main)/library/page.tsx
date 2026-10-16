@@ -137,7 +137,7 @@ function LibraryPageInner() {
           : "搜索资料库（标题 / 正文 / 标签）";
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-3 sm:space-y-4">
       <PageHeader
         icon={Library}
         title="资料库"
@@ -155,7 +155,7 @@ function LibraryPageInner() {
 
       {/* 文件导入面板（阶段 D）：三视图共用；统一输入框拖入的文件也交给它
           （organize:import-files 事件） */}
-      <FileImport onImported={bumpRefresh} />
+      <FileImport onImported={bumpRefresh} compact={view !== "files"} />
 
       {/* 视图分段：全部 / 稍后读 / 速记（?view= 双向同步，默认 all） */}
       <div className="reading-status-tabs flex gap-1 rounded-lg bg-muted p-1 w-fit" role="tablist" aria-label="资料库视图">

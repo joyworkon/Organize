@@ -94,7 +94,7 @@ export default function PublicShareGate({ token, accessMode }: PublicShareGatePr
       )}
 
       {blocked && message && (
-        <div className="mb-8 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-left text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300">
+        <div className="mb-8 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-left text-sm text-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{message}</span>
         </div>
@@ -103,7 +103,7 @@ export default function PublicShareGate({ token, accessMode }: PublicShareGatePr
       {!blocked && (
         <>
           {phase === "failed" && message && (
-            <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-left text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-left text-sm text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{message}</span>
             </div>

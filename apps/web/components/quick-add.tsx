@@ -198,10 +198,17 @@ export function QuickAdd() {
   };
 
   const selected = options.find((option) => option.mode === mode);
+  const hideFloatingTrigger =
+    pathname === "/" ||
+    pathname === "/library" ||
+    pathname.startsWith("/library/") ||
+    pathname.startsWith("/notes/") ||
+    pathname.startsWith("/canvas/") ||
+    pathname.startsWith("/tasks");
   return (
     <>
-      {!pathname.startsWith("/canvas/") && (
-        <Button size="icon" aria-label="快速新建" className="fixed bottom-6 right-6 z-40 hidden h-12 w-12 rounded-full shadow-sm md:inline-flex" onClick={() => openPanel()}><Plus className="h-6 w-6" /></Button>
+      {!hideFloatingTrigger && (
+        <Button size="icon" aria-label="快速新建" className="fixed bottom-6 right-6 z-40 hidden h-11 w-11 rounded-full shadow-sm md:inline-flex" onClick={() => openPanel()}><Plus className="h-5 w-5" /></Button>
       )}
       <Dialog open={open} onOpenChange={(next) => { if (!submittingRef.current) setOpen(next); }}>
         <DialogContent className="quick-add-dialog" onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus(); }}>

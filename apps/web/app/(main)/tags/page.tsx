@@ -392,8 +392,8 @@ export default function TagsPage() {
                 <Card className="hover:bg-accent transition-colors duration-150">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div className="h-8 w-8 rounded-md bg-green-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <ListChecks className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                        <ListChecks className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className={cn("font-medium leading-tight line-clamp-1", task.status === "done" && "line-through text-muted-foreground")}>{task.title}</h3>
@@ -401,7 +401,7 @@ export default function TagsPage() {
                           <span>任务</span>
                           <span className={cn(
                             "px-1 rounded text-[10px]",
-                            task.status === "done" ? "bg-green-500/10 text-green-600 dark:text-green-400" :
+                            task.status === "done" ? "bg-success/10 text-success" :
                             task.status === "in_progress" ? "bg-primary/10 text-primary" : "bg-muted"
                           )}>
                             {task.status === "todo" ? "待办" : task.status === "in_progress" ? "进行中" : task.status === "done" ? "已完成" : "已取消"}
@@ -427,8 +427,8 @@ export default function TagsPage() {
                 <Card className="hover:bg-accent transition-colors duration-150 cursor-pointer">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div className="h-8 w-8 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <Lightbulb className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                      <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                        <Lightbulb className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium leading-tight line-clamp-1">{lesson.title || "未命名复盘"}</h3>

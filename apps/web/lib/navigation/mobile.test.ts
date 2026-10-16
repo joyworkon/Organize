@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectionLocation, mobileKeyboardOpen, mobileRoute, readMobileLocations } from "./mobile";
+import { collectionLocation, mobileCreateAction, mobileKeyboardOpen, mobileRoute, readMobileLocations } from "./mobile";
 
 describe("mobile navigation routes", () => {
   it.each(["/tasks/calendar", "/tasks/countdown", "/tasks/lessons", "/tasks/search"])("keeps %s in the task workspace", (path) => {
@@ -45,7 +45,7 @@ describe("restoring mobile locations", () => {
   it("retains the selected task list but removes a stale detail selection", () => {
     expect(readMobileLocations(JSON.stringify({ tasks: "/tasks?scope=list&list=design&task=old" }))).toEqual({ tasks: "/tasks?scope=list&list=design" });
   });
-  it("阶段 C：底栏速记项落在资料库速记视图；旧 /memos 位置经重定向仍可用", () => {
+  it("阶段 C：速记返回到资料库视图；旧 /memos 位置经重定向仍可用", () => {
     expect(readMobileLocations(JSON.stringify({ memos: "/library?view=memos" }))).toEqual({ memos: "/library?view=memos" });
     expect(readMobileLocations(JSON.stringify({ memos: "/memos" }))).toEqual({ memos: "/memos" });
   });
@@ -60,5 +60,32 @@ describe("mobile keyboard detection", () => {
     expect(mobileKeyboardOpen(844, 780, 0, 1, true)).toBe(false);
     expect(mobileKeyboardOpen(844, 500, 0, 1, false)).toBe(false);
     expect(mobileKeyboardOpen(844, 600, 150, 1, true)).toBe(false);
+  });
+});
+
+
+describe("drawer shell route context", () => {
+  it("labels the home and task tools without changing their return sections", () => {
+    expect(mobileRoute("/")).toMatchObject({ title: "工作台", section: "home" });
+    expect(mobileRoute("/tasks/calendar")).toMatchObject({ title: "日历", section: "tasks", detail: false });
+    expect(mobileRoute("/tasks/countdown")).toMatchObject({ title: "倒数日", section: "tasks", detail: false });
+    expect(mobileRoute("/tasks/lessons")).toMatchObject({ title: "经验", section: "tasks", detail: false });
+    expect(mobileRoute("/lessons/one")).toMatchObject({ title: "经验", detail: true });
+  });
+  it("keeps collection and file views addressable without discarding their queries", () => {
+    const params = new URLSearchParams("view=collections&collection=one&search=design");
+    expect(mobileRoute("/library", params)).toMatchObject({ title: "集合", section: "library" });
+    expect(collectionLocation("/library", params)).toBe("/library?view=collections&collection=one&search=design");
+    expect(mobileRoute("/library", new URLSearchParams("view=files")).title).toBe("文件");
+    expect(mobileRoute("/library", new URLSearchParams("view=memo"))).toMatchObject({ title: "速记", section: "memos" });
+  });
+  it("uses existing quick-add modes and leaves canvas creation to its own page", () => {
+    expect(mobileCreateAction("/library", new URLSearchParams("view=reading"))).toEqual({ mode: "url", label: "保存链接" });
+    expect(mobileCreateAction("/library", new URLSearchParams("view=memos"))).toEqual({ mode: "memo", label: "新建速记" });
+    expect(mobileCreateAction("/notes")).toEqual({ mode: "note", label: "新建笔记" });
+    expect(mobileCreateAction("/tasks/calendar")).toEqual({ mode: "task", label: "添加待办" });
+    expect(mobileCreateAction("/tasks/lessons")?.mode).toBe("menu");
+    expect(mobileCreateAction("/canvas")).toBeNull();
+    expect(mobileCreateAction("/canvas/one")).toBeNull();
   });
 });

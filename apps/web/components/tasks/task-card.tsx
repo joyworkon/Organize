@@ -169,8 +169,8 @@ export function TaskCard({
         task.is_pinned && "ring-1 ring-primary/20",
         isDragging && "opacity-50",
         isDragOver && "border-t-2 border-t-primary",
-        isOverdue && "border-l-red-500",
-        !isOverdue && task.status === "done" && "border-l-green-500",
+        isOverdue && "border-l-destructive",
+        !isOverdue && task.status === "done" && "border-l-success",
         !isOverdue && task.status !== "done" && task.priority === "high" && "border-l-orange-500",
         !isOverdue && task.status !== "done" && task.priority === "medium" && "border-l-primary",
         !isOverdue && task.status !== "done" && task.priority === "low" && "border-l-muted"
@@ -202,7 +202,7 @@ export function TaskCard({
               className={cn(
                 "organize-touch-target relative mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
                 task.status === "done"
-                  ? "border-green-500 bg-green-500 text-white"
+                  ? "border-success bg-success text-success-foreground"
                   : "border-muted-foreground/30 hover:border-primary"
               )}
             >
@@ -230,7 +230,7 @@ export function TaskCard({
                     className={cn(
                       "text-[10px] px-1.5 py-0 font-medium",
                       task.status === "done"
-                        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                        ? "bg-success/10 text-success"
                         : task.status === "in_progress"
                         ? "bg-primary/10 text-primary"
                         : "bg-muted text-muted-foreground"
@@ -242,9 +242,9 @@ export function TaskCard({
                     className={cn(
                       "text-[10px] px-1.5 py-0 font-medium",
                       task.priority === "high"
-                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                        ? "bg-destructive/10 text-destructive"
                         : task.priority === "medium"
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        ? "bg-warning/10 text-warning"
                         : "bg-muted text-muted-foreground"
                     )}
                   >
@@ -318,14 +318,14 @@ export function TaskCard({
                 </div>
               </div>
 
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <FavoriteButton targetType="task" targetId={task.id} className="h-8 w-8" />
+              <div className="flex items-center gap-0.5 opacity-100 transition-opacity duration-100 motion-reduce:duration-0 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+                <FavoriteButton targetType="task" targetId={task.id} className="h-11 w-11 md:h-8 md:w-8" />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0"
+                      className="h-11 w-11 p-0 md:h-8 md:w-8"
                       onClick={handleButtonClick}
                     >
                       <MoreHorizontal className="h-4 w-4" />
@@ -334,7 +334,7 @@ export function TaskCard({
                 <DropdownMenuContent align="end" className="w-40">
                   {onComplete && task.status !== "done" && (
                     <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); onComplete(task); }}>
-                      <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 mr-2 text-success" />
                       标记完成
                     </DropdownMenuItem>
                   )}

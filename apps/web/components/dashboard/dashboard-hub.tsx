@@ -42,7 +42,7 @@ export function DashboardHub() {
   };
 
   return (
-    <div className="dashboard-hub space-y-5">
+    <div className="dashboard-hub space-y-4">
       <div className="dashboard-view-switcher">
         <strong className="dashboard-workbench-label">工作台</strong>
         <div role="tablist" aria-label="工作台视图">

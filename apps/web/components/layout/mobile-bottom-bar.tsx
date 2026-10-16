@@ -1,26 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { BookOpen, Feather, FileText, House, ListChecks } from "@/components/icons";
-import { MOBILE_DESTINATIONS } from "@/lib/navigation/mobile";
-import type { MobileLocations, MobileSection } from "@/lib/navigation/mobile";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const icons = { home: House, library: BookOpen, notes: FileText, tasks: ListChecks, memos: Feather };
-
-export function MobileBottomBar({ active, locations }: { active: MobileSection | null; locations: MobileLocations }) {
-  return (
-    <nav className="mobile-tab-bar" aria-label="移动端主导航">
-      {MOBILE_DESTINATIONS.map(({ key, label, href }) => {
-        const Icon = icons[key];
-        const selected = active === key;
-        return (
-          <Link key={key} href={locations[key] || href} aria-current={selected ? "page" : undefined} className={cn("mobile-tab", selected && "is-active")}>
-            <span className="mobile-tab-icon"><Icon className="h-[21px] w-[21px]" /></span>
-            <span>{label}</span>
-          </Link>
-        );
-      })}
-    </nav>
-  );
+/** Optional host for real page context tools. The app shell never renders persistent module tabs. */
+export function MobileBottomBar({ children, label = "当前页面操作", className }: { children: ReactNode; label?: string; className?: string }) {
+  if (!children) return null;
+  return <nav className={cn("mobile-context-bar", className)} aria-label={label}>{children}</nav>;
 }

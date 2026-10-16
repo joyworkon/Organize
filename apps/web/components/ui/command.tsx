@@ -22,12 +22,14 @@ const Command = React.forwardRef<
 ));
 Command.displayName = CommandPrimitive.displayName;
 
-interface CommandDialogProps extends DialogProps {}
+interface CommandDialogProps extends DialogProps {
+  onCloseAutoFocus?: React.ComponentPropsWithoutRef<typeof DialogContent>["onCloseAutoFocus"];
+}
 
-const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
+const CommandDialog = ({ children, onCloseAutoFocus, ...props }: CommandDialogProps) => {
   return (
     <Dialog {...props}>
-      <DialogContent className="mobile-search-dialog overflow-hidden p-0 sm:max-w-[500px] max-h-[80vh] w-[95vw] top-[10vh] translate-y-0">
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus} className="mobile-search-dialog overflow-hidden p-0 sm:max-w-[500px] max-h-[80vh] w-[95vw] top-[10vh] translate-y-0">
         <DialogTitle className="sr-only">搜索与快捷操作</DialogTitle>
         <DialogDescription className="sr-only">搜索文章、笔记、待办和速记，或跳转到其他页面。</DialogDescription>
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-group]]:px-2 [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-input]]:h-12 sm:h-12 [&_[cmdk-item]]:px-2 sm:px-3 [&_[cmdk-item]]:py-2.5 sm:py-3 [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5">
@@ -47,7 +49,7 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex min-h-[44px] h-11 w-full rounded-md bg-transparent py-3 text-base sm:text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+        "flex min-h-[44px] h-11 w-full rounded-lg bg-transparent py-3 text-base md:text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -106,7 +108,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none data-[disabled=true]:pointer-events-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50",
+      "relative flex min-h-11 md:min-h-8 cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors duration-100 motion-reduce:duration-0 data-[disabled=true]:pointer-events-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50",
       className
     )}
     {...props}

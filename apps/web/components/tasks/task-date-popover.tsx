@@ -156,8 +156,8 @@ export function TaskDatePopover({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground",
-        overdue ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" : "text-muted-foreground"
+        "inline-flex min-h-11 md:min-h-8 items-center gap-1.5 rounded-lg px-2 py-1 text-sm transition-colors duration-100 motion-reduce:duration-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] hover:bg-accent hover:text-accent-foreground",
+        overdue ? "text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20" : "text-muted-foreground"
       )}
     >
       <CalendarDays className="h-4 w-4" />
@@ -183,23 +183,23 @@ export function TaskDatePopover({
       >
         <div className="overflow-y-auto flex-1 min-h-0">
         <div className="flex rounded-xl bg-muted p-1 m-3 mb-2">
-          <button type="button" onClick={() => setMode("single")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "single" ? "bg-background shadow-sm" : "text-muted-foreground")}>日期</button>
-          <button type="button" onClick={() => setMode("range")} className={cn("flex-1 rounded-lg px-3 py-2 text-sm font-medium", mode === "range" ? "bg-background shadow-sm" : "text-muted-foreground")}>时间段</button>
+          <button type="button" onClick={() => setMode("single")} className={cn("min-h-11 md:min-h-8 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-100 motion-reduce:duration-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]", mode === "single" ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>日期</button>
+          <button type="button" onClick={() => setMode("range")} className={cn("min-h-11 md:min-h-8 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-100 motion-reduce:duration-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]", mode === "range" ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>时间段</button>
         </div>
 
         <div className="flex items-center justify-around px-4 py-2 text-muted-foreground">
-          <button type="button" onClick={() => chooseQuick(0)} title="今天" className="rounded-full p-2 hover:bg-muted"><Sun className="h-6 w-6" /></button>
-          <button type="button" onClick={() => chooseQuick(1)} title="明天" className="rounded-full p-2 hover:bg-muted"><Sun className="h-6 w-6 opacity-70" /></button>
-          <button type="button" onClick={() => chooseQuick(0, "20:00")} title="今晚" className="rounded-full p-2 hover:bg-muted"><Clock3 className="h-6 w-6" /></button>
-          <button type="button" onClick={() => setDraft((current) => ({ ...current, all_day: !current.all_day }))} title="全天" className={cn("rounded-full p-2 hover:bg-muted", draft.all_day && "text-primary")}><CalendarDays className="h-6 w-6" /></button>
+          <button type="button" onClick={() => chooseQuick(0)} title="今天" className="inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><Sun className="h-5 w-5" /></button>
+          <button type="button" onClick={() => chooseQuick(1)} title="明天" className="inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><Sun className="h-5 w-5 opacity-70" /></button>
+          <button type="button" onClick={() => chooseQuick(0, "20:00")} title="今晚" className="inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><Clock3 className="h-5 w-5" /></button>
+          <button type="button" onClick={() => setDraft((current) => ({ ...current, all_day: !current.all_day }))} title="全天" className={cn("inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]", draft.all_day && "text-primary")}><CalendarDays className="h-5 w-5" /></button>
         </div>
 
         <div className="px-4 pb-2">
           <div className="flex items-center justify-between mb-2">
             <strong className="text-lg">{cursor.getFullYear()}年{cursor.getMonth() + 1}月</strong>
             <div className="flex gap-1">
-              <button type="button" aria-label="上个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded p-1 hover:bg-muted"><ChevronLeft className="h-4 w-4" /></button>
-              <button type="button" aria-label="下个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="rounded p-1 hover:bg-muted"><ChevronRight className="h-4 w-4" /></button>
+              <button type="button" aria-label="上个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><ChevronLeft className="h-4 w-4" /></button>
+              <button type="button" aria-label="下个月" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="inline-flex h-11 w-11 md:h-8 md:w-8 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><ChevronRight className="h-4 w-4" /></button>
             </div>
           </div>
           <div className="grid grid-cols-7 text-center text-xs text-muted-foreground mb-1">
@@ -215,7 +215,7 @@ export function TaskDatePopover({
                   key={key}
                   type="button"
                   onClick={() => mode === "range" && draft.schedule_start_at ? updateEnd(key) : updateStart(key)}
-                  className={cn("mx-auto grid h-8 w-8 place-items-center rounded-full text-sm", !inMonth && "text-muted-foreground/50", active && "bg-blue-500 text-white", !active && "hover:bg-muted")}
+                  className={cn("mx-auto grid h-11 w-full max-w-11 md:h-8 md:w-8 place-items-center rounded-full text-sm transition-colors duration-100 motion-reduce:duration-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]", !inMonth && "text-muted-foreground", active && "bg-primary text-primary-foreground", !active && "hover:bg-muted")}
                 >{date.getDate()}</button>
               );
             })}
@@ -248,8 +248,8 @@ export function TaskDatePopover({
 
         </div>
         <div className="flex gap-2 border-t p-3 shrink-0">
-          <button type="button" onClick={clear} className="flex-1 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted"><X className="inline h-4 w-4 mr-1" />清除</button>
-          <button type="button" onClick={apply} className="flex-1 rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600"><Check className="inline h-4 w-4 mr-1" />确定</button>
+          <button type="button" onClick={clear} className="min-h-11 md:min-h-8 flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors duration-100 motion-reduce:duration-0 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><X className="inline h-4 w-4 mr-1" />清除</button>
+          <button type="button" onClick={apply} className="min-h-11 md:min-h-8 flex-1 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors duration-100 motion-reduce:duration-0 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px]"><Check className="inline h-4 w-4 mr-1" />确定</button>
         </div>
       </PopoverContent>
     </Popover>

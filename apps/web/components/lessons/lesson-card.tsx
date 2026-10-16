@@ -1,12 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -52,48 +46,45 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
   const preview = text.slice(0, 120) + (text.length > 120 ? "..." : "");
 
   return (
-    <Card className="group flex flex-col h-full hover:bg-accent transition-colors duration-150">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xl shrink-0">{typeConfig.icon}</span>
-            <div className="min-w-0">
-              {/* 裸 h2 替代 CardTitle(h3)：页面 h1 下的条目标题不跳级（C02）；类名为 CardTitle 合并后的视觉等价结果 */}
-              <h2 className="text-base font-semibold tracking-tight leading-tight line-clamp-2">
-                {lesson.title || "未命名复盘"}
-              </h2>
-              <CardDescription className="text-xs mt-0.5">
-                {typeConfig.label} · {formatDate(lesson.created_at)}
-              </CardDescription>
-            </div>
+    <article className="group col-span-full flex min-h-14 flex-col border-b px-3 py-3 transition-colors duration-100 motion-reduce:duration-0 hover:bg-accent/50">
+      <header className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-xl">{typeConfig.icon}</span>
+          <div className="min-w-0">
+            <h2 className="line-clamp-2 text-base font-semibold leading-tight">
+              {lesson.title || "未命名复盘"}
+            </h2>
+            <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">
+              {typeConfig.label} · {formatDate(lesson.created_at)}
+            </p>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="更多操作"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 focus-visible:opacity-100"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              {onDelete && (
-                <DropdownMenuItem
-                  onClick={() => onDelete(lesson.id)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  删除
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 flex flex-col">
-        <p className="text-sm text-muted-foreground line-clamp-3 flex-1">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="更多操作"
+              className="h-11 w-11 shrink-0 p-0 opacity-100 transition-opacity duration-100 motion-reduce:duration-0 focus-visible:opacity-100 md:h-8 md:w-8 md:opacity-0 md:group-hover:opacity-100"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-36">
+            {onDelete && (
+              <DropdownMenuItem
+                onClick={() => onDelete(lesson.id)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                删除
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </header>
+      <div className="mt-2 flex flex-1 flex-col">
+        <p className="line-clamp-3 flex-1 text-sm text-muted-foreground">
           {preview || "（无内容）"}
         </p>
 
@@ -108,7 +99,7 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
           </div>
         )}
 
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+        <div className="mt-3 flex items-center gap-2">
           {(lesson.task_id || lesson.reading_item_id || lesson.note_id) && (
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground flex-wrap">
               {lesson.task_id && <CheckCircle2 className="h-3 w-3 text-green-500" />}
@@ -123,7 +114,7 @@ export function LessonCard({ lesson, onDelete }: LessonCardProps) {
             查看 <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }

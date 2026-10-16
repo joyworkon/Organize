@@ -134,8 +134,8 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
           <DialogDescription>添加后会显示在日历对应日期上</DialogDescription>
         </DialogHeader>
         <div className="flex rounded-lg bg-muted p-1 text-sm">
-          <button type="button" onClick={() => setTab("task")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "task" ? "bg-background font-medium shadow-sm" : "text-muted-foreground"}`}>任务</button>
-          <button type="button" onClick={() => setTab("countdown")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "countdown" ? "bg-background font-medium shadow-sm" : "text-muted-foreground"}`}>倒数日</button>
+          <button type="button" onClick={() => setTab("task")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "task" ? "bg-background font-medium" : "text-muted-foreground"}`}>任务</button>
+          <button type="button" onClick={() => setTab("countdown")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "countdown" ? "bg-background font-medium" : "text-muted-foreground"}`}>倒数日</button>
         </div>
         <div className="space-y-4">
           <label className="block space-y-2 text-sm font-medium">
@@ -254,7 +254,7 @@ function CalendarPageInner() {
   );
 
   return (
-    <div className="organize-task-screen relative flex h-[calc(100vh-11rem)] min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-background text-foreground md:h-[calc(100vh-6rem)]">
+    <div className="organize-task-screen organize-calendar-screen relative flex min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
       {/* 刷新时用遮罩而非卸载视图：保住周/月/日视图的内部状态（如当前模式与拖拽） */}
       {loading && (
         <div className="absolute inset-0 z-20 grid place-items-center rounded-lg bg-background/60">

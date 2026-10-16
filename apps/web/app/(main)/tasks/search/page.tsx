@@ -33,29 +33,31 @@ function SearchPageInner() {
   };
 
   return (
-    <section className="flex min-h-[calc(100vh-11rem)] w-full flex-col gap-6 rounded-lg border bg-background p-5 md:min-h-[calc(100vh-6rem)] md:p-8">
+    <section className="flex w-full flex-col gap-4 sm:gap-6">
       <PageHeader
         icon={SearchIcon}
         title="搜索任务"
+        search={
+          <div className="relative w-full sm:max-w-md">
+            <SearchIcon className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              aria-label="搜索任务"
+              value={query}
+              onChange={(event) => updateQuery(event.target.value)}
+              placeholder="搜索标题、描述、清单或标签"
+              className="pl-10"
+            />
+          </div>
+        }
       />
-      <div className="relative">
-        <SearchIcon className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          autoFocus
-          aria-label="搜索任务"
-          value={query}
-          onChange={(event) => updateQuery(event.target.value)}
-          placeholder="搜索标题、描述、清单或标签"
-          className="h-12 pl-10 text-base"
-        />
-      </div>
       <div className="text-sm text-muted-foreground">
         {loading ? "正在搜索…" : query.trim() ? `找到 ${results.length} 个结果` : "输入关键词开始搜索"}
       </div>
       {!loading && query.trim() && results.length === 0 ? (
         <EmptyState icon={SearchIcon} title="没有匹配任务" description="试试标题、描述、清单名或标签名称" />
       ) : query.trim() ? (
-        <div className="divide-y overflow-hidden rounded-xl border">
+        <div className="divide-y border-y">
           {results.map((task) => {
             const status = TASK_STATUS_CONFIG[task.status];
             return (
@@ -63,9 +65,9 @@ function SearchPageInner() {
                 key={task.id}
                 type="button"
                 onClick={() => router.push(`/tasks/${task.id}`)}
-                className="flex w-full items-start gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/50"
+                className="flex min-h-14 w-full items-start gap-3 px-3 py-3 text-left transition-colors duration-100 motion-reduce:duration-0 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:px-4"
               >
-                <ListChecks className={cn("mt-0.5 h-5 w-5 shrink-0", task.status === "done" ? "text-green-600" : "text-muted-foreground")} />
+                <ListChecks className={cn("mt-0.5 h-5 w-5 shrink-0", task.status === "done" ? "text-success" : "text-muted-foreground")} />
                 <span className="min-w-0 flex-1">
                   <span className={cn("block truncate font-medium", task.status === "done" && "text-muted-foreground line-through")}>
                     {task.title}

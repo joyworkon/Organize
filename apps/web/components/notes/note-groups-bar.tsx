@@ -121,7 +121,7 @@ export function NoteGroupsBar({
         </Button>
       </div>
       <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={onAutoGroup}>
-        <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+        <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
         自动分组
       </Button>
     </div>

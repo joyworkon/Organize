@@ -5,8 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Menu, Plus, Search } from "@/components/icons";
-import { MobileBottomBar } from "./mobile-bottom-bar";
-import { MOBILE_DESTINATIONS, MOBILE_LOCATIONS_KEY, collectionLocation, mobileKeyboardOpen, mobileRoute, readMobileLocations } from "@/lib/navigation/mobile";
+import { MOBILE_DESTINATIONS, MOBILE_LOCATIONS_KEY, collectionLocation, mobileCreateAction, mobileKeyboardOpen, mobileRoute, readMobileLocations } from "@/lib/navigation/mobile";
 import type { MobileLocations, MobileSection } from "@/lib/navigation/mobile";
 
 const MobileNavigationContext = createContext<MobileLocations>({});
@@ -17,6 +16,15 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
   const route = mobileRoute(pathname, params);
   const [locations, setLocations] = useState<MobileLocations>({});
   const [editing, setEditing] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+
+  useEffect(() => {
+    const updateNavigation = (event: Event) => {
+      setNavigationOpen(Boolean((event as CustomEvent<{ open: boolean }>).detail?.open));
+    };
+    window.addEventListener("organize:navigation-state", updateNavigation);
+    return () => window.removeEventListener("organize:navigation-state", updateNavigation);
+  }, []);
 
   useEffect(() => {
     let remembered: MobileLocations = {};
@@ -62,10 +70,7 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const createMode = route.section === "library" ? "url" : route.section === "notes" ? "note" : route.section === "tasks" ? "task" : route.section === "memos" ? "memo" : "menu";
-  const createLabel = ({ url: "保存链接", note: "新建笔记", task: "添加待办", memo: "新建速记", menu: "新建内容" })[createMode];
-  // 构思画布不显示通用「+ 新建内容」按钮（新建/编辑都发生在画布详情内部）
-  const isCanvasRoute = pathname === "/canvas" || pathname.startsWith("/canvas/");
+  const createAction = mobileCreateAction(pathname, params);
 
   return (
     <MobileNavigationContext.Provider value={locations}>
@@ -73,28 +78,28 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
         <div className="mobile-status-surface" aria-hidden="true" />
         {!route.detail && (
           <header className="mobile-app-header">
-            <button type="button" className="mobile-icon-button" aria-label="更多导航与设置" onClick={() => window.dispatchEvent(new CustomEvent("organize:navigation"))}>
+            <button type="button" className="mobile-icon-button" aria-label="打开导航" aria-haspopup="dialog" aria-controls="mobile-navigation-drawer" aria-expanded={navigationOpen} onClick={() => window.dispatchEvent(new CustomEvent("organize:navigation"))}>
               <Menu className="h-5 w-5" />
             </button>
-            <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">{route.title}</h1>
+            <h1 className="mobile-app-title min-w-0 flex-1 truncate font-semibold">{route.title}</h1>
             <button type="button" className="mobile-icon-button" aria-label="全局搜索" onClick={() => window.dispatchEvent(new CustomEvent("organize:command-palette"))}>
               <Search className="h-5 w-5" />
             </button>
-            {!isCanvasRoute && (
-              <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createLabel} onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: createMode } }))}>
+            {createAction && (
+              <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createAction.label} onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: createAction.mode } }))}>
                 <Plus className="h-5 w-5" />
               </button>
             )}
           </header>
         )}
         {children}
-        {!route.detail && !editing && <MobileBottomBar active={route.section} locations={locations} />}
+        {/* Detail pages retain their existing context tools; global navigation lives in the drawer. */}
       </div>
     </MobileNavigationContext.Provider>
   );
 }
 
-/** A detail opened from a filtered list returns to that list, including on reload. */
+/** A detail opened from a filtered collection returns to it, including on reload. */
 export function CollectionBackLink({ section, ...props }: Omit<ComponentProps<typeof Link>, "href"> & { section: MobileSection }) {
   const locations = useContext(MobileNavigationContext);
   const fallback = MOBILE_DESTINATIONS.find((item) => item.key === section)!.href;

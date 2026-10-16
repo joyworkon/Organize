@@ -1,5 +1,6 @@
 export type MobileSection = "home" | "library" | "notes" | "tasks" | "memos";
 
+/** Collection fallbacks and remembered return locations, not a persistent bottom bar. */
 export const MOBILE_DESTINATIONS = [
   { key: "home", href: "/", label: "首页" },
   // 阶段 C：稍后读 + 速记融合为「资料库」（/library；速记视图 ?view=memos）
@@ -16,36 +17,47 @@ export function mobileRoute(pathname: string, params = new URLSearchParams()) {
   let section: MobileSection | null = null;
   let title = "Cairn";
   let detail = false;
-  if (pathname === "/") section = "home";
-  else if (pathname === "/library" && params.get("view") === "memos") {
-    // 资料库速记视图 = 底栏「速记」项（阶段 C；/memos 旧路由重定向到这里）
+  if (pathname === "/") { section = "home"; title = "工作台"; }
+  else if (pathname === "/library" && ["memos", "memo"].includes(params.get("view") || "")) {
+    // 保留速记自己的返回位置；/memos 与 view=memo 是兼容入口。
     section = "memos"; title = "速记";
   } else if (pathname === "/library" || pathname.startsWith("/library/")) {
-    section = "library"; title = "资料库"; detail = pathname !== "/library";
+    section = "library"; title = params.get("view") === "collections" ? "集合" : params.get("view") === "files" ? "文件" : "资料库"; detail = pathname !== "/library";
   } else if (pathname === "/notes" || pathname.startsWith("/notes/")) {
     section = "notes"; title = "笔记"; detail = pathname !== "/notes";
   } else if (pathname === "/tasks" || pathname.startsWith("/tasks/")) {
-    section = "tasks"; title = "待办";
+    section = "tasks"; title = ({ "/tasks/calendar": "日历", "/tasks/countdown": "倒数日", "/tasks/lessons": "经验", "/tasks/search": "搜索待办" } as Record<string, string>)[pathname] || "待办";
     detail = (pathname !== "/tasks" && !taskTools.has(pathname)) || Boolean(params.get("task"));
   } else if (pathname === "/memos") { section = "memos"; title = "速记"; }
   else if (pathname === "/graph") { section = "notes"; title = "知识图谱"; }
   else if (pathname === "/canvas") { section = null; title = "构思画布"; }
   else if (pathname.startsWith("/canvas/")) {
-    // 画布详情：手机只读预览（规格 §1），detail=true 隐藏底栏，由页面提供返回/缩放
+    // 画布详情沿用自己的返回/缩放；不增加全局工具栏或更改画布布局。
     section = null; title = "构思画布"; detail = true;
   }
   else if (pathname === "/tags") { section = "library"; title = "标签管理"; }
-  else if (pathname === "/lessons" || pathname.startsWith("/lessons/")) { section = "tasks"; title = "经验"; }
+  else if (pathname === "/lessons" || pathname.startsWith("/lessons/")) { section = "tasks"; title = "经验"; detail = pathname !== "/lessons"; }
   else {
     title = ({ "/favorites": "收藏夹", "/settings": "设置", "/plugins": "插件管理", "/trash": "垃圾箱", "/shared": "与我共享", "/spaces": "协作空间", "/share": "保存到 Cairn", "/review": "回顾", "/stats": "统计", "/inbox": "收集箱" } as Record<string, string>)[pathname] || "Cairn";
   }
   return { section, title, detail };
 }
 
+/** New actions use the existing QuickAdd modes; specialized pages keep their own actions. */
+export function mobileCreateAction(pathname: string, params = new URLSearchParams()): { mode: "menu" | "url" | "note" | "task" | "memo"; label: string } | null {
+  if (pathname === "/canvas" || pathname.startsWith("/canvas/")) return null;
+  const route = mobileRoute(pathname, params);
+  if (route.section === "memos") return { mode: "memo", label: "新建速记" };
+  if (route.section === "notes") return { mode: "note", label: "新建笔记" };
+  if (pathname === "/tasks" || pathname === "/tasks/calendar") return { mode: "task", label: "添加待办" };
+  if (pathname === "/library" && params.get("view") === "reading") return { mode: "url", label: "保存链接" };
+  return { mode: "menu", label: "新建内容" };
+}
+
 export type MobileLocations = Partial<Record<MobileSection, string>>;
 export const MOBILE_LOCATIONS_KEY = "organize:mobile-locations";
 
-/** Only collection URLs may become tab destinations; never store open task IDs. */
+/** Only collection URLs may become return locations; never store open task IDs. */
 export function collectionLocation(pathname: string, params: URLSearchParams): string | null {
   if (!["/", "/library", "/notes", "/tasks", "/memos", ...taskTools].includes(pathname)) return null;
   const next = new URLSearchParams(params);

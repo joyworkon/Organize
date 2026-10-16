@@ -191,7 +191,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           {task.priority && task.priority !== "medium" && (
             <Flag
               aria-label={`优先级：${TASK_PRIORITY_CONFIG[task.priority].label}`}
-              className={cn("h-3.5 w-3.5 shrink-0", task.priority === "high" ? "fill-red-500 text-red-500" : "text-muted-foreground")}
+              className={cn("h-3.5 w-3.5 shrink-0", task.priority === "high" ? "fill-destructive text-destructive" : "text-muted-foreground")}
             />
           )}
           {/* 标题即打开详情的键盘入口：原生按钮点击冒泡到行 onClick，无需单独处理 */}
@@ -204,7 +204,7 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           {blocked && (
             <span
               aria-label="任务被未完成的前置任务阻塞"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning"
             >
               <LockKeyhole className="h-3 w-3" />
               阻塞
@@ -230,10 +230,10 @@ function TaskRow({ task, selected, listColor, blocked, onOpen, onStatus, onDateC
           value={schedule}
           onChange={onDateChange}
           align="end"
-          trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isTaskOverdue(task) && "text-red-500")}>{formatTaskDate(taskDate(task))}</button>}
+          trigger={<button type="button" onClick={(event) => event.stopPropagation()} className={cn("shrink-0 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground", isTaskOverdue(task) && "font-medium text-destructive")}>{formatTaskDate(taskDate(task))}</button>}
         />
       ) : (
-        <span className={cn("shrink-0 px-1.5 py-1 text-xs text-muted-foreground", isTaskOverdue(task) && "text-red-500")}>{formatTaskDate(taskDate(task))}</span>
+        <span className={cn("shrink-0 px-1.5 py-1 text-xs text-muted-foreground", isTaskOverdue(task) && "font-medium text-destructive")}>{formatTaskDate(taskDate(task))}</span>
       )}
       {onMoveRow && (
         <DropdownMenu open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -582,7 +582,6 @@ function TasksPageInner() {
   }, [updateTaskInner]);
 
   const deleteTask = useCallback(async (taskId: string) => {
-    if (!window.confirm("将这个任务移入垃圾箱？")) return;
     const now = new Date().toISOString();
     const expectedVersion = tasks.find((task) => task.id === taskId)?.sync_version ?? null;
     // X1：离线时软删除走离线队列（本质是 update），乐观从列表移除
@@ -623,7 +622,32 @@ function TasksPageInner() {
     await fetchTasks({ silent: true });
     // T02：删除成功后侧栏计数跟随更新
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-    toast({ title: "任务已移入垃圾箱" });
+    const createdToast = toast({
+      title: "任务已移入垃圾箱",
+      action: (
+        <button
+          type="button"
+          className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          onClick={async () => {
+            createdToast.dismiss();
+            const { error: restoreError } = await supabase.rpc("mutate_trash", {
+              p_action: "restore",
+              p_resource_type: "task",
+              p_ids: [taskId],
+            });
+            if (restoreError) {
+              toast({ title: "恢复失败，请在垃圾箱中重试", variant: "destructive" });
+              return;
+            }
+            await fetchTasks({ silent: true });
+            window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+            toast({ title: "已恢复任务" });
+          }}
+        >
+          撤销
+        </button>
+      ),
+    });
   }, [fetchTasks, supabase, updateUrl, tasks, userId]);
 
   /** 拖拽落点：把被拖任务插到目标行前/后，组内 sort_order 归一后持久化最小更新集 */

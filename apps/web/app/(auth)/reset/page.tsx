@@ -67,8 +67,8 @@ function ResetPasswordContent() {
   // 没有恢复会话（直接访问 / 链接失效 / 已过期）
   if (!hasSession && status === "form") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
+        <Card className="w-full max-w-[400px]">
           <CardHeader className="text-center">
             <CardTitle className="text-xl">重置密码</CardTitle>
             <CardDescription>链接无效或已过期，请重新从登录页发送重置邮件</CardDescription>
@@ -82,8 +82,8 @@ function ResetPasswordContent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-background text-foreground px-4">
+      <Card className="w-full max-w-[400px]">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">设置新密码</CardTitle>
           <CardDescription>密码至少 6 位</CardDescription>
@@ -98,12 +98,13 @@ function ResetPasswordContent() {
               <Input
                 type="password"
                 placeholder="新密码"
+                aria-label="新密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
               />
-              {message && <p className="text-sm text-red-600">{message}</p>}
+              {message && <p className="text-sm text-destructive">{message}</p>}
               <Button type="submit" className="w-full" disabled={loading || password.length < 6}>
                 {loading ? "提交中..." : "重置密码"}
               </Button>

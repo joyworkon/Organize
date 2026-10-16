@@ -100,7 +100,7 @@ export function TaskNavigationMenu({
       >
         <div className="border-b px-4 py-3">
           <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-xl font-bold text-white shadow-sm">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
               C
             </span>
             <div className="min-w-0">
@@ -147,7 +147,7 @@ export function TaskNavigationMenu({
                   } catch { toast({ title: "创建清单失败", variant: "destructive" }); }
                 })();
               }}
-              className="grid h-7 w-7 place-items-center rounded-md text-foreground transition-colors hover:bg-muted"
+              className="grid h-11 w-11 place-items-center rounded-lg text-foreground transition-colors duration-100 motion-reduce:duration-0 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8"
             >
               <Plus className="h-5 w-5" />
             </button>

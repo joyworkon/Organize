@@ -1,14 +1,15 @@
-/* Mobile product shell. Desktop layout and saved appearance tokens stay shared. */
+/* Cairn shell: shared desktop tokens, mobile drawer navigation and page-owned context tools. */
 .organize-app-shell { min-height: 100dvh; background: hsl(var(--background)); }
-.mobile-app-header, .mobile-tab-bar, .mobile-status-surface { display: none; }
+.mobile-app-header, .mobile-context-bar, .mobile-status-surface { display: none; }
 
 @media (max-width: 767px) {
   :root {
-    --mobile-header-height: calc(56px + env(safe-area-inset-top, 0px));
-    --mobile-tab-height: calc(68px + env(safe-area-inset-bottom, 0px));
+    --mobile-header-height: calc(52px + env(safe-area-inset-top, 0px));
+    /* Keep the legacy variable at zero for components measuring available height. */
+    --mobile-tab-height: 0px;
   }
   html { scroll-padding-top: calc(var(--mobile-header-height) + 12px); }
-  .organize-app-shell { --mobile-content-top: var(--mobile-header-height); --mobile-content-bottom: var(--mobile-tab-height); }
+  .organize-app-shell { --mobile-content-top: var(--mobile-header-height); --mobile-content-bottom: env(safe-area-inset-bottom, 0px); }
   .organize-app-shell[data-mobile-detail="true"] { --mobile-content-top: env(safe-area-inset-top, 0px); --mobile-content-bottom: env(safe-area-inset-bottom, 0px); }
   .organize-main {
     min-width: 0;
@@ -24,25 +25,22 @@
     display: flex; position: fixed; inset: 0 0 auto; z-index: 40;
     align-items: center; gap: 4px; height: var(--mobile-header-height);
     padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
-    background: hsl(var(--background) / .97); border-bottom: 1px solid hsl(var(--border) / .65);
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    background: hsl(var(--background));
   }
-  .mobile-icon-button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; color: hsl(var(--muted-foreground)); }
+  .mobile-icon-button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 8px; color: hsl(var(--foreground)); }
   .mobile-icon-button:active { background: hsl(var(--accent)); }
-  .mobile-create-button { color: hsl(var(--primary)); background: hsl(var(--primary) / .08); width: 44px; margin-left: 2px; }
-  .mobile-icon-button:focus-visible, .mobile-tab:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -3px; }
-  .mobile-tab-bar {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
-    position: fixed; inset: auto 0 0; z-index: 35; height: var(--mobile-tab-height);
-    padding: 5px max(8px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-left, 0px));
-    border-top: 1px solid hsl(var(--border) / .8); background: hsl(var(--card) / .97);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  .mobile-app-title { font-size: 16px; line-height: 24px; }
+  .mobile-create-button { color: hsl(var(--foreground)); width: 44px; margin-left: 0; }
+  .mobile-icon-button:focus-visible, .mobile-context-bar :is(button, a):focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -3px; }
+  /* Pages may opt into this host with real actions; the global shell adds no bottom navigation. */
+  .mobile-context-bar {
+    display: flex; align-items: center; justify-content: space-around; gap: 8px;
+    position: fixed; inset: auto 0 0; z-index: 35;
+    min-height: 56px; padding: 6px max(12px, env(safe-area-inset-right, 0px)) max(6px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid hsl(var(--border)); background: hsl(var(--background));
   }
-  .mobile-tab { display: flex; min-width: 0; min-height: 58px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
-  .mobile-tab-icon { display: grid; place-items: center; width: 48px; height: 31px; border-radius: 12px; }
-  .mobile-tab.is-active { color: hsl(var(--primary)); font-weight: 600; }
-  .mobile-tab.is-active .mobile-tab-icon { background: hsl(var(--primary) / .09); }
-  .mobile-tab:active .mobile-tab-icon { background: hsl(var(--accent)); }
+  .mobile-context-bar a, .mobile-context-bar button { min-height: 44px; }
+  [data-mobile-editing="true"] .mobile-context-bar { display: none; }
   .organize-page-heading { display: none; }
   .organize-page-header:has(> .organize-page-heading:only-child) { display: none; }
   .mobile-toolbar { display: flex; gap: 8px; align-items: center; }
@@ -56,7 +54,7 @@
   .organize-app-shell textarea:not(.note-title),
   .organize-dialog-content input:not([type="checkbox"]):not([type="radio"]),
   .organize-dialog-content textarea { font-size: 16px; }
-  .organize-dialog-overlay { z-index: 70; background: rgb(0 0 0 / .35); backdrop-filter: blur(3px); }
+  .organize-dialog-overlay { z-index: 70; background: rgb(0 0 0 / .35); }
   .organize-dialog-content {
     z-index: 70; left: 0; right: 0; top: auto;
     bottom: max(0px, calc(100dvh - var(--mobile-viewport-height, 100dvh) - var(--mobile-viewport-top, 0px)));
@@ -77,12 +75,28 @@
   .mobile-search-dialog [cmdk-list] { max-height: calc(var(--mobile-viewport-height, 100dvh) - 160px); }
   .mobile-search-dialog [cmdk-item] { min-height: 44px; }
   .mobile-search-dialog kbd { display: none; }
-  .mobile-navigation-sheet { display: flex; flex-direction: column; height: min(760px, calc(var(--mobile-viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px)); }
-  .mobile-navigation-sheet > div:last-of-type { min-height: 0; }
-  .mobile-navigation-sheet nav { padding: 0; }
+  /* The same Sidebar content is hosted in the existing Radix Dialog. */
+  .mobile-navigation-sheet.organize-dialog-content {
+    display: flex; flex-direction: column; gap: 0;
+    left: 0; right: auto; top: 0; bottom: 0;
+    width: min(320px, calc(100vw - 44px)); max-width: none;
+    height: 100dvh; max-height: 100dvh; overflow: hidden;
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    transform: none; translate: none; border: 0; border-radius: 0 12px 12px 0;
+    background: hsl(var(--sidebar)); animation: none !important;
+  }
+  .mobile-navigation-sheet.organize-dialog-content::before { display: none; }
+  .mobile-navigation-sheet .organize-sidebar-content { min-height: 0; flex: 1; }
+  .mobile-navigation-sheet .organize-sidebar-brand { min-height: 60px; padding-left: 20px; padding-right: 12px; }
+  .mobile-navigation-sheet .organize-sidebar-brand a { min-height: 44px; }
+  .mobile-navigation-sheet .organize-sidebar-search { padding: 0 12px 12px; }
+  .mobile-navigation-sheet .organize-sidebar-search > button { min-height: 44px; }
+  .mobile-navigation-sheet .organize-sidebar-search kbd { display: none; }
+  .mobile-navigation-sheet nav { padding: 0 12px 16px; }
   .mobile-navigation-sheet nav a { min-height: 44px; }
-  .mobile-navigation-sheet nav button { min-width: 40px; }
+  .mobile-navigation-sheet nav button { min-width: 44px; min-height: 44px; }
   .mobile-navigation-sheet nav > a { margin-top: 4px; }
+  .mobile-navigation-sheet .organize-task-subnav { margin-left: 20px; }
   .quick-add-dialog button[type="submit"] { min-width: 120px; }
   /* Detail pages own their toolbar. No second app header above it. */
   [data-mobile-detail="true"] .organize-main-content { padding-top: 0; }
@@ -134,8 +148,9 @@
   .dashboard-capture > button { min-height: 44px; }
   .dashboard-capture > button:last-child { margin-left: auto; min-width: 88px; }
   .reading-quick-add { display: none; }
-  .reading-status-tabs { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .reading-status-tabs > button { min-height: 44px; padding-left: 4px; padding-right: 4px; }
+  .reading-status-tabs { width: 100%; display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .reading-status-tabs::-webkit-scrollbar { display: none; }
+  .reading-status-tabs > button { min-height: 44px; flex: 0 0 auto; padding-left: 12px; padding-right: 12px; white-space: nowrap; }
   .reading-status-tabs > button > span { margin-left: 4px; }
   .memo-composer { padding: 16px; border-radius: 16px; box-shadow: none; }
   .memo-composer textarea { min-height: 108px; line-height: 1.7; }
@@ -153,3 +168,26 @@
 
 @keyframes mobile-sheet-in { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .organize-dialog-content { animation: none; } }
+
+/* Keep shell geometry and focus shared with the semantic-token layer. */
+@media (min-width: 768px) {
+  .organize-sidebar-content .organize-sidebar-brand { min-height: 60px; }
+  .organize-sidebar-content nav > a,
+  .organize-sidebar-content nav > div > div > a { font-size: 13px; }
+  .organize-page-header { gap: 24px; }
+}
+.organize-sidebar-content :is(a, button):focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: -2px;
+}
+.organize-sidebar-content .organize-sidebar-brand + .organize-sidebar-search { border-bottom: 0; }
+.organize-page-search-clear:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.organize-page-search-input:focus-visible {
+  border-color: hsl(var(--ring)); box-shadow: 0 0 0 2px hsl(var(--ring) / .18);
+}
+.organize-page-search-input::-webkit-search-cancel-button { appearance: none; }
+@media (max-width: 767px) {
+  .organize-page-search-input { height: 44px; padding-right: 48px; }
+  .organize-page-search-clear { right: 0; width: 44px; height: 44px; }
+  .mobile-navigation-sheet .organize-task-subnav-item { min-height: 44px; }
+  .mobile-navigation-sheet :is(a, button) { -webkit-tap-highlight-color: transparent; }
+}

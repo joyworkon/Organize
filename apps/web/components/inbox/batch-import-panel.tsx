@@ -170,12 +170,12 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
           <div className="space-y-2">
             {/* 进度汇总 */}
             <div className="flex items-center gap-3 text-xs">
-              <span className="text-green-600 flex items-center gap-1">
+              <span className="text-success flex items-center gap-1">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 成功 {stats.done}
               </span>
               {stats.duplicate > 0 && (
-                <span className="text-amber-600 flex items-center gap-1">
+                <span className="text-warning flex items-center gap-1">
                   <Copy className="h-3.5 w-3.5" />
                   跳过 {stats.duplicate}
                 </span>
@@ -187,7 +187,7 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                 </span>
               )}
               {stats.active > 0 && (
-                <span className="text-blue-600 flex items-center gap-1">
+                <span className="text-muted-foreground flex items-center gap-1">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   处理中 {stats.active}
                 </span>
@@ -216,17 +216,17 @@ export function BatchImportPanel({ onComplete }: BatchImportPanelProps) {
                   key={it.id}
                   className={cn(
                     "flex items-center gap-2 px-2 py-1.5 rounded text-sm",
-                    it.status === "done" && "bg-green-50 dark:bg-green-950/30",
-                    it.status === "duplicate" && "bg-amber-50 dark:bg-amber-950/30",
+                    it.status === "done" && "bg-success/5",
+                    it.status === "duplicate" && "bg-warning/5",
                     it.status === "failed" && "bg-destructive/5"
                   )}
                 >
                   <div className="shrink-0">
-                    {it.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-600" />}
-                    {it.status === "duplicate" && <Copy className="h-4 w-4 text-amber-600" />}
+                    {it.status === "done" && <CheckCircle2 className="h-4 w-4 text-success" />}
+                    {it.status === "duplicate" && <Copy className="h-4 w-4 text-warning" />}
                     {it.status === "failed" && <XCircle className="h-4 w-4 text-destructive" />}
                     {(it.status === "scraping" || it.status === "saving") && (
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     )}
                     {it.status === "pending" && (
                       <div className="h-4 w-4 rounded-full border-2 border-muted" />

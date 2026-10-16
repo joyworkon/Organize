@@ -109,7 +109,7 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
       )}
 
       {!hasFilter && recentMemos.length > 0 && (
-        <section aria-label="最近速记" className="rounded-lg border bg-card px-3 py-2">
+        <section aria-label="最近速记" className="border-b pb-4">
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><Feather className="h-3.5 w-3.5" />最近速记</span>
             <Link href="/library?view=memos" className="inline-flex items-center hover:text-foreground">
@@ -125,7 +125,7 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
       )}
 
       {loading ? (
-        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="资料库加载中">
+        <div className="divide-y" aria-busy="true" aria-label="资料库加载中">
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
           ))}
@@ -137,7 +137,7 @@ export function UnifiedView({ search, refreshTick }: UnifiedViewProps) {
           description={hasFilter ? "试试调整搜索或标签筛选" : "在上方输入框粘贴链接，或拖入文件"}
         />
       ) : (
-        <div className="grid gap-2 sm:gap-3">
+        <div className="divide-y">
           {items.map((item) => (
             <LibraryCard key={`${item.source_type}:${item.id}`} item={item} />
           ))}

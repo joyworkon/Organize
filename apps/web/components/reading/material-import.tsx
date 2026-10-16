@@ -102,7 +102,11 @@ export function MaterialImport({ onAdded }: { onAdded: () => void }) {
 
   return (
     <section aria-label="稍后读物料整理"
-      className={cn("rounded-lg border border-dashed px-4 py-3 transition-colors", dragging ? "border-primary bg-accent" : "border-border bg-muted/20")}
+      className={cn(
+        "rounded-lg border border-dashed transition-colors",
+        expanded ? "px-4 py-3" : "px-3.5 py-2",
+        dragging ? "border-primary bg-accent" : "border-border bg-muted/20"
+      )}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault(); event.stopPropagation();

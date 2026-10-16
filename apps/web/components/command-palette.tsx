@@ -235,12 +235,19 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-yellow-200 dark:bg-yellow-900/40 text-inherit rounded px-0.5">
+      <mark className="rounded bg-primary/15 px-0.5 font-medium text-primary-text">
         {text.slice(idx, idx + query.length)}
       </mark>
       {text.slice(idx + query.length)}
     </>
   );
+}
+
+function isSearchableQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) return false;
+  if (trimmed.length >= 2) return true;
+  return /[\u3400-\u9fff]/.test(trimmed);
 }
 
 function getRecentSearches(): string[] {
@@ -255,9 +262,11 @@ function getRecentSearches(): string[] {
 
 function saveRecentSearch(query: string) {
   if (typeof window === "undefined") return;
+  const normalized = query.trim();
+  if (!isSearchableQuery(normalized)) return;
   try {
-    const recent = getRecentSearches().filter((s) => s !== query);
-    recent.unshift(query);
+    const recent = getRecentSearches().filter((s) => s !== normalized);
+    recent.unshift(normalized);
     const trimmed = recent.slice(0, MAX_RECENT_SEARCHES);
     localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(trimmed));
   } catch {
@@ -357,9 +366,14 @@ export function CommandPalette() {
     },
   ]);
 
-  // 移动端底部搜索按钮：无实体键盘，经 window 事件打开同一面板
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  // 手机顶部/导航抽屉：经 window 事件打开同一面板。
   useEffect(() => {
-    const openPalette = () => setOpen(true);
+    const openPalette = (event: Event) => {
+      const target = (event as CustomEvent<{ returnFocus?: HTMLElement | null }>).detail?.returnFocus;
+      returnFocusRef.current = target instanceof HTMLElement ? target : null;
+      setOpen(true);
+    };
     window.addEventListener("organize:command-palette", openPalette);
     return () => window.removeEventListener("organize:command-palette", openPalette);
   }, []);
@@ -394,7 +408,7 @@ export function CommandPalette() {
   };
 
   const performSearch = useCallback(async (query: string) => {
-    if (query.length < 2) {
+    if (!isSearchableQuery(query)) {
       setResults([]);
       setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 });
       searchExecutedRef.current = false;
@@ -556,9 +570,6 @@ export function CommandPalette() {
 
         setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches]);
       }
-
-      saveRecentSearch(query);
-      setRecentSearches(getRecentSearches());
     } catch {
       setResults([]);
     } finally {
@@ -622,11 +633,19 @@ export function CommandPalette() {
   };
 
   const handleSelect = (path: string) => {
+    if (isSearchableQuery(searchQuery)) {
+      saveRecentSearch(searchQuery);
+      setRecentSearches(getRecentSearches());
+    }
     setOpen(false);
     router.push(path);
   };
 
   const handleTagSelect = (tag: TagType) => {
+    if (isSearchableQuery(searchQuery)) {
+      saveRecentSearch(searchQuery);
+      setRecentSearches(getRecentSearches());
+    }
     setOpen(false);
     router.push(`/tags?tag=${tag.id}`);
   };
@@ -736,13 +755,20 @@ export function CommandPalette() {
   };
 
   const hasResults = results.length > 0;
-  const showSearch = searchQuery.length >= 2;
+  const showSearch = isSearchableQuery(searchQuery);
   const showEmptyState = showSearch && !loading && !hasResults && searchExecutedRef.current;
   const showRecentSearches = !showSearch && !linkInputOpen && recentSearches.length > 0;
 
   return (
     <>
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog open={open} onOpenChange={setOpen} onCloseAutoFocus={(event) => {
+        const target = returnFocusRef.current;
+        returnFocusRef.current = null;
+        if (target?.isConnected) {
+          event.preventDefault();
+          target.focus();
+        }
+      }}>
         <CommandInput
           placeholder="搜索或输入命令..."
           value={searchQuery}

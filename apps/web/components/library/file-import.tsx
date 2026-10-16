@@ -37,7 +37,13 @@ interface PendingFile {
 // retryKey 已并入 ImportFileResult（阶段 1）；file 是内存中的待重试句柄（刷新后丢失，走列表重选流程）
 type QueueRow = ImportFileResult & { file?: File };
 
-export function FileImport({ onImported }: { onImported: () => void }) {
+export function FileImport({
+  onImported,
+  compact = false,
+}: {
+  onImported: () => void;
+  compact?: boolean;
+}) {
   const [dragging, setDragging] = useState(false);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [running, setRunning] = useState(false);
@@ -141,11 +147,14 @@ export function FileImport({ onImported }: { onImported: () => void }) {
     void submit([{ file: row.file, retryKey: row.retryKey }]);
   };
 
+  const isCompactIdle = compact && queue.length === 0 && !running;
+
   return (
     <section
       aria-label="文件导入"
       className={cn(
-        "rounded-lg border border-dashed px-4 py-3 transition-colors",
+        "rounded-lg border border-dashed transition-colors",
+        isCompactIdle ? "px-3.5 py-2" : "px-4 py-3",
         dragging ? "border-primary bg-accent" : "border-border bg-muted/20",
       )}
       onDragOver={(event) => {
@@ -189,10 +198,12 @@ export function FileImport({ onImported }: { onImported: () => void }) {
           }}
         />
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        每次最多 6 个文件、合计 20MB；PDF 限 200 页，Excel 限 50 个工作表 / 10 万单元格。
-        扫描型 PDF 会提示需要 OCR；加密、损坏或超限文件会分别说明原因，原件保留、可单独重试。
-      </p>
+      {!isCompactIdle && (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          每次最多 6 个文件、合计 20MB；PDF 限 200 页，Excel 限 50 个工作表 / 10 万单元格。
+          扫描型 PDF 会提示需要 OCR；加密、损坏或超限文件会分别说明原因，原件保留、可单独重试。
+        </p>
+      )}
 
       {queue.length > 0 && (
         <ul className="mt-3 space-y-1.5" aria-label="导入结果">

@@ -4,96 +4,78 @@
 
 @layer base {
   :root {
-    /* 石墨中性 + 石板蓝（2026-09-16 改版第二步，代号 Cairn 阶段一）：
-       冷中性灰白底 / 石墨字 / 低饱和石板蓝品牌，圆角比 D02 更紧。
-       原 D02 暖纸感（bg #F7F6F2 / 品牌陶土橙 #A4472B）已整体替换。
-       目标值换算为 HSL：
-       bg #FAFAFA=0 0% 98% · surface #FFFFFF · sidebar #F7F8F9=220 14% 97%
-       text #20242B=220 10% 14% · muted #69707C=220 6% 44% · border #E3E5E9=220 11% 90%
-       selected #EEF0F3=220 13% 94% · brand #4D7096≈215 32% 44.5% · error #B42318=4 76% 40%
-       success #356446=142 31% 30%。
-       品牌色只出现在"可点的地方"（主动作/链接/选中指示/进度）；
-       hover/选中底色一律中性（accent），彩色仅品牌与语义状态。 */
-    --background: 211 100% 98%;
-    --foreground: 218 16% 15%;
+    /* Cairn / Codex-inspired workspace. Values mirror docs/design/tokens.json. */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 12.55%;
     --card: 0 0% 100%;
-    --card-foreground: 220 10% 14%;
+    --card-foreground: 0 0% 12.55%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 10% 14%;
-    --primary: 3 82% 46%;
+    --popover-foreground: 0 0% 12.55%;
+    --primary: 0 0% 12.55%;
     --primary-foreground: 0 0% 100%;
-    /* C02：品牌安全文本色（text-primary 解析到这里），随品牌经 use-theme-color inline 覆盖 */
-    --primary-text: 3 75% 42%;
-    --secondary: 211 68% 96%;
-    --secondary-foreground: 220 10% 14%;
-    --muted: 210 32% 96%;
-    /* 蓝色画布上的次要正文仍须达到 WCAG AA（14px 文字至少 4.5:1）。 */
-    --muted-foreground: 220 6% 40%;
-    --accent: 211 63% 94%;
-    --accent-foreground: 220 10% 14%;
-    --destructive: 4 76% 40%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 213 24% 89%;
-    --input: 213 20% 84%;
-    --ring: 3 82% 46%;
-    /* 壳层表面（R08/D02）：侧栏独立于内容纸面 */
-    --sidebar: 211 72% 97%;
-    --sidebar-foreground: 220 10% 14%;
-    /* 语义成功色（保存成功等状态配文字使用） */
-    --success: 142 31% 30%;
-    --success-foreground: 0 0% 98%;
+    --primary-text: 0 0% 12.55%;
+    --secondary: 0 0% 96.08%;
+    --secondary-foreground: 0 0% 12.55%;
+    --muted: 0 0% 96.08%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 0 0% 94.12%;
+    --accent-foreground: 0 0% 12.55%;
+    --destructive: 4.23 76.47% 40%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 50.2%;
+    --ring: 0 0% 12.55%;
+    --sidebar: 0 0% 97.65%;
+    --sidebar-foreground: 0 0% 12.55%;
+    --success: 151.43 46.67% 26.47%;
+    --success-foreground: 0 0% 100%;
+    --selected: 0 0% 91.37%;
+    --link: 211.26 62.3% 37.45%;
+    --warning: 36.35 100% 26.86%;
+    --control-border: 0 0% 50.2%;
+    --note-chrome-offset: calc(3.25rem + env(safe-area-inset-top, 0px));
     --radius: 0.5rem;
-    /* 连续曲率圆角层级（参考 Apple HIG）：
-       外层容器大、内层元素递减；嵌套时内圆角 ≈ 外圆角 − 内边距，保持同心。
-       在支持 corner-shape 的浏览器中全局启用 squircle（连续曲率），其余回退普通圆角。 */
-    --radius-xs: 4px;   /* 极小元素：徽标、计数角标 */
-    --radius-sm: 6px;   /* 小控件：chip、checkbox、小按钮 */
-    --radius-md: 6px;   /* 按钮、输入框、日历事件卡 */
-    --radius-lg: 8px;   /* 弹层、菜单、小卡片 */
-    --radius-xl: 12px;  /* 卡片、面板 */
-    --radius-2xl: 16px; /* 对话框、大浮层 */
-    /* 阴影层级：极简风以边框分工为主，阴影只做轻浮动提示
-       （xs 列表悬浮 / sm 小浮层 / md 弹层菜单 / lg 对话框） */
-    --shadow-xs: 0 1px 2px hsl(220 20% 10% / 0.05);
-    --shadow-sm: 0 1px 3px hsl(220 20% 10% / 0.07), 0 1px 2px hsl(220 20% 10% / 0.04);
-    --shadow-md: 0 4px 12px hsl(220 20% 10% / 0.10), 0 2px 4px hsl(220 20% 10% / 0.05);
-    --shadow-lg: 0 12px 32px hsl(220 20% 10% / 0.14), 0 4px 8px hsl(220 20% 10% / 0.05);
-  }
-
-  /* 连续曲率圆角：corner-shape 可继承，根节点启用一次全局生效；
-     不支持的浏览器（如 Safari 18 及更早）自动回退为普通圆角 */
-  @supports (corner-shape: squircle) {
-    :root {
-      corner-shape: squircle;
-    }
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 12px;
+    --radius-2xl: 16px;
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-md: 0 6px 24px #00000014;
+    --shadow-lg: 0 16px 64px #00000026;
   }
 
   .dark {
-    /* 暗色（石墨中性 + 石板蓝）：冷石墨 #17181B 底 / #1E2024 纸面 / 石板蓝提亮 */
-    --background: 220 8% 10%;          /* #17181B */
-    --foreground: 210 12% 92%;         /* #E7EAEE */
-    --card: 220 8% 13%;                /* #1E2024 */
-    --card-foreground: 210 12% 92%;
-    --popover: 220 8% 13%;
-    --popover-foreground: 210 12% 92%;
-    --primary: 215 29% 58%;            /* #7595BB */
-    --primary-foreground: 220 10% 10%; /* #17191C */
-    --primary-text: 215 29% 58%;
-    --secondary: 220 7% 17%;
-    --secondary-foreground: 210 12% 92%;
-    --muted: 220 7% 16%;
-    --muted-foreground: 215 8% 66%;    /* #9FA6B0 */
-    --accent: 220 8% 20%;              /* #2E3238 */
-    --accent-foreground: 210 12% 92%;
-    --destructive: 7 83% 79%;          /* #F6A99F */
-    --destructive-foreground: 20 8% 9%;
-    --border: 220 7% 23%;              /* #363A40 */
-    --input: 220 7% 23%;
-    --ring: 215 29% 58%;
-    --sidebar: 220 9% 11%;             /* #1A1C1F */
-    --sidebar-foreground: 210 12% 92%;
-    --success: 134 31% 71%;            /* #9DCCA8 */
-    --success-foreground: 220 8% 10%;
+    --background: 0 0% 9.8%;
+    --foreground: 0 0% 93.33%;
+    --card: 0 0% 12.94%;
+    --card-foreground: 0 0% 93.33%;
+    --popover: 0 0% 12.94%;
+    --popover-foreground: 0 0% 93.33%;
+    --primary: 0 0% 93.33%;
+    --primary-foreground: 0 0% 9.8%;
+    --primary-text: 0 0% 93.33%;
+    --secondary: 0 0% 14.51%;
+    --secondary-foreground: 0 0% 93.33%;
+    --muted: 0 0% 14.51%;
+    --muted-foreground: 0 0% 63.92%;
+    --accent: 0 0% 17.25%;
+    --accent-foreground: 0 0% 93.33%;
+    --destructive: 5.57 100% 80.98%;
+    --destructive-foreground: 0 0% 9.8%;
+    --border: 0 0% 21.96%;
+    --input: 0 0% 52.16%;
+    --ring: 0 0% 93.33%;
+    --sidebar: 0 0% 8.24%;
+    --sidebar-foreground: 0 0% 93.33%;
+    --success: 143.82 42.5% 68.63%;
+    --success-foreground: 0 0% 9.8%;
+    --selected: 0 0% 20.39%;
+    --link: 210.68 75.86% 77.25%;
+    --warning: 38.57 70% 68.63%;
+    --control-border: 0 0% 52.16%;
   }
 }
 
@@ -111,7 +93,9 @@
     @apply bg-background text-foreground;
     font-family: "MiSans VF", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     /* Use font-weight so bold/headings can select their own variable-font weight. */
-    font-weight: 330;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 1.5714286;
   }
   a {
     color: inherit;
@@ -163,8 +147,9 @@
 }
 .note-page .note-title {
   padding-right: 0;
-  font-size: 2.5rem;
-  line-height: 1.2;
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.3125;
 }
 /* 标题占位符：浅灰底纹样式，非实体文字；输入后由浏览器自动隐藏 */
 .note-page .note-title::placeholder {
@@ -441,8 +426,11 @@
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s ease;
 }
-/* 桌面端标签页条常驻吸顶（高 40px），笔记页顶栏贴其下方吸顶 */
+/* 桌面端标签页条常驻吸顶（高 40px），笔记页顶栏贴其下方吸顶（合计 84px） */
 @media (min-width: 768px) {
+  :root {
+    --note-chrome-offset: 84px;
+  }
   .note-topbar {
     top: 40px;
   }
@@ -528,7 +516,7 @@
 /* ------------------------- 版本历史面板 ------------------------- */
 .note-history {
   position: fixed;
-  top: 44px; /* 顶栏高度，与目录面板一致 */
+  top: var(--note-chrome-offset, 84px); /* 紧贴标签页条 + 笔记顶栏下方 */
   right: 0;
   bottom: 0;
   width: 300px;
@@ -659,7 +647,7 @@
 /* 历史版本预览横幅与 diff 高亮 */
 .note-history-banner {
   position: sticky;
-  top: 44px;
+  top: var(--note-chrome-offset, 84px);
   z-index: 25;
   display: flex;
   flex-wrap: wrap;
@@ -1475,6 +1463,7 @@
   background: hsl(var(--primary));
 }
 .table-settings-switch i.is-on b {
+  background: hsl(var(--primary-foreground));
   transform: translateX(0.875rem);
 }
 .table-settings-color {
@@ -1606,10 +1595,10 @@
   z-index: 130;
   pointer-events: none;
   color: hsl(var(--muted-foreground));
-  --table-control-blue: hsl(205 86% 55%);
-  --table-control-blue-soft: hsl(205 86% 55% / 0.15);
-  --table-control-danger: hsl(0 72% 52%);
-  --table-control-danger-soft: hsl(0 72% 52% / 0.12);
+  --table-control-blue: hsl(var(--primary));
+  --table-control-blue-soft: hsl(var(--primary) / 0.12);
+  --table-control-danger: hsl(var(--destructive));
+  --table-control-danger-soft: hsl(var(--destructive) / 0.12);
 }
 .table-direct-controls button {
   display: inline-flex;
@@ -1669,7 +1658,7 @@
 .table-corner-handle.is-selected {
   border-color: var(--table-control-blue);
   background: var(--table-control-blue);
-  color: white;
+  color: hsl(var(--primary-foreground));
 }
 .table-row-control,
 .table-column-control {
@@ -1720,7 +1709,7 @@
 .table-row-control > .table-axis-grip.is-selected,
 .table-column-control > .table-axis-grip.is-selected {
   background: var(--table-control-blue);
-  color: white;
+  color: hsl(var(--primary-foreground));
 }
 .table-row-actions,
 .table-column-actions {
@@ -1830,7 +1819,7 @@
   border-radius: 4px;
   pointer-events: none;
   background: var(--table-control-blue);
-  color: white;
+  color: hsl(var(--primary-foreground));
   box-shadow: 0 6px 16px hsl(205 86% 30% / 0.22);
   font-size: 0.75rem;
   font-weight: 600;
@@ -3301,8 +3290,8 @@
   grid-template-columns: auto minmax(0, 1fr) 232px;
   align-items: center;
   gap: 16px;
-  min-height: 58px;
-  padding: 10px 0;
+  min-height: 48px;
+  padding: 6px 0;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--background) / 0.94);
   backdrop-filter: blur(10px);
@@ -3351,11 +3340,11 @@
 }
 .dashboard-view-header {
   display: grid;
-  min-height: 52px;
+  min-height: 44px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-content: center;
   align-items: center;
-  gap: 4px 16px;
+  gap: 2px 16px;
 }
 .dashboard-view-header > div:first-child { display: contents; }
 .dashboard-view-header h1 { grid-column: 1; grid-row: 1; }
@@ -3366,7 +3355,8 @@
 .dashboard-view-header p { margin-top: 0; color: hsl(var(--muted-foreground)); font-size: 13px; }
 .dashboard-view-actions { flex: 0 0 auto; }
 .dashboard-content-grid { display: grid; min-width: 0; gap: 16px; }
-.dashboard-card { min-width: 0; border: 1px solid hsl(var(--border) / 0.65); border-radius: 12px; }
+.dashboard-card { min-width: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.dashboard-section-body { padding: 0; }
 .dashboard-section-heading { display: flex; min-height: 24px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .dashboard-section-heading h2 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
 .dashboard-loading { display: flex; min-height: 256px; align-items: center; justify-content: center; gap: 8px; color: hsl(var(--muted-foreground)); font-size: 14px; }
@@ -3700,11 +3690,11 @@
 .note-search-results li button.active { background: hsl(var(--accent)); }
 .note-search-type { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
 .note-search-snippet { min-width: 0; flex: 1; font-size: 13px; color: hsl(var(--foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.note-search-snippet mark { background: hsl(16 85% 50% / .18); color: inherit; border-radius: 3px; padding: 0 1px; }
+.note-search-snippet mark { background: hsl(var(--primary) / .12); color: inherit; border-radius: 3px; padding: 0 1px; }
 /* 跳转命中块的短暂高亮 */
 .organize-editor .organize-search-hit { animation: search-hit-fade 2.4s ease-out; }
 @keyframes search-hit-fade {
-  0%, 55% { background: hsl(16 85% 50% / .16); box-shadow: -8px 0 0 0 hsl(16 85% 50% / .16), 8px 0 0 0 hsl(16 85% 50% / .16); }
+  0%, 55% { background: hsl(var(--primary) / .1); box-shadow: -8px 0 0 0 hsl(var(--primary) / .1), 8px 0 0 0 hsl(var(--primary) / .1); }
   100% { background: transparent; box-shadow: none; }
 }
 
@@ -3715,7 +3705,7 @@
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: hsl(16 85% 50% / .15);
+  background: hsl(var(--primary) / .1);
   color: hsl(var(--foreground));
   font-size: 10px;
   font-weight: 600;
@@ -5416,19 +5406,7 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
 
 /* Notes keep the original neutral page; red/blue is an explicit per-note template. */
 .note-page {
-  --background: 0 0% 98%;
-  --muted: 220 10% 96%;
-  --accent: 220 13% 94%;
-  --primary: 215 32% 44.5%;
-  --primary-text: 215 32% 44.5%;
   background: hsl(var(--background));
-}
-.dark .note-page {
-  --background: 220 8% 10%;
-  --muted: 220 7% 16%;
-  --accent: 220 8% 20%;
-  --primary: 215 29% 58%;
-  --primary-text: 215 29% 58%;
 }
 /* The page owns the canvas. Outer layout padding caused a frame on all four sides. */
 .organize-main-content:has(> .note-page) { padding: 0; }
@@ -5731,23 +5709,33 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
 .canvas-tool-btn:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .canvas-tool-btn:disabled { opacity: 0.4; cursor: default; }
 
-/* 横幅（草稿恢复 / 冲突） */
-.canvas-banner {
+/* 草稿/冲突独立堆叠在工作区底部，保留顶部预览提示。 */
+.canvas-feedback {
   position: absolute;
-  top: 56px;
+  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 60;
+  width: min(92%, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.canvas-feedback:empty { display: none; }
+.canvas-banner {
+  pointer-events: auto;
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: min(92%, 640px);
+  max-width: 100%;
   padding: 8px 12px;
   font-size: 13px;
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-md);
 }
 .canvas-banner.is-warning { border-color: hsl(var(--destructive) / 0.5); }
 .canvas-banner-btn {
@@ -5783,7 +5771,7 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
   align-self: flex-start;
 }
 .canvas-add-panel {
@@ -5797,7 +5785,7 @@ body.organize-notch-body, body.organize-notch-body > main { height: 100dvh; }
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
 }
 .canvas-add-panel-expand {
   position: absolute;
@@ -6397,7 +6385,10 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
+  max-height: calc(100% - 148px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .canvas-prop-title { font-size: 13px; font-weight: 600; }
 .canvas-prop-subtitle {
@@ -6442,9 +6433,10 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   color: hsl(var(--muted-foreground));
 }
 .canvas-seg.is-active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-color: hsl(var(--primary));
+  background: hsl(var(--selected));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--control-border));
+  font-weight: 600;
 }
 .canvas-swatch-row { display: flex; gap: 4px; flex-wrap: wrap; }
 .canvas-swatch {
@@ -6480,7 +6472,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-xl);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
 }
 .canvas-zoom-value { width: 44px; text-align: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .canvas-zoom-fit { padding: 4px 6px; font-size: 12px; border-radius: var(--radius-md); color: hsl(var(--muted-foreground)); }
@@ -6777,4 +6769,45 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 @media (max-width: 767px) {
   .dashboard-view-switcher-tools { display: grid; grid-template-columns: 1fr; width: 100%; }
   .dashboard-search-slot { width: 100%; }
+}
+
+/* Shared workspace focus and capture surface; no editor coordinate changes. */
+:where(a, button, input:not(.note-title), textarea:not(.note-title), select, [tabindex]:not([contenteditable="true"])):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.dashboard-capture { border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--muted) / .6); padding: 12px; }
+.dashboard-capture-fields { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dashboard-capture-input { width: 100%; min-width: 0; }
+.dashboard-capture-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.dashboard-capture textarea { width: 100%; font-size: 14px; line-height: 22px; }
+.dashboard-capture:focus-within { border-color: hsl(var(--input)); }
+.note-page:not(.note-page-small) .organize-editor.prose { font-size: 16px; line-height: 1.8125; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.dashboard-capture textarea:focus-visible { outline: none; }
+.dashboard-capture:has(textarea:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+@media (max-width: 767px) {
+  .task-calendar-header { gap: 8px; padding: 12px 0; }
+  .task-calendar-header > div { width: 100%; margin-left: 0; justify-content: space-between; gap: 2px; }
+  .task-calendar-header button { min-height: 44px; min-width: 40px; padding-inline: 8px; }
+}
+
+/* Formal adoption: chrome dimensions are independent from canvas world geometry. */
+@media (min-width: 768px) {
+  .organize-calendar-screen { height: calc(100dvh - 112px); min-height: 420px; }
+}
+.canvas-title-input { min-height: 32px; }
+.canvas-prop-input, .canvas-prop-btn, .canvas-seg, .canvas-banner-btn, .canvas-zoom-fit { min-height: 32px; }
+.canvas-zoom { bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+.canvas-mobile-notice { max-width: calc(100vw - 32px); white-space: normal; text-align: center; top: calc(env(safe-area-inset-top, 0px) + 56px); }
+@media (pointer: coarse) {
+  .canvas-header-back, .canvas-tool-btn, .canvas-zoom-fit { min-width: 44px; min-height: 44px; }
+  .canvas-header { height: 52px; gap: 4px; padding-inline: 4px; }
+  .canvas-prop-input { min-height: 44px; font-size: 16px; }
+  .canvas-prop-btn, .canvas-seg, .canvas-banner-btn, .canvas-prop-danger { min-height: 44px; }
+  .canvas-swatch { position: relative; margin: 6px; width: 24px; height: 24px; }
+  .canvas-swatch::after { content: ''; position: absolute; inset: -10px; }
 }

@@ -22,6 +22,10 @@ const config: Config = {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        selected: "hsl(var(--selected))",
+        link: "hsl(var(--link))",
+        warning: "hsl(var(--warning))",
+        "control-border": "hsl(var(--control-border))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         primary: {

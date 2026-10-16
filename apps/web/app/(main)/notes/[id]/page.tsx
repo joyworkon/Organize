@@ -797,6 +797,25 @@ export default function NoteEditorPage() {
     autoGrowTitle();
   }, [title, fullWidth, loading, autoGrowTitle]);
 
+  // Viewport/panel width and font loading can wrap an unchanged title too.
+  // Observe only width so the height update cannot cause an observer loop.
+  useEffect(() => {
+    const element = titleRef.current;
+    if (loading || !element) return;
+    let width = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      autoGrowTitle();
+    });
+    observer.observe(element);
+    window.addEventListener("organize:fonts-ready", autoGrowTitle);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("organize:fonts-ready", autoGrowTitle);
+    };
+  }, [loading, noteId, autoGrowTitle]);
+
   // 新建/无标题笔记：加载完成后自动聚焦标题（光标闪动），便于立即输入。
   // 根因（偶发「首字落进标题」）：笔记数据异步加载，正文编辑器可能先于 loading=false 可点击；
   // 用户点进正文后，加载完成触发本 effect 时焦点已因编辑器重建等回到 body，
@@ -1469,7 +1488,7 @@ export default function NoteEditorPage() {
       {/* 本机草稿写入失败：持续错误条（不自动消失），提供 R02 的本地快照导出入口 */}
       {localDraftPersistFailed && (
         <div
-          className="flex items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300"
+          className="flex items-center justify-between gap-3 border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning"
           role="alert"
         >
           <span>本机草稿未能保存，请导出当前内容或保持页面打开</span>

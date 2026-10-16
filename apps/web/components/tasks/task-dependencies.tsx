@@ -108,7 +108,7 @@ export function TaskDependencies({ task, onOpenTask }: TaskDependenciesProps) {
           依赖关系
         </h3>
         {view.blockingPrerequisites.length > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
             <LockKeyhole className="h-3 w-3" />
             被 {view.blockingPrerequisites.length} 项阻塞
           </span>
@@ -120,7 +120,7 @@ export function TaskDependencies({ task, onOpenTask }: TaskDependenciesProps) {
           aria-label="选择前置任务"
           value={candidateId}
           onChange={(event) => setCandidateId(event.target.value)}
-          className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
+          className="h-8 min-h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-base leading-6 md:min-h-8 md:text-sm"
         >
           <option value="">添加前置任务…</option>
           {candidates.map((item) => (
@@ -134,7 +134,7 @@ export function TaskDependencies({ task, onOpenTask }: TaskDependenciesProps) {
           aria-label="添加前置任务"
           disabled={!candidateId || saving}
           onClick={() => void addDependency()}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-md border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:h-8 md:w-8"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -182,14 +182,14 @@ function DependencyList({
           {tasks.map((item) => (
             <div key={item.id} className="flex min-h-10 items-center gap-2 rounded-md border px-3">
               {item.status === "done" ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
               ) : (
-                <Circle className="h-4 w-4 shrink-0 text-amber-600" />
+                <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <button
                 type="button"
                 onClick={() => onOpenTask(item.id)}
-                className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                className="min-h-11 min-w-0 flex-1 truncate text-left text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:min-h-8"
               >
                 {item.title}
               </button>
@@ -198,7 +198,7 @@ function DependencyList({
                   type="button"
                   aria-label={`移除前置任务 ${item.title}`}
                   onClick={() => onRemove(item.id)}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded hover:bg-muted"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8"
                 >
                   <X className="h-4 w-4" />
                 </button>

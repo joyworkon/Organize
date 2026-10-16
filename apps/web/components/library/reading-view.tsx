@@ -349,12 +349,37 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
   };
 
   const deleteItem = async (id: string) => {
-    if (!confirm("将这篇文章移入垃圾箱？之后可以恢复。")) return;
+    const removedItem = items.find((it) => it.id === id);
     try {
       await mutateTrash("reading_item", [id], "soft_delete");
       setItems((prev) => prev.filter((it) => it.id !== id));
       fetchStats();
-      toast({ title: "文章已移入垃圾箱" });
+      const createdToast = toast({
+        title: "文章已移入垃圾箱",
+        action: (
+          <button
+            type="button"
+            className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            onClick={async () => {
+              createdToast.dismiss();
+              try {
+                await mutateTrash("reading_item", [id], "restore");
+                if (removedItem) {
+                  setItems((prev) => (prev.some((it) => it.id === id) ? prev : [removedItem, ...prev]));
+                } else {
+                  void fetchItems(false);
+                }
+                fetchStats();
+                toast({ title: "已恢复文章" });
+              } catch {
+                toast({ title: "恢复失败，请在垃圾箱中重试", variant: "destructive" });
+              }
+            }}
+          >
+            撤销
+          </button>
+        ),
+      });
     } catch (error) {
       toast({
         title: "删除失败",
@@ -638,7 +663,7 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
       )}
 
       {loading ? (
-        <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="文章加载中">
+        <div className="grid gap-0" aria-busy="true" aria-label="文章加载中">
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
           ))}
@@ -680,7 +705,7 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
           }}
         />
       ) : (
-        <div className="grid gap-2 sm:gap-3">
+        <div className="grid gap-0">
           {sortedItems.map((item) => {
             const Wrapper = showCheckbox ? "div" : Link;
             const wrapperProps = showCheckbox

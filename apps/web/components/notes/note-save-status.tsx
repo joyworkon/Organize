@@ -33,7 +33,7 @@ export function NoteSaveStatus({
         </span>
       )}
       {pendingSyncedBlocks > 0 && (
-        <span className="text-amber-600 dark:text-amber-300" role="status">
+        <span className="text-warning" role="status">
           {pendingSyncedBlocks} 个同步块待同步
         </span>
       )}
@@ -50,7 +50,7 @@ export function NoteSaveStatus({
             </>
           ) : lastSaved ? (
             <>
-              <Check className="h-3 w-3 text-green-500" />
+              <Check className="h-3 w-3 text-success" />
               已保存 {lastSaved.toLocaleTimeString("zh-CN")}
             </>
           ) : null}

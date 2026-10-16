@@ -33,7 +33,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
-import { useThemeColor } from "@/hooks/use-theme-color";
 import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
 import { useNoteGroups } from "@/hooks/use-note-groups";
 import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged } from "@/lib/notes/groups";
@@ -96,6 +95,7 @@ export function Sidebar() {
   const isTaskListContext = isTaskWorkspace && !isGlobalTaskTool;
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuTriggerRef = useRef<HTMLElement | null>(null);
+  const openSearchAfterCloseRef = useRef(false);
   useEffect(() => {
     const openNavigation = () => {
       menuTriggerRef.current = document.activeElement as HTMLElement | null;
@@ -105,6 +105,15 @@ export function Sidebar() {
     return () => window.removeEventListener("organize:navigation", openNavigation);
   }, []);
   useEffect(() => { setMobileOpen(false); }, [pathname, searchParams]);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("organize:navigation-state", { detail: { open: mobileOpen } }));
+  }, [mobileOpen]);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = () => { if (query.matches) setMobileOpen(false); };
+    query.addEventListener("change", closeOnDesktop);
+    return () => query.removeEventListener("change", closeOnDesktop);
+  }, []);
   const [collapsed, setCollapsed] = useState(false);
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
@@ -117,7 +126,6 @@ export function Sidebar() {
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
-  useThemeColor();
   const hasSharedNotes = useHasSharedNotes();
   const hasTeamWorkspaces = useHasTeamWorkspaces();
 // 一级导航 = 静态项 + 条件项（与我共享 / 协作空间，插在「资料库」之后成组；
@@ -326,40 +334,21 @@ const visibleNavItems = useMemo(() => {
     collapsible?: boolean;
     onClose?: () => void;
   }) => (
-    <div className="flex h-full flex-col">
-      {/* 展开态：顶部搜索入口（打开全局命令面板）+ 品牌行，参考 Capacities 侧边栏 */}
-      {!compact && !onClose && (
-        <div className="border-b px-3 pb-2.5 pt-3">
-          <button
-            type="button"
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent("organize:command-palette"));
-            }}
-            title="搜索或访问（⌘K）"
-            aria-label="搜索或访问"
-            className="flex w-full items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <Search className="h-4 w-4 shrink-0" />
-            <span className="flex-1 truncate text-left">搜索或访问</span>
-            <kbd className="rounded border bg-background px-1 font-mono text-[10px]">⌘K</kbd>
-          </button>
-        </div>
-      )}
+    <div className="organize-sidebar-content flex h-full min-h-0 flex-col">
       <div
         className={cn(
-          "flex h-12 items-center border-b",
-          onClose && "hidden",
+          "organize-sidebar-brand flex h-14 shrink-0 items-center",
           compact ? "justify-center gap-0 px-0.5" : "justify-between px-4"
         )}
       >
         <Link
-          href="/library"
-          className={cn("flex items-center font-bold text-lg", compact ? "gap-0" : "gap-2")}
+          href="/"
+          className={cn("flex items-center text-lg font-semibold", compact ? "hidden" : "gap-2")}
           title={compact ? "Cairn" : undefined}
           aria-label={compact ? "Cairn 首页" : undefined}
           onClick={onClose}
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm shrink-0">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-foreground text-sm">
             C
           </span>
           {!compact && <span className="truncate">Cairn</span>}
@@ -397,7 +386,25 @@ const visibleNavItems = useMemo(() => {
         </div>
       </div>
 
-      <nav className={cn("flex-1 space-y-1 overflow-y-auto", compact ? "px-2 py-3" : "p-3")}>
+      <div className={cn("organize-sidebar-search px-3 pb-3", compact && "px-2")}>
+        <button
+          type="button"
+          onClick={() => {
+            if (onClose) {
+              openSearchAfterCloseRef.current = true;
+              onClose();
+            } else window.dispatchEvent(new CustomEvent("organize:command-palette"));
+          }}
+          title="搜索全部内容（⌘K）"
+          aria-label="搜索全部内容"
+          className={cn("flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", compact && "justify-center px-0")}
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          {!compact && <><span className="flex-1 truncate text-left">搜索全部内容</span><kbd className="rounded border px-1 font-mono text-[10px]">⌘K</kbd></>}
+        </button>
+      </div>
+      <nav aria-label="应用导航" className={cn("min-h-0 flex-1 space-y-1 overflow-y-auto", compact ? "px-2 pb-3" : "px-3 pb-3")}>
+
         {visibleNavItems.map((item) => {
           const isActive = item.href === "/"
             ? pathname === "/"
@@ -417,6 +424,7 @@ const visibleNavItems = useMemo(() => {
                 >
                   <Link
                     href="/library"
+                    aria-current={isActive ? "page" : undefined}
                     onClick={() => setMobileOpen(false)}
                     className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
                   >
@@ -478,7 +486,7 @@ const visibleNavItems = useMemo(() => {
                             title={`${tag.name}（文章 ${tag.reading_item_count || 0} · 笔记 ${tag.note_count || 0}）`}
                           >
                             <TagBadge tag={tag} size="sm" />
-                            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/70">
+                            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
                               {tag.reading_item_count || 0}
                             </span>
                           </Link>
@@ -512,6 +520,7 @@ const visibleNavItems = useMemo(() => {
                 >
                   <Link
                     href="/tasks?scope=all"
+                    aria-current={isActive ? "page" : undefined}
                     onClick={() => {
                       setTasksExpanded(true);
                       localStorage.setItem(TASK_NAV_EXPANDED_KEY, "1");
@@ -566,6 +575,7 @@ const visibleNavItems = useMemo(() => {
                 >
                   <Link
                     href="/notes"
+                    aria-current={isActive ? "page" : undefined}
                     onClick={() => setMobileOpen(false)}
                     className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3"
                   >
@@ -603,7 +613,7 @@ const visibleNavItems = useMemo(() => {
                 </div>
                 {/* 侧栏只保留一处「最近」：笔记树收起时在笔记分组下显示最近打开的 5 篇，
                     展开树时由树替代——不再在导航顶部另起一个与树重复的「最近」列表 */}
-                {!notesExpanded && !onClose && recentNotes.length > 0 && (
+                {!notesExpanded && recentNotes.length > 0 && (
                   <div className="mt-1 px-2" aria-label="最近打开的笔记" role="group">
                     {recentNotes.slice(0, 5).map((recent) => {
                       const active = pathname === `/notes/${recent.id}`;
@@ -620,7 +630,7 @@ const visibleNavItems = useMemo(() => {
                           )}
                           title={recent.title || "无标题笔记"}
                         >
-                          <span className="shrink-0 leading-none">{recent.icon || "📄"}</span>
+                          <span className="shrink-0 leading-none">{recent.icon || <FileText className="h-3.5 w-3.5" />}</span>
                           <span className="truncate">{recent.title || "无标题笔记"}</span>
                         </Link>
                       );
@@ -650,6 +660,7 @@ const visibleNavItems = useMemo(() => {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={isActive ? "page" : undefined}
               onClick={() => setMobileOpen(false)}
               title={compact ? item.label : undefined}
               aria-label={compact ? item.label : undefined}
@@ -701,10 +712,19 @@ const visibleNavItems = useMemo(() => {
       </aside>
 
       <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
-        <DialogContent className="mobile-navigation-sheet" onCloseAutoFocus={(event) => { event.preventDefault(); menuTriggerRef.current?.focus(); }}>
-          <DialogHeader>
-            <DialogTitle>更多</DialogTitle>
-            <DialogDescription>页面目录、任务清单与应用设置</DialogDescription>
+        <DialogContent id="mobile-navigation-drawer" className="mobile-navigation-sheet" hideCloseButton onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (openSearchAfterCloseRef.current) {
+            openSearchAfterCloseRef.current = false;
+            // Search outlives this drawer, so carry its connected return target.
+            window.dispatchEvent(new CustomEvent("organize:command-palette", {
+              detail: { returnFocus: menuTriggerRef.current },
+            }));
+          } else if (menuTriggerRef.current?.isConnected) menuTriggerRef.current.focus();
+        }}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>应用导航</DialogTitle>
+            <DialogDescription>工作区、资料标签、笔记目录、任务清单与应用设置</DialogDescription>
           </DialogHeader>
           <NavContent onClose={() => setMobileOpen(false)} />
         </DialogContent>

@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -404,8 +403,9 @@ export default function LessonEditorPage() {
       </div>
 
       {editing ? (
-        <Card>
-          <CardContent className="p-6 space-y-4">
+        <section className="mx-auto w-full max-w-[760px]">
+          <div className="space-y-4">
+            <h1 className="text-xl font-semibold leading-7">{isNew ? "新建复盘" : "编辑复盘"}</h1>
             <div className="space-y-2">
               <Label htmlFor="type">类型</Label>
               <Select value={lessonType} onValueChange={(v: LessonType) => setLessonType(v)}>
@@ -527,16 +527,16 @@ export default function LessonEditorPage() {
                 {isNew ? "创建" : "保存"}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       ) : (
-        <Card>
-          <CardHeader className="pb-2">
+        <article className="mx-auto w-full max-w-[760px] space-y-5">
+          <header className="space-y-3">
             <div className="flex items-start gap-3">
               <span className={cn("text-2xl", typeConfig.color)}>{typeConfig.icon}</span>
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-muted-foreground mb-1">{typeConfig.label}</div>
-                <h2 className="text-xl font-bold">{title || "未命名复盘"}</h2>
+                <h1 className="text-xl font-semibold leading-7">{title || "未命名复盘"}</h1>
               </div>
             </div>
             {loadedTags.length > 0 && (
@@ -546,10 +546,10 @@ export default function LessonEditorPage() {
                 ))}
               </div>
             )}
-          </CardHeader>
-          <CardContent className="space-y-4">
+          </header>
+          <div className="space-y-4">
             {contentText ? (
-              <div className="text-foreground/90">
+              <div className="text-foreground">
                 {formatContentText(contentText)}
               </div>
             ) : (
@@ -561,7 +561,7 @@ export default function LessonEditorPage() {
                 <div className="text-xs text-muted-foreground font-medium">关联内容</div>
                 <div className="flex flex-wrap gap-2">
                   {linkedTask && (
-                    <Link href={`/tasks`} className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20 transition-colors">
+                    <Link href={`/tasks`} className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md bg-success/10 text-success hover:bg-success/20 transition-colors">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {linkedTask.title}
                     </Link>
@@ -581,8 +581,8 @@ export default function LessonEditorPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </article>
       )}
     </div>
   );

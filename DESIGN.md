@@ -27,7 +27,7 @@ components:
 ---
 # Cairn 设计合同
 
-状态：2026-10-15 设计提案；覆盖网页、Tauri 桌面与手机。正式应用尚未整体接入。`docs/design/tokens.json` 为全量数值源；本文件为行为与组合合同；`page-specs.md` 为路由验收；`preview/index.html` 为离线交互样稿。冲突时先遵守数据/权限/保存合同，再按本合同改观感。禁止把预览脚本移入生产。
+状态：2026-10-15 已按用户确认方向接入正式 Web 页面与共用的桌面/手机界面；验证范围和原生平台未验证项见 [接入记录](docs/design/adoption-report.md)。`docs/design/tokens.json` 为全量数值源；本文件为行为与组合合同；`page-specs.md` 为路由验收；`preview/index.html` 保留为离线交互样稿。冲突时先遵守数据/权限/保存合同，再按本合同改观感。禁止把预览脚本移入生产。
 
 ## Overview
 

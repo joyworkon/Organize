@@ -71,21 +71,21 @@ export function ReadingCard({
     >
     <Card
       className={cn(
-        "group transition-colors duration-150 relative overflow-hidden",
+        "group rounded-none border-0 border-b bg-transparent transition-colors duration-100 relative overflow-hidden",
         showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
         selected && "ring-2 ring-primary",
         // 置顶态：不再用左缘色条，改为 meta 行的「置顶」chip + 极淡底色（见 globals.css）
         item.is_pinned && "organize-pinned-card"
       )}
     >
-      <CardContent className="p-3 sm:p-4">
+      <CardContent className="px-1 py-3">
         <div className="flex gap-3">
           {showCheckbox && (
             <div className="flex items-start pt-1" onClick={stop}>
               <Checkbox
                 checked={selected}
                 onCheckedChange={(checked) => onSelectChange!(item.id, checked === true)}
-                className={cn(!selectionMode && "opacity-0 group-hover:opacity-100")}
+                className={cn(!selectionMode && "opacity-0 group-hover:opacity-100 focus-within:opacity-100")}
               />
             </div>
           )}
@@ -117,7 +117,7 @@ export function ReadingCard({
                     ? "opacity-100"
                     : item.is_pinned
                     ? "opacity-100"
-                    : "opacity-0 group-hover:opacity-100"
+                    : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                 )}
                 onClick={stop}
               >
@@ -178,7 +178,7 @@ export function ReadingCard({
               </div>
               <div className="shrink-0 md:hidden" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild><button type="button" className="grid h-11 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-accent" aria-label={`文章操作：${item.title || "无标题"}`}><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
+                  <DropdownMenuTrigger asChild><button type="button" className="grid h-11 w-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent" aria-label={`文章操作：${item.title || "无标题"}`}><MoreHorizontal className="h-5 w-5" /></button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="mobile-reading-menu w-52" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}>
                     {onStatusChange && <DropdownMenuItem onSelect={() => onStatusChange(item.id, item.reading_status === "read" ? "unread" : "read")}><Check className="mr-2 h-4 w-4" />{item.reading_status === "read" ? "标为未读" : "标为已读"}</DropdownMenuItem>}
                     {onTogglePin && <DropdownMenuItem onSelect={handleTogglePin}><Pin className="mr-2 h-4 w-4" />{item.is_pinned ? "取消置顶" : "置顶"}</DropdownMenuItem>}
@@ -191,13 +191,31 @@ export function ReadingCard({
               </div>
             </div>
 
+            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+              {hostname && (
+                <span className="inline-flex items-center gap-1 min-w-0">
+                  <Globe className="h-3 w-3 shrink-0" />
+                  <span className="truncate max-w-[10rem]">{hostname}</span>
+                </span>
+              )}
+              {readingMinutes && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span>{formatReadingTime(readingMinutes)}</span>
+                </span>
+              )}
+              <span className="shrink-0">
+                {new Date(item.created_at).toLocaleDateString("zh-CN")}
+              </span>
+            </div>
+
             {item.excerpt && (
               <p className="text-sm text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
                 {item.excerpt}
               </p>
             )}
 
-            <div className="flex items-center gap-2 mt-3 flex-wrap text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap text-xs text-muted-foreground">
               {item.is_pinned && (
                 <span className="organize-pinned-chip" title="已置顶">
                   <Pin className="h-2.5 w-2.5" />
@@ -227,20 +245,6 @@ export function ReadingCard({
                 </div>
               )}
 
-              {hostname && (
-                <span className="flex items-center gap-1 line-clamp-1">
-                  <Globe className="h-3 w-3 shrink-0" />
-                  <span className="truncate max-w-[6rem]">{hostname}</span>
-                </span>
-              )}
-
-              {readingMinutes && (
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  <span>{formatReadingTime(readingMinutes)}</span>
-                </span>
-              )}
-
               {tags.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap" onClick={stop}>
                   {tags.slice(0, 3).map((t) => (
@@ -251,10 +255,6 @@ export function ReadingCard({
                   )}
                 </div>
               )}
-
-              <span className="shrink-0 ml-auto">
-                {new Date(item.created_at).toLocaleDateString("zh-CN")}
-              </span>
             </div>
           </div>
         </div>
