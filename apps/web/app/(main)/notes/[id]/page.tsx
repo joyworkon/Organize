@@ -51,6 +51,7 @@ import { NotePresenceBar } from "@/components/notes/note-presence-bar";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
+import { flushDraftBeforeHistoryRestore } from "@/lib/notes/history-restore";
 import { downloadNoteExport } from "@/lib/export/note-export";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
@@ -1071,6 +1072,17 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
   const restorePreviewVersion = useCallback(async () => {
     if (!previewVersion) return;
+    // 恢复会以服务端当前内容建快照版本：dirty / 在途编辑必须先落库，
+    // 否则未上传的改动被旧版本覆盖且无处找回。排空失败（离线/冲突/错误）
+    // 时不发起恢复，保留当前稿待用户处理后重试。
+    const mayRestore = await flushDraftBeforeHistoryRestore({
+      hasPendingWork: () => saveSession?.hasPendingWork() ?? false,
+      flushSaved: flushSave,
+    });
+    if (!mayRestore) {
+      showToast("当前内容尚未保存，已取消恢复；请先保存或处理冲突后重试");
+      return;
+    }
     if (!window.confirm("恢复这个版本？当前内容会先自动保存为一个新版本（恢复可撤销）。")) return;
     const res = await fetch(`/api/notes/${noteId}/versions/${previewVersion.id}`, {
       method: "POST",
@@ -1086,7 +1098,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       sessionStorage.setItem(`organize:skip-flush:${noteId}`, "1");
     } catch { /* sessionStorage 不可用时忽略 */ }
     window.location.href = `/notes/${noteId}`;
-  }, [noteId, previewVersion, showToast]);
+  }, [noteId, previewVersion, showToast, flushSave, saveSession]);
 
   useEffect(() => {
     return () => {
