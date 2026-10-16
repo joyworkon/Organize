@@ -1,7 +1,10 @@
 "use client";
 
 import { BarChart3, CalendarDays, Sun } from "@/components/icons";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PageSearch } from "@/components/layout/page-search";
 import ReviewView from "./review-view";
@@ -22,7 +25,69 @@ const VIEWS: Array<{
   { id: "stats", label: "趋势统计", shortLabel: "统计", icon: BarChart3 },
 ];
 
+type DashboardAccount =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; userId: string | null };
+
+/** Bind every workbench view (including hidden Today/capture) to the same account. */
 export function DashboardHub() {
+  const supabase = useMemo(() => createClient(), []);
+  const [account, setAccount] = useState<DashboardAccount>({ status: "loading" });
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let authEventSeen = false;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      authEventSeen = true;
+      setAccount({ status: "ready", userId: session?.user.id ?? null });
+    });
+    // Subscribe first. An older initial read must not overwrite a newer auth event.
+    void Promise.resolve().then(() => supabase.auth.getSession()).then(({ data, error }) => {
+      if (!active || authEventSeen) return;
+      if (error) {
+        setAccount({ status: "error" });
+        return;
+      }
+      setAccount({ status: "ready", userId: data.session?.user.id ?? null });
+    }).catch(() => {
+      if (active && !authEventSeen) setAccount({ status: "error" });
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase, retry]);
+
+  if (account.status === "loading") {
+    return <div className="dashboard-loading" role="status">正在确认账户…</div>;
+  }
+  if (account.status === "error") {
+    return (
+      <div className="dashboard-loading" role="alert">
+        <p>暂时无法确认账户，请重试。</p>
+        <Button variant="outline" onClick={() => {
+          setAccount({ status: "loading" });
+          setRetry((current) => current + 1);
+        }}>重试</Button>
+      </div>
+    );
+  }
+  if (!account.userId) {
+    return (
+      <div className="dashboard-loading">
+        <p>登录后查看你的工作台。</p>
+        <Link href="/login" className="text-sm underline underline-offset-4">前往登录</Link>
+      </div>
+    );
+  }
+  // Same-account token refreshes preserve search and drafts; another owner remounts them.
+  return <AccountDashboardHub key={account.userId} />;
+}
+
+function AccountDashboardHub() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

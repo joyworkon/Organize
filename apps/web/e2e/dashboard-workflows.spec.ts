@@ -58,3 +58,55 @@ test("手机回顾日期控件不挤压标题，历史空日期不混入今天�
   expect(picker!.y).toBeGreaterThan(title!.y + title!.height);
   expect(picker!.x + picker!.width).toBeLessThanOrEqual(390);
 });
+
+test("回顾日期输入遵循手机触控和桌面密度，最窄屏幕不溢出", async ({ page }) => {
+  await page.getByRole("tab", { name: "日历回顾", exact: true }).click();
+  const picker = page.getByLabel("选择回顾日期", { exact: true });
+  for (const width of [320, 390, 767, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    const bounds = await picker.boundingBox();
+    expect(bounds!.height).toBe(width < 768 ? 44 : 32);
+    expect(await picker.evaluate((el) => getComputedStyle(el).fontSize)).toBe(width < 768 ? "16px" : "14px");
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    if (width < 768) {
+      const previous = await page.getByRole("button", { name: "前一天", exact: true }).boundingBox();
+      const today = await page.getByRole("button", { name: "回到今天", exact: true }).boundingBox();
+      const next = await page.getByRole("button", { name: "后一天", exact: true }).boundingBox();
+      expect(previous!.y).toBeGreaterThanOrEqual(bounds!.y + bounds!.height);
+      expect(today!.y).toBe(previous!.y);
+      expect(next!.y).toBe(previous!.y);
+    }
+  }
+});
+
+test("回顾中的已完成任务可以直接打开对应详情", async ({ page }) => {
+  await page.getByRole("tab", { name: "日历回顾", exact: true }).click();
+  const completed = page.locator(".dashboard-card").filter({ has: page.getByRole("heading", { name: "完成任务（最多展示 10 条）", exact: true }) });
+  const task = completed.getByRole("link", { name: /健身 - 跑步5公里/ });
+  await expect(task).toHaveAttribute("href", /\/tasks\?scope=completed&task=/);
+  await task.click();
+  await expect(page).toHaveURL(/\/tasks\?scope=completed&task=/);
+  await expect(page.getByRole("button", { name: "健身 - 跑步5公里", exact: true })).toBeVisible();
+});
+
+test("今天的任务支持键盘打开，手机完成按钮有独立触控范围", async ({ page }) => {
+  const task = page.getByRole("link", { name: "打开任务：完成 Organize 任务功能开发", exact: true });
+  await expect(task).toHaveAttribute("href", /\/tasks\?scope=all&task=/);
+  await task.focus();
+  await expect(task).toBeFocused();
+  await task.press("Enter");
+  await expect(page).toHaveURL(/\/tasks\?scope=all&task=/);
+  await expect(page.getByRole("button", { name: "完成 Organize 任务功能开发", exact: true })).toBeVisible();
+
+  await page.goto("/");
+  await page.setViewportSize({ width: 320, height: 844 });
+  const done = page.getByRole("button", { name: "标记完成", exact: true }).first();
+  await expect(done).toBeVisible();
+  const doneBox = await done.boundingBox();
+  const linkBox = await page.getByRole("link", { name: "打开任务：完成 Organize 任务功能开发", exact: true }).boundingBox();
+  expect(doneBox!.width).toBeGreaterThanOrEqual(44);
+  expect(doneBox!.height).toBeGreaterThanOrEqual(44);
+  expect(doneBox!.x + doneBox!.width).toBeLessThanOrEqual(linkBox!.x);
+});

@@ -19,6 +19,7 @@ import { computeTaskStreak, computeTodayCompletion } from "@/lib/dashboard/workb
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { filterByPageSearch } from "@/lib/search/page-search";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
+import { effectiveDueDate } from "@/lib/tasks/notifications";
 import {
   FileText,
   Link as LinkIcon,
@@ -82,15 +83,16 @@ function isOverdue(dateStr: string | null, status: string): boolean {
   return date < today;
 }
 
-function formatDueTime(dateStr: string | null): string {
-  if (!dateStr) return "";
-  const date = new Date(dateStr);
+function formatDueTime(task: Pick<Task, "due_date" | "all_day">): string {
+  const date = effectiveDueDate(task);
+  if (!date || !task.due_date) return "";
   const now = new Date();
   const diff = date.getTime() - now.getTime();
   const days = localCalendarDayDifference(now, date);
   const hours = Math.floor(diff / (1000 * 60 * 60));
 
-  if (isToday(dateStr)) {
+  if (isToday(task.due_date)) {
+    if (task.all_day) return "今天到期";
     if (hours < 0) return "已过期";
     if (hours === 0) return "今天到期";
     return `今天 ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
@@ -497,33 +499,35 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                       return (
                         <div
                           key={task.id}
-                          className="flex items-start gap-2 p-2 rounded-md hover:bg-accent transition-colors duration-150 cursor-pointer"
-                          onClick={() => router.push(`/tasks?scope=all&task=${task.id}`)}
+                          className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-accent transition-colors duration-150"
                         >
                           <button
+                            type="button"
                             aria-label="标记完成"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleTaskStatus(
-                                task.id,
-                                "done",
-                              );
-                            }}
+                            onClick={() => handleToggleTaskStatus(task.id, "done")}
                             disabled={taskBusyIds.has(task.id)}
-                            className={cn(
-                              "mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center transition-colors shrink-0",
-                              task.status === "in_progress"
-                                ? "bg-primary/20 border-primary"
-                                : overdue
-                                  ? "border-destructive/50 hover:bg-destructive/20"
-                                  : "border-primary hover:bg-primary/20",
-                            )}
+                            className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:h-8 md:w-8"
                           >
-                            {task.status === "in_progress" && (
-                              <PlayCircle className="h-2.5 w-2.5 text-primary" />
-                            )}
+                            <span
+                              className={cn(
+                                "grid h-4 w-4 place-items-center rounded-full border transition-colors",
+                                task.status === "in_progress"
+                                  ? "bg-primary/20 border-primary"
+                                  : overdue
+                                    ? "border-destructive/50 hover:bg-destructive/20"
+                                    : "border-primary hover:bg-primary/20",
+                              )}
+                            >
+                              {task.status === "in_progress" && (
+                                <PlayCircle className="h-2.5 w-2.5 text-primary" />
+                              )}
+                            </span>
                           </button>
-                          <div className="flex-1 min-w-0">
+                          <Link
+                            href={`/tasks?scope=all&task=${task.id}`}
+                            aria-label={`打开任务：${task.title}`}
+                            className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:min-h-0"
+                          >
                             <p className="text-sm font-medium line-clamp-1">
                               {task.title}
                             </p>
@@ -536,10 +540,10 @@ export default function TodayView({ search = "", searchControl }: { search?: str
                               >
                                 {task.status === "in_progress"
                                   ? "进行中"
-                                  : formatDueTime(task.due_date)}
+                                  : formatDueTime(task)}
                               </span>
                             </div>
-                          </div>
+                          </Link>
                         </div>
                       );
                     })}

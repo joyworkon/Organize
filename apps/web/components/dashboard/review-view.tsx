@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DashboardSection, DashboardViewHeader } from "./dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronLeft,
   ChevronRight,
@@ -263,7 +262,15 @@ export default function ReviewView() {
         title="日历回顾"
         description={formatDateDisplay(selectedDate)}
         actions={
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-1 md:justify-start">
+            <input
+              type="date"
+              aria-label="选择回顾日期"
+              value={dateParam(selectedDate)}
+              max={dateParam(today)}
+              onChange={(event) => { if (event.target.value) selectDate(parseDateParam(event.target.value)); }}
+              className="h-11 w-full min-w-0 rounded-lg border border-input bg-background px-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-auto md:text-sm"
+            />
             <Button
               variant="ghost"
               size="icon"
@@ -281,14 +288,6 @@ export default function ReviewView() {
             >
               回到今天
             </Button>
-            <input
-              type="date"
-              aria-label="选择回顾日期"
-              value={dateParam(selectedDate)}
-              max={dateParam(today)}
-              onChange={(event) => { if (event.target.value) selectDate(parseDateParam(event.target.value)); }}
-              className="h-8 rounded-md border bg-background px-2 text-sm"
-            />
             <Button
               variant="ghost"
               size="icon"
@@ -354,15 +353,13 @@ export default function ReviewView() {
                 ) : (
                   <div className="space-y-1">
                     {data.tasks.map((task) => (
-                      <div
+                      <Link
                         key={task.id}
-                        className="flex items-center gap-2 p-2 rounded hover:bg-accent transition-colors"
+                        href={`/tasks?scope=completed&task=${task.id}`}
+                        aria-label={`打开已完成任务：${task.title}`}
+                        className="flex min-h-11 items-center gap-2 p-2 rounded hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] transition-colors md:min-h-0"
                       >
-                        <Checkbox
-                          checked
-                          disabled
-                          className="data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                        />
+                        <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
                         <span
                           className={cn(
                             "w-2 h-2 rounded-full shrink-0",
@@ -376,7 +373,7 @@ export default function ReviewView() {
                         <span className="text-xs text-muted-foreground shrink-0">
                           {formatTime(task.completed_at)}
                         </span>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}
