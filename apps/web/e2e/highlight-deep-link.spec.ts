@@ -87,4 +87,11 @@ test("任务关联阅读深链 ?hl= 定位到来源高亮", async ({ page }) => 
     return rect.top >= 0 && rect.bottom <= window.innerHeight;
   });
   expect(inViewport).toBe(true);
+
+  // 回归：滚动会触发进度保存与页面重渲染，已注入的 mark 不能被正文 innerHTML 重写冲掉
+  await page.mouse.wheel(0, 400);
+  await page.waitForTimeout(800);
+  await page.mouse.wheel(0, -400);
+  await page.waitForTimeout(800);
+  await expect(page.locator("mark.hl-yellow")).toHaveCount(1);
 });

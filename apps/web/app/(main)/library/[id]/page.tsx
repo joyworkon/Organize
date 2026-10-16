@@ -44,6 +44,7 @@ import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
+import { nextReadingProgress, readyHighlightDeepLink } from "@/lib/reading/progress";
 
 interface RecommendedItem {
   id: string;
@@ -156,6 +157,13 @@ export default function ReadingDetailPage() {
     () => prepareReadingContent(item?.content || ""),
     [item?.content]
   );
+  // React 19 按 dangerouslySetInnerHTML 对象引用比较：每次渲染新建对象会在任意重渲染
+  // （如滚动进度 setItem）时重写正文 innerHTML，冲掉已注入的高亮 <mark>。引用必须稳定。
+  const contentHtml = useMemo(() => ({ __html: renderedContent || "" }), [renderedContent]);
+  const focusContentHtml = useMemo(
+    () => ({ __html: renderedContent || "<p>无法提取正文内容</p>" }),
+    [renderedContent]
+  );
   // 目录刻度直接读正文 DOM：正文节点挂载/替换后交给它
   const [tocRoot, setTocRoot] = useState<HTMLDivElement | null>(null);
 
@@ -185,24 +193,40 @@ export default function ReadingDetailPage() {
     return () => setCurrentReadingItem(null);
   }, [item]);
 
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
+    let active = true;
+    // 切换到另一篇（如「下一篇推荐」）时先清空旧条目，避免旧正文/进度串到新条目
+    setLoading(true);
+    setLoadError(false);
+    setItem(null);
+    setHighlights([]);
+    setHighlightReferences({});
+    progressRef.current = 0;
     async function loadItem() {
       const { data, error } = await supabase
         .from("reading_items")
         .select("*, tags:tags!item_tags(id, name)")
         .eq("id", itemId)
         .maybeSingle();
+      if (!active) return;
+      if (error) {
+        setLoadError(true);
+        setLoading(false);
+        return;
+      }
 
-      if (!error && data) {
+      if (data) {
         setItem(data as ReadingItem);
         setFullWidth(data.full_width ?? false);
         progressRef.current = data.reading_progress || 0;
         if (data.reading_status === "unread") {
-          await supabase
+          const { error: statusError } = await supabase
             .from("reading_items")
             .update({ reading_status: "reading" })
             .eq("id", itemId);
-          setItem((prev) => prev ? { ...prev, reading_status: "reading" } : null);
+          if (active && !statusError) setItem((prev) => prev ? { ...prev, reading_status: "reading" } : null);
         }
 
         if (data.reading_progress && data.reading_progress > 0.01
@@ -228,10 +252,13 @@ export default function ReadingDetailPage() {
           setTimeout(cleanup, 5000);
         }
       }
-      setLoading(false);
+      if (active) setLoading(false);
     }
-    loadItem();
-  }, [itemId, supabase]);
+    void loadItem();
+    return () => {
+      active = false;
+    };
+  }, [itemId, supabase, loadAttempt]);
 
   // 角色判定在条目加载后进行（协作者经 064 RLS 也能读到行，属主判定看 user_id）
   useEffect(() => {
@@ -258,40 +285,49 @@ export default function ReadingDetailPage() {
   }, [item, itemId, supabase]);
 
   useEffect(() => {
+    let active = true;
     async function loadHighlights() {
       const { data, error } = await supabase
         .from("highlights")
         .select("*")
         .eq("reading_item_id", itemId)
         .order("created_at", { ascending: false });
-      if (!error && data) {
+      if (active && !error && data) {
         setHighlights(data as Highlight[]);
         await loadHighlightReferences();
       }
     }
     if (itemId) {
-      loadHighlights();
+      void loadHighlights();
     }
+    return () => {
+      active = false;
+    };
   }, [itemId, loadHighlightReferences, supabase]);
 
   // E02-2：任务侧「关联阅读」深链 ?hl={highlightId}——内容渲染后按高亮正文定位并
   // 滚动闪烁；高亮已删或正文匹配不到时静默降级为条目顶部（不滚动）。一次性消费。
   useEffect(() => {
-    if (!item || highlights.length === 0) return;
+    if (!item) return;
     if (deepLinkHighlightIdRef.current === null) {
       deepLinkHighlightIdRef.current = new URLSearchParams(window.location.search).get("hl");
     }
-    const highlightId = deepLinkHighlightIdRef.current;
-    if (!highlightId) return;
-    deepLinkHighlightIdRef.current = null;
-    const highlight = highlights.find((h) => h.id === highlightId);
     const container = contentRef.current;
-    if (!highlight || !container) return;
+    // 正文未挂载（仍在 loading）或高亮未到时不消费，等下一次依赖变化再试
+    const highlightId = readyHighlightDeepLink(deepLinkHighlightIdRef.current, {
+      loading,
+      hasContainer: Boolean(container),
+      highlightCount: highlights.length,
+    });
+    if (!highlightId || !container) return;
+    deepLinkHighlightIdRef.current = "";
+    const highlight = highlights.find((h) => h.id === highlightId);
+    if (!highlight) return;
     const target = findAndWrapHighlightText(container, highlight.content, highlight.color);
     if (target) {
       focusHighlight(target.el);
     }
-  }, [item, highlights]);
+  }, [item, highlights, loading]);
 
   useEffect(() => {
     async function loadOtherItems() {
@@ -371,35 +407,30 @@ export default function ReadingDetailPage() {
     progressTimerRef.current = setTimeout(() => {
       progressTimerRef.current = null;
 
-      const progress = progressPercent / 100;
-
-      if (progress <= progressRef.current) return;
-      progressRef.current = progress;
-
-      const reachedBottom = progressPercent >= 95;
-      const startedReading = progressPercent > 5;
-      let newStatus: ReadingStatus = item?.reading_status || "unread";
-
-      if (reachedBottom) {
-        newStatus = "read";
-      } else if (startedReading && newStatus === "unread") {
-        newStatus = "reading";
-      }
+      const previousStatus = item?.reading_status || "unread";
+      const next = nextReadingProgress(progressPercent, progressRef.current, previousStatus);
+      if (!next) return;
+      const savedBefore = progressRef.current;
+      progressRef.current = next.progress;
 
       setItem((prev) =>
-        prev ? { ...prev, reading_progress: progress, reading_status: newStatus } : null
+        prev ? { ...prev, reading_progress: next.progress, reading_status: next.status } : null
       );
 
       // 事件发射是副作用，放在 setState 更新器外面（项目约定）
-      const previousStatus = item?.reading_status || "unread";
-      if (previousStatus !== newStatus) {
-        appEvents.emit("reading:status-changed", { itemId, from: previousStatus, to: newStatus });
+      if (previousStatus !== next.status) {
+        appEvents.emit("reading:status-changed", { itemId, from: previousStatus, to: next.status });
       }
 
-      supabase
+      // supabase-js 查询是惰性的：必须 await/then 才会真正发出请求（此前漏掉导致进度从未落库）
+      void supabase
         .from("reading_items")
-        .update({ reading_progress: Math.round(progressPercent) / 100, reading_status: newStatus })
-        .eq("id", itemId);
+        .update({ reading_progress: next.progress, reading_status: next.status })
+        .eq("id", itemId)
+        .then(({ error }) => {
+          // 失败时回退已保存进度，下一次滚动会重试；不打断阅读
+          if (error && progressRef.current === next.progress) progressRef.current = savedBefore;
+        });
     }, 300);
   }, [itemId, supabase, item?.reading_status]);
 
@@ -590,10 +621,14 @@ export default function ReadingDetailPage() {
   }, [itemId]);
 
   const updateStatus = async (status: ReadingStatus) => {
-    await supabase
+    const { error } = await supabase
       .from("reading_items")
       .update({ reading_status: status })
       .eq("id", itemId);
+    if (error) {
+      toast({ title: "状态更新失败，请重试", variant: "destructive" });
+      return;
+    }
     const previous = item?.reading_status;
     setItem((prev) => prev ? { ...prev, reading_status: status } : null);
     if (previous && previous !== status) {
@@ -921,6 +956,17 @@ export default function ReadingDetailPage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <EmptyState
+        icon={FileText}
+        title="加载失败"
+        description="网络或服务异常，内容暂时无法打开"
+        action={<Button variant="outline" size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>重试</Button>}
+      />
+    );
+  }
+
   if (!item) {
     return (
       <EmptyState
@@ -1210,7 +1256,7 @@ export default function ReadingDetailPage() {
                   setTocRoot(el);
                 }}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "" }}
+                dangerouslySetInnerHTML={contentHtml}
               />
             </HighlightMenu>
           </>
@@ -1352,7 +1398,7 @@ export default function ReadingDetailPage() {
               <div
                 ref={focusContentRef}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+                dangerouslySetInnerHTML={focusContentHtml}
               />
             </HighlightMenu>
             <div className="mt-16 pt-8 border-t text-center">
