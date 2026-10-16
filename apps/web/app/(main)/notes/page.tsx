@@ -81,6 +81,8 @@ import {
   applyPinnedBatch,
   removeNotes,
   sortNotesLocal,
+  persistNoteMove,
+  type NoteMoveClient,
   type SortField,
   type SortOrder,
 } from "./page-utils";
@@ -89,6 +91,8 @@ export default function NotesPage() {
   const router = useRouter();
   const [notes, setNotes] = useState<NoteWithTags[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 列表加载失败（在线时）：没有已加载的笔记时显示错误 + 重试，而不是「还没有笔记」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -228,6 +232,7 @@ export default function NotesPage() {
     if (reqIdRef.current !== myReqId) return;
 
     if (!error && data) {
+      setLoadError(null);
       // X1：合并待同步的离线创建（服务端尚未有的），置顶展示
       const serverIds = new Set((data as NoteWithTags[]).map((note) => note.id));
       const pending = pendingCreatesAsNotes().filter((note) => !serverIds.has(note.id));
@@ -237,6 +242,7 @@ export default function NotesPage() {
     } else if (error && isOnline()) {
       // 失败不能静默：否则列表停在旧数据上，用户无从得知已经看不到最新内容。
       // 离线时的查询失败是预期行为，由顶栏离线角标表达，不另弹 toast。
+      setLoadError(error.message || "加载笔记列表失败");
       toast({ title: "加载笔记列表失败", description: error.message, variant: "destructive" });
     }
     setLoading(false);
@@ -742,23 +748,12 @@ export default function NotesPage() {
       setAllNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, parent_note_id: nextParentId } : n))
       );
-      window.dispatchEvent(new CustomEvent("organize:notes-changed"));
+      // 注意：notes-changed 必须在写库完成后再广播——提前广播会让侧栏树与列表在写入前
+      // 重新取数，读到旧父级并覆盖乐观状态，之后再没有刷新，移动看起来没生效
       try {
-        // parent_note_id 在编辑器保存快照里：必须同步递增 content_revision，
-        // 否则其他标签页的编辑器下次自动保存会把这次移动静默还原
-        const { data: current } = await supabase
-          .from("notes")
-          .select("content_revision")
-          .eq("id", noteId)
-          .single();
-        const { error } = await supabase
-          .from("notes")
-          .update({
-            parent_note_id: nextParentId,
-            content_revision: Number(current?.content_revision ?? 0) + 1,
-          })
-          .eq("id", noteId);
-        if (error) throw error;
+        await persistNoteMove(supabase as unknown as NoteMoveClient, noteId, nextParentId, () =>
+          window.dispatchEvent(new CustomEvent("organize:notes-changed"))
+        );
         toast({ title: "已移动" });
       } catch (err) {
         setNotes((prev) =>
@@ -998,6 +993,13 @@ export default function NotesPage() {
             <div key={index} className="h-[88px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError && notes.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          title="笔记列表加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => void fetchNotes()}>重试</Button>}
+        />
       ) : visibleNotes.length === 0 ? (
         <EmptyState
           icon={FileText}
