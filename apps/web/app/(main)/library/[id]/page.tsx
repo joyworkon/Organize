@@ -157,6 +157,13 @@ export default function ReadingDetailPage() {
     () => prepareReadingContent(item?.content || ""),
     [item?.content]
   );
+  // React 19 按 dangerouslySetInnerHTML 对象引用比较：每次渲染新建对象会在任意重渲染
+  // （如滚动进度 setItem）时重写正文 innerHTML，冲掉已注入的高亮 <mark>。引用必须稳定。
+  const contentHtml = useMemo(() => ({ __html: renderedContent || "" }), [renderedContent]);
+  const focusContentHtml = useMemo(
+    () => ({ __html: renderedContent || "<p>无法提取正文内容</p>" }),
+    [renderedContent]
+  );
   // 目录刻度直接读正文 DOM：正文节点挂载/替换后交给它
   const [tocRoot, setTocRoot] = useState<HTMLDivElement | null>(null);
 
@@ -1249,7 +1256,7 @@ export default function ReadingDetailPage() {
                   setTocRoot(el);
                 }}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "" }}
+                dangerouslySetInnerHTML={contentHtml}
               />
             </HighlightMenu>
           </>
@@ -1391,7 +1398,7 @@ export default function ReadingDetailPage() {
               <div
                 ref={focusContentRef}
                 className="reader-content"
-                dangerouslySetInnerHTML={{ __html: renderedContent || "<p>无法提取正文内容</p>" }}
+                dangerouslySetInnerHTML={focusContentHtml}
               />
             </HighlightMenu>
             <div className="mt-16 pt-8 border-t text-center">
