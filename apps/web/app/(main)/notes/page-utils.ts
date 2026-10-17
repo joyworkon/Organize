@@ -68,6 +68,33 @@ export function removeNotes(
   return notes.filter((n) => !ids.has(n.id));
 }
 
+/**
+ * 标签筛选查询（note_tags.select(note_id).in(tag_id, ...)）结果的三态判定：
+ * - failed：查询出错——必须走与主查询相同的失败分支（提示 + 保留旧列表），
+ *   不能把加载失败伪装成「筛选结果为空」；
+ * - empty：查询成功但 0 行——确实没有笔记带这些标签，清空列表（显示「没有找到匹配的笔记」）；
+ * - ok：返回去重后的 note_id 集合，交给主查询 .in("id", scopedIds)。
+ */
+export type TagFilterPlan =
+  | { status: "failed" }
+  | { status: "empty" }
+  | { status: "ok"; scopedIds: string[] };
+
+export function planTagFilter({
+  data,
+  error,
+}: {
+  data: readonly { note_id: string | null }[] | null;
+  error: unknown;
+}): TagFilterPlan {
+  if (error) return { status: "failed" };
+  if (!data || data.length === 0) return { status: "empty" };
+  return {
+    status: "ok",
+    scopedIds: Array.from(new Set(data.map((row) => row.note_id as string))),
+  };
+}
+
 /** 最小 supabase 形状：只用到 notes 的读 revision + 更新 */
 export interface NoteMoveClient {
   from(table: "notes"): {

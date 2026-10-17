@@ -80,6 +80,7 @@ import {
   sortSummary,
   applyPinned,
   applyPinnedBatch,
+  planTagFilter,
   removeNotes,
   sortNotesLocal,
   persistNoteMove,
@@ -87,6 +88,7 @@ import {
   type SortField,
   type SortOrder,
 } from "./page-utils";
+import { nextNoteTreeAfterLoad } from "@/lib/notes/note-tree-load";
 import { favoriteIdsAfterLoad, favoriteIdsAfterToggle } from "@/lib/notes/favorites-state";
 
 export default function NotesPage() {
@@ -106,6 +108,8 @@ export default function NotesPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [mdImportOpen, setMdImportOpen] = useState(false);
   const [allNotes, setAllNotes] = useState<NoteTreeItem[]>([]);
+  /** 笔记树加载失败：移动对话框据此提示候选可能不完整并提供重试，不冒充「没有别的页面」 */
+  const [allNotesLoadError, setAllNotesLoadError] = useState<string | null>(null);
   const [moveDialogNoteId, setMoveDialogNoteId] = useState<string | null>(null);
 
   const selection = useSelection<NoteWithTags>();
@@ -191,17 +195,32 @@ export default function NotesPage() {
 
     let scopedIds: string[] | null = null;
     if (selectedTagIds.length > 0) {
-      const { data: tagRows } = await supabase
+      const { data: tagRows, error: tagError } = await supabase
         .from("note_tags")
         .select("note_id")
         .in("tag_id", selectedTagIds);
-      if (!tagRows || tagRows.length === 0) {
+      const plan = planTagFilter({ data: tagRows, error: tagError });
+      if (plan.status === "failed") {
+        // 筛选查询失败走与主查询相同的失败分支：保留旧列表并如实提示，
+        // 不能伪装成「筛选结果为空」；离线时的失败由顶栏离线角标表达，不另弹 toast
         if (reqIdRef.current !== myReqId) return;
+        if (isOnline()) {
+          const message = tagError?.message || "加载笔记列表失败";
+          setLoadError(message);
+          toast({ title: "加载笔记列表失败", description: message, variant: "destructive" });
+        }
+        setLoading(false);
+        return;
+      }
+      if (plan.status === "empty") {
+        if (reqIdRef.current !== myReqId) return;
+        // 查询成功但 0 行：确实没有匹配（显示「没有找到匹配的笔记」），清掉上一次失败留下的错误态
+        setLoadError(null);
         setNotes([]);
         setLoading(false);
         return;
       }
-      scopedIds = Array.from(new Set(tagRows.map((r) => r.note_id as string)));
+      scopedIds = plan.scopedIds;
     }
 
     let query = supabase
@@ -311,26 +330,29 @@ export default function NotesPage() {
     return () => clearTimeout(timer);
   }, [fetchNotes]);
 
+  /** 笔记树上次成功快照：loadAllNotes 读它避免闭包旧值（详情页 allNotesRef 同款做法） */
+  const allNotesRef = useRef<NoteTreeItem[]>([]);
+  useEffect(() => {
+    allNotesRef.current = allNotes;
+  }, [allNotes]);
+
   const loadAllNotes = useCallback(async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("notes")
       .select("id, title, icon, parent_note_id, updated_at")
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("updated_at", { ascending: false });
-    setAllNotes(
-      (data || []).map((n) => ({
-        id: n.id,
-        title: n.title || null,
-        icon: n.icon || null,
-        parent_note_id: n.parent_note_id || null,
-        updated_at: n.updated_at,
-      }))
-    );
+    // 失败不吞成空数组：保留上次成功快照，错误交给 NoteMoveDialog 展示 + 重试，
+    // 否则候选列表被清空，像是「没有别的页面」
+    const plan = nextNoteTreeAfterLoad({ previous: allNotesRef.current, data, error });
+    setAllNotes(plan.notes);
+    // 列表页语境是「笔记树加载失败」；helper 默认文案「子页面加载失败」是详情页语境
+    setAllNotesLoadError(plan.loadError ? "笔记树加载失败" : null);
   }, [supabase]);
 
   useEffect(() => {
@@ -1123,6 +1145,8 @@ export default function NotesPage() {
           noteTitle={moveTargetNote.title || "无标题笔记"}
           currentParentId={moveTargetNote.parent_note_id ?? null}
           notes={allNotes}
+          loadError={allNotesLoadError}
+          onRetry={() => void loadAllNotes()}
           onConfirm={(parentId) =>
             handleConfirmMove(
               moveTargetNote.id,
