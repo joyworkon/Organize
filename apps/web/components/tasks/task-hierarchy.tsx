@@ -12,7 +12,7 @@ import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { enqueueTaskOp, makeTaskCreateOp, makeTaskUpdateOp } from "@/lib/offline/task-queue";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { requestNextRecurringTask } from "@/lib/tasks/recurring";
 
 interface TaskHierarchyProps {
   task: Task;
@@ -168,7 +168,15 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
     }
     if (patch.status === "done") {
       // 与工作台一致：完成触发重复任务下一实例生成（RPC 自检幂等）
-      await generateNextRecurringTask(supabase, child.id);
+      const next = await requestNextRecurringTask(supabase, child.id);
+      if (next.status === "error") {
+        // 完成本身已成功，不回滚；但生成失败必须如实告知，不能让用户误以为续上了
+        toast({
+          title: "子任务已完成，但下一次重复任务生成失败",
+          description: next.message,
+          variant: "destructive",
+        });
+      }
     }
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
   };
