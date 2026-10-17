@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { requestNextRecurringTask } from "@/lib/tasks/recurring";
 import { DashboardSection, DashboardViewHeader } from "./dashboard-layout";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -307,8 +307,13 @@ export default function TodayView({ search = "", searchControl }: { search?: str
         toast({ title: "更新失败，请重试", variant: "destructive" });
       }
       if (result.status === "applied" && status === "done") {
-        const newId = await generateNextRecurringTask(supabase, taskId);
-        if (newId) window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+        const next = await requestNextRecurringTask(supabase, taskId);
+        if (next.status === "created") {
+          window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+        } else if (next.status === "error") {
+          // 完成本身已成功，不回滚；但生成失败必须如实告知，不能让用户误以为续上了
+          toast({ title: "任务已完成，但下一次重复任务生成失败", description: next.message, variant: "destructive" });
+        }
       }
       if (result.status === "applied") {
         setJustCreatedTasks((current) => current.filter((task) => task.id !== taskId));

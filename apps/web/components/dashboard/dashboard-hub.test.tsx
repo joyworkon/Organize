@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   readGate: null as Promise<void> | null,
   taskDate: null as string | null,
   allDay: false,
+  recurringRpc: { data: null as string | null, error: null as Error | null },
+  toast: vi.fn(),
 }));
 
 function rows(table: string, owner: string | null, filters: Record<string, unknown>) {
@@ -59,9 +61,19 @@ vi.mock("@/lib/supabase/client", () => {
       };
       return query;
     },
+    rpc: (name: string) => {
+      if (name === "update_task_atomic") {
+        return Promise.resolve({ data: { status: "applied", sync_version: 2 }, error: null });
+      }
+      if (name === "complete_recurring_task") {
+        return Promise.resolve(mocks.recurringRpc);
+      }
+      return Promise.resolve({ data: null, error: new Error(`Unexpected rpc ${name}`) });
+    },
   };
   return { createClient: () => client };
 });
+vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast }));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks.router, usePathname: () => "/", useSearchParams: () => new URLSearchParams(mocks.params) }));
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => createElement("a", { href, ...props }, children) }));
 vi.mock("@/components/tasks/task-navigation-menu", () => ({ TaskNavigationMenu: ({ trigger }: { trigger: React.ReactNode }) => trigger }));
@@ -95,6 +107,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.clearAllMocks();
   mocks.owner = "a"; mocks.params = ""; mocks.failOwner = null; mocks.delayedOwner = null; mocks.readGate = null; mocks.taskDate = null; mocks.allDay = false;
+  mocks.recurringRpc = { data: null, error: null };
   mocks.listeners.clear(); localStorage.clear();
   mocks.getSession.mockReset().mockImplementation(async () => session(mocks.owner));
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => [] })));
@@ -194,5 +207,28 @@ describe("Today due labels use the existing all-day contract", () => {
     mocks.taskDate = new Date(2026, 9, 16, 10).toISOString(); await render(); expect(container.textContent).toContain("已过期");
     act(() => root.unmount()); root = createRoot(container); mocks.taskDate = new Date(2026, 9, 16, 16).toISOString();
     await render(); expect(container.textContent).toContain("今天 16:00");
+  });
+});
+
+describe("Today recurring next-instance honesty", () => {
+  async function completeFirstTask() {
+    const complete = container.querySelector<HTMLButtonElement>('button[aria-label="标记完成"]');
+    expect(complete).not.toBeNull();
+    await act(async () => complete!.click());
+  }
+  it("toasts a destructive failure when the next recurring instance cannot be generated", async () => {
+    mocks.recurringRpc = { data: null, error: new Error("boom") };
+    await render();
+    await completeFirstTask();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "任务已完成，但下一次重复任务生成失败",
+      description: "boom",
+      variant: "destructive",
+    }));
+  });
+  it("stays silent when no next instance is needed", async () => {
+    await render();
+    await completeFirstTask();
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 });
