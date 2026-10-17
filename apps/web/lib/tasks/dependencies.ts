@@ -9,6 +9,16 @@ export interface TaskDependencyView {
   blockingPrerequisites: Task[];
 }
 
+/**
+ * 阻塞判定的统一规则：未完成、未放弃且未软删除的前置才算阻塞。
+ * 依赖面板与「标记完成」前置检查共用，避免两处说法不一致。
+ */
+export function isBlockingPrerequisite(
+  task: Pick<Task, "status" | "deleted_at">
+): boolean {
+  return task.status !== "done" && task.status !== "cancelled" && !task.deleted_at;
+}
+
 export function getTaskDependencyView(
   tasks: Task[],
   dependencies: TaskDependency[],
@@ -29,9 +39,7 @@ export function getTaskDependencyView(
     dependents,
     // 已删/已放弃的前置不算阻塞：它们对用户不可见或永不发生，
     // 继续阻塞会让「全部任务」里挂着看不见的前置、确认框点名幽灵任务
-    blockingPrerequisites: prerequisites.filter(
-      (task) => task.status !== "done" && !task.deleted_at && task.status !== "cancelled"
-    ),
+    blockingPrerequisites: prerequisites.filter(isBlockingPrerequisite),
   };
 }
 
@@ -121,7 +129,14 @@ export function taskDependencyLoadErrorMessage(
 
 /**
  * 「标记完成」前的前置依赖检查（供任务详情页接线并单测）：
- * 任一查询失败都返回 `{ status: "error" }`，由页面弹确认而不是当作「没有阻塞」静默放行。
+ * - 任一查询失败都返回 `{ status: "error" }`，由页面弹确认而不是当作「没有阻塞」静默放行。
+ * - 阻塞规则与依赖面板（`getTaskDependencyView` 的 `blockingPrerequisites`）一致：
+ *   未完成、未放弃且未软删除的前置才算阻塞（`isBlockingPrerequisite`），避免面板显示
+ *   不阻塞、确认框却点名已放弃/已删的幽灵前置。
+ * - depIds 去重后，查回的前置行必须覆盖全部 depIds，缺任何一个也按 error 处理：
+ *   `task_dependencies` 两个外键都是 on delete cascade，正常硬删除时依赖边会一起删掉，
+ *   「边还在但任务查不到」（并发删除、RLS 不可见等）本身即不确定状态，
+ *   不能当作已完成静默放行。
  */
 export interface TaskCompletionBlocker {
   id: string;
@@ -141,15 +156,19 @@ export async function checkTaskCompletionBlockers(
     .select("depends_on_task_id")
     .eq("task_id", taskId);
   if (edgesError) return { status: "error" };
-  const depIds = (edges || []).map((edge) => edge.depends_on_task_id);
+  const depIds = Array.from(
+    new Set((edges || []).map((edge) => edge.depends_on_task_id))
+  );
   if (depIds.length === 0) return { status: "ok", blocking: [] };
   const { data: prereqs, error: prereqsError } = await supabase
     .from("tasks")
-    .select("id, title, status")
+    .select("id, title, status, deleted_at")
     .in("id", depIds);
   if (prereqsError) return { status: "error" };
+  const fetchedIds = new Set((prereqs || []).map((prereq) => prereq.id));
+  if (depIds.some((id) => !fetchedIds.has(id))) return { status: "error" };
   const blocking = (prereqs || [])
-    .filter((prereq) => prereq.status !== "done")
+    .filter(isBlockingPrerequisite)
     .map((prereq) => ({ id: prereq.id, title: prereq.title }));
   return { status: "ok", blocking };
 }
