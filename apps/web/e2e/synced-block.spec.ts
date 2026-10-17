@@ -151,7 +151,21 @@ async function caretAtSyncedBlockEnd(page: Page): Promise<{ ok: boolean; reason?
  *  先等编辑器可编辑：协作模式下播种定形前编辑器锁定（A05 D4 收尾），
  *  非协作实例的临时代替者虽已渲染内容，此刻输入会被拒收 */
 async function typeInBlock(page: Page, text: string) {
-  await expect(page.locator(".ProseMirror")).toBeEditable({ timeout: 20_000 });
+  // 用 expect.poll 而不是 toBeEditable：openNote 的 ready 门与 containText 都能在
+  // 临时代替者编辑器上通过，随后编辑器被「协作会话定形重建」换成播种锁定的空实例
+  // （contenteditable=false，播种租约落定后才解锁）。.ProseMirror 没有 role=textbox，
+  // Playwright 的 toBeEditable 对这种锁定元素立即抛错、不进入重试（run 39048355930
+  // trace：containText 通过后 40ms 换成锁定实例，断言 114ms 内瞬发失败）
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".ProseMirror");
+          return !!el && el.isContentEditable;
+        }),
+      { timeout: 20_000 }
+    )
+    .toBe(true);
   const para = blockContent(page).locator("p").last();
   // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
   // 可见后仍可能被服务端内容刷新替换（每次重试都从活 DOM 重取坐标）
