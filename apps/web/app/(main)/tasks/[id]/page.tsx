@@ -21,6 +21,11 @@ import {
 import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
+import {
+  failedTaskSecondarySections,
+  taskSecondaryLoadErrorMessage,
+  type TaskSecondarySection,
+} from "@/lib/tasks/task-detail-load";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -122,6 +127,8 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // 次要数据（子任务/标签/附件/动态）加载失败的区块：非空时顶部提示 + 重试，不冒充「没有数据」
+  const [secondaryLoadFailures, setSecondaryLoadFailures] = useState<TaskSecondarySection[]>([]);
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
@@ -165,6 +172,7 @@ export default function TaskDetailPage() {
   async function loadTask() {
     setLoading(true);
     setError(null);
+    setSecondaryLoadFailures([]);
     try {
       const { data: taskData, error: taskError } = await supabase
         .from("tasks")
@@ -183,7 +191,7 @@ export default function TaskDetailPage() {
       setEditedTitle(loadedTask.title);
       setEditedDescription(loadedTask.description || "");
 
-      const [{ data: checklistData }, { data: tagLinks }, { data: tagsData }, { data: attData }, { data: actData }] = await Promise.all([
+      const [checklistRes, tagLinksRes, tagsRes, attRes, actRes] = await Promise.all([
         supabase
           .from("task_checklists")
           .select("*")
@@ -195,17 +203,38 @@ export default function TaskDetailPage() {
         supabase.from("task_activities").select("*").eq("task_id", taskId).order("created_at", { ascending: false }).limit(20),
       ]);
 
-      setChecklists((checklistData as TaskChecklist[]) || []);
+      // 5 个次要查询不抛错（不检查 error 就当空数据是把失败伪装成「没有」）：失败区块入列表供提示，
+      // 成功的区块整体替换，失败的保留上次成功数据（首次加载失败时保持初始空值）
+      setSecondaryLoadFailures(
+        failedTaskSecondarySections({
+          checklists: checklistRes,
+          tagLinks: tagLinksRes,
+          tags: tagsRes,
+          attachments: attRes,
+          activities: actRes,
+        })
+      );
 
-      const tagMap = new Map((tagsData as Tag[] || []).map(t => [t.id, t]));
-      const taskTags: Tag[] = [];
-      for (const link of (tagLinks || [])) {
-        const tag = tagMap.get(link.tag_id);
-        if (tag) taskTags.push(tag);
+      if (!checklistRes.error) {
+        setChecklists((checklistRes.data as TaskChecklist[]) || []);
       }
-      setTags(taskTags);
-      setAttachments((attData as TaskAttachment[]) || []);
-      setActivities((actData as TaskActivity[]) || []);
+
+      // 标签 = task_tags × tags 的 join：两者都成功才替换，任一失败保留原值
+      if (!tagLinksRes.error && !tagsRes.error) {
+        const tagMap = new Map((tagsRes.data as Tag[] || []).map(t => [t.id, t]));
+        const taskTags: Tag[] = [];
+        for (const link of (tagLinksRes.data || [])) {
+          const tag = tagMap.get(link.tag_id);
+          if (tag) taskTags.push(tag);
+        }
+        setTags(taskTags);
+      }
+      if (!attRes.error) {
+        setAttachments((attRes.data as TaskAttachment[]) || []);
+      }
+      if (!actRes.error) {
+        setActivities((actRes.data as TaskActivity[]) || []);
+      }
     } catch (err) {
       console.error("加载任务失败:", err);
       setError("加载任务失败");
@@ -544,9 +573,19 @@ export default function TaskDetailPage() {
       <div className="text-center py-20 text-muted-foreground">
         {error || "任务不存在或已被删除"}
         <br />
-        <Link href="/tasks" className="text-primary underline text-sm mt-2 inline-block">
-          返回任务列表
-        </Link>
+        <div className="mt-3 flex items-center justify-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 px-2.5 text-xs md:min-h-11"
+            onClick={() => void loadTask()}
+          >
+            重试
+          </Button>
+          <Link href="/tasks" className="text-primary underline text-sm">
+            返回任务列表
+          </Link>
+        </div>
       </div>
     );
   }
@@ -639,6 +678,24 @@ export default function TaskDetailPage() {
         </div>
         </div>
       </div>
+
+      {/* 次要数据加载失败：主任务照常显示，如实提示缺了哪部分并提供重试，不冒充「没有数据」 */}
+      {secondaryLoadFailures.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          <span>{taskSecondaryLoadErrorMessage(secondaryLoadFailures)}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 px-2.5 text-xs md:min-h-11"
+            onClick={() => void loadTask()}
+          >
+            重试
+          </Button>
+        </div>
+      )}
 
       <Card className="border-0 bg-transparent shadow-none">
         <CardContent className="p-0 space-y-6">
