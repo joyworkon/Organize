@@ -21,13 +21,14 @@ import { filterByPageSearch } from "@/lib/search/page-search";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { isOnline } from "@/lib/offline/network";
-import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
+import type { TagWithCount, TagColor } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorPicker } from "@/components/tags/tag-color-picker";
 import { Label } from "@/components/ui/label";
 import { buildTagCounts } from "./tag-counts";
+import { buildTagDetailItems, type TagDetailItems } from "./tag-detail-load";
 
 type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
@@ -57,8 +58,10 @@ export default function TagsPage() {
 
   const [selectedTag, setSelectedTag] = useState<TagWithCount | null>(null);
   const [detailFilter, setDetailFilter] = useState<DetailFilter>("all");
-  const [detailItems, setDetailItems] = useState<{ readings: ReadingItem[]; notes: NoteWithTags[]; tasks: TaskWithTags[]; lessons: LessonWithTags[] }>({ readings: [], notes: [], tasks: [], lessons: [] });
+  const [detailItems, setDetailItems] = useState<TagDetailItems>({ readings: [], notes: [], tasks: [], lessons: [] });
   const [detailLoading, setDetailLoading] = useState(false);
+  /** 详情条目查询失败：不 setDetailItems 冲掉上次成功快照，空态显示错误 + 重试而不是「暂无内容」 */
+  const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
 
   const fetchTags = useCallback(async () => {
     setLoading(true);
@@ -111,17 +114,17 @@ export default function TagsPage() {
   const fetchTagDetail = useCallback(async (tagId: string) => {
     setDetailLoading(true);
     try {
-      const [{ data: itemLinks }, { data: noteLinks }, { data: taskLinks }, { data: lessonLinks }] = await Promise.all([
+      const [itemLinksRes, noteLinksRes, taskLinksRes, lessonLinksRes] = await Promise.all([
         supabase.from("item_tags").select("item_id").eq("tag_id", tagId),
         supabase.from("note_tags").select("note_id").eq("tag_id", tagId),
         supabase.from("task_tags").select("task_id").eq("tag_id", tagId),
         supabase.from("lesson_tags").select("lesson_id").eq("tag_id", tagId),
       ]);
 
-      const itemIds = (itemLinks || []).map((l) => l.item_id);
-      const noteIds = (noteLinks || []).map((l) => l.note_id);
-      const taskIds = (taskLinks || []).map((l) => l.task_id);
-      const lessonIds = (lessonLinks || []).map((l) => l.lesson_id);
+      const itemIds = (itemLinksRes.data || []).map((l) => l.item_id);
+      const noteIds = (noteLinksRes.data || []).map((l) => l.note_id);
+      const taskIds = (taskLinksRes.data || []).map((l) => l.task_id);
+      const lessonIds = (lessonLinksRes.data || []).map((l) => l.lesson_id);
 
       const [readingsRes, notesRes, tasksRes, lessonsRes] = await Promise.all([
         itemIds.length > 0
@@ -144,35 +147,34 @@ export default function TagsPage() {
       const lessonTagLinksRes = lessonIds.length > 0
         ? await supabase.from("lesson_tags").select("lesson_id, tag_id").in("lesson_id", lessonIds)
         : { data: [] };
-      const { data: allTagsForUser } = await supabase.from("tags").select("id, name, color");
-      const tagMap = new Map((allTagsForUser || []).map((t: any) => [t.id, t as Tag]));
+      const allTagsRes = await supabase.from("tags").select("id, name, color");
 
-      const taskTagsByTask = new Map<string, Tag[]>();
-      for (const link of taskTagLinksRes.data || []) {
-        const tag = tagMap.get(link.tag_id);
-        if (tag) {
-          const existing = taskTagsByTask.get(link.task_id) || [];
-          existing.push(tag);
-          taskTagsByTask.set(link.task_id, existing);
-        }
-      }
-
-      const lessonTagsByLesson = new Map<string, Tag[]>();
-      for (const link of lessonTagLinksRes.data || []) {
-        const tag = tagMap.get(link.tag_id);
-        if (tag) {
-          const existing = lessonTagsByLesson.get(link.lesson_id) || [];
-          existing.push(tag);
-          lessonTagsByLesson.set(link.lesson_id, existing);
-        }
-      }
-
-      setDetailItems({
-        readings: (readingsRes.data || []) as unknown as ReadingItem[],
-        notes: (notesRes.data || []) as unknown as NoteWithTags[],
-        tasks: ((tasksRes.data || []) as any[]).map((t) => ({ ...t, tags: taskTagsByTask.get(t.id) || [] })) as TaskWithTags[],
-        lessons: ((lessonsRes.data || []) as any[]).map((l) => ({ ...l, tags: lessonTagsByLesson.get(l.id) || [] })) as LessonWithTags[],
+      const { items, loadError } = buildTagDetailItems({
+        itemLinks: itemLinksRes,
+        noteLinks: noteLinksRes,
+        taskLinks: taskLinksRes,
+        lessonLinks: lessonLinksRes,
+        readings: readingsRes,
+        notes: notesRes,
+        tasks: tasksRes,
+        lessons: lessonsRes,
+        taskTagLinks: taskTagLinksRes,
+        lessonTagLinks: lessonTagLinksRes,
+        allTags: allTagsRes,
       });
+
+      if (loadError) {
+        // 查询失败不得把详情清成空列表（谎报「该分类下暂无内容」）：保留上次成功快照并如实提示；
+        // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+        setDetailLoadError(loadError);
+        if (isOnline()) {
+          toast({ title: "加载标签内容失败", variant: "destructive" });
+        }
+        return;
+      }
+
+      setDetailLoadError(null);
+      setDetailItems(items);
     } finally {
       setDetailLoading(false);
     }
@@ -283,6 +285,17 @@ export default function TagsPage() {
     const showNotes = detailFilter === "all" || detailFilter === "notes";
     const showTasks = detailFilter === "all" || detailFilter === "tasks";
     const showLessons = detailFilter === "all" || detailFilter === "lessons";
+    const visibleDetailEmpty =
+      (showReadings && detailItems.readings.length === 0) &&
+      (showNotes && detailItems.notes.length === 0) &&
+      (showTasks && detailItems.tasks.length === 0) &&
+      (showLessons && detailItems.lessons.length === 0);
+    const hasAnyDetailItem =
+      detailItems.readings.length > 0 || detailItems.notes.length > 0 ||
+      detailItems.tasks.length > 0 || detailItems.lessons.length > 0;
+    const retryDetailLoad = () => {
+      if (selectedTag) void fetchTagDetail(selectedTag.id);
+    };
 
     return (
       <div className="space-y-6">
@@ -334,11 +347,31 @@ export default function TagsPage() {
           ))}
         </div>
 
+        {/* toast 会消失：详情加载失败时旧列表上方要有持久的行内提示 + 就地重试（离线失败由顶栏角标表达，不弹 toast） */}
+        {detailLoadError && hasAnyDetailItem && (
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+            role="alert"
+          >
+            <p className="text-xs text-destructive">标签内容加载失败</p>
+            <Button size="sm" variant="outline" className="shrink-0" onClick={retryDetailLoad}>
+              重试
+            </Button>
+          </div>
+        )}
+
         {detailLoading ? (
           <div className="text-center py-12 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
             加载中...
           </div>
+        ) : detailLoadError && visibleDetailEmpty ? (
+          <EmptyState
+            icon={TagIcon}
+            title="标签内容加载失败"
+            description={detailLoadError}
+            action={<Button variant="outline" onClick={retryDetailLoad}>重试</Button>}
+          />
         ) : (
           <div className="space-y-2">
             {showReadings && detailItems.readings.map((item) => (
@@ -458,10 +491,7 @@ export default function TagsPage() {
               </Link>
             ))}
 
-            {((showReadings && detailItems.readings.length === 0) &&
-              (showNotes && detailItems.notes.length === 0) &&
-              (showTasks && detailItems.tasks.length === 0) &&
-              (showLessons && detailItems.lessons.length === 0)) && (
+            {!detailLoadError && visibleDetailEmpty && (
               <EmptyState
                 icon={TagIcon}
                 title="该分类下暂无内容"
