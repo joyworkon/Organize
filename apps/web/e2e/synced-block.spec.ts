@@ -68,37 +68,116 @@ async function openNote(page: Page, noteId: string) {
 const blockContent = (page: Page) =>
   page.locator(`[data-synced-id="${seed.syncedId}"] .organize-synced-content`);
 
-/** 在块内末尾输入：点最后一段的右下角定位到段尾再输入。
+/** 计算把光标放进同步块最后一段末尾的安全点击点。
+ *  用 Range 选中最后一段最后一个文本节点，取 getClientRects() 的最末矩形
+ *  （最后一行文字），点其右缘偏移 offset 像素、垂直居中——坐标一定落在
+ *  文字行内（正 = 右缘向左内收，负 = 向右探进行尾空白）。
+ *  不能点段落盒右下角：末行为短行时那里是盒子尾部空白，Chromium 会把光标
+ *  解析到块外（实测解析到文档开头，输入进引导段落、同步块零 PATCH，「同步
+ *  失败」15s 超时）。空段落退回点段落盒中心（唯一光标位）。
+ *  返回 null 表示块/段落暂不可测（挂载内容被服务端刷新替换节点等） */
+async function caretClickPoint(page: Page, offset: number) {
+  return page.evaluate(
+    ({ syncedId, offset }) => {
+      const content = document.querySelector(
+        `[data-synced-id="${syncedId}"] .organize-synced-content`
+      );
+      if (!content) return null;
+      const paras = content.querySelectorAll("p");
+      const para = paras.length > 0 ? paras[paras.length - 1] : null;
+      if (!para) return null;
+      const paraRect = para.getBoundingClientRect();
+      if (paraRect.width <= 0 || paraRect.height <= 0) return null;
+      let lastText: Node | null = null;
+      const walker = document.createTreeWalker(para, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (n.nodeValue && n.nodeValue.length > 0) lastText = n;
+      }
+      if (!lastText) {
+        return { x: paraRect.left + paraRect.width / 2, y: paraRect.top + paraRect.height / 2 };
+      }
+      const range = document.createRange();
+      range.selectNodeContents(lastText);
+      const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+      const last = rects.length > 0 ? rects[rects.length - 1] : null;
+      if (!last) {
+        return { x: paraRect.left + paraRect.width / 2, y: paraRect.top + paraRect.height / 2 };
+      }
+      return { x: last.right - offset, y: last.top + last.height / 2 };
+    },
+    { syncedId: seed.syncedId, offset }
+  );
+}
+
+/** 校验 DOM 光标：折叠、anchorNode 在同步块最后一段内、且位于该段文本末尾
+ *  （caret 到段末之间取不出任何文本）。只查焦点在编辑器不够——焦点还在
+ *  ProseMirror 时光标可能已被解析到块外，输入会打进别的段落 */
+async function caretAtSyncedBlockEnd(page: Page): Promise<{ ok: boolean; reason?: string }> {
+  return page.evaluate((syncedId) => {
+    const content = document.querySelector(
+      `[data-synced-id="${syncedId}"] .organize-synced-content`
+    );
+    if (!content) return { ok: false, reason: "block content not found" };
+    const paras = content.querySelectorAll("p");
+    if (paras.length === 0) return { ok: false, reason: "no paragraph in block" };
+    const para = paras[paras.length - 1];
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed || !sel.anchorNode) {
+      return { ok: false, reason: "selection not collapsed" };
+    }
+    if (!para.contains(sel.anchorNode)) {
+      return { ok: false, reason: "caret outside block last paragraph" };
+    }
+    const rest = document.createRange();
+    try {
+      rest.setStart(sel.anchorNode, sel.anchorOffset);
+      rest.setEnd(para, para.childNodes.length);
+    } catch {
+      return { ok: false, reason: "caret position not measurable" };
+    }
+    if (rest.toString() !== "") return { ok: false, reason: "caret before paragraph end" };
+    return { ok: true };
+  }, seed.syncedId);
+}
+
+/** 在块内末尾输入：点最后一段「最后一个文字的末端」定位到段尾再输入。
  *  不能点中心 + End：块内容跨用例累积变长后折行，End 只到「可视行尾」，
  *  输入会落到段落中间（A04 实测：文字插进上一用例文本的内里）。
+ *  也不能点段落盒右下角：末行为短行时坐标落在盒子尾部空白死区，光标会被
+ *  解析到块外（run 39042899976 attempt 3 trace：输入进文档开头引导段落，
+ *  pageB 零 PATCH，「同步失败」15s 超时）。所以点最后一段末行文字右缘，且
+ *  点完校验 DOM selection 确在块内段末——不满足就换偏移重取坐标重试
+ *  （有界 5 次），全败则显式失败、不打字（打字 = 输入进别的段落假成功）。
  *  先等编辑器可编辑：协作模式下播种定形前编辑器锁定（A05 D4 收尾），
  *  非协作实例的临时代替者虽已渲染内容，此刻输入会被拒收 */
 async function typeInBlock(page: Page, text: string) {
   await expect(page.locator(".ProseMirror")).toBeEditable({ timeout: 20_000 });
   const para = blockContent(page).locator("p").last();
   // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
-  // 可见后仍可能被服务端内容刷新替换（locator 重解析新节点），有界重试
+  // 可见后仍可能被服务端内容刷新替换（每次重试都从活 DOM 重取坐标）
   await expect(para).toBeVisible({ timeout: 15_000 });
-  // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
-  // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转（实测：
-  // Date.now().toString(36) 偶含 gr → 导航去 /?view=review → 工具栏消失）
-  for (let i = 0; i < 5; i++) {
-    let box = await para.boundingBox();
-    for (let j = 0; j < 3 && !box; j++) {
-      await page.waitForTimeout(500);
-      box = await para.boundingBox();
+  await para.scrollIntoViewIfNeeded();
+  // 偏移轮换内收与右探：窄字形的左半边会把光标放到末字之前，右探则稳定
+  // 落在本行行尾（末行的行尾即段末）
+  const offsets = [2, -2, 1, -6, 3];
+  let caret: { ok: boolean; reason?: string } = { ok: false, reason: "no attempt" };
+  for (const offset of offsets) {
+    if (caret.ok) break;
+    const point = await caretClickPoint(page, offset);
+    if (point) {
+      // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
+      // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转（实测：
+      // Date.now().toString(36) 偶含 gr → 导航去 /?view=review → 工具栏消失）
+      await page.mouse.click(point.x, point.y);
+      caret = await caretAtSyncedBlockEnd(page);
     }
-    if (!box) throw new Error("block last paragraph not visible");
-    await page.mouse.click(box.x + box.width - 8, box.y + box.height - 4);
-    const focused = await page.evaluate(() => {
-      const el = document.activeElement;
-      return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
-    });
-    if (focused) break;
-    await page.waitForTimeout(400);
+    if (!caret.ok) await page.waitForTimeout(400);
   }
-  // 焦点始终没进编辑器就打字 = 输入静默丢失（实测：内容超出视口后坐标点击
-  // 落空），后续断言只会报「待同步没出现」这类远离根因的错——在这里显式失败
+  // 光标始终没进块尾就打字 = 输入进了别的段落（假成功），后续断言只会报
+  // 「同步失败没出现」这类远离根因的错——在这里显式失败
+  if (!caret.ok) {
+    throw new Error(`caret never reached the synced block end (${caret.reason}); refusing to type`);
+  }
   const focused = await page.evaluate(() => {
     const el = document.activeElement;
     return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
