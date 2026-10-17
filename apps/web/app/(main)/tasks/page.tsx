@@ -44,7 +44,7 @@ import { getWebLocks, TASK_REPLAY_LOCK_NAME, runSingleInstance } from "@/lib/off
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
 import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { requestNextRecurringTask } from "@/lib/tasks/recurring";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
@@ -557,16 +557,19 @@ function TasksPageInner() {
       toast({ title: "保存失败，已回滚", variant: "destructive" });
       return;
     }
-    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
+    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务 → none）
     if (normalized.status === "done") {
       appEvents.emit("task:completed", {
         taskId,
         title: tasksRef.current.find((task) => task.id === taskId)?.title ?? "",
       });
-      const newId = await generateNextRecurringTask(supabase, taskId);
-      if (newId) {
+      const next = await requestNextRecurringTask(supabase, taskId);
+      if (next.status === "created") {
         toast({ title: "已生成下一次重复任务" });
         window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      } else if (next.status === "error") {
+        // 完成本身已成功，不回滚；但生成失败必须如实告知，不能让用户误以为续上了
+        toast({ title: "任务已完成，但下一次重复任务生成失败", description: next.message, variant: "destructive" });
       }
     }
   }, [supabase, userId, fetchTasks, pushDeadLetter]);

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { checkTaskCompletionBlockers } from "@/lib/tasks/dependencies";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { requestNextRecurringTask } from "@/lib/tasks/recurring";
 import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
 import { claimTaskNoteCreation, releaseTaskNoteCreation } from "@/lib/tasks/note-link";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
@@ -492,12 +492,15 @@ export default function TaskDetailPage() {
       updates.completed_at = null;
     }
     const ok = await saveTask(updates);
-    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务返回 null）
+    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务 → none）
     if (ok && status === "done" && task) {
-      const newId = await generateNextRecurringTask(supabase, task.id);
-      if (newId) {
+      const next = await requestNextRecurringTask(supabase, task.id);
+      if (next.status === "created") {
         toast({ title: "已生成下一次重复任务" });
         window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      } else if (next.status === "error") {
+        // 完成本身已成功，不回滚、不影响返回值；但生成失败必须如实告知
+        toast({ title: "任务已完成，但下一次重复任务生成失败", description: next.message, variant: "destructive" });
       }
     }
     return ok;
