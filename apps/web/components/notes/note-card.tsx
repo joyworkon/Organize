@@ -96,15 +96,19 @@ export function NoteCard({
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const [isDraggingNote, setIsDraggingNote] = useState(false);
 
   // 拖到笔记页分组条上归类（只在提供 onMoveToGroup 时启用）
   const dragProps = onMoveToGroup
     ? {
         draggable: true,
+        "data-dragging": isDraggingNote || undefined,
         onDragStart: (event: React.DragEvent) => {
           event.dataTransfer.setData(NOTE_DRAG_MIME, note.id);
           event.dataTransfer.effectAllowed = "move";
+          setIsDraggingNote(true);
         },
+        onDragEnd: () => setIsDraggingNote(false),
       }
     : {};
   const excerpt = searchMatch?.snippet || extractExcerpt(note.content);
@@ -411,9 +415,12 @@ export function NoteCard({
   );
 
   const cardBaseClass = cn(
-    "group cursor-pointer transition-colors duration-150 relative overflow-hidden",
+    "group transition-colors duration-150 relative overflow-hidden",
+    // 可拖入分组时用 grab 光标提示拖拽（点击进详情仍是主操作），其余保持 pointer
+    onMoveToGroup ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
     showCheckbox ? "hover:bg-primary/5" : "hover:bg-accent",
     selected && "ring-2 ring-primary",
+    isDraggingNote && "opacity-60",
     // 置顶态：不再用左缘色条（与圆角/复选框抢位、暗色几乎看不见），
     // 改为「置顶」chip + 极淡底色，列表里还有独立的「置顶」分组标题呼应
     note.is_pinned && "organize-pinned-card"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NoteGroup } from "@organize/shared";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,26 @@ import { UNGROUPED_KEY } from "@/lib/notes/groups";
 import { cn } from "@/lib/utils";
 
 export const NOTE_DRAG_MIME = "application/x-organize-note";
+
+/** 文档级感知「正在拖 NOTE_DRAG_MIME 的笔记」：笔记卡片与侧栏笔记树拖起时都置真 */
+function useNoteDragActive(): boolean {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const onDragStart = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes(NOTE_DRAG_MIME)) setActive(true);
+    };
+    // dragend 在源元素上触发并冒泡到 document（含 drop 成功与 Esc 取消两种结束方式）；
+    // 无条件清：置真只可能来自笔记拖拽，结束时不必再区分类型
+    const onDragEnd = () => setActive(false);
+    document.addEventListener("dragstart", onDragStart);
+    document.addEventListener("dragend", onDragEnd);
+    return () => {
+      document.removeEventListener("dragstart", onDragStart);
+      document.removeEventListener("dragend", onDragEnd);
+    };
+  }, []);
+  return active;
+}
 
 /**
  * 笔记页分组条：「全部 / 各分组 / 未分组」筛选，分组可改名、删除；
@@ -42,6 +62,7 @@ export function NoteGroupsBar({
   onAutoGroup: () => void;
 }) {
   const [dropKey, setDropKey] = useState<string | null>(null);
+  const noteDragging = useNoteDragActive();
 
   const chip = (key: string, label: string, group?: NoteGroup) => {
     const selected = active === key;
@@ -52,6 +73,8 @@ export function NoteGroupsBar({
         className={cn(
           "group/chip flex shrink-0 items-center rounded-full border text-sm transition-colors",
           selected ? "border-foreground bg-foreground text-background" : "bg-background hover:bg-muted",
+          // 拖拽进行中的轻量可投放态（虚线）；对准后的 ring-2 是更强一档的「当前对准」态
+          noteDragging && droppable && "border-dashed border-primary/60",
           dropKey === key && "ring-2 ring-primary ring-offset-1"
         )}
         onDragOver={(event) => {
@@ -110,20 +133,25 @@ export function NoteGroupsBar({
   };
 
   return (
-    <div className="flex items-center gap-2" aria-label="笔记分组">
-      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
-        {chip("all", "全部")}
-        {groups.map((g) => chip(g.id, g.name, g))}
-        {groups.length > 0 && chip(UNGROUPED_KEY, "未分组")}
-        <Button variant="ghost" size="sm" className="shrink-0 gap-1 text-muted-foreground" onClick={onCreate}>
-          <Plus className="h-3.5 w-3.5" />
-          新建分组
+    <div className="flex flex-col gap-1" aria-label="笔记分组">
+      <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
+          {chip("all", "全部")}
+          {groups.map((g) => chip(g.id, g.name, g))}
+          {groups.length > 0 && chip(UNGROUPED_KEY, "未分组")}
+          <Button variant="ghost" size="sm" className="shrink-0 gap-1 text-muted-foreground" onClick={onCreate}>
+            <Plus className="h-3.5 w-3.5" />
+            新建分组
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={onAutoGroup}>
+          <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+          自动分组
         </Button>
       </div>
-      <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={onAutoGroup}>
-        <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-        自动分组
-      </Button>
+      {groups.length > 0 && (
+        <p className="select-none text-xs text-muted-foreground">拖动笔记到分组上可归类</p>
+      )}
     </div>
   );
 }
