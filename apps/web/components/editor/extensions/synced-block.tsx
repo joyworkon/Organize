@@ -17,6 +17,7 @@ import {
   emitSyncedBlockStatus,
   fetchSyncedBlock,
   getSyncedUserId,
+  mountFetchFailureStatus,
   patchSyncedBlock,
   readSyncedPending,
   replaceSyncedBlockContent,
@@ -24,6 +25,7 @@ import {
   syncedBlockNeedsSync,
   writeSyncedPending,
   type SyncMessage,
+  type SyncedBlockUiStatus,
 } from "./synced-block-sync";
 
 const SYNC_DEBOUNCE_MS = 1000;
@@ -39,7 +41,7 @@ function broadcast(message: SyncMessage) {
   window.dispatchEvent(new CustomEvent(CHANNEL_NAME, { detail: message }));
 }
 
-type SyncedStatus = "loading" | "saved" | "saving" | "error" | "conflict" | "stale";
+type SyncedStatus = SyncedBlockUiStatus;
 
 function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
   const syncedId = String(node.attrs.syncedId || "");
@@ -193,8 +195,10 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
       if (cancelled) return;
       if (!result.ok) {
         // 404（未创建）沿用本地内容；其余失败保留本地内容但块内提示，可重试拉取。
-        // 有 pending 时立即补交（基准 = stored.revision，服务端有分叉会回 409 走冲突路径）
-        setStatus(result.reason === "not-found" ? "saved" : "error");
+        // 有 pending 时立即补交（基准 = stored.revision，服务端有分叉会回 409 走冲突路径）。
+        // 函数式更新：挂载链（auth.getUser+GET）可能晚于本地首次 flush 的失败定形，
+        // not-found 的「沿用本地」结论不得把已落定的失败态降级成 saved（见纯函数注释）
+        setStatus((prev) => mountFetchFailureStatus(result.reason, prev));
         if (stored) void flushToServer();
         return;
       }

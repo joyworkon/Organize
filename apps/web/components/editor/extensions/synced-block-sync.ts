@@ -149,6 +149,26 @@ export type SyncFetchResult =
   | { ok: true; content: JSONContent[]; revision: number; updatedAt: string | null }
   | { ok: false; reason: "http" | "network" | "shape" | "not-found"; status?: number };
 
+/** 块工具栏状态机的取值（组件 useState 的类型源） */
+export type SyncedBlockUiStatus = "loading" | "saved" | "saving" | "error" | "conflict" | "stale";
+
+/**
+ * 挂载期 GET 失败后的状态收敛。
+ * not-found（未创建 / RLS 不可见）的结论是「沿用本地内容」，但不能冲掉先于挂载拉取
+ * 定形的 error/conflict/stale：挂载链（auth.getUser + GET）在慢机/高负载下可能晚于
+ * 「编辑 → 防抖 flush → PATCH 404 → error」完成，晚到的「沿用本地」会把失败态降级成
+ * 「待同步」，同步失败与重试按钮被静默抹掉（无权视角 e2e 偶发 15s 不见「同步失败」
+ * 的根因）。其余失败（http/network/shape）按错误如实提示，行为不变。
+ */
+export function mountFetchFailureStatus(
+  reason: "http" | "network" | "shape" | "not-found",
+  prev: SyncedBlockUiStatus
+): SyncedBlockUiStatus {
+  if (reason !== "not-found") return "error";
+  if (prev === "error" || prev === "conflict" || prev === "stale") return prev;
+  return "saved";
+}
+
 /** 拉取服务端最新内容；401/403/500、坏 JSON、缺行、内容非数组都不算成功。 */
 export async function fetchSyncedBlock(syncedId: string): Promise<SyncFetchResult> {
   try {
