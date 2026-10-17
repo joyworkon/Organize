@@ -1,4 +1,7 @@
 import type { Task, TaskDependency } from "@organize/shared";
+import { createClient } from "@/lib/supabase/client";
+
+type SupabaseClient = ReturnType<typeof createClient>;
 
 export interface TaskDependencyView {
   prerequisites: Task[];
@@ -114,4 +117,39 @@ export function taskDependencyLoadErrorMessage(
   return sections[0] === "任务列表"
     ? "任务列表加载失败，依赖关系可能不完整"
     : "依赖关系加载失败，显示的内容可能不完整";
+}
+
+/**
+ * 「标记完成」前的前置依赖检查（供任务详情页接线并单测）：
+ * 任一查询失败都返回 `{ status: "error" }`，由页面弹确认而不是当作「没有阻塞」静默放行。
+ */
+export interface TaskCompletionBlocker {
+  id: string;
+  title: string;
+}
+
+export type TaskCompletionBlockersResult =
+  | { status: "ok"; blocking: TaskCompletionBlocker[] }
+  | { status: "error" };
+
+export async function checkTaskCompletionBlockers(
+  supabase: SupabaseClient,
+  taskId: string
+): Promise<TaskCompletionBlockersResult> {
+  const { data: edges, error: edgesError } = await supabase
+    .from("task_dependencies")
+    .select("depends_on_task_id")
+    .eq("task_id", taskId);
+  if (edgesError) return { status: "error" };
+  const depIds = (edges || []).map((edge) => edge.depends_on_task_id);
+  if (depIds.length === 0) return { status: "ok", blocking: [] };
+  const { data: prereqs, error: prereqsError } = await supabase
+    .from("tasks")
+    .select("id, title, status")
+    .in("id", depIds);
+  if (prereqsError) return { status: "error" };
+  const blocking = (prereqs || [])
+    .filter((prereq) => prereq.status !== "done")
+    .map((prereq) => ({ id: prereq.id, title: prereq.title }));
+  return { status: "ok", blocking };
 }
