@@ -57,7 +57,7 @@ async function openNote(page: Page, noteId: string) {
   await page.goto(`/notes/${noteId}`);
   await page.locator(".ProseMirror").waitFor();
   // 等协作会话健康定形（首次同步完成）再放行后续输入：协作门控解除前编辑器
-  // 不可编辑，typeInBlock 的 toBeEditable 会在此窗口空等（PR #313 调查）
+  // 处于播种锁定（不可编辑）；typeInBlock 自带可编辑轮询门，这里只管会话定形
   await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({
     timeout: 45_000,
   });
@@ -153,9 +153,11 @@ async function caretAtSyncedBlockEnd(page: Page): Promise<{ ok: boolean; reason?
 async function typeInBlock(page: Page, text: string) {
   // 用 expect.poll 而不是 toBeEditable：openNote 的 ready 门与 containText 都能在
   // 临时代替者编辑器上通过，随后编辑器被「协作会话定形重建」换成播种锁定的空实例
-  // （contenteditable=false，播种租约落定后才解锁）。.ProseMirror 没有 role=textbox，
-  // Playwright 的 toBeEditable 对这种锁定元素立即抛错、不进入重试（run 39048355930
-  // trace：containText 通过后 40ms 换成锁定实例，断言 114ms 内瞬发失败）
+  // （contenteditable=false，播种租约落定后才解锁）。当时 .ProseMirror 没有
+  // role=textbox，toBeEditable 对锁定元素立即抛错、不进入重试（run 39048355930
+  // trace：containText 通过后 40ms 换成锁定实例，断言 114ms 内瞬发失败）；
+  // 现编辑器根 dom 已带 role/aria-readonly（toBeEditable 恢复重试语义），
+  // expect.poll 直接轮询 isContentEditable，保留原写法
   await expect
     .poll(
       () =>
