@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CountdownDay } from "@organize/shared";
-import { annualOccurrenceDate, countdownDisplay, nextCountdownOccurrence, sortCountdownDays } from "./countdown";
+import {
+  annualOccurrenceDate,
+  countdownDisplay,
+  COUNTDOWN_LOAD_ERROR_MESSAGE,
+  nextCountdownDaysAfterLoad,
+  nextCountdownOccurrence,
+  sortCountdownDays,
+} from "./countdown";
 
 const day = (target_date: string, repeat_annually = false, title = target_date): CountdownDay => ({
   id: title,
@@ -41,5 +48,38 @@ describe("countdown date calculations", () => {
       day("2026-08-03", true, "annual"),
     ], new Date(2026, 7, 2));
     expect(sorted.map((item) => item.title)).toEqual(["annual", "soon", "past"]);
+  });
+});
+
+describe("nextCountdownDaysAfterLoad", () => {
+  it("on success replaces the list and clears the error", () => {
+    const previous = [day("2026-01-01", false, "old")];
+    const fresh = [day("2026-12-31", false, "new"), day("2027-06-01", true, "annual")];
+    const plan = nextCountdownDaysAfterLoad({ previous, data: fresh, error: null });
+    expect(plan.days).toEqual(fresh);
+    expect(plan.loadError).toBeNull();
+  });
+
+  it("on error keeps the previous snapshot and surfaces the message", () => {
+    const previous = [day("2026-01-01", false, "old")];
+    // Supabase/Postgrest 错误常不是 Error 实例：只要 message 可读就要用上
+    const plan = nextCountdownDaysAfterLoad({ previous, data: null, error: { message: "network down" } });
+    expect(plan.days).toBe(previous);
+    expect(plan.loadError).toBe("network down");
+  });
+
+  it("falls back to the default message when error.message is blank", () => {
+    const plan = nextCountdownDaysAfterLoad({ previous: [], data: null, error: { message: "   " } });
+    expect(plan.loadError).toBe(COUNTDOWN_LOAD_ERROR_MESSAGE);
+    const noMessage = nextCountdownDaysAfterLoad({ previous: [], data: null, error: {} });
+    expect(noMessage.loadError).toBe(COUNTDOWN_LOAD_ERROR_MESSAGE);
+  });
+
+  it("treats nullish data without error as an empty success", () => {
+    for (const data of [null, undefined]) {
+      const plan = nextCountdownDaysAfterLoad({ previous: [day("2026-01-01")], data, error: null });
+      expect(plan.days).toEqual([]);
+      expect(plan.loadError).toBeNull();
+    }
   });
 });
