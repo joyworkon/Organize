@@ -60,6 +60,14 @@ export function nextGroupsStateAfterLoad(
 }
 
 /**
+ * 分组加载失败的行内错误条是否可见：loadError 非空且在线。
+ * 离线时的失败由顶栏离线角标表达，不再叠一条错误横幅（与 useNoteGroups 的 toast 门控一致）。
+ */
+export function shouldShowGroupsLoadError(loadError: string | null, online: boolean): boolean {
+  return loadError !== null && online;
+}
+
+/**
  * 「分组表未迁移（094 未应用）」判定：PGRST205 / 42P01，或这两种错误的典型文案。
  * 只有这种情况沿用空态退化；其余失败（网络/RLS/权限/5xx）按普通失败保留旧值并提示。
  */
