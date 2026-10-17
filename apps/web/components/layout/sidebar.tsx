@@ -35,7 +35,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ThemeToggle } from "./theme-toggle";
 import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
 import { useNoteGroups } from "@/hooks/use-note-groups";
-import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged } from "@/lib/notes/groups";
+import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged, shouldShowGroupsLoadError } from "@/lib/notes/groups";
+import { useOnlineStatus } from "@/lib/offline/network";
 import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
 
 /** 侧栏笔记列表默认只显示的顶层笔记数 */
@@ -748,7 +749,14 @@ function SidebarGroupedNotes({
   pathname: string;
   onNavigate: () => void;
 }) {
-  const { supabase, userId, groups, membership } = useNoteGroups();
+  const { supabase, userId, groups, membership, loadError: groupsLoadError } = useNoteGroups();
+  const online = useOnlineStatus();
+  // 分组加载失败的一行小字提示：toast 会消失，侧栏静默显示旧分组等于掩盖失败
+  const groupsLoadErrorLine = shouldShowGroupsLoadError(groupsLoadError, online) && (
+    <p className="px-1.5 text-[11px] text-destructive" role="alert">
+      分组加载失败
+    </p>
+  );
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [dropKey, setDropKey] = useState<string | null>(null);
   useEffect(() => {
@@ -773,7 +781,12 @@ function SidebarGroupedNotes({
   };
 
   if (groups.length === 0) {
-    return <SidebarNoteTree nodes={nodes} pathname={pathname} onNavigate={onNavigate} />;
+    return (
+      <>
+        {groupsLoadErrorLine}
+        <SidebarNoteTree nodes={nodes} pathname={pathname} onNavigate={onNavigate} />
+      </>
+    );
   }
 
   const sections = [
@@ -793,6 +806,7 @@ function SidebarGroupedNotes({
 
   return (
     <div className="flex flex-col gap-1">
+      {groupsLoadErrorLine}
       {sections.map((section) => {
         const open = !collapsedGroups.has(section.key);
         return (

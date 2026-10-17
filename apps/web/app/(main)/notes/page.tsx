@@ -29,6 +29,7 @@ import {
   moveNotesToGroup,
   notifyNoteGroupsChanged,
   renameNoteGroup,
+  shouldShowGroupsLoadError,
 } from "@/lib/notes/groups";
 import {
   DropdownMenu,
@@ -607,7 +608,14 @@ export default function NotesPage() {
   );
 
   // ---- 笔记分组（094）：分组条筛选 + 移到分组 + 自动分组 ----
-  const { userId: groupsUserId, groups, membership } = useNoteGroups();
+  // 页面自己的 loadError 是「笔记列表」的失败态；分组加载失败单独收敛在 groupsLoadError
+  const {
+    userId: groupsUserId,
+    groups,
+    membership,
+    loadError: groupsLoadError,
+    reload: reloadGroups,
+  } = useNoteGroups();
   const [activeGroup, setActiveGroup] = useState<string>("all");
   const [groupDialogNoteId, setGroupDialogNoteId] = useState<string | null>(null);
   const [autoGroupOpen, setAutoGroupOpen] = useState(false);
@@ -967,6 +975,22 @@ export default function NotesPage() {
         onDropNote={(noteId, groupId) => void handleMoveNoteToGroup(noteId, groupId)}
         onAutoGroup={() => setAutoGroupOpen(true)}
       />
+
+      {/* toast 会消失：分组加载失败还要有持久的行内提示 + 就地重试（离线失败由顶栏角标表达，不显示） */}
+      {shouldShowGroupsLoadError(groupsLoadError, online) && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+          role="alert"
+        >
+          <div className="min-w-0">
+            <p className="text-xs text-destructive">分组加载失败{groups.length > 0 ? "，当前显示的是上次内容" : ""}</p>
+            {groupsLoadError && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{groupsLoadError}</p>}
+          </div>
+          <Button size="sm" variant="ghost" className="shrink-0" onClick={() => void reloadGroups()}>
+            重试
+          </Button>
+        </div>
+      )}
 
       {isSelectMode && (
         <BatchActionsBar

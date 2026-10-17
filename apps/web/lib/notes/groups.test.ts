@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NoteGroup } from "@organize/shared";
-import { isNoteGroupsTableMissing, loadNoteGroups, nextGroupsStateAfterLoad } from "./groups";
+import { isNoteGroupsTableMissing, loadNoteGroups, nextGroupsStateAfterLoad, shouldShowGroupsLoadError } from "./groups";
 
 const groupA: NoteGroup = {
   id: "g1",
@@ -59,6 +59,15 @@ describe("nextGroupsStateAfterLoad", () => {
     // 成功且服务端没有分组：同样为空，但 failed=false
     const emptyPlan = nextGroupsStateAfterLoad(null, { groups: [], membership: new Map() });
     expect(emptyPlan.failed).toBe(false);
+  });
+});
+
+describe("shouldShowGroupsLoadError", () => {
+  it("在线且有失败文案才显示行内错误条；离线由顶栏角标表达，未失败不显示", () => {
+    expect(shouldShowGroupsLoadError("Failed to fetch", true)).toBe(true);
+    expect(shouldShowGroupsLoadError("Failed to fetch", false)).toBe(false);
+    expect(shouldShowGroupsLoadError(null, true)).toBe(false);
+    expect(shouldShowGroupsLoadError(null, false)).toBe(false);
   });
 });
 
