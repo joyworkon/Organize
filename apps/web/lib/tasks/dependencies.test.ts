@@ -5,6 +5,7 @@ import {
   failedTaskDependencyLoadSections,
   getBlockedTaskIds,
   getTaskDependencyView,
+  isBlockingPrerequisite,
   taskDependencyLoadErrorMessage,
   wouldCreateTaskDependencyCycle,
 } from "./dependencies";
@@ -40,6 +41,33 @@ describe("task dependency helpers", () => {
     expect(wouldCreateTaskDependencyCycle(edges, "b", "a")).toBe(true);
     expect(wouldCreateTaskDependencyCycle(edges, "c", "a")).toBe(true);
     expect(wouldCreateTaskDependencyCycle(edges, "a", "b")).toBe(false);
+  });
+});
+
+describe("阻塞判定统一规则 isBlockingPrerequisite", () => {
+  it("未完成且未删的 todo / in_progress 算阻塞", () => {
+    expect(isBlockingPrerequisite({ status: "todo", deleted_at: null })).toBe(true);
+    expect(
+      isBlockingPrerequisite({ status: "in_progress", deleted_at: null })
+    ).toBe(true);
+  });
+
+  it("已完成或已放弃不算阻塞", () => {
+    expect(isBlockingPrerequisite({ status: "done", deleted_at: null })).toBe(false);
+    expect(
+      isBlockingPrerequisite({ status: "cancelled", deleted_at: null })
+    ).toBe(false);
+  });
+
+  it("软删除（deleted_at 非空）不算阻塞，即使状态未完成", () => {
+    expect(
+      isBlockingPrerequisite({ status: "todo", deleted_at: "2026-10-01T00:00:00Z" })
+    ).toBe(false);
+  });
+
+  it("deleted_at 缺省（字段不存在）时按未删除处理", () => {
+    expect(isBlockingPrerequisite({ status: "todo" })).toBe(true);
+    expect(isBlockingPrerequisite({ status: "done" })).toBe(false);
   });
 });
 
@@ -178,5 +206,107 @@ describe("标记完成前的依赖检查 checkTaskCompletionBlockers", () => {
       "a"
     );
     expect(result).toEqual({ status: "ok", blocking: [] });
+  });
+
+  it("前置已放弃（cancelled）时不阻塞，与依赖面板一致", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: { data: [{ depends_on_task_id: "b" }], error: null },
+        tasks: {
+          data: [{ id: "b", title: "B", status: "cancelled", deleted_at: null }],
+          error: null,
+        },
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "ok", blocking: [] });
+  });
+
+  it("前置已软删除（deleted_at 非空）时不阻塞，与依赖面板一致", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: { data: [{ depends_on_task_id: "b" }], error: null },
+        tasks: {
+          data: [
+            {
+              id: "b",
+              title: "B",
+              status: "todo",
+              deleted_at: "2026-10-01T00:00:00Z",
+            },
+          ],
+          error: null,
+        },
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "ok", blocking: [] });
+  });
+
+  it("前置未完成且未删（todo / in_progress）时阻塞并返回 id/title", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: {
+          data: [{ depends_on_task_id: "b" }, { depends_on_task_id: "c" }],
+          error: null,
+        },
+        tasks: {
+          data: [
+            { id: "b", title: "B", status: "in_progress", deleted_at: null },
+            { id: "c", title: "C", status: "todo", deleted_at: null },
+          ],
+          error: null,
+        },
+      }),
+      "a"
+    );
+    expect(result).toEqual({
+      status: "ok",
+      blocking: [
+        { id: "b", title: "B" },
+        { id: "c", title: "C" },
+      ],
+    });
+  });
+
+  it("depIds 有 2 个但只查回 1 个时返回 error，不静默放行", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: {
+          data: [{ depends_on_task_id: "b" }, { depends_on_task_id: "c" }],
+          error: null,
+        },
+        tasks: {
+          data: [{ id: "b", title: "B", status: "done", deleted_at: null }],
+          error: null,
+        },
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "error" });
+  });
+
+  it("depIds 有重复 id、查回该 1 行时不误判为 error", async () => {
+    const queried: string[][] = [];
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: {
+          data: [
+            { depends_on_task_id: "b" },
+            { depends_on_task_id: "b" },
+          ],
+          error: null,
+        },
+        tasks: {
+          data: [{ id: "b", title: "B", status: "done", deleted_at: null }],
+          error: null,
+        },
+        onTasksQuery: (ids) => queried.push(ids),
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "ok", blocking: [] });
+    // 去重后只按唯一 id 查询与核对
+    expect(queried).toEqual([["b"]]);
   });
 });
