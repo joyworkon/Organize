@@ -28,7 +28,7 @@ interface CompleteTaskDialogProps {
   open: boolean;
   task: Task | null;
   onClose: () => void;
-  onComplete: (reflectionData?: { title?: string; content?: string; lessonType?: string }) => Promise<void>;
+  onComplete: (reflectionData?: { title?: string; content?: string; lessonType?: string }) => Promise<boolean | void>;
 }
 
 export function CompleteTaskDialog({ open, task, onClose, onComplete }: CompleteTaskDialogProps) {
@@ -41,8 +41,9 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
   const handleQuickComplete = async () => {
     setSaving(true);
     try {
-      await onComplete();
-      handleClose();
+      const result = await onComplete();
+      // 返回 false = 任务未完成（取消确认/保存失败）：保持弹窗打开，不清空已写内容
+      if (result !== false) handleClose();
     } finally {
       setSaving(false);
     }
@@ -52,12 +53,13 @@ export function CompleteTaskDialog({ open, task, onClose, onComplete }: Complete
     if (!task) return;
     setSaving(true);
     try {
-      await onComplete({
+      const result = await onComplete({
         title: title.trim(),
         content: content.trim(),
         lessonType,
       });
-      handleClose();
+      // 返回 false = 任务完成或复盘保存失败：保持打开、保留 title/content/lessonType 供重试
+      if (result !== false) handleClose();
     } finally {
       setSaving(false);
     }

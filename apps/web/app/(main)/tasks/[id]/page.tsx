@@ -467,7 +467,7 @@ export default function TaskDetailPage() {
     }
   }
 
-  async function handleStatusChange(status: TaskStatus) {
+  async function handleStatusChange(status: TaskStatus): Promise<boolean> {
     // 前置依赖未完成时给出明确确认：系统不强制拦截，但"完成"不该无声绕过阻塞关系
     if (status === "done" && task && task.status !== "done") {
       const result = await checkTaskCompletionBlockers(supabase, task.id);
@@ -476,13 +476,13 @@ export default function TaskDetailPage() {
         const proceed = window.confirm(
           "无法确认前置任务是否已完成（加载失败）。仍要将本任务标记为完成吗？"
         );
-        if (!proceed) return;
+        if (!proceed) return false;
       } else if (result.blocking.length > 0) {
         const names = result.blocking.map((p) => `「${p.title}」`).join("、");
         const proceed = window.confirm(
           `${result.blocking.length} 个前置任务尚未完成：${names}。仍要将本任务标记为完成吗？`
         );
-        if (!proceed) return;
+        if (!proceed) return false;
       }
     }
     const updates: Partial<Task> = { status };
@@ -500,31 +500,42 @@ export default function TaskDetailPage() {
         window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
       }
     }
+    return ok;
   }
 
-  async function handleComplete(reflectionData?: { title?: string; content?: string; lessonType?: string }) {
-    if (!task) return;
-    await handleStatusChange("done");
+  async function handleComplete(reflectionData?: { title?: string; content?: string; lessonType?: string }): Promise<boolean> {
+    if (!task) return false;
+    // 任务未完成时先落状态；确认框取消或保存失败都不写复盘、不关弹窗（保留已写内容供重试）。
+    // 已是 done（如上次复盘保存失败后重试）则跳过，不重复保存状态、不重复生成重复任务
+    if (task.status !== "done") {
+      const completed = await handleStatusChange("done");
+      if (!completed) return false;
+    }
 
     if (reflectionData && reflectionData.content?.trim()) {
+      const failReflection = () => {
+        toast({ title: "任务已完成，但复盘保存失败", description: "复盘内容已保留，可重试保存", variant: "destructive" });
+        return false;
+      };
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("lessons").insert({
-          user_id: user.id,
-          title: reflectionData.title?.trim() || `${task.title} - 复盘`,
-          content: reflectionData.content.trim() ? {
-            type: "doc",
-            content: [
-              { type: "paragraph", content: [{ type: "text", text: reflectionData.content.trim() }] },
-            ],
-          } : null,
-          lesson_type: reflectionData.lessonType || "reflection",
-          task_id: task.id,
-        });
-      }
+      if (!user) return failReflection();
+      const { error: lessonError } = await supabase.from("lessons").insert({
+        user_id: user.id,
+        title: reflectionData.title?.trim() || `${task.title} - 复盘`,
+        content: {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: reflectionData.content.trim() }] },
+          ],
+        },
+        lesson_type: reflectionData.lessonType || "reflection",
+        task_id: task.id,
+      });
+      if (lessonError) return failReflection();
     }
 
     setCompleteDialogOpen(false);
+    return true;
   }
 
   function handleTitleSave() {
