@@ -962,6 +962,28 @@
   padding-top: 12px;
   padding-bottom: 4px;
 }
+/* 笔记树加载失败提示（含「重试」）：覆盖上面给列表按钮的整行样式，还原为行内文字按钮 */
+.note-child-pages-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: hsl(var(--destructive));
+}
+.note-child-pages-error button {
+  width: auto;
+  flex-shrink: 0;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.note-child-pages-error button:hover {
+  background: transparent;
+  opacity: 0.8;
+}
 
 /* 反向链接区域对齐 */
 .note-page .mt-8.pt-6.border-t {
