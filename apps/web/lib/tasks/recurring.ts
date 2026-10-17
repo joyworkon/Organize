@@ -6,9 +6,7 @@
  *
  * requestNextRecurringTask 区分三种结果：created（生成了新实例）/ none（本来
  * 就不需要生成：非重复任务或已生成过）/ error（RPC 报错或调用失败）。需要向
- * 用户如实反馈生成失败（data & network：不假装成功）的调用方用它；
- * generateNextRecurringTask 是兼容旧调用方的包装，仍把 none 与 error 一起
- * 折叠成 null，不抛错。
+ * 用户如实反馈生成失败（data & network：不假装成功）的调用方用它。
  */
 import { createClient } from "@/lib/supabase/client";
 
@@ -40,17 +38,4 @@ export async function requestNextRecurringTask(
     const message = err instanceof Error && err.message ? err.message : "生成下一次重复任务失败";
     return { status: "error", message };
   }
-}
-
-/**
- * 兼容旧调用方的包装：只关心"是否生成了新实例"。
- * @returns 新任务 id；非重复任务、已生成过或调用失败时返回 null（不抛错，
- *          因为"完成"本身已成功，生成失败不应让 UI 回滚完成状态）。
- */
-export async function generateNextRecurringTask(
-  supabase: SupabaseClient,
-  taskId: string
-): Promise<string | null> {
-  const result = await requestNextRecurringTask(supabase, taskId);
-  return result.status === "created" ? result.id : null;
 }

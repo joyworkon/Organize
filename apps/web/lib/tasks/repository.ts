@@ -9,7 +9,6 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { Task, TaskWithTags, TaskList, Tag } from "@organize/shared";
 import { mutateTrash } from "@/lib/trash/client";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { enqueueTaskOp, makeTaskUpdateOp, type PendingTaskOp } from "@/lib/offline/task-queue";
@@ -148,36 +147,6 @@ export function useTaskRepository() {
     [supabase, fetchAll]
   );
 
-  /** 乐观更新任务状态，失败回滚 */
-  const updateTaskStatus = useCallback(async (taskId: string, status: Task["status"]) => {
-    const prev = snapshotRef.current;
-    const rollback = () => { snapshotRef.current = prev; setTasks(prev); };
-    // 乐观：先更新 UI
-    setTasks((cur) => cur.map((t) => t.id === taskId ? { ...t, status } : t));
-    try {
-      const updates: Record<string, unknown> = {
-        status,
-        completed_at: status === "done" ? new Date().toISOString() : null,
-      };
-      // 在线与离线共用原子协议（P1-03）；离线（含网络异常）入队由 applyAtomicUpdate 处理
-      const applied = await applyAtomicUpdate(taskId, updates);
-      if (!applied) return;
-      // 重复任务：done 时触发幂等生成（RPC 内部自检，非重复任务返回 null）
-      if (status === "done") {
-        const newId = await generateNextRecurringTask(supabase, taskId);
-        if (newId) {
-          toast({ title: "已生成下一次重复任务" });
-          await fetchAll();
-        }
-      }
-      // 成功后更新快照
-      snapshotRef.current = snapshotRef.current.map((t) => t.id === taskId ? { ...t, status } : t);
-    } catch {
-      rollback();
-      toast({ title: "更新失败，已回滚", variant: "destructive" });
-    }
-  }, [supabase, fetchAll, applyAtomicUpdate]);
-
   /** 乐观切换置顶，失败回滚 */
   const togglePin = useCallback(async (taskId: string) => {
     const prev = snapshotRef.current;
@@ -261,7 +230,7 @@ export function useTaskRepository() {
   return {
     tasks, lists, loading,
     refetch: fetchAll,
-    updateTaskStatus, togglePin, softDeleteTask, updateTask,
+    togglePin, softDeleteTask, updateTask,
     createList, updateList, deleteList,
   };
 }
