@@ -168,37 +168,40 @@ async function typeInBlock(page: Page, text: string) {
       { timeout: 20_000 }
     )
     .toBe(true);
-  const para = blockContent(page).locator("p").last();
-  // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
-  // 可见后仍可能被服务端内容刷新替换（每次重试都从活 DOM 重取坐标）
-  await expect(para).toBeVisible({ timeout: 15_000 });
-  await para.scrollIntoViewIfNeeded();
-  // 偏移轮换内收与右探：窄字形的左半边会把光标放到末字之前，右探则稳定
-  // 落在本行行尾（末行的行尾即段末）
-  const offsets = [2, -2, 1, -6, 3];
-  let caret: { ok: boolean; reason?: string } = { ok: false, reason: "no attempt" };
-  for (const offset of offsets) {
-    if (caret.ok) break;
-    const point = await caretClickPoint(page, offset);
-    if (point) {
-      // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
-      // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转（实测：
-      // Date.now().toString(36) 偶含 gr → 导航去 /?view=review → 工具栏消失）
-      await page.mouse.click(point.x, point.y);
-      caret = await caretAtSyncedBlockEnd(page);
+  // 协作编辑器重建会整体替换节点（run 39056723637：scrollIntoViewIfNeeded 报
+  // "Element is not attached to the DOM"）。定位+滚动+点击+光标校验整段放进
+  // toPass 有界重试：每轮都从活 DOM 重新定位（不持有句柄），中途节点被换掉
+  // 就整轮重来；超时仍不满足则显式失败、不打字
+  await expect(async () => {
+    const para = blockContent(page).locator("p").last();
+    // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标
+    await expect(para).toBeVisible({ timeout: 5_000 });
+    await para.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    // 偏移轮换内收与右探：窄字形的左半边会把光标放到末字之前，右探则稳定
+    // 落在本行行尾（末行的行尾即段末）
+    const offsets = [2, -2, 1, -6, 3];
+    let caret: { ok: boolean; reason?: string } = { ok: false, reason: "no attempt" };
+    for (const offset of offsets) {
+      if (caret.ok) break;
+      const point = await caretClickPoint(page, offset);
+      if (point) {
+        // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
+        // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转
+        await page.mouse.click(point.x, point.y);
+        caret = await caretAtSyncedBlockEnd(page);
+      }
+      if (!caret.ok) await page.waitForTimeout(400);
     }
-    if (!caret.ok) await page.waitForTimeout(400);
-  }
-  // 光标始终没进块尾就打字 = 输入进了别的段落（假成功），后续断言只会报
-  // 「同步失败没出现」这类远离根因的错——在这里显式失败
-  if (!caret.ok) {
-    throw new Error(`caret never reached the synced block end (${caret.reason}); refusing to type`);
-  }
-  const focused = await page.evaluate(() => {
-    const el = document.activeElement;
-    return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
-  });
-  if (!focused) throw new Error("click never focused the editor; typing would be lost");
+    // 光标没进块尾就打字 = 输入进了别的段落（假成功）——不满足则本轮失败重试
+    if (!caret.ok) {
+      throw new Error(`caret never reached the synced block end (${caret.reason}); refusing to type`);
+    }
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+    });
+    if (!focused) throw new Error("click never focused the editor; typing would be lost");
+  }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] });
   await page.keyboard.type(text);
 }
 
