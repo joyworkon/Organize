@@ -1538,6 +1538,8 @@ function NoteEditorContent({ noteId, invalidateRef }: {
               onParentChange={capabilities.canEdit
                 ? (nextParentId) => updatePageMetadata({ parent_note_id: nextParentId })
                 : undefined}
+              loadError={noteTreeLoadError}
+              onRetry={() => void loadNoteTree()}
             />
           </div>
           <div className="note-topbar-group note-topbar-actions">
@@ -1815,6 +1817,8 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         currentParentId={parentNoteId}
         notes={allNotes}
         onConfirm={handleMove}
+        loadError={noteTreeLoadError}
+        onRetry={() => void loadNoteTree()}
       />
 
       <NoteHistoryPanel

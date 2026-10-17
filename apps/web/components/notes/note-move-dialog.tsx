@@ -32,6 +32,10 @@ interface NoteMoveDialogProps {
    * 父组件负责做乐观更新/回滚；对话框内部只关心 disabled 和错误展示。
    */
   onConfirm: (parentId: string | null) => Promise<void>;
+  /** 笔记树加载失败提示；候选列表为空/旧快照时提示可能不完整，不冒充「没有别的页面」 */
+  loadError?: string | null;
+  /** 点击「重试」重新加载笔记树 */
+  onRetry?: () => void;
 }
 
 export function NoteMoveDialog({
@@ -42,6 +46,8 @@ export function NoteMoveDialog({
   currentParentId,
   notes,
   onConfirm,
+  loadError,
+  onRetry,
 }: NoteMoveDialogProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(currentParentId);
@@ -132,6 +138,17 @@ export function NoteMoveDialog({
           {error && (
             <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
+            </div>
+          )}
+
+          {loadError && (
+            <div className="note-tree-load-error" role="alert">
+              <span>{loadError}，候选列表可能不完整</span>
+              {onRetry && (
+                <button type="button" onClick={onRetry}>
+                  重试
+                </button>
+              )}
             </div>
           )}
 
