@@ -12,6 +12,7 @@ import {
   clearSyncedPending,
   createSyncSessionId,
   fetchSyncedBlock,
+  mountFetchFailureStatus,
   patchSyncedBlock,
   readSyncedPending,
   replaceSyncedBlockContent,
@@ -284,5 +285,27 @@ describe("shouldAcceptSyncMessage：来源识别", () => {
 describe("createSyncSessionId", () => {
   it("两次生成不重复", () => {
     expect(createSyncSessionId()).not.toBe(createSyncSessionId());
+  });
+});
+
+describe("mountFetchFailureStatus：挂载 GET 失败的状态收敛", () => {
+  it("not-found 沿用本地内容：loading/saved/saving 保持或落 saved", () => {
+    expect(mountFetchFailureStatus("not-found", "loading")).toBe("saved");
+    expect(mountFetchFailureStatus("not-found", "saved")).toBe("saved");
+    expect(mountFetchFailureStatus("not-found", "saving")).toBe("saved");
+  });
+
+  it("not-found 晚于失败定形到达时不得降级 error/conflict/stale（无权视角 PATCH 404 的同步失败不得被冲掉）", () => {
+    expect(mountFetchFailureStatus("not-found", "error")).toBe("error");
+    expect(mountFetchFailureStatus("not-found", "conflict")).toBe("conflict");
+    expect(mountFetchFailureStatus("not-found", "stale")).toBe("stale");
+  });
+
+  it("http/network/shape 失败一律如实提示错误，与先前状态无关", () => {
+    for (const reason of ["http", "network", "shape"] as const) {
+      expect(mountFetchFailureStatus(reason, "loading")).toBe("error");
+      expect(mountFetchFailureStatus(reason, "saved")).toBe("error");
+      expect(mountFetchFailureStatus(reason, "error")).toBe("error");
+    }
   });
 });
