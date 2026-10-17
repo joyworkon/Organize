@@ -13,20 +13,22 @@ import { Star, BookOpen, FileText, ListChecks, LayoutList, Loader2, Globe } from
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { EmptyState } from "@/components/ui/empty-state";
-import type { Favorite, FavoriteTargetType, ReadingItem, Note, Task } from "@organize/shared";
+import { isOnline } from "@/lib/offline/network";
+import type { FavoriteTargetType, ReadingItem, Note, Task } from "@organize/shared";
 import { TASK_STATUS_CONFIG } from "@organize/shared";
+import { attachFavoriteItems, type FavoriteWithItem } from "./favorites-load";
 
 type TabFilter = "all" | "reading" | "note" | "task";
-
-interface FavoriteWithItem extends Favorite {
-  item?: ReadingItem | Note | Task;
-}
 
 export default function FavoritesPage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [favorites, setFavorites] = useState<FavoriteWithItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 收藏查询失败（在线时）：没有已加载的收藏时显示错误 + 重试，而不是「还没有收藏内容」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 条目查询失败的类型：这些收藏显示「内容加载失败」并提供重试，不当成已删除 */
+  const [itemLoadFailedTypes, setItemLoadFailedTypes] = useState<Set<FavoriteTargetType>>(new Set());
   const [activeTab, setActiveTab] = useState<TabFilter>("all");
   const [search, setSearch] = useState("");
 
@@ -36,11 +38,21 @@ export default function FavoritesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: favs } = await supabase
+      const { data: favs, error: favsError } = await supabase
         .from("favorites")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
+
+      if (favsError) {
+        // 查询失败不得当空列表清掉旧收藏（谎报「从没收藏过」）：保留旧列表并如实提示；
+        // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+        setLoadError(favsError.message || "加载收藏夹失败");
+        if (isOnline()) {
+          toast({ title: "加载收藏夹失败", description: favsError.message, variant: "destructive" });
+        }
+        return;
+      }
 
       const favList: FavoriteWithItem[] = (favs || []).map((f: any) => ({ ...f }));
 
@@ -60,21 +72,19 @@ export default function FavoritesPage() {
           : Promise.resolve({ data: [] }),
       ]);
 
-      const readingMap = new Map((readingsRes.data || []).map((r: any) => [r.id, r as ReadingItem]));
-      const noteMap = new Map((notesRes.data || []).map((n: any) => [n.id, n as Note]));
-      const taskMap = new Map((tasksRes.data || []).map((t: any) => [t.id, t as Task]));
-
-      favList.forEach(fav => {
-        if (fav.target_type === "reading") {
-          fav.item = readingMap.get(fav.target_id);
-        } else if (fav.target_type === "note") {
-          fav.item = noteMap.get(fav.target_id);
-        } else if (fav.target_type === "task") {
-          fav.item = taskMap.get(fav.target_id);
-        }
+      const plan = attachFavoriteItems(favList, {
+        reading: readingsRes,
+        note: notesRes,
+        task: tasksRes,
       });
 
-      setFavorites(favList);
+      setFavorites(plan.favorites);
+      setLoadError(null);
+      setItemLoadFailedTypes(plan.failedTypes);
+      // 某类条目查询失败：不冒充「内容已删除」，内联提示常驻，在线时再弹一次 toast
+      if (plan.failedTypes.size > 0 && isOnline()) {
+        toast({ title: "部分收藏内容加载失败", variant: "destructive" });
+      }
     } finally {
       setLoading(false);
     }
@@ -175,11 +185,31 @@ export default function FavoritesPage() {
         ))}
       </div>
 
+      {/* toast 会消失：部分条目加载失败要有持久的行内提示 + 就地重试（离线失败由顶栏角标表达，不弹 toast） */}
+      {itemLoadFailedTypes.size > 0 && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+          role="alert"
+        >
+          <p className="text-xs text-destructive">部分收藏内容加载失败</p>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void fetchFavorites()}>
+            重试
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
           加载中...
         </div>
+      ) : loadError && favorites.length === 0 ? (
+        <EmptyState
+          icon={Star}
+          title="收藏夹加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => void fetchFavorites()}>重试</Button>}
+        />
       ) : filteredFavorites.length === 0 ? (
         <EmptyState
           icon={Star}
@@ -213,10 +243,11 @@ export default function FavoritesPage() {
 
                   <div className="flex-1 min-w-0">
                     <h2 className="font-medium leading-tight line-clamp-1">
-                      {isReading && (reading?.title || reading?.url || "已删除的文章")}
-                      {isNote && (note?.title || "无标题笔记")}
-                      {isTask && (task?.title || "已删除的任务")}
-                      {!fav.item && "内容已删除"}
+                      {/* 缺 item 只显示一段文字：查询失败是「加载失败」，查得到但没有才是「已删除」 */}
+                      {!fav.item && (fav.itemLoadFailed ? "内容加载失败" : "内容已删除")}
+                      {fav.item && isReading && (reading?.title || reading?.url)}
+                      {fav.item && isNote && (note?.title || "无标题笔记")}
+                      {fav.item && isTask && task?.title}
                     </h2>
 
                     <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground flex-wrap">
