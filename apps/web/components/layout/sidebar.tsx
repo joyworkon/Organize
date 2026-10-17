@@ -51,6 +51,7 @@ import type { TaskScope } from "@/lib/tasks/repository";
 import { useTaskRepository } from "@/lib/tasks/repository";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { useAllTags } from "@/components/tags/use-tags";
+import { tagsEmptyMessage } from "@/lib/tags/all-tags-load";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useHasSharedNotes } from "@/hooks/use-shared-notes";
 import { useHasTeamWorkspaces } from "@/hooks/use-workspaces";
@@ -123,7 +124,8 @@ export function Sidebar() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [creatingNote, setCreatingNote] = useState(false);
   // 资料库分组下的标签快捷列表：展开时拉取，标签增删经 organize:tags-changed 事件刷新
-  const { tags: sidebarTags, refresh: refreshSidebarTags } = useAllTags();
+  const { tags: sidebarTags, loadError: sidebarTagsLoadError, refresh: refreshSidebarTags } =
+    useAllTags();
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
@@ -468,7 +470,14 @@ const visibleNavItems = useMemo(() => {
                 {libraryExpanded && (
                   <div className="mt-1 px-2">
                     {visibleSidebarTags.length === 0 ? (
-                      <p className="px-3 py-1.5 text-sm text-muted-foreground">还没有标签</p>
+                      <p
+                        className={cn(
+                          "px-3 py-1.5 text-sm",
+                          sidebarTagsLoadError ? "text-destructive" : "text-muted-foreground"
+                        )}
+                      >
+                        {tagsEmptyMessage(sidebarTagsLoadError)}
+                      </p>
                     ) : (
                       visibleSidebarTags.map((tag) => {
                         const tagActive = pathname.startsWith("/library") && activeTagId === tag.id;

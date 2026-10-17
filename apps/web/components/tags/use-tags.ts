@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Tag, TagWithCount } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
+import { nextAllTagsAfterLoad } from "@/lib/tags/all-tags-load";
 
 type TaggableResource = "note" | "reading_item";
 
@@ -37,6 +38,21 @@ export { RESOURCE_ENDPOINT };
 export function useAllTags() {
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 上一次成功加载的列表：刷新失败时保留它，不把「加载失败」伪装成「没有标签」
+  const lastSuccessRef = useRef<TagWithCount[]>([]);
+
+  const applyOutcome = useCallback(
+    (outcome: { ok: true; tags: TagWithCount[] } | { ok: false; error: string }) => {
+      const next = nextAllTagsAfterLoad(lastSuccessRef.current, outcome);
+      if (outcome.ok) {
+        lastSuccessRef.current = next.tags;
+      }
+      setTags(next.tags);
+      setLoadError(next.loadError);
+    },
+    []
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -46,7 +62,10 @@ export function useAllTags() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          applyOutcome({ ok: false, error: "标签加载失败（未登录）" });
+          return;
+        }
 
         const { data: tagData } = await supabase
           .from("tags")
@@ -71,33 +90,39 @@ export function useAllTags() {
         for (const row of taskRes.data || []) bump(row.tag_id, "task_count");
         for (const row of lessonRes.data || []) bump(row.tag_id, "lesson_count");
 
-        setTags(
-          (tagData || []).map((t) => ({
+        applyOutcome({
+          ok: true,
+          tags: (tagData || []).map((t) => ({
             ...t,
             user_id: user.id,
             ...(countMap.get(t.id) || ZERO_COUNTS),
-          }))
-        );
+          })),
+        });
         return;
       }
 
       const res = await fetch("/api/tags", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setTags(data as TagWithCount[]);
+        applyOutcome({ ok: true, tags: data as TagWithCount[] });
+      } else {
+        applyOutcome({ ok: false, error: `标签加载失败（HTTP ${res.status}）` });
       }
-    } catch {
-      // 静默失败：标签不可用不应阻塞主流程
+    } catch (err) {
+      applyOutcome({
+        ok: false,
+        error: err instanceof Error && err.message ? `标签加载失败：${err.message}` : "标签加载失败",
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyOutcome]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  return { tags, loading, refresh, setTags };
+  return { tags, loading, loadError, refresh, setTags };
 }
 
 /**

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TagBadge } from "./tag-badge";
 import { cn } from "@/lib/utils";
+import { TAGS_EMPTY_MESSAGE, shouldShowTagsEmpty } from "@/lib/tags/all-tags-load";
 import type { Tag, TagWithCount } from "@organize/shared";
 
 interface TagFilterProps {
@@ -18,6 +19,12 @@ interface TagFilterProps {
   maxVisibleSelected?: number;
   /** 供调用方把筛选器塞进自己的工具行（U-layout 第四步起不再单独占一条横带） */
   className?: string;
+  /** 标签列表加载失败时的错误文案；有值时不算「还没有标签」 */
+  loadError?: string | null;
+  /** 加载失败后的重试入口（通常传 useAllTags 的 refresh） */
+  onRetry?: () => void;
+  /** 标签列表是否在加载中（避免首载期间闪「还没有标签」） */
+  loading?: boolean;
 }
 
 export function TagFilter({
@@ -26,6 +33,9 @@ export function TagFilter({
   onChange,
   maxVisibleSelected = 5,
   className,
+  loadError,
+  onRetry,
+  loading = false,
 }: TagFilterProps) {
   const [open, setOpen] = useState(false);
 
@@ -71,9 +81,25 @@ export function TagFilter({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 space-y-2 p-2">
-          {options.length === 0 ? (
-            <p className="text-center text-xs text-muted-foreground py-3">还没有标签</p>
-          ) : (
+          {loadError && (
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-xs text-destructive" role="alert">
+                {loadError}
+              </span>
+              {onRetry && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  onClick={onRetry}
+                >
+                  重试
+                </Button>
+              )}
+            </div>
+          )}
+          {options.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
               {options.map((tag) => (
                 <TagBadge
@@ -84,6 +110,10 @@ export function TagFilter({
                 />
               ))}
             </div>
+          ) : shouldShowTagsEmpty(options, loadError ?? null, loading) ? (
+            <p className="text-center text-xs text-muted-foreground py-3">{TAGS_EMPTY_MESSAGE}</p>
+          ) : loadError ? null : (
+            <p className="text-center text-xs text-muted-foreground py-3">加载中…</p>
           )}
           {hasSelection && (
             <Button

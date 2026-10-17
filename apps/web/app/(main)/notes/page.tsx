@@ -113,7 +113,8 @@ export default function NotesPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = useMemo(() => createClient(), []);
-  const { tags: allTags, refresh: refreshTags } = useAllTags();
+  const { tags: allTags, loading: allTagsLoading, loadError: allTagsLoadError, refresh: refreshTags } =
+    useAllTags();
 
   const reqIdRef = useRef(0);
   const showCheckbox = selectionMode || isSelectMode;
@@ -890,6 +891,9 @@ export default function NotesPage() {
             options={allTags}
             selectedIds={selectedTagIds}
             onChange={setSelectedTagIds}
+            loadError={allTagsLoadError}
+            onRetry={() => void refreshTags()}
+            loading={allTagsLoading}
           />
           {/* U-layout 第六步：排序字段与升降序合成一个下拉，工具行少两个按钮 */}
           <DropdownMenu>
