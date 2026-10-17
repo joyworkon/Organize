@@ -6,6 +6,7 @@ import {
   sortSummary,
   applyPinned,
   applyPinnedBatch,
+  planTagFilter,
   removeNotes,
   sortNotesLocal,
   persistNoteMove,
@@ -107,6 +108,29 @@ describe("sortNotesLocal（置顶后立即重排）", () => {
     const b = { ...makeNote("b", false), title: "aaa" } as NoteWithTags;
     const result = sortNotesLocal([a, b], "title", "asc");
     expect(result.map((x) => x.title)).toEqual(["aaa", "bbb"]);
+  });
+});
+
+describe("planTagFilter（标签筛选三态判定）", () => {
+  it("查询 error → failed：走失败分支，不返回清空指令", () => {
+    expect(planTagFilter({ data: null, error: new Error("network down") })).toEqual({
+      status: "failed",
+    });
+    // supabase-js 出错时 data 为 null；防御性验证：即便带了行，error 事实优先
+    expect(planTagFilter({ data: [{ note_id: "a" }], error: { message: "denied" } })).toEqual({
+      status: "failed",
+    });
+  });
+
+  it("查询成功但 0 行（或 data 为 null）→ empty：清空列表（现状行为）", () => {
+    expect(planTagFilter({ data: [], error: null })).toEqual({ status: "empty" });
+    expect(planTagFilter({ data: null, error: null })).toEqual({ status: "empty" });
+  });
+
+  it("有行 → ok：返回去重后的 scopedIds", () => {
+    expect(
+      planTagFilter({ data: [{ note_id: "a" }, { note_id: "b" }, { note_id: "a" }], error: null })
+    ).toEqual({ status: "ok", scopedIds: ["a", "b"] });
   });
 });
 
