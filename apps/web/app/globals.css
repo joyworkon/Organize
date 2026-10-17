@@ -984,6 +984,39 @@
   background: transparent;
   opacity: 0.8;
 }
+/* 笔记树加载失败时面包屑的灰色占位段：有父页面但父链未知，不冒充顶层笔记 */
+.note-hierarchy-placeholder {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+/* 笔记树加载失败提示（面包屑「更改父页面」弹层 / 移动对话框共用，含「重试」） */
+.note-tree-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: hsl(var(--destructive));
+}
+.note-tree-load-error button {
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.note-tree-load-error button:hover {
+  opacity: 0.8;
+}
 
 /* 反向链接区域对齐 */
 .note-page .mt-8.pt-6.border-t {
