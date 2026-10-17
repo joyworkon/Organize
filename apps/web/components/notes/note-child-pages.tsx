@@ -11,9 +11,13 @@ import type { NoteTreeItem } from "@/lib/notes/tree";
 interface NoteChildPagesProps {
   noteId: string;
   notes: NoteTreeItem[];
+  /** 笔记树加载失败提示；非 null 时展示错误条（含「重试」），不冒充「没有子页面」 */
+  loadError?: string | null;
+  /** 点击「重试」重新加载笔记树 */
+  onRetry?: () => void;
 }
 
-export function NoteChildPages({ noteId, notes }: NoteChildPagesProps) {
+export function NoteChildPages({ noteId, notes, loadError, onRetry }: NoteChildPagesProps) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [creating, setCreating] = useState(false);
@@ -52,7 +56,7 @@ export function NoteChildPages({ noteId, notes }: NoteChildPagesProps) {
     }
   };
 
-  if (children.length === 0) {
+  if (children.length === 0 && !loadError) {
     return (
       <button
         type="button"
@@ -70,9 +74,29 @@ export function NoteChildPages({ noteId, notes }: NoteChildPagesProps) {
     );
   }
 
+  const loadErrorAlert = loadError ? (
+    <div className="note-child-pages-error" role="alert">
+      <span>
+        {loadError}
+        {children.length > 0 ? "，显示的是上次加载结果" : ""}
+      </span>
+      {onRetry && (
+        <button type="button" onClick={onRetry}>
+          重试
+        </button>
+      )}
+    </div>
+  ) : null;
+
+  if (children.length === 0) {
+    // 加载失败且没有可展示的旧列表：只报错 + 重试，不摆「新建子页面」冒充「没有子页面」
+    return <section className="note-child-pages">{loadErrorAlert}</section>;
+  }
+
   return (
     <section className="note-child-pages">
       <h2>子页面</h2>
+      {loadErrorAlert}
       <div>
         {children.map((note) => (
           <Link

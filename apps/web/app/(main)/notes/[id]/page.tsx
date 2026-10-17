@@ -56,6 +56,7 @@ import { downloadNoteExport } from "@/lib/export/note-export";
 import { mutateTrash } from "@/lib/trash/client";
 import { appEvents } from "@/lib/plugin/events";
 import type { NoteTreeItem } from "@/lib/notes/tree";
+import { hasChildrenForDiscard, nextNoteTreeAfterLoad } from "@/lib/notes/note-tree-load";
 import { isEmptyDoc, shouldDiscardEmptyNote } from "@/lib/notes/empty-note";
 import {
   buildLegacyActivationConfirmOptions,
@@ -163,6 +164,8 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   const [coverPosition, setCoverPosition] = useState(50);
   const [parentNoteId, setParentNoteId] = useState<string | null>(null);
   const [allNotes, setAllNotes] = useState<NoteTreeItem[]>([]);
+  // 笔记树加载失败提示（NoteChildPages 展示 + 重试）；null 表示无错
+  const [noteTreeLoadError, setNoteTreeLoadError] = useState<string | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [pageCommentCount, setPageCommentCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -270,6 +273,9 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   const loadedEmptyRef = useRef(false);
   const createdAtRef = useRef<string | null>(null);
   const allNotesRef = useRef<NoteTreeItem[]>([]);
+  // 笔记树快照是否可靠（成功加载过且最近一次未失败）：空笔记丢弃的 hasChildren 依据。
+  // noteId 变化时重置为 false——新笔记的树没加载成功前，丢弃判定必须按「不确定 → 保留」。
+  const noteTreeReliableRef = useRef(false);
   // X1 离线同步：网络状态（未同步标记由保存会话派生）
   const online = useOnlineStatus();
 
@@ -326,21 +332,18 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("notes")
       .select("id, title, icon, parent_note_id, updated_at")
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("updated_at", { ascending: false });
-    setAllNotes(
-      (data || []).map((note) => ({
-        id: note.id,
-        title: note.title || null,
-        icon: note.icon || null,
-        parent_note_id: note.parent_note_id || null,
-        updated_at: note.updated_at,
-      }))
-    );
+    // 失败不吞成 null：保留上次成功快照（allNotesRef 读取，避免闭包旧值），
+    // 错误交给 NoteChildPages 展示 + 重试，丢弃判定同时把 hasChildren 视为「不确定 → 保留」
+    const plan = nextNoteTreeAfterLoad({ previous: allNotesRef.current, data, error });
+    setAllNotes(plan.notes);
+    setNoteTreeLoadError(plan.loadError);
+    noteTreeReliableRef.current = plan.reliable;
   }, [supabase]);
 
   // 协作角色判定（P5-02 卡 4）：属主无需 RPC（行的 user_id 即事实）；
@@ -639,6 +642,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   useEffect(() => {
     loadedEmptyRef.current = false;
     createdAtRef.current = null;
+    noteTreeReliableRef.current = false;
     return () => {
       let currentContent = draftRef.current.content;
       try {
@@ -652,7 +656,11 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         loadedEmpty: loadedEmptyRef.current,
         title: draftRef.current.title || "",
         content: currentContent,
-        hasChildren: allNotesRef.current.some((n) => n.parent_note_id === noteId),
+        hasChildren: hasChildrenForDiscard({
+          notes: allNotesRef.current,
+          noteId,
+          reliable: noteTreeReliableRef.current,
+        }),
         createdAt: createdAtRef.current,
       });
       if (!discard || !isOnline()) return;
@@ -1755,7 +1763,12 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         <Backlinks noteId={noteId} readingItemId={readingItemId} />
 
         {/* 子页面：始终在笔记最底部（flex 布局 margin-top:auto 推底） */}
-        <NoteChildPages noteId={noteId} notes={allNotes} />
+        <NoteChildPages
+          noteId={noteId}
+          notes={allNotes}
+          loadError={noteTreeLoadError}
+          onRetry={() => void loadNoteTree()}
+        />
       </div>
 
       {/* 页面目录：正文左侧的刻度导航（与阅读页共用 TocMinimap） */}
