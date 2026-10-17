@@ -57,7 +57,7 @@ async function openNote(page: Page, noteId: string) {
   await page.goto(`/notes/${noteId}`);
   await page.locator(".ProseMirror").waitFor();
   // 等协作会话健康定形（首次同步完成）再放行后续输入：协作门控解除前编辑器
-  // 不可编辑，typeInBlock 的 toBeEditable 会在此窗口空等（PR #313 调查）
+  // 处于播种锁定（不可编辑）；typeInBlock 自带可编辑轮询门，这里只管会话定形
   await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({
     timeout: 45_000,
   });
@@ -153,9 +153,11 @@ async function caretAtSyncedBlockEnd(page: Page): Promise<{ ok: boolean; reason?
 async function typeInBlock(page: Page, text: string) {
   // 用 expect.poll 而不是 toBeEditable：openNote 的 ready 门与 containText 都能在
   // 临时代替者编辑器上通过，随后编辑器被「协作会话定形重建」换成播种锁定的空实例
-  // （contenteditable=false，播种租约落定后才解锁）。.ProseMirror 没有 role=textbox，
-  // Playwright 的 toBeEditable 对这种锁定元素立即抛错、不进入重试（run 39048355930
-  // trace：containText 通过后 40ms 换成锁定实例，断言 114ms 内瞬发失败）
+  // （contenteditable=false，播种租约落定后才解锁）。当时 .ProseMirror 没有
+  // role=textbox，toBeEditable 对锁定元素立即抛错、不进入重试（run 39048355930
+  // trace：containText 通过后 40ms 换成锁定实例，断言 114ms 内瞬发失败）；
+  // 现编辑器根 dom 已带 role/aria-readonly（toBeEditable 恢复重试语义），
+  // expect.poll 直接轮询 isContentEditable，保留原写法
   await expect
     .poll(
       () =>
@@ -166,37 +168,40 @@ async function typeInBlock(page: Page, text: string) {
       { timeout: 20_000 }
     )
     .toBe(true);
-  const para = blockContent(page).locator("p").last();
-  // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标；
-  // 可见后仍可能被服务端内容刷新替换（每次重试都从活 DOM 重取坐标）
-  await expect(para).toBeVisible({ timeout: 15_000 });
-  await para.scrollIntoViewIfNeeded();
-  // 偏移轮换内收与右探：窄字形的左半边会把光标放到末字之前，右探则稳定
-  // 落在本行行尾（末行的行尾即段末）
-  const offsets = [2, -2, 1, -6, 3];
-  let caret: { ok: boolean; reason?: string } = { ok: false, reason: "no attempt" };
-  for (const offset of offsets) {
-    if (caret.ok) break;
-    const point = await caretClickPoint(page, offset);
-    if (point) {
-      // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
-      // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转（实测：
-      // Date.now().toString(36) 偶含 gr → 导航去 /?view=review → 工具栏消失）
-      await page.mouse.click(point.x, point.y);
-      caret = await caretAtSyncedBlockEnd(page);
+  // 协作编辑器重建会整体替换节点（run 39056723637：scrollIntoViewIfNeeded 报
+  // "Element is not attached to the DOM"）。定位+滚动+点击+光标校验整段放进
+  // toPass 有界重试：每轮都从活 DOM 重新定位（不持有句柄），中途节点被换掉
+  // 就整轮重来；超时仍不满足则显式失败、不打字
+  await expect(async () => {
+    const para = blockContent(page).locator("p").last();
+    // CI 慢机：块内嵌内容渲染晚于编辑器可编辑，先等段落可见再取坐标
+    await expect(para).toBeVisible({ timeout: 5_000 });
+    await para.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    // 偏移轮换内收与右探：窄字形的左半边会把光标放到末字之前，右探则稳定
+    // 落在本行行尾（末行的行尾即段末）
+    const offsets = [2, -2, 1, -6, 3];
+    let caret: { ok: boolean; reason?: string } = { ok: false, reason: "no attempt" };
+    for (const offset of offsets) {
+      if (caret.ok) break;
+      const point = await caretClickPoint(page, offset);
+      if (point) {
+        // 点击必须真的把焦点放进编辑器：坐标可能落在浮动元素上（块工具栏/添加块
+        // 占位），按键会逃逸到 body——随机后缀里的 "g r" 序列会触发全局跳转
+        await page.mouse.click(point.x, point.y);
+        caret = await caretAtSyncedBlockEnd(page);
+      }
+      if (!caret.ok) await page.waitForTimeout(400);
     }
-    if (!caret.ok) await page.waitForTimeout(400);
-  }
-  // 光标始终没进块尾就打字 = 输入进了别的段落（假成功），后续断言只会报
-  // 「同步失败没出现」这类远离根因的错——在这里显式失败
-  if (!caret.ok) {
-    throw new Error(`caret never reached the synced block end (${caret.reason}); refusing to type`);
-  }
-  const focused = await page.evaluate(() => {
-    const el = document.activeElement;
-    return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
-  });
-  if (!focused) throw new Error("click never focused the editor; typing would be lost");
+    // 光标没进块尾就打字 = 输入进了别的段落（假成功）——不满足则本轮失败重试
+    if (!caret.ok) {
+      throw new Error(`caret never reached the synced block end (${caret.reason}); refusing to type`);
+    }
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && (el.classList?.contains("ProseMirror") || !!el.closest?.(".ProseMirror"));
+    });
+    if (!focused) throw new Error("click never focused the editor; typing would be lost");
+  }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] });
   await page.keyboard.type(text);
 }
 

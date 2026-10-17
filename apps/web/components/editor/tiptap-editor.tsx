@@ -108,6 +108,8 @@ import {
 } from "@/lib/collab/transaction-source";
 /** 协作播种租约协议（067/A04/B05）：状态机隔离自本组件的原内联 effect */
 import { createCollabSeedController } from "./collab-seeding";
+/** 编辑器根 dom 的 textbox ARIA（role/aria-multiline/aria-readonly 联动） */
+import { editorTextboxAria, syncEditorAriaReadonly } from "./editor-aria";
 
 export type { TransactionSource };
 
@@ -350,6 +352,9 @@ export function TipTapEditor({
   const activePlugins = usePluginStore((state) => Array.from(state.activePlugins.entries()));
   const pluginContexts = usePluginStore((state) => state.contexts);
 
+  // 声明须在 useEditor 之前：播种锁参与 attributes 的 aria-readonly 渲染快照
+  const [collabSeedBlocked, setCollabSeedBlocked] = useState(false);
+
   // R09：扩展装配抽离至 editor-extensions.ts；依赖保持 [collab, disableTaskItemToggle]，
   // 数组引用稳定，不会重建编辑器
   const extensions = useMemo(
@@ -381,6 +386,9 @@ export function TipTapEditor({
       attributes: {
         // 正文 16px（sm 以下 prose-sm）：与阅读页 17px/1.8 有意区分——编辑态需要操作密度
         class: "prose prose-sm sm:prose max-w-none min-h-[50vh] focus:outline-none py-2 organize-editor",
+        // aria-readonly 渲染快照：editor 创建（含协作重建）瞬间的初值；切换由
+        // 下方 setEditable effect 内的 syncEditorAriaReadonly 保证任意时刻一致
+        ...editorTextboxAria(editable && !collabSeedBlocked),
       },
       // B04：键盘分派提为可单测工厂（IME 守卫/标题行尾回车/⌘/ 块菜单/⌘F 搜索），
       // 行为逐行保持——菜单/搜索的打开仍落到组件 state
@@ -450,11 +458,11 @@ export function TipTapEditor({
   // 协作播种未定形时同样锁编辑（A05 D4 收尾）：房间为空且 DB 有内容时，
   // 在播种租约落定前放行输入，首个按键就会把服务端 markSeeded → 租约 deny
   // → DB 内容进不了房间，本端碎片再经保存链反写 notes.content（A04 实测路径）
-  const [collabSeedBlocked, setCollabSeedBlocked] = useState(false);
   useEffect(() => {
     if (!editor) return;
     const want = editable && !collabSeedBlocked;
     if (editor.isEditable !== want) editor.setEditable(want);
+    syncEditorAriaReadonly(editor);
   }, [editor, editable, collabSeedBlocked]);
 
   // 协作模式：房间为空时向服务端申请播种租约，获准后才用 DB 原始内容播种一次。
