@@ -28,6 +28,8 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
+import { Button } from "@/components/ui/button";
+import { failedTaskSecondarySections, taskSecondaryLoadErrorMessage, type TaskSecondarySection } from "@/lib/tasks/task-detail-load";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isImeComposing } from "@/lib/input/submit-guard";
@@ -122,23 +124,56 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
   const [showActivity, setShowActivity] = useState(false);
+  // 次要数据（子任务/标签/附件/动态）加载失败的区块：非空时 header 下方提示 + 重试，不冒充「没有数据」
+  const [secondaryLoadFailures, setSecondaryLoadFailures] = useState<TaskSecondarySection[]>([]);
+  // 旧请求丢弃：任务切换（effect 自增）或同任务内再次加载（重试/加标签/上传）都会推进请求号，
+  // 结果返回时请求号已过期就整个丢弃，防止慢响应覆盖新任务/新数据
+  const loadSeqRef = useRef(0);
 
   const loadChildren = async () => {
-    const [{ data: checklistData }, { data: activityData }, { data: attachmentData }, { data: tagLinks }, { data: tagData }] = await Promise.all([
-      supabase.from("task_checklists").select("*").eq("task_id", task.id).order("sort_order", { ascending: true }),
-      supabase.from("task_activities").select("*").eq("task_id", task.id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("task_attachments").select("*").eq("task_id", task.id).order("created_at", { ascending: false }),
-      supabase.from("task_tags").select("tag_id").eq("task_id", task.id),
+    const taskId = task.id;
+    const requestSeq = ++loadSeqRef.current;
+    const [checklistRes, activityRes, attachmentRes, tagLinkRes, tagRes] = await Promise.all([
+      supabase.from("task_checklists").select("*").eq("task_id", taskId).order("sort_order", { ascending: true }),
+      supabase.from("task_activities").select("*").eq("task_id", taskId).order("created_at", { ascending: false }).limit(30),
+      supabase.from("task_attachments").select("*").eq("task_id", taskId).order("created_at", { ascending: false }),
+      supabase.from("task_tags").select("tag_id").eq("task_id", taskId),
       supabase.from("tags").select("*").eq("user_id", task.user_id),
     ]);
-    setChecklists((checklistData || []) as TaskChecklist[]);
-    setActivities((activityData || []) as TaskActivity[]);
-    setAttachments((attachmentData || []) as TaskAttachment[]);
-    const tagMap = new Map((tagData || []).map((item) => [item.id, item as TagType]));
-    setTags((tagLinks || []).map((link) => tagMap.get(link.tag_id)).filter(Boolean) as TagType[]);
+    if (loadSeqRef.current !== requestSeq) return;
+    setSecondaryLoadFailures(
+      failedTaskSecondarySections({
+        checklists: checklistRes,
+        tagLinks: tagLinkRes,
+        tags: tagRes,
+        attachments: attachmentRes,
+        activities: activityRes,
+      })
+    );
+    // 只替换成功的部分；失败的保留上次成功数据（首次失败则保持初始值），提示条说明缺了什么
+    if (!checklistRes.error) {
+      setChecklists((checklistRes.data || []) as TaskChecklist[]);
+    }
+    if (!activityRes.error) {
+      setActivities((activityRes.data || []) as TaskActivity[]);
+    }
+    if (!attachmentRes.error) {
+      setAttachments((attachmentRes.data || []) as TaskAttachment[]);
+    }
+    // 标签 = task_tags × tags 的 join：两者都成功才替换，任一失败保留原值
+    if (!tagLinkRes.error && !tagRes.error) {
+      const tagMap = new Map((tagRes.data || []).map((item) => [item.id, item as TagType]));
+      setTags((tagLinkRes.data || []).map((link) => tagMap.get(link.tag_id)).filter(Boolean) as TagType[]);
+    }
   };
 
   useEffect(() => {
+    // 切换任务：立即清掉上一任务的次要数据与失败提示，并使在途请求全部作废，绝不留给新任务
+    loadSeqRef.current += 1;
+    setSecondaryLoadFailures([]);
+    setChecklists([]);
+    setActivities([]);
+    setAttachments([]);
     setTitle(task.title);
     setDescription(task.description || "");
     setTags(task.tags || []);
@@ -311,6 +346,24 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
         <button type="button" aria-label="标记重要" onClick={() => void onUpdate(task.id, { is_pinned: !task.is_pinned })} className={cn("ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8", task.is_pinned && "text-primary")}><Flag className="h-5 w-5" /></button>
         <button type="button" aria-label="关闭任务详情" onClick={onClose} className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] md:h-8 md:w-8"><X className="h-5 w-5" /></button>
       </header>
+
+      {/* 次要数据加载失败：任务本身照常显示，如实提示缺了哪部分并提供重试，不冒充「没有数据」 */}
+      {secondaryLoadFailures.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/30 bg-destructive/10 px-5 py-2 text-xs text-destructive"
+        >
+          <span>{taskSecondaryLoadErrorMessage(secondaryLoadFailures)}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-11 px-2.5 text-xs md:min-h-11"
+            onClick={() => void loadChildren()}
+          >
+            重试
+          </Button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">
         <div className="flex items-start gap-3">
