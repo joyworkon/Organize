@@ -23,6 +23,8 @@ export const BACKLINKS_LOAD_ERROR_MESSAGE = "反向链接加载失败";
 export interface BacklinksPanelVisibility {
   loading: boolean;
   loadError: string | null;
+  /** 关联阅读 / 高亮任务两块的独立错误（backlinks-related-load.ts）；可选，缺省视为无错 */
+  relatedLoadError?: string | null;
   hasReading: boolean;
   hasUnavailableReading: boolean;
   hasBacklinks: boolean;
@@ -50,12 +52,14 @@ export function nextBacklinksAfterLoad<T>(
 /**
  * 整个反链面板（含关联阅读 / 高亮任务区块）是否应当隐藏：
  * 仅在无错、非加载中、且四类内容皆空时才隐藏（保持「真没有内容就不占位」的现行为）。
- * 加载失败时必须保留面板展示错误条与重试，不得 return null 谎报「没有反链」。
+ * 加载失败时必须保留面板展示错误条与重试，不得 return null 谎报「没有反链」；
+ * 关联阅读 / 高亮任务自身的加载失败（relatedLoadError）同理。
  */
 export function shouldHideBacklinksPanel(state: BacklinksPanelVisibility): boolean {
   return (
     !state.loading &&
     state.loadError === null &&
+    (state.relatedLoadError ?? null) === null &&
     !state.hasReading &&
     !state.hasUnavailableReading &&
     !state.hasBacklinks &&

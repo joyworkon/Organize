@@ -9,6 +9,12 @@ import {
   nextBacklinksAfterLoad,
   shouldHideBacklinksPanel,
 } from "@/lib/notes/backlinks-load";
+import {
+  RELATED_LOAD_ERROR_MESSAGE,
+  classifyReadingResult,
+  mergeHighlightReferences,
+  type LinkedContentStateRow,
+} from "@/lib/notes/backlinks-related-load";
 import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "@/components/icons";
 import type { ReadingItem } from "@organize/shared";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
@@ -29,13 +35,19 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   const [backlinkNotes, setBacklinkNotes] = useState<BacklinkNote[]>([]);
   const [backlinksTruncated, setBacklinksTruncated] = useState(false);
   const [readingItem, setReadingItem] = useState<ReadingItem | null>(null);
+  // 来源阅读真·查无此行（PGRST116 / 空数据无错）才为真；加载失败不算，不得冒充「已失效」
+  const [readingMissing, setReadingMissing] = useState(false);
   const [highlightReferences, setHighlightReferences] = useState<HighlightReferenceState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 关联阅读 / 高亮任务两块的独立失败态，与反链列表的 loadError 分开展示
+  const [relatedLoadError, setRelatedLoadError] = useState<string | null>(null);
   // 重试计数：递增触发下方 effect 重新加载（保留 active 清理语义）
   const [retryCount, setRetryCount] = useState(0);
   // 最近一次成功加载的反链列表：刷新失败时保留展示，不拿失败冒充「没有反向链接」
   const lastSuccessRef = useRef<BacklinkNote[] | null>(null);
+  // 最近一次落到 UI 的高亮任务列表：effect 闭包里的 state 在切笔记重置后仍是旧值，合并 previous 必须读 ref
+  const highlightRef = useRef<HighlightReferenceState[]>([]);
 
   // 切笔记：上一笔记的反链列表与失败提示不得带入新笔记
   useEffect(() => {
@@ -45,12 +57,22 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
     setLoadError(null);
   }, [noteId]);
 
+  // 切笔记 / 换来源阅读：上一轮的关联阅读、高亮任务与其失败提示同样不得带入
+  useEffect(() => {
+    highlightRef.current = [];
+    setReadingItem(null);
+    setReadingMissing(false);
+    setHighlightReferences([]);
+    setRelatedLoadError(null);
+  }, [noteId, readingItemId]);
+
   useEffect(() => {
     let active = true;
 
     async function loadData() {
       setLoading(true);
       setLoadError(null);
+      setRelatedLoadError(null);
 
       const {
         data: { user },
@@ -98,34 +120,42 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
         setBacklinksTruncated(backlinkOutcome.rows.length > 5000);
       }
 
-      if (readingItemId && !readingResult.error && readingResult.data) {
-        setReadingItem(readingResult.data as ReadingItem);
+      // 关联阅读：四分类落状态。failed 不动 readingItem / readingMissing（保留上次所知），
+      // 只靠 relatedLoadError 说话；missing 才清 item 并走「已失效 / 已移入垃圾箱」
+      const reading = classifyReadingResult<ReadingItem>({
+        readingItemId,
+        data: readingResult.data as ReadingItem | null,
+        error: readingResult.error,
+      });
+      if (reading.kind === "ok") {
+        setReadingItem(reading.item);
+        setReadingMissing(false);
+      } else if (reading.kind === "missing") {
+        setReadingItem(null);
+        setReadingMissing(true);
+      } else if (reading.kind === "none") {
+        setReadingItem(null);
+        setReadingMissing(false);
       }
-      if (!referenceResult.error && referenceResult.data) {
-        setHighlightReferences(referenceResult.data as HighlightReferenceState[]);
-      }
-      if (
-        readingItemId &&
-        !readingResult.data &&
-        !readingStateResult.error &&
-        readingStateResult.data?.[0]
-      ) {
-        setHighlightReferences((current) => [
-          {
-            highlight_id: `note-reading:${noteId}`,
-            reading_item_id: readingItemId,
-            reading_title: readingStateResult.data[0].reading_title,
-            reading_state: readingStateResult.data[0].reading_state,
-            note_id: noteId,
-            note_title: readingStateResult.data[0].note_title,
-            note_state: readingStateResult.data[0].note_state,
-            task_id: null,
-            task_title: null,
-            task_state: null,
-          },
-          ...current,
-        ]);
-      }
+
+      // 高亮任务：成功整体替换；失败保留上次列表且合成行不重复堆积
+      const highlightPlan = mergeHighlightReferences({
+        previous: highlightRef.current,
+        referenceResult: referenceResult.error
+          ? { ok: false }
+          : { ok: true, data: (referenceResult.data as HighlightReferenceState[] | null) ?? [] },
+        readingState: readingStateResult.error
+          ? { ok: false }
+          : { ok: true, data: readingStateResult.data as LinkedContentStateRow[] | null },
+        noteId,
+        readingItemId,
+        readingLoaded: reading.kind === "ok",
+      });
+      highlightRef.current = highlightPlan.rows;
+      setHighlightReferences(highlightPlan.rows);
+      setRelatedLoadError(
+        reading.kind === "failed" || highlightPlan.failed ? RELATED_LOAD_ERROR_MESSAGE : null
+      );
 
       setLoading(false);
     }
@@ -139,12 +169,15 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   const hasReading = !!readingItem;
   const hasBacklinks = backlinkNotes.length > 0;
   const linkedTasks = highlightReferences.filter((reference) => reference.task_id);
-  const hasUnavailableReading = !!readingItemId && !readingItem;
+  // 只有真·查无此行才算「不可用」；加载失败由 relatedLoadError 表达，不得混入
+  const hasUnavailableReading = !!readingItemId && readingMissing;
+  const hasRelatedContent = hasReading || hasUnavailableReading || linkedTasks.length > 0;
 
   if (
     shouldHideBacklinksPanel({
       loading,
       loadError,
+      relatedLoadError,
       hasReading,
       hasUnavailableReading,
       hasBacklinks,
@@ -160,6 +193,26 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
       {loading && (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {relatedLoadError && (
+        <div
+          className="mb-6 flex items-center justify-between gap-2 text-sm text-destructive"
+          role="alert"
+        >
+          <span>
+            {relatedLoadError}
+            {hasRelatedContent ? "，下方为上次成功加载的关联内容" : ""}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
+            disabled={loading}
+            onClick={() => setRetryCount((count) => count + 1)}
+          >
+            重试
+          </button>
         </div>
       )}
 
