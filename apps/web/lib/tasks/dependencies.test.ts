@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Task, TaskDependency } from "@organize/shared";
 import {
+  failedTaskDependencyLoadSections,
   getBlockedTaskIds,
   getTaskDependencyView,
+  taskDependencyLoadErrorMessage,
   wouldCreateTaskDependencyCycle,
 } from "./dependencies";
 
@@ -37,5 +39,36 @@ describe("task dependency helpers", () => {
     expect(wouldCreateTaskDependencyCycle(edges, "b", "a")).toBe(true);
     expect(wouldCreateTaskDependencyCycle(edges, "c", "a")).toBe(true);
     expect(wouldCreateTaskDependencyCycle(edges, "a", "b")).toBe(false);
+  });
+});
+
+describe("依赖面板加载失败提示纯函数", () => {
+  const ok = { data: [], error: null };
+  const fail = { data: null, error: { message: "boom" } };
+
+  it("按 tasks → dependencies 顺序收集失败区块", () => {
+    expect(failedTaskDependencyLoadSections({ tasks: ok, dependencies: ok })).toEqual([]);
+    expect(
+      failedTaskDependencyLoadSections({ tasks: ok, dependencies: fail })
+    ).toEqual(["依赖关系"]);
+    expect(
+      failedTaskDependencyLoadSections({ tasks: fail, dependencies: ok })
+    ).toEqual(["任务列表"]);
+    expect(
+      failedTaskDependencyLoadSections({ tasks: fail, dependencies: fail })
+    ).toEqual(["任务列表", "依赖关系"]);
+  });
+
+  it("生成错误条文案：单项点名影响，双项合并成一句，空列表返回 null", () => {
+    expect(taskDependencyLoadErrorMessage([])).toBeNull();
+    expect(taskDependencyLoadErrorMessage(["任务列表"])).toBe(
+      "任务列表加载失败，依赖关系可能不完整"
+    );
+    expect(taskDependencyLoadErrorMessage(["依赖关系"])).toBe(
+      "依赖关系加载失败，显示的内容可能不完整"
+    );
+    expect(taskDependencyLoadErrorMessage(["任务列表", "依赖关系"])).toBe(
+      "任务列表与依赖关系加载失败，显示的内容可能不完整"
+    );
   });
 });
