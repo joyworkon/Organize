@@ -1,10 +1,14 @@
 "use client";
 import { readingSourceLabel } from "@/lib/reading/source";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { fetchAllNoteBacklinks } from "@/lib/notes/backlinks";
+import {
+  nextBacklinksAfterLoad,
+  shouldHideBacklinksPanel,
+} from "@/lib/notes/backlinks-load";
 import { BookOpen, ArrowLeftRight, ExternalLink, Loader2 } from "@/components/icons";
 import type { ReadingItem } from "@organize/shared";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
@@ -27,12 +31,26 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
   const [readingItem, setReadingItem] = useState<ReadingItem | null>(null);
   const [highlightReferences, setHighlightReferences] = useState<HighlightReferenceState[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 重试计数：递增触发下方 effect 重新加载（保留 active 清理语义）
+  const [retryCount, setRetryCount] = useState(0);
+  // 最近一次成功加载的反链列表：刷新失败时保留展示，不拿失败冒充「没有反向链接」
+  const lastSuccessRef = useRef<BacklinkNote[] | null>(null);
+
+  // 切笔记：上一笔记的反链列表与失败提示不得带入新笔记
+  useEffect(() => {
+    lastSuccessRef.current = null;
+    setBacklinkNotes([]);
+    setBacklinksTruncated(false);
+    setLoadError(null);
+  }, [noteId]);
 
   useEffect(() => {
     let active = true;
 
     async function loadData() {
       setLoading(true);
+      setLoadError(null);
 
       const {
         data: { user },
@@ -42,9 +60,13 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
         return;
       }
 
-      const [backlinkResult, readingResult, referenceResult, readingStateResult] = await Promise.all([
-        // R10a：后端分页 RPC 取全反链（只回元数据；服务端 auth.uid() 过滤 + 软删除排除）
-        fetchAllNoteBacklinks(supabase, noteId).catch(() => null),
+      const [backlinkOutcome, readingResult, referenceResult, readingStateResult] = await Promise.all([
+        // R10a：后端分页 RPC 取全反链（只回元数据；服务端 auth.uid() 过滤 + 软删除排除）。
+        // 失败不吞成 null：显式交给 nextBacklinksAfterLoad 落成错误态 + 重试，不得冒充「没有反链」
+        fetchAllNoteBacklinks(supabase, noteId).then(
+          (rows) => ({ ok: true as const, rows }),
+          () => ({ ok: false as const })
+        ),
         readingItemId
           ? supabase
               .from("reading_items")
@@ -61,10 +83,19 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
 
       if (!active) return;
 
-      if (backlinkResult) {
-        // R10a：服务端已保证完整与权限；5000 条防御上限（与 helper 一致）内如实展示
-        setBacklinkNotes(backlinkResult.slice(0, 5000));
-        setBacklinksTruncated(backlinkResult.length > 5000);
+      // R10a：服务端已保证完整与权限；5000 条防御上限（与 helper 一致）内如实展示；
+      // 失败时按 backlinks-load 计划保留上次成功列表（见 lastSuccessRef），不静默清空
+      const backlinkPlan = nextBacklinksAfterLoad(
+        lastSuccessRef.current,
+        backlinkOutcome.ok
+          ? { ok: true, rows: backlinkOutcome.rows.slice(0, 5000) }
+          : { ok: false }
+      );
+      if (!backlinkPlan.failed) lastSuccessRef.current = backlinkPlan.rows;
+      setBacklinkNotes(backlinkPlan.rows);
+      setLoadError(backlinkPlan.loadError);
+      if (backlinkOutcome.ok) {
+        setBacklinksTruncated(backlinkOutcome.rows.length > 5000);
       }
 
       if (readingItemId && !readingResult.error && readingResult.data) {
@@ -103,14 +134,23 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
     return () => {
       active = false;
     };
-  }, [noteId, readingItemId, supabase]);
+  }, [noteId, readingItemId, supabase, retryCount]);
 
   const hasReading = !!readingItem;
   const hasBacklinks = backlinkNotes.length > 0;
   const linkedTasks = highlightReferences.filter((reference) => reference.task_id);
   const hasUnavailableReading = !!readingItemId && !readingItem;
 
-  if (!loading && !hasReading && !hasUnavailableReading && !hasBacklinks && linkedTasks.length === 0) {
+  if (
+    shouldHideBacklinksPanel({
+      loading,
+      loadError,
+      hasReading,
+      hasUnavailableReading,
+      hasBacklinks,
+      hasLinkedTasks: linkedTasks.length > 0,
+    })
+  ) {
     return null;
   }
 
@@ -194,6 +234,26 @@ export function Backlinks({ noteId, readingItemId }: BacklinksProps) {
               )
             )}
           </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div
+          className="mb-6 flex items-center justify-between gap-2 text-sm text-destructive"
+          role="alert"
+        >
+          <span>
+            {loadError}
+            {hasBacklinks ? "，下方为上次成功加载的反向链接" : ""}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
+            disabled={loading}
+            onClick={() => setRetryCount((count) => count + 1)}
+          >
+            重试
+          </button>
         </div>
       )}
 
