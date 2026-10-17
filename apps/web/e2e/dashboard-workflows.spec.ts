@@ -64,19 +64,22 @@ test("回顾日期输入遵循手机触控和桌面密度，最窄屏幕不溢�
   const picker = page.getByLabel("选择回顾日期", { exact: true });
   for (const width of [320, 390, 767, 768]) {
     await page.setViewportSize({ width, height: 844 });
+    // 视口跨过 md 断点后的重排是异步的，立即读会拿到中间态（#362 CI 在 768px 读到 804）：等布局稳定再判定，阈值不变。
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await expect.poll(async () => (await picker.boundingBox())!.height).toBe(width < 768 ? 44 : 32);
+    await expect.poll(() => picker.evaluate((el) => getComputedStyle(el).fontSize)).toBe(width < 768 ? "16px" : "14px");
     const bounds = await picker.boundingBox();
-    expect(bounds!.height).toBe(width < 768 ? 44 : 32);
-    expect(await picker.evaluate((el) => getComputedStyle(el).fontSize)).toBe(width < 768 ? "16px" : "14px");
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     if (width < 768) {
-      const previous = await page.getByRole("button", { name: "前一天", exact: true }).boundingBox();
-      const today = await page.getByRole("button", { name: "回到今天", exact: true }).boundingBox();
-      const next = await page.getByRole("button", { name: "后一天", exact: true }).boundingBox();
-      expect(previous!.y).toBeGreaterThanOrEqual(bounds!.y + bounds!.height);
-      expect(today!.y).toBe(previous!.y);
-      expect(next!.y).toBe(previous!.y);
+      await expect(async () => {
+        const previous = await page.getByRole("button", { name: "前一天", exact: true }).boundingBox();
+        const today = await page.getByRole("button", { name: "回到今天", exact: true }).boundingBox();
+        const next = await page.getByRole("button", { name: "后一天", exact: true }).boundingBox();
+        expect(previous!.y).toBeGreaterThanOrEqual(bounds!.y + bounds!.height);
+        expect(today!.y).toBe(previous!.y);
+        expect(next!.y).toBe(previous!.y);
+      }).toPass();
     }
   }
 });
