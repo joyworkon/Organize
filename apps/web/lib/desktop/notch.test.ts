@@ -1,12 +1,36 @@
 import { describe, expect, it } from "vitest";
 import type { Memo, Task } from "@organize/shared";
 import {
+  describeNotchRecurringCompletion,
   insertMemoOptimistic,
   isNotchOpenPathAllowed,
   memoTimeLabel,
   notchRoleFromLabel,
   selectPanelTasks,
 } from "./notch";
+
+describe("describeNotchRecurringCompletion", () => {
+  it("生成下一次实例后提示在主窗口管理重复任务", () => {
+    expect(describeNotchRecurringCompletion({ status: "created", id: "next-task" })).toEqual({
+      kind: "message",
+      text: "已完成；重复任务请在主窗口管理",
+    });
+  });
+
+  it("无需生成实例时保留完成提示", () => {
+    expect(describeNotchRecurringCompletion({ status: "none" })).toEqual({
+      kind: "message",
+      text: "已完成；重复任务请在主窗口管理",
+    });
+  });
+
+  it("生成失败时明确完成已成功并显示失败原因", () => {
+    expect(describeNotchRecurringCompletion({ status: "error", message: "网络连接中断" })).toEqual({
+      kind: "error",
+      text: "已完成，但下一次重复任务生成失败：网络连接中断",
+    });
+  });
+});
 
 function task(partial: Partial<Task> & { id: string }): Task {
   return {

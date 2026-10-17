@@ -1,4 +1,14 @@
 import type { Memo, Task } from "@organize/shared";
+import type { NextRecurringTaskResult } from "@/lib/tasks/recurring";
+
+export function describeNotchRecurringCompletion(
+  result: NextRecurringTaskResult
+): { kind: "message"; text: string } | { kind: "error"; text: string } {
+  if (result.status === "error") {
+    return { kind: "error", text: `已完成，但下一次重复任务生成失败：${result.message}` };
+  }
+  return { kind: "message", text: "已完成；重复任务请在主窗口管理" };
+}
 
 export const NOTCH_PLAIN_DISPLAYS_KEY = "organize.notch-plain-displays";
 
