@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2, Plus, X } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
+import {
+  nextVersionsAfterLoad,
+  shouldShowHistoryEmpty,
+  type VersionsLoadOutcome,
+} from "@/lib/notes/note-history-load";
 
 export interface NoteVersionMeta {
   id: string;
@@ -73,10 +78,14 @@ export function NoteHistoryPanel({
   const supabase = useMemo(() => createClient(), []);
   const [versions, setVersions] = useState<NoteVersionMeta[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savingNamed, setSavingNamed] = useState(false);
+  // 最近一次成功加载的版本列表：刷新失败时保留展示，不拿失败冒充「还没有历史版本」
+  const lastSuccessRef = useRef<NoteVersionMeta[] | null>(null);
 
   const loadVersions = useCallback(async () => {
     setLoading(true);
+    let outcome: VersionsLoadOutcome<NoteVersionMeta>;
     try {
       const { data, error } = await supabase
         .from("note_versions")
@@ -84,14 +93,31 @@ export function NoteHistoryPanel({
         .eq("note_id", noteId)
         .order("created_at", { ascending: false })
         .limit(500);
-      if (!error) setVersions((data || []) as NoteVersionMeta[]);
-    } finally {
-      setLoading(false);
+      outcome = error
+        ? { ok: false }
+        : { ok: true, versions: (data || []) as NoteVersionMeta[] };
+    } catch {
+      outcome = { ok: false };
     }
+    const plan = nextVersionsAfterLoad(lastSuccessRef.current, outcome);
+    if (!plan.failed) lastSuccessRef.current = plan.versions;
+    setVersions(plan.versions);
+    setLoadError(plan.loadError);
+    setLoading(false);
   }, [noteId, supabase]);
 
+  // 切笔记：上一笔记的版本列表与失败提示不得带入新笔记
   useEffect(() => {
-    if (open) void loadVersions();
+    lastSuccessRef.current = null;
+    setVersions([]);
+    setLoadError(null);
+  }, [noteId]);
+
+  useEffect(() => {
+    if (!open) return;
+    // 每次打开重新拉取；先清上一次的失败提示，避免串面板显示旧错误
+    setLoadError(null);
+    void loadVersions();
   }, [open, loadVersions]);
 
   const saveNamedVersion = async () => {
@@ -116,6 +142,7 @@ export function NoteHistoryPanel({
   };
 
   const groups = useMemo(() => groupByDay(versions), [versions]);
+  const showEmpty = shouldShowHistoryEmpty(versions, loadError, loading);
 
   if (!open) return null;
 
@@ -151,31 +178,52 @@ export function NoteHistoryPanel({
           <div className="note-history-empty">
             <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
           </div>
-        ) : versions.length === 0 ? (
+        ) : showEmpty ? (
           <div className="note-history-empty">还没有历史版本；编辑内容后会自动生成快照</div>
         ) : (
-          groups.map((group) => (
-            <div key={group.key} className="note-history-group">
-              <div className="note-history-day">{group.label}</div>
-              {group.versions.map((version) => (
+          <>
+            {loadError && (
+              <div
+                className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                <span>
+                  {loadError}
+                  {versions.length > 0 ? "，下方为上次成功加载的版本" : ""}
+                </span>
                 <button
-                  key={version.id}
                   type="button"
-                  className={cn(
-                    "note-history-item",
-                    activeVersionId === version.id && "active"
-                  )}
-                  onClick={() => onSelect(version)}
+                  className="shrink-0 underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
+                  onClick={() => void loadVersions()}
+                  disabled={loading}
                 >
-                  <span className="note-history-item-time">{timeLabel(version.created_at)}</span>
-                  <span className="note-history-item-name">
-                    {version.message || version.title || "自动保存"}
-                  </span>
-                  {version.message && <span className="note-history-badge">命名</span>}
+                  重试
                 </button>
-              ))}
-            </div>
-          ))
+              </div>
+            )}
+            {groups.map((group) => (
+              <div key={group.key} className="note-history-group">
+                <div className="note-history-day">{group.label}</div>
+                {group.versions.map((version) => (
+                  <button
+                    key={version.id}
+                    type="button"
+                    className={cn(
+                      "note-history-item",
+                      activeVersionId === version.id && "active"
+                    )}
+                    onClick={() => onSelect(version)}
+                  >
+                    <span className="note-history-item-time">{timeLabel(version.created_at)}</span>
+                    <span className="note-history-item-name">
+                      {version.message || version.title || "自动保存"}
+                    </span>
+                    {version.message && <span className="note-history-badge">命名</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </>
         )}
       </div>
 
