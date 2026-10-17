@@ -5,7 +5,7 @@
  * 按最近修改排序；空态直接给「新建构思画布」+ 双击输入的一句提示。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Loader2, Plus, Trash2 } from "@/components/icons";
 import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
@@ -18,6 +18,8 @@ import {
   patchCanvas,
   type CanvasListItem,
 } from "@/lib/canvas/repository";
+import { CANVAS_LIST_LOAD_ERROR_MESSAGE, nextCanvasItemsAfterLoad } from "@/lib/canvas/list-load";
+import { isOnline } from "@/lib/offline/network";
 import { Button } from "@/components/ui/button";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { toast } from "@/hooks/use-toast";
@@ -31,13 +33,30 @@ function timeLabel(iso: string): string {
 export default function CanvasListPage() {
   const router = useRouter();
   const [items, setItems] = useState<CanvasListItem[] | null>(null);
+  /** 上次成功快照的引用读取：refresh 闭包里取 previous，避免把 items 加进 deps 经 useEffect 造成重载循环 */
+  const itemsRef = useRef<CanvasListItem[] | null>(null);
+  /** 画布列表加载失败（在线时）：没有已加载的列表时显示错误 + 重试，而不是「还没有画布」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const list = await listCanvases();
-    setItems(list ?? []);
+    // listCanvases 失败返回 null：不得吞成空数组伪装成「还没有画布」，交给纯函数保留上次快照并产出错误文案；
+    // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+    const plan = nextCanvasItemsAfterLoad({ previous: itemsRef.current, list: await listCanvases() });
+    itemsRef.current = plan.items;
+    setItems(plan.items);
+    setLoadError(plan.loadError);
+    if (plan.loadError && isOnline()) {
+      toast({ title: CANVAS_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+    }
   }, []);
+
+  /** 首屏失败后的重试：清错后重新拉取（清掉后会短暂回到「加载中…」） */
+  const retry = useCallback(() => {
+    setLoadError(null);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -116,22 +135,54 @@ export default function CanvasListPage() {
         </Button>
       </div>
 
+      {/* 加载失败不得伪装成「还没有画布」：无快照给错误块 + 重试，有快照保留列表 + 行内提示 */}
       {items === null ? (
-        <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
-        </div>
+        loadError ? (
+          <div className="flex flex-col items-center gap-3 py-16">
+            <p className="text-sm text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
+            <Button variant="outline" onClick={retry}>
+              重试
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
+          </div>
+        )
       ) : items.length === 0 ? (
-        <div className="canvas-list-empty">
-          <p className="text-lg font-medium">还没有画布</p>
-          <p className="text-sm text-muted-foreground">
-            把想法写下来，让版式自己长出来：双击画布空白处即可开始输入。
-          </p>
-          <Button onClick={() => void create()} disabled={creating}>
-            <Plus className="h-4 w-4" /> 新建构思画布
-          </Button>
-        </div>
+        loadError ? (
+          <div className="flex flex-col items-center gap-3 py-16">
+            <p className="text-sm text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
+            <Button variant="outline" onClick={retry}>
+              重试
+            </Button>
+          </div>
+        ) : (
+          <div className="canvas-list-empty">
+            <p className="text-lg font-medium">还没有画布</p>
+            <p className="text-sm text-muted-foreground">
+              把想法写下来，让版式自己长出来：双击画布空白处即可开始输入。
+            </p>
+            <Button onClick={() => void create()} disabled={creating}>
+              <Plus className="h-4 w-4" /> 新建构思画布
+            </Button>
+          </div>
+        )
       ) : (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <>
+          {/* toast 会消失：保留旧列表时加载失败要有持久的行内提示 + 就地重试（与 countdown 页同款） */}
+          {loadError && (
+            <div
+              className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+              role="alert"
+            >
+              <p className="text-xs text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={retry}>
+                重试
+              </Button>
+            </div>
+          )}
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
             <li key={item.id} className="canvas-list-card">
               <button
@@ -176,7 +227,8 @@ export default function CanvasListPage() {
               </div>
             </li>
           ))}
-        </ul>
+          </ul>
+        </>
       )}
     </div>
   );
