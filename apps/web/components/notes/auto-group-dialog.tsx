@@ -10,6 +10,7 @@ import { Loader2, Sparkles } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { proposeGroupsLocally, type AutoGroupNote, type GroupProposal } from "@/lib/notes/auto-group";
+import { describeAutoGroupApplyFailure, describeAutoGroupApplySuccess } from "@/lib/notes/auto-group-apply";
 import { createNoteGroup, moveNotesToGroup, normalizeGroupName, notifyNoteGroupsChanged } from "@/lib/notes/groups";
 import { cn } from "@/lib/utils";
 
@@ -103,10 +104,13 @@ export function AutoGroupDialog({
   const apply = async () => {
     if (!userId) return;
     setPhase("applying");
+    // 计数放 try 外：中途失败时 catch 要如实报告已写入多少、并广播刷新
+    let appliedGroups = 0;
+    let movedNotes = 0;
+    let createdButUnapplied = 0;
     try {
       const byName = new Map(groups.map((g) => [g.name.toLocaleLowerCase(), g.id]));
       let order = groups.length;
-      let movedNotes = 0;
       for (const p of proposals) {
         const name = normalizeGroupName(p.name);
         if (!p.accepted || !name || p.noteIds.length === 0) continue;
@@ -115,15 +119,20 @@ export function AutoGroupDialog({
           const created = await createNoteGroup(supabase, userId, name, order++);
           groupId = created.id;
           byName.set(name.toLocaleLowerCase(), groupId);
+          createdButUnapplied = 1;
         }
         await moveNotesToGroup(supabase, userId, p.noteIds, groupId);
         movedNotes += p.noteIds.length;
+        appliedGroups += 1;
+        createdButUnapplied = 0;
       }
       notifyNoteGroupsChanged();
-      toast({ title: `已应用 ${acceptedCount} 个分组，整理了 ${movedNotes} 篇笔记` });
+      toast({ title: describeAutoGroupApplySuccess(acceptedCount, movedNotes) });
       onOpenChange(false);
     } catch (err) {
-      toast({ title: "应用分组失败", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+      const failure = describeAutoGroupApplyFailure(appliedGroups, movedNotes, err, createdButUnapplied);
+      if (failure.wroteAnything) notifyNoteGroupsChanged();
+      toast({ title: failure.title, description: failure.description, variant: "destructive" });
       setPhase("preview");
     }
   };
