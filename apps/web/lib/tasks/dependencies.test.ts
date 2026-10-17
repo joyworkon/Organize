@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Task, TaskDependency } from "@organize/shared";
 import {
+  checkTaskCompletionBlockers,
   failedTaskDependencyLoadSections,
   getBlockedTaskIds,
   getTaskDependencyView,
@@ -70,5 +71,112 @@ describe("依赖面板加载失败提示纯函数", () => {
     expect(taskDependencyLoadErrorMessage(["任务列表", "依赖关系"])).toBe(
       "任务列表与依赖关系加载失败，显示的内容可能不完整"
     );
+  });
+});
+
+describe("标记完成前的依赖检查 checkTaskCompletionBlockers", () => {
+  type QueryResult = { data: unknown; error: unknown };
+
+  function fakeSupabase({
+    dependencies,
+    tasks,
+    onTasksQuery,
+  }: {
+    dependencies: QueryResult;
+    tasks?: QueryResult;
+    onTasksQuery?: (ids: string[]) => void;
+  }) {
+    return {
+      from(table: string) {
+        if (table === "task_dependencies") {
+          return {
+            select: () => ({
+              eq: () => Promise.resolve(dependencies),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            in: (_column: string, ids: string[]) => {
+              onTasksQuery?.(ids);
+              return Promise.resolve(tasks ?? { data: null, error: null });
+            },
+          }),
+        };
+      },
+    } as unknown as Parameters<typeof checkTaskCompletionBlockers>[0];
+  }
+
+  it("依赖关系查询失败时返回 error，不发前置任务查询", async () => {
+    const queried: string[][] = [];
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: { data: null, error: { message: "boom" } },
+        onTasksQuery: (ids) => queried.push(ids),
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "error" });
+    expect(queried).toEqual([]);
+  });
+
+  it("前置任务查询失败时返回 error", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: { data: [{ depends_on_task_id: "b" }], error: null },
+        tasks: { data: null, error: { message: "boom" } },
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "error" });
+  });
+
+  it("没有依赖时返回 ok + 空列表，且不发前置任务查询", async () => {
+    for (const data of [[], null]) {
+      const queried: string[][] = [];
+      const result = await checkTaskCompletionBlockers(
+        fakeSupabase({
+          dependencies: { data, error: null },
+          onTasksQuery: (ids) => queried.push(ids),
+        }),
+        "a"
+      );
+      expect(result).toEqual({ status: "ok", blocking: [] });
+      expect(queried).toEqual([]);
+    }
+  });
+
+  it("只返回未完成的前置任务", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: {
+          data: [{ depends_on_task_id: "b" }, { depends_on_task_id: "c" }],
+          error: null,
+        },
+        tasks: {
+          data: [
+            { id: "b", title: "B", status: "done" },
+            { id: "c", title: "C", status: "todo" },
+          ],
+          error: null,
+        },
+      }),
+      "a"
+    );
+    expect(result).toEqual({
+      status: "ok",
+      blocking: [{ id: "c", title: "C" }],
+    });
+  });
+
+  it("前置任务全部完成时返回 ok + 空列表", async () => {
+    const result = await checkTaskCompletionBlockers(
+      fakeSupabase({
+        dependencies: { data: [{ depends_on_task_id: "b" }], error: null },
+        tasks: { data: [{ id: "b", title: "B", status: "done" }], error: null },
+      }),
+      "a"
+    );
+    expect(result).toEqual({ status: "ok", blocking: [] });
   });
 });

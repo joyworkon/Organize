@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { checkTaskCompletionBlockers } from "@/lib/tasks/dependencies";
 import { generateNextRecurringTask } from "@/lib/tasks/recurring";
 import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
 import { claimTaskNoteCreation, releaseTaskNoteCreation } from "@/lib/tasks/note-link";
@@ -469,24 +470,19 @@ export default function TaskDetailPage() {
   async function handleStatusChange(status: TaskStatus) {
     // 前置依赖未完成时给出明确确认：系统不强制拦截，但"完成"不该无声绕过阻塞关系
     if (status === "done" && task && task.status !== "done") {
-      const { data: edges } = await supabase
-        .from("task_dependencies")
-        .select("depends_on_task_id")
-        .eq("task_id", task.id);
-      const depIds = (edges || []).map((edge) => edge.depends_on_task_id);
-      if (depIds.length > 0) {
-        const { data: prereqs } = await supabase
-          .from("tasks")
-          .select("id, title, status")
-          .in("id", depIds);
-        const blocking = (prereqs || []).filter((p) => p.status !== "done");
-        if (blocking.length > 0) {
-          const names = blocking.map((p) => `「${p.title}」`).join("、");
-          const proceed = window.confirm(
-            `${blocking.length} 个前置任务尚未完成：${names}。仍要将本任务标记为完成吗？`
-          );
-          if (!proceed) return;
-        }
+      const result = await checkTaskCompletionBlockers(supabase, task.id);
+      if (result.status === "error") {
+        // 检查本身加载失败时同样不能静默放行，交由用户决定是否继续
+        const proceed = window.confirm(
+          "无法确认前置任务是否已完成（加载失败）。仍要将本任务标记为完成吗？"
+        );
+        if (!proceed) return;
+      } else if (result.blocking.length > 0) {
+        const names = result.blocking.map((p) => `「${p.title}」`).join("、");
+        const proceed = window.confirm(
+          `${result.blocking.length} 个前置任务尚未完成：${names}。仍要将本任务标记为完成吗？`
+        );
+        if (!proceed) return;
       }
     }
     const updates: Partial<Task> = { status };
