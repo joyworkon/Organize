@@ -7,14 +7,19 @@
  * - 软删除补丁路由到 mutate_trash RPC（直写 deleted_at 被 RLS 拒绝）；
  * - 「update 后 delete」合并补丁先落其余字段（原子 RPC）再软删，避免修改被静默丢弃；
  * - 重复任务离线期间被勾完成，回放后补生成下一次实例（applied 时才补，幂等命中不补）；
+ *   生成失败通过回调如实上报，不影响该 op 的同步结果；
  * - 清单操作直写 task_checklists（与在线行为一致，行不存在时 0 行不报错）。
  */
 import type { TaskQueueWriter } from "@/lib/offline/task-queue";
 import { createClient } from "@/lib/supabase/client";
 import { applyTaskUpdate, type AtomicUpdateResult } from "./atomic-update";
-import { generateNextRecurringTask } from "./recurring";
+import { requestNextRecurringTask } from "./recurring";
 
 type SupabaseClient = ReturnType<typeof createClient>;
+
+export interface TaskQueueWriterOptions {
+  onRecurringNextError?: (taskId: string, message: string) => void;
+}
 
 /** 把原子协议结果翻译成回放层可分类的 error（null = 成功） */
 export function atomicResultToError(result: AtomicUpdateResult): { error: unknown } {
@@ -37,7 +42,10 @@ export function atomicResultToError(result: AtomicUpdateResult): { error: unknow
   return { error: result.error };
 }
 
-export function createTaskQueueWriter(supabase: SupabaseClient): TaskQueueWriter {
+export function createTaskQueueWriter(
+  supabase: SupabaseClient,
+  options?: TaskQueueWriterOptions
+): TaskQueueWriter {
   return {
     insertTask: async (task) => {
       const { error } = await supabase.from("tasks").insert(task);
@@ -70,7 +78,10 @@ export function createTaskQueueWriter(supabase: SupabaseClient): TaskQueueWriter
       // （RPC 自检幂等，非重复任务返回 null），否则该重复链就此断链；
       // 幂等命中（already_applied）说明此前已应用过，不重复补
       if (patch.status === "done" && result.status === "applied") {
-        await generateNextRecurringTask(supabase, id);
+        const nextResult = await requestNextRecurringTask(supabase, id);
+        if (nextResult.status === "error") {
+          options?.onRecurringNextError?.(id, nextResult.message);
+        }
       }
       return { error: null };
     },
