@@ -409,7 +409,12 @@ function TasksPageInner() {
         setPendingOps(0);
         return;
       }
-      const result = await replayTaskOps(createTaskQueueWriter(supabase), ops);
+      const recurringNextErrors: { taskId: string; message: string }[] = [];
+      const result = await replayTaskOps(createTaskQueueWriter(supabase, {
+        onRecurringNextError: (taskId, message) => {
+          recurringNextErrors.push({ taskId, message });
+        },
+      }), ops);
       const persisted = writeTaskOps(localStorage, userId, result.remaining);
       setPendingOps(result.remaining.length);
       // 非网络失败不静默丢弃：进 dead-letter，UI 呈现重试/丢弃
@@ -430,6 +435,13 @@ function TasksPageInner() {
         await fetchTasks();
         window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
         toast({ title: `已同步 ${result.applied} 项离线更改` });
+      }
+      if (recurringNextErrors.length > 0) {
+        toast({
+          title: `${recurringNextErrors.length} 项已完成的重复任务同步成功，但下一次实例生成失败`,
+          description: recurringNextErrors[0].message,
+          variant: "destructive",
+        });
       }
     });
   }, [fetchTasks, supabase, userId]);

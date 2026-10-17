@@ -148,7 +148,12 @@ export default function TaskDetailPage() {
     if (!uid) return;
     const ops = readTaskOps(localStorage, uid);
     if (ops.length === 0) return;
-    const result = await replayTaskOps(createTaskQueueWriter(supabase), ops);
+    const recurringNextErrors: { taskId: string; message: string }[] = [];
+    const result = await replayTaskOps(createTaskQueueWriter(supabase, {
+      onRecurringNextError: (taskId, message) => {
+        recurringNextErrors.push({ taskId, message });
+      },
+    }), ops);
     writeTaskOps(localStorage, uid, result.remaining);
     // 非网络失败进 dead-letter（P1-03）：不静默丢弃
     for (const rejected of result.rejectedOps) {
@@ -159,6 +164,13 @@ export default function TaskDetailPage() {
     }
     if (result.applied > 0) {
       toast({ title: `已同步 ${result.applied} 项离线更改` });
+    }
+    if (recurringNextErrors.length > 0) {
+      toast({
+        title: `${recurringNextErrors.length} 项已完成的重复任务同步成功，但下一次实例生成失败`,
+        description: recurringNextErrors[0].message,
+        variant: "destructive",
+      });
     }
   };
   useEffect(() => {
