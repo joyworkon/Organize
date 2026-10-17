@@ -5,7 +5,7 @@ import { BookOpen, Check, FileText, ListTodo, Loader2, Settings, X, Zap } from "
 import type { Memo, Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
-import { generateNextRecurringTask } from "@/lib/tasks/recurring";
+import { requestNextRecurringTask } from "@/lib/tasks/recurring";
 import { createQuickTask } from "@/lib/tasks/quick-create";
 import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { collectReadingItem } from "@/lib/reading/collect";
@@ -17,7 +17,7 @@ import { isImeComposing } from "@/lib/input/submit-guard";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isOnline } from "@/lib/offline/network";
 import { CaptureDraft } from "@/lib/desktop/capture-draft";
-import { emitDataChanged, insertMemoOptimistic, isNotchOpenPathAllowed, memoTimeLabel,
+import { describeNotchRecurringCompletion, emitDataChanged, insertMemoOptimistic, isNotchOpenPathAllowed, memoTimeLabel,
   NOTCH_QUICK_LINKS, NOTCH_TRIGGER_HIDDEN_KEY, NOTCH_PLAIN_DISPLAYS_KEY, readNotchTriggerHidden,
   selectPanelTasks, subscribeDataChanged } from "@/lib/desktop/notch";
 import { cn } from "@/lib/utils";
@@ -185,7 +185,13 @@ export function NotchPanel() {
       if (op.epoch !== epoch.current) return;
       if (result.status !== "applied" && result.status !== "already_applied") throw new Error("完成失败，任务可能已被其他窗口修改");
       setTasks((list) => list.filter((t) => t.id !== task.id)); notify("tasks", op.userId);
-      if (task.recurrence_rule) { await generateNextRecurringTask(supabase, task.id); setMessage("已完成；重复任务请在主窗口管理"); }
+      if (task.recurrence_rule) {
+        const next = await requestNextRecurringTask(supabase, task.id);
+        if (op.epoch !== epoch.current) return;
+        const feedback = describeNotchRecurringCompletion(next);
+        if (feedback.kind === "error") setError(feedback.text);
+        else setMessage(feedback.text);
+      }
       else if (result.status === "applied") setUndo({ task, version: result.syncVersion });
     } catch (e) { if (op.epoch === epoch.current) setError(e instanceof Error ? e.message : "操作失败"); }
     finally { finish(op); }
