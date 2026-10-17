@@ -19,12 +19,15 @@ import { PageHeader } from "@/components/layout/page-header";
 import { PageSearch } from "@/components/layout/page-search";
 import { filterByPageSearch } from "@/lib/search/page-search";
 import { cn } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
+import { isOnline } from "@/lib/offline/network";
 import type { Tag, TagWithCount, NoteWithTags, ReadingItem, TaskWithTags, LessonWithTags, TagColor } from "@organize/shared";
 import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { TagColorPicker } from "@/components/tags/tag-color-picker";
 import { Label } from "@/components/ui/label";
+import { buildTagCounts } from "./tag-counts";
 
 type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
@@ -33,6 +36,10 @@ export default function TagsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const supabase = useMemo(() => createClient(), []);
+  /** 标签查询失败：没有已加载的标签时显示错误 + 重试，而不是「还没有标签」；有旧列表时保留 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 使用数（四类关联）查询失败：计数不可信，显示「–」/「使用数加载失败」，不冒充 0 */
+  const [countsFailed, setCountsFailed] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -59,11 +66,21 @@ export default function TagsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: tagData } = await supabase
+      const { data: tagData, error: tagError } = await supabase
         .from("tags")
         .select("id, name, color, created_at")
         .eq("user_id", user.id)
         .order("name", { ascending: true });
+
+      if (tagError) {
+        // 查询失败不得当空列表清掉旧标签（谎报「从没建过标签」）：保留旧列表并如实提示；
+        // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+        setLoadError(tagError.message || "加载标签失败");
+        if (isOnline()) {
+          toast({ title: "加载标签失败", description: tagError.message, variant: "destructive" });
+        }
+        return;
+      }
 
       const [itemTagsRes, noteTagsRes, taskTagsRes, lessonTagsRes] = await Promise.all([
         supabase.from("item_tags").select("tag_id"),
@@ -72,36 +89,20 @@ export default function TagsPage() {
         supabase.from("lesson_tags").select("tag_id"),
       ]);
 
-      const countMap = new Map<string, { note_count: number; reading_item_count: number; task_count: number; lesson_count: number }>();
-      for (const row of itemTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
-        entry.reading_item_count += 1;
-        countMap.set(row.tag_id, entry);
-      }
-      for (const row of noteTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
-        entry.note_count += 1;
-        countMap.set(row.tag_id, entry);
-      }
-      for (const row of taskTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
-        entry.task_count += 1;
-        countMap.set(row.tag_id, entry);
-      }
-      for (const row of lessonTagsRes.data || []) {
-        const entry = countMap.get(row.tag_id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 };
-        entry.lesson_count += 1;
-        countMap.set(row.tag_id, entry);
-      }
+      const plan = buildTagCounts(tagData || [], user.id, {
+        reading: itemTagsRes,
+        note: noteTagsRes,
+        task: taskTagsRes,
+        lesson: lessonTagsRes,
+      });
 
-      const result: TagWithCount[] = (tagData || []).map((t) => ({
-        id: t.id,
-        user_id: user.id,
-        name: t.name,
-        color: t.color || "blue",
-        ...(countMap.get(t.id) || { note_count: 0, reading_item_count: 0, task_count: 0, lesson_count: 0 }),
-      }));
-      setTags(result);
+      setTags(plan.tags);
+      setLoadError(null);
+      setCountsFailed(plan.countsFailed);
+      // 使用数查询失败：不冒充「计数为 0」，行内提示常驻，在线时再弹一次 toast
+      if (plan.countsFailed && isOnline()) {
+        toast({ title: "标签使用数加载失败", variant: "destructive" });
+      }
     } finally {
       setLoading(false);
     }
@@ -294,11 +295,17 @@ export default function TagsPage() {
               <TagBadge tag={selectedTag} size="md" className="!text-sm" />
             </div>
             <p className="text-muted-foreground mt-1 ml-0">
-              共 {totalUsage(selectedTag)} 个内容
-              {(selectedTag.reading_item_count || 0) > 0 && ` · ${selectedTag.reading_item_count} 篇文章`}
-              {(selectedTag.note_count || 0) > 0 && ` · ${selectedTag.note_count} 条笔记`}
-              {(selectedTag.task_count || 0) > 0 && ` · ${selectedTag.task_count} 个任务`}
-              {(selectedTag.lesson_count || 0) > 0 && ` · ${selectedTag.lesson_count} 条复盘`}
+              {countsFailed ? (
+                "使用数加载失败"
+              ) : (
+                <>
+                  共 {totalUsage(selectedTag)} 个内容
+                  {(selectedTag.reading_item_count || 0) > 0 && ` · ${selectedTag.reading_item_count} 篇文章`}
+                  {(selectedTag.note_count || 0) > 0 && ` · ${selectedTag.note_count} 条笔记`}
+                  {(selectedTag.task_count || 0) > 0 && ` · ${selectedTag.task_count} 个任务`}
+                  {(selectedTag.lesson_count || 0) > 0 && ` · ${selectedTag.lesson_count} 条复盘`}
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -524,11 +531,31 @@ export default function TagsPage() {
 
       {/* 桌面端搜索已在页头标题行；窄屏页头会换行，这里不再重复一条搜索带 */}
 
+      {/* toast 会消失：使用数加载失败要有持久的行内提示 + 就地重试（离线失败由顶栏角标表达，不弹 toast） */}
+      {countsFailed && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+          role="alert"
+        >
+          <p className="text-xs text-destructive">标签使用数加载失败</p>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void fetchTags()}>
+            重试
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
           加载中...
         </div>
+      ) : loadError && tags.length === 0 ? (
+        <EmptyState
+          icon={TagIcon}
+          title="标签加载失败"
+          description={loadError}
+          action={<Button variant="outline" onClick={() => void fetchTags()}>重试</Button>}
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={TagIcon}
@@ -553,19 +580,19 @@ export default function TagsPage() {
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
                       <span className="flex items-center gap-0.5">
                         <BookOpen className="h-3 w-3" />
-                        {tag.reading_item_count || 0}
+                        {countsFailed ? "–" : tag.reading_item_count || 0}
                       </span>
                       <span className="flex items-center gap-0.5">
                         <FileText className="h-3 w-3" />
-                        {tag.note_count || 0}
+                        {countsFailed ? "–" : tag.note_count || 0}
                       </span>
                       <span className="flex items-center gap-0.5">
                         <ListChecks className="h-3 w-3" />
-                        {tag.task_count || 0}
+                        {countsFailed ? "–" : tag.task_count || 0}
                       </span>
                       <span className="flex items-center gap-0.5">
                         <Lightbulb className="h-3 w-3" />
-                        {tag.lesson_count || 0}
+                        {countsFailed ? "–" : tag.lesson_count || 0}
                       </span>
                     </div>
                   </div>
@@ -597,7 +624,7 @@ export default function TagsPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  共 {totalUsage(tag)} 个内容
+                  {countsFailed ? "使用数加载失败" : `共 ${totalUsage(tag)} 个内容`}
                 </p>
               </CardContent>
             </Card>
@@ -644,8 +671,12 @@ export default function TagsPage() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             确定删除标签 <TagBadge tag={{ id: deleteTarget?.id || "", name: deleteTarget?.name || "", color: deleteTarget?.color }} size="sm" className="!mx-1" />？
-            {deleteTarget && totalUsage(deleteTarget) > 0 && (
-              <> 该标签当前用在 {totalUsage(deleteTarget)} 个内容上，删除后会自动从这些内容上移除。</>
+            {countsFailed ? (
+              <> 暂时无法确认该标签用在多少内容上，删除后会自动从这些内容上移除。</>
+            ) : (
+              deleteTarget && totalUsage(deleteTarget) > 0 && (
+                <> 该标签当前用在 {totalUsage(deleteTarget)} 个内容上，删除后会自动从这些内容上移除。</>
+              )
             )}
             此操作不可撤销。
           </p>
