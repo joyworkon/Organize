@@ -75,3 +75,41 @@ export function formatCountdownDate(value: string): string {
   return `${year}年${month}月${day}日`;
 }
 
+export const COUNTDOWN_LOAD_ERROR_MESSAGE = "加载倒数日失败";
+
+/** nextCountdownDaysAfterLoad 的返回：UI 该落到什么快照、错误提示文案 */
+export interface CountdownDaysLoadPlan {
+  days: CountdownDay[];
+  /** 非空表示当前处于加载失败状态；null 表示无错 */
+  loadError: string | null;
+}
+
+/**
+ * 倒数日列表加载结果落到 UI 状态的纯逻辑（供 countdown/page.tsx 接线并单测）：
+ * - 成功：整体替换并清错；
+ * - 失败：保留上次成功快照——把加载失败伪装成「还没有倒数日」等于撒谎。
+ * 错误文案取 error.message（Supabase/Postgrest 错误常非 Error 实例，直接读属性），
+ * trim 后为空则用兜底文案。与 lib/notes/note-tree-load.ts（#381）同构。
+ */
+export function nextCountdownDaysAfterLoad({
+  previous,
+  data,
+  error,
+}: {
+  /** 上次成功快照；失败时原样返回（同引用，React 跳过重渲染） */
+  previous: CountdownDay[];
+  data: readonly CountdownDay[] | null | undefined;
+  /** supabase-js 的 error 即失败事实；只用真值判断，不吞成 null */
+  error: unknown;
+}): CountdownDaysLoadPlan {
+  if (!error) {
+    return { days: [...(data ?? [])], loadError: null };
+  }
+  const raw = (error as { message?: unknown }).message;
+  const message = typeof raw === "string" ? raw.trim() : "";
+  return {
+    days: previous,
+    loadError: message || COUNTDOWN_LOAD_ERROR_MESSAGE,
+  };
+}
+

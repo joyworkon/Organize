@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Loader2, Pencil, Plus, Repeat2, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,9 +19,15 @@ import { filterByPageSearch } from "@/lib/search/page-search";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
+import { isOnline } from "@/lib/offline/network";
 import { mutateTrash } from "@/lib/trash/client";
 import type { CountdownDay } from "@organize/shared";
-import { countdownDisplay, formatCountdownDate, sortCountdownDays } from "@/lib/tasks/countdown";
+import {
+  countdownDisplay,
+  formatCountdownDate,
+  nextCountdownDaysAfterLoad,
+  sortCountdownDays,
+} from "@/lib/tasks/countdown";
 
 interface CountdownForm {
   title: string;
@@ -42,6 +48,10 @@ const blankForm = (): CountdownForm => ({
 function CountdownPageInner() {
   const supabase = useMemo(() => createClient(), []);
   const [days, setDays] = useState<CountdownDay[]>([]);
+  /** 上次成功快照的引用读取：loadDays 闭包里取 previous，避免把 days 加进 deps 经 useEffect 造成重载循环 */
+  const daysRef = useRef<CountdownDay[]>([]);
+  /** 倒数日查询失败（在线时）：没有已加载的列表时显示错误 + 重试，而不是「还没有倒数日」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,9 +71,20 @@ function CountdownPageInner() {
         .is("deleted_at", null)
         .order("target_date", { ascending: true });
       if (error) throw error;
-      setDays((data || []) as CountdownDay[]);
+      const plan = nextCountdownDaysAfterLoad({ previous: daysRef.current, data: data as CountdownDay[] | null, error: null });
+      daysRef.current = plan.days;
+      setDays(plan.days);
+      setLoadError(plan.loadError);
     } catch (error) {
-      toast({ title: "倒数日加载失败", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      // 查询失败不得清掉旧列表（谎报「还没有倒数日」）：纯函数保留上次成功快照并产出错误文案；
+      // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+      const plan = nextCountdownDaysAfterLoad({ previous: daysRef.current, data: null, error });
+      daysRef.current = plan.days;
+      setDays(plan.days);
+      setLoadError(plan.loadError);
+      if (plan.loadError && isOnline()) {
+        toast({ title: "倒数日加载失败", description: plan.loadError, variant: "destructive" });
+      }
     } finally {
       setLoading(false);
     }
@@ -150,10 +171,25 @@ function CountdownPageInner() {
       />
       {loading ? (
         <div className="grid place-items-center py-20 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin" /></div>
+      ) : loadError && days.length === 0 ? (
+        <EmptyState icon={CalendarDays} title="倒数日加载失败" description={loadError} action={<Button variant="outline" onClick={() => void loadDays()}>重试</Button>} />
       ) : visibleDays.length === 0 ? (
         <EmptyState icon={CalendarDays} title={search.trim() ? "没有匹配的倒数日" : "还没有倒数日"} description={search.trim() ? "只搜本页的倒数日标题，换个关键词试试" : "添加一个重要日期，随时掌握剩余时间"} action={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />添加倒数日</Button>} />
       ) : (
-        <div className="mt-4 divide-y border-y">
+        <>
+          {/* toast 会消失：保留旧列表时加载失败要有持久的行内提示 + 就地重试（与 tags 页 countsFailed 同款） */}
+          {loadError && (
+            <div
+              className="flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+              role="alert"
+            >
+              <p className="text-xs text-destructive">倒数日加载失败</p>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={() => void loadDays()}>
+                重试
+              </Button>
+            </div>
+          )}
+          <div className="mt-4 divide-y border-y">
           {visibleDays.map((item) => {
             const display = countdownDisplay(item);
             return (
@@ -177,7 +213,8 @@ function CountdownPageInner() {
               </article>
             );
           })}
-        </div>
+          </div>
+        </>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
