@@ -13,6 +13,7 @@ import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { enqueueTaskOp, makeTaskUpdateOp, type PendingTaskOp } from "@/lib/offline/task-queue";
 import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
+import { nextTaskRepositoryAfterLoad } from "@/lib/tasks/repository-load";
 
 /** 把被拒更改写入 per-user dead-letter（UI 在任务工作台呈现） */
 function stashRejectedChange(userId: string, op: PendingTaskOp, error: unknown): void {
@@ -38,8 +39,14 @@ export function useTaskRepository() {
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
   const [lists, setLists] = useState<TaskList[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // 快照缓存（乐观回滚用）
   const snapshotRef = useRef<TaskWithTags[]>([]);
+  const stateRef = useRef({ tasks, lists });
+
+  useEffect(() => {
+    stateRef.current = { tasks, lists };
+  }, [tasks, lists]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -47,7 +54,13 @@ export function useTaskRepository() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [{ data: tasksData }, { data: listsData }, { data: tagLinks }, { data: tagsData }, { data: trashedData }] = await Promise.all([
+      const [
+        { data: tasksData, error: tasksError },
+        { data: listsData, error: listsError },
+        { data: tagLinks },
+        { data: tagsData },
+        { data: trashedData },
+      ] = await Promise.all([
         supabase.from("tasks").select("*").eq("user_id", user.id)
           .order("is_pinned", { ascending: false })
           .order("sort_order", { ascending: true })
@@ -62,6 +75,15 @@ export function useTaskRepository() {
         supabase.rpc("list_trashed_tasks"),
       ]);
 
+      const plan = nextTaskRepositoryAfterLoad({
+        previousTasks: stateRef.current.tasks,
+        previousLists: stateRef.current.lists,
+        tasks: { data: tasksData as TaskWithTags[] | null, error: tasksError },
+        lists: { data: listsData as TaskList[] | null, error: listsError },
+      });
+      setLoadError(plan.loadError);
+      if (plan.loadError) return;
+
       const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
       const linksByTask = new Map<string, Tag[]>();
       for (const link of tagLinks || []) {
@@ -73,9 +95,9 @@ export function useTaskRepository() {
         }
       }
 
-      const tasksWithTags: TaskWithTags[] = (tasksData || []).map((t) => ({
-        ...(t as Task),
-        tags: linksByTask.get((t as Task).id) || [],
+      const tasksWithTags: TaskWithTags[] = plan.tasks.map((task) => ({
+        ...task,
+        tags: linksByTask.get(task.id) || [],
       }));
       // RPC 失败（如库未跑 migration 050）不阻塞主数据；合并已删任务只为侧栏计数，
       // 各视图均按 deleted_at 过滤
@@ -85,7 +107,7 @@ export function useTaskRepository() {
 
       setTasks([...tasksWithTags, ...trashedTasks]);
       snapshotRef.current = tasksWithTags;
-      setLists((listsData || []) as TaskList[]);
+      setLists(plan.lists);
     } finally {
       setLoading(false);
     }
@@ -228,7 +250,7 @@ export function useTaskRepository() {
   }, [supabase, fetchAll, lists]);
 
   return {
-    tasks, lists, loading,
+    tasks, lists, loading, loadError,
     refetch: fetchAll,
     togglePin, softDeleteTask, updateTask,
     createList, updateList, deleteList,

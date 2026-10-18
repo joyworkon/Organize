@@ -72,7 +72,7 @@ export function TaskNavigationMenu({
 }: TaskNavigationMenuProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { tasks, lists, loading, refetch, createList } = useTaskRepository();
+  const { tasks, lists, loading, loadError, refetch, createList } = useTaskRepository();
   const [open, setOpen] = useState(false);
   const allCount = useMemo(() => activeTaskCount(tasks), [tasks]);
   const completedCount = useMemo(() => completedTaskCount(tasks), [tasks]);
@@ -154,21 +154,31 @@ export function TaskNavigationMenu({
           </div>
 
           <div className="space-y-1">
-            {loading && lists.length === 0 ? (
+            {loadError ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-xs text-destructive">
+                <span role="alert" className="min-w-0 flex-1">{loadError}</span>
+                <button
+                  type="button"
+                  onClick={() => void refetch()}
+                  className="shrink-0 transition-colors hover:text-foreground"
+                >
+                  重试
+                </button>
+              </div>
+            ) : loading && lists.length === 0 ? (
               <div className="px-3 py-3 text-sm text-muted-foreground">正在加载清单…</div>
             ) : lists.length === 0 ? (
               <div className="px-3 py-3 text-sm text-muted-foreground">还没有清单</div>
-            ) : (
-              lists.map((list) => (
-                <TaskListMenuItem
-                  key={list.id}
-                  list={list}
-                  count={listTaskCount(tasks, list.id)}
-                  active={searchParams.get("scope") === "list" && searchParams.get("list") === list.id}
-                  onClick={() => select({ scope: "list", listId: list.id })}
-                />
-              ))
-            )}
+            ) : null}
+            {lists.map((list) => (
+              <TaskListMenuItem
+                key={list.id}
+                list={list}
+                count={listTaskCount(tasks, list.id)}
+                active={searchParams.get("scope") === "list" && searchParams.get("list") === list.id}
+                onClick={() => select({ scope: "list", listId: list.id })}
+              />
+            ))}
           </div>
 
           <div className="mt-4 border-t pt-2">
