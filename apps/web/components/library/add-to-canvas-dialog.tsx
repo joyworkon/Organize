@@ -7,7 +7,7 @@
  * 插入后可在画布中继续编辑快照，原资料不受影响。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { LibraryItem } from "@organize/shared";
 import {
@@ -18,6 +18,11 @@ import {
   type CanvasListItem,
 } from "@/lib/canvas/repository";
 import { appendMaterialCardToRegion } from "@/lib/canvas/commands";
+import {
+  CANVAS_LIST_LOAD_ERROR_MESSAGE,
+  nextCanvasItemsAfterLoad,
+} from "@/lib/canvas/list-load";
+import { isOnline } from "@/lib/offline/network";
 import { createBoardShape, CANVAS_SCHEMA_VERSION } from "@/lib/canvas/model";
 import { excerptSnapshot, sourceRefFromLibraryItem } from "@/lib/library/material-source";
 import {
@@ -52,6 +57,12 @@ export function AddToCanvasDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [canvases, setCanvases] = useState<CanvasListItem[]>([]);
+  /** 上次成功快照：刷新失败时原样保留（effect 闭包读不到最新 state） */
+  const canvasesRef = useRef<CanvasListItem[]>([]);
+  /** 画布列表加载失败：没有已加载的列表时显示错误 + 重试，而不是伪装成「只有新建画布」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 重试计数：自增让下方 effect 重新 listCanvases */
+  const [reloadCount, setReloadCount] = useState(0);
   const [boards, setBoards] = useState<BoardOption[]>([]);
   const [regions, setRegions] = useState<Array<{ id: string; name: string }>>([]);
   const [canvasId, setCanvasId] = useState<string>(NEW_CANVAS);
@@ -67,16 +78,31 @@ export function AddToCanvasDialog({
     let cancelled = false;
     void (async () => {
       setLoading(true);
+      setLoadError(null);
       const list = await listCanvases();
       if (cancelled) return;
-      setCanvases(list ?? []);
+      // listCanvases 失败返回 null：不得吞成空数组伪装成「还没有画布」，交给纯函数保留上次快照并产出错误文案；
+      // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+      const plan = nextCanvasItemsAfterLoad({ previous: canvasesRef.current, list });
+      canvasesRef.current = plan.items ?? [];
+      setCanvases(plan.items ?? []);
+      setLoadError(plan.loadError);
+      if (plan.loadError && isOnline()) {
+        toast({ title: CANVAS_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+      }
       setCanvasId(NEW_CANVAS);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, reloadCount]);
+
+  /** 首屏失败后的重试：清错后重新拉取（清掉后会短暂回到「加载画布列表…」） */
+  const retryLoadCanvases = () => {
+    setLoadError(null);
+    setReloadCount((count) => count + 1);
+  };
 
   // 选中现有画布 → 拉页面（区块数）
   useEffect(() => {
@@ -220,8 +246,28 @@ export function AddToCanvasDialog({
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> 加载画布列表…
           </p>
+        ) : loadError && canvases.length === 0 ? (
+          /* 加载失败不得伪装成「只有新建画布」：无快照给错误态 + 重试 */
+          <div className="flex flex-col items-center gap-3 py-8" role="alert">
+            <p className="text-sm text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
+            <Button size="sm" variant="outline" onClick={retryLoadCanvases}>
+              重试
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {/* 刷新失败但已有列表：保留下拉（含旧快照）+ 持久行内提示 + 就地重试（toast 会消失） */}
+            {loadError && (
+              <div
+                className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+                role="alert"
+              >
+                <span className="text-xs text-destructive">{loadError}</span>
+                <Button size="sm" variant="outline" onClick={retryLoadCanvases}>
+                  重试
+                </Button>
+              </div>
+            )}
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">画布</span>
               <select
