@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Dialog,
@@ -31,6 +31,10 @@ import {
 } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { collabRoleLabel, type CollabRole } from "@/lib/collab/roles";
+import {
+  nextInviteWorkspacesAfterLoad,
+  type InviteWorkspaceRow,
+} from "@/lib/share/invite-workspaces-load";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { ShareResourceType } from "@organize/shared";
 
@@ -310,6 +314,10 @@ function InviteSection({
   const [workspaceChoice, setWorkspaceChoice] = useState<string>("__new__");
   const [newWsName, setNewWsName] = useState("");
   const [teamWorkspaces, setTeamWorkspaces] = useState<WorkspaceRow[]>([]);
+  const [workspacesLoadError, setWorkspacesLoadError] = useState<string | null>(null);
+  const [reloadingWorkspaces, setReloadingWorkspaces] = useState(false);
+  // 上次成功的 team 列表快照：重试失败时作为 previous 保留，不把失败伪装成「没有已有空间」
+  const teamWorkspacesRef = useRef<InviteWorkspaceRow[]>([]);
   const [matched, setMatched] = useState<{ user_id: string; display_name: string | null } | null>(null);
   const [notFoundEmail, setNotFoundEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -319,18 +327,34 @@ function InviteSection({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    void (async () => {
+  const loadTeamWorkspaces = useCallback(async () => {
+    setReloadingWorkspaces(true);
+    try {
       // 邀请目标只能是 team 空间（个人空间天然只有自己一个人）
-      const { data } = await supabase
+      const { data, error: wsErr } = await supabase
         .from("workspaces")
         .select("id, name, kind")
         .order("created_at", { ascending: true });
-      const teamOnly = ((data || []) as WorkspaceRow[]).filter((ws) => ws.kind === "team");
-      setTeamWorkspaces(teamOnly);
-      setWorkspaceChoice(teamOnly.length > 0 ? teamOnly[0].id : "__new__");
-    })();
+      const next = nextInviteWorkspacesAfterLoad({
+        previous: teamWorkspacesRef.current,
+        data: (data ?? null) as InviteWorkspaceRow[] | null,
+        error: wsErr,
+      });
+      setWorkspacesLoadError(next.loadError);
+      // preferredChoice 为 null 即失败路径：不动已有列表与用户当前选择
+      if (next.preferredChoice !== null) {
+        teamWorkspacesRef.current = next.workspaces;
+        setTeamWorkspaces(next.workspaces);
+        setWorkspaceChoice(next.preferredChoice);
+      }
+    } finally {
+      setReloadingWorkspaces(false);
+    }
   }, [supabase]);
+
+  useEffect(() => {
+    void loadTeamWorkspaces();
+  }, [loadTeamWorkspaces]);
 
   const checkEmail = async () => {
     const trimmed = email.trim();
@@ -481,6 +505,19 @@ function InviteSection({
       <p className="text-xs text-muted-foreground">
         按注册邮箱精确查找（不支持模糊搜索）。对方会加入所选协作空间，并获得本篇内容的访问权。
       </p>
+      {workspacesLoadError && (
+        <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+          {workspacesLoadError}
+          <button
+            type="button"
+            onClick={() => void loadTeamWorkspaces()}
+            disabled={reloadingWorkspaces}
+            className="text-primary hover:underline disabled:opacity-50"
+          >
+            {reloadingWorkspaces ? "重试中…" : "重试"}
+          </button>
+        </p>
+      )}
       <div className="flex gap-2">
         <Input
           type="email"
