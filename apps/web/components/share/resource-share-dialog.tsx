@@ -43,6 +43,10 @@ import {
   nextCollaboratorGrantsAfterLoad,
   type CollaboratorGrantRow,
 } from "@/lib/share/collaborator-grants-load";
+import {
+  nextCollaboratorWorkspaceNamesAfterLoad,
+  type CollaboratorGrantAclRow,
+} from "@/lib/share/collaborator-workspace-names-load";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { ShareResourceType } from "@organize/shared";
 
@@ -600,9 +604,12 @@ function CollaboratorGrants({
     async (signal?: { active: boolean }) => {
       const isActive = () => !signal || signal.active;
       setReloading(true);
-      // 流水线成功时组装好的授权行；failed = 任一查询 throw，走纯函数失败分支
-      let assembled: CollaboratorGrantRow[] | null = null;
-      let failed = false;
+      // ACL 授权行；aclFailed = ACL 查询失败（error / throw），走 #406 的主失败逻辑
+      let aclRows: CollaboratorGrantAclRow[] = [];
+      let aclFailed = false;
+      // workspaces 名称查询：error 不丢（授权行本身已成功），交给名称纯函数诚实处理
+      const nameById = new Map<string, string>();
+      let wsError: unknown = null;
       try {
         const { data: grantRows, error } = await supabase
           .from("resource_acl")
@@ -610,27 +617,33 @@ function CollaboratorGrants({
           .eq("resource_type", resourceType)
           .eq("resource_id", resourceId);
         if (error) throw new Error(error.message);
-        const names = new Map<string, string>();
-        const wsIds = (grantRows || []).map((row) => row.workspace_id);
+        aclRows = grantRows || [];
+        const wsIds = aclRows.map((row) => row.workspace_id);
         if (wsIds.length > 0) {
-          const { data: wsRows } = await supabase.from("workspaces").select("id, name").in("id", wsIds);
-          for (const ws of wsRows || []) names.set(ws.id, ws.name);
+          const { data: wsRows, error: wsErr } = await supabase.from("workspaces").select("id, name").in("id", wsIds);
+          for (const ws of wsRows || []) nameById.set(ws.id, ws.name);
+          wsError = wsErr;
         }
-        assembled = (grantRows || []).map((row) => ({
-          wsName: names.get(row.workspace_id) || "协作空间",
-          role: row.access_role,
-        }));
       } catch {
-        failed = true;
+        aclFailed = true;
       }
-      const next = nextCollaboratorGrantsAfterLoad({
-        previous: lastSuccessRef.current,
-        data: assembled,
-        error: failed,
-      });
       if (!isActive()) return;
-      setLoadError(next.loadError);
-      if (next.loadError === null) {
+      if (aclFailed) {
+        // ACL 主失败路径与 #406 一致：保留上次成功快照 + 错误 + 重试
+        const next = nextCollaboratorGrantsAfterLoad({
+          previous: lastSuccessRef.current,
+          data: null,
+          error: true,
+        });
+        setLoadError(next.loadError);
+      } else {
+        const next = nextCollaboratorWorkspaceNamesAfterLoad({
+          grantRows: aclRows,
+          nameById,
+          error: wsError,
+        });
+        // 名称失败也保留授权列表（缺名回退「协作空间」）并更新成功快照：ACL 已成功
+        setLoadError(next.loadError);
         lastSuccessRef.current = next.rows;
         setRows(next.rows);
       }
