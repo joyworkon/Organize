@@ -24,5 +24,11 @@
 - `corepack pnpm -C apps/web lint` → exit 0（No ESLint warnings or errors）
 - `corepack pnpm -C apps/web exec vitest run` → **2016 passed / 2 skipped**（基线 2010 passed / 2 skipped，+6）
 
-## 步骤 5：提交 / PR / CI
-（进行中）
+## 步骤 5：提交 / PR / CI ✅
+- 提交 `c5651bd`（4 文件：tag-counts.ts / tag-counts.test.ts / memos-view.tsx / 本 PROGRESS.md；其它 docs/handoff/* 保持未跟踪）→ push → **PR #398**。
+- CI 五项全绿：verify 2m54s / db-test 2m25s / sw-e2e 3m11s / e2e-test 8m39s / collab-e2e 10m32s（一次通过，无重推）。
+- `gh pr merge 398 --squash --delete-branch` → 合并提交 **`c42b6e6`**；本地切回 master 并 pull（fast-forward `76dee59..c42b6e6`），本地与远程特性分支已删。
+
+## 任务完成 ✅
+- PR #398 已 squash 合并进 master（`c42b6e6`），本地 master 已同步。
+- 完成定义逐项核对：标签聚合失败不再整条消失（本地计数 + 提示行）；本地兜底基于当前 memos（useMemo）；深链补取失败有 destructive toast；新增纯函数 + 6 用例；未改 API / 主列表逻辑 / e2e / globals.css；tsc / lint / vitest（2016 passed / 2 skipped）/ CI 五项全绿。
