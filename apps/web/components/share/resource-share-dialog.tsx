@@ -39,6 +39,10 @@ import {
   nextTransferCandidatesAfterLoad,
   type TransferCandidate,
 } from "@/lib/share/transfer-candidates-load";
+import {
+  nextCollaboratorGrantsAfterLoad,
+  type CollaboratorGrantRow,
+} from "@/lib/share/collaborator-grants-load";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { ShareResourceType } from "@organize/shared";
 
@@ -584,12 +588,21 @@ function CollaboratorGrants({
   resourceId: string;
 }) {
   const supabase = useMemo(() => createClient(), []);
-  const [rows, setRows] = useState<Array<{ wsName: string; role: string }>>([]);
+  const [rows, setRows] = useState<CollaboratorGrantRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 上次成功的授权快照：重试失败时作为 previous 保留，不把失败伪装成「这篇内容通过协作空间与你共享」
+  const lastSuccessRef = useRef<CollaboratorGrantRow[]>([]);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
+  // 可重入加载：signal.active 为 false 时丢弃过期结果（resource 切换 / 卸载）
+  const loadGrants = useCallback(
+    async (signal?: { active: boolean }) => {
+      const isActive = () => !signal || signal.active;
+      setReloading(true);
+      // 流水线成功时组装好的授权行；failed = 任一查询 throw，走纯函数失败分支
+      let assembled: CollaboratorGrantRow[] | null = null;
+      let failed = false;
       try {
         const { data: grantRows, error } = await supabase
           .from("resource_acl")
@@ -603,23 +616,37 @@ function CollaboratorGrants({
           const { data: wsRows } = await supabase.from("workspaces").select("id, name").in("id", wsIds);
           for (const ws of wsRows || []) names.set(ws.id, ws.name);
         }
-        if (!active) return;
-        setRows(
-          (grantRows || []).map((row) => ({
-            wsName: names.get(row.workspace_id) || "协作空间",
-            role: row.access_role,
-          }))
-        );
+        assembled = (grantRows || []).map((row) => ({
+          wsName: names.get(row.workspace_id) || "协作空间",
+          role: row.access_role,
+        }));
       } catch {
-        if (active) setRows([]);
-      } finally {
-        if (active) setLoading(false);
+        failed = true;
       }
-    })();
+      const next = nextCollaboratorGrantsAfterLoad({
+        previous: lastSuccessRef.current,
+        data: assembled,
+        error: failed,
+      });
+      if (!isActive()) return;
+      setLoadError(next.loadError);
+      if (next.loadError === null) {
+        lastSuccessRef.current = next.rows;
+        setRows(next.rows);
+      }
+      setReloading(false);
+      setLoading(false);
+    },
+    [resourceType, resourceId, supabase]
+  );
+
+  useEffect(() => {
+    const signal = { active: true };
+    void loadGrants(signal);
     return () => {
-      active = false;
+      signal.active = false;
     };
-  }, [resourceType, resourceId, supabase]);
+  }, [loadGrants]);
 
   if (loading) {
     return (
@@ -628,18 +655,38 @@ function CollaboratorGrants({
       </div>
     );
   }
+  // 加载失败行（有/无旧快照都显示；保留旧列表时出现在列表下方）
+  const retryRow = loadError ? (
+    <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+      {loadError}
+      <button
+        type="button"
+        onClick={() => void loadGrants()}
+        disabled={reloading}
+        className="text-primary hover:underline disabled:opacity-50"
+      >
+        {reloading ? "重试中…" : "重试"}
+      </button>
+    </p>
+  ) : null;
+  if (loadError && rows.length === 0) {
+    return retryRow;
+  }
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">这篇内容通过协作空间与你共享。</p>;
   }
   return (
-    <ul className="space-y-1.5">
-      {rows.map((row, index) => (
-        <li key={index} className="flex items-center justify-between rounded-md border px-3 py-2">
-          <span className="truncate text-sm">{row.wsName}</span>
-          <span className="text-xs text-muted-foreground">{collabRoleLabel(row.role as CollabRole)}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-2">
+      <ul className="space-y-1.5">
+        {rows.map((row, index) => (
+          <li key={index} className="flex items-center justify-between rounded-md border px-3 py-2">
+            <span className="truncate text-sm">{row.wsName}</span>
+            <span className="text-xs text-muted-foreground">{collabRoleLabel(row.role as CollabRole)}</span>
+          </li>
+        ))}
+      </ul>
+      {retryRow}
+    </div>
   );
 }
 
