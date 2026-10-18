@@ -1,0 +1,7 @@
+# PROGRESS
+
+- 2026-10-18 约 12:10 EDT（2026-10-19 00:10 Asia/Taipei）：规划方（五狗）写好 TASK.md / PROMPT.md，派给 ZCode（GLM-5.3）。基线 master `d13ac15`（#412 favorite-button-check-load-honesty 已合并）。本任务：速记「转为笔记」关联状态读取失败不再伪装成「未转换」/把已删除笔记显示成「打开笔记」。
+- 2026-10-18：ZCode 开工。`git pull origin master` 已是最新（`d13ac15`），建分支 `fix/memo-conversions-load-honesty`。
+- 2026-10-18：核对背景 1–3，均属实（`apps/web/components/library/memos-view.tsx` 基线 142–172 行）：① `memo_notes` 查询只解构 `{ data: links }`，失败时 links 为 null → 构造空 Map → `setConversions` 清空已有关联，已转换速记显示成「转为笔记」；② `notes` 查询同样只解构 data，失败时 notesById 为空 → `noteDeleted` 全为 false，已删笔记显示成可点的「打开笔记」；③ 两处失败无任何 UI 提示，`catch` 只 console.error。开始实现。
+- 2026-10-18：实现完成。新建 `apps/web/lib/memos/conversions.ts`（`MemoConversion` 类型、`MEMO_CONVERSIONS_ERROR_HINT` 常量、`buildMemoConversions`、`resolveMemoConversionsLoad`）+ `conversions.test.ts`（11 个用例：正常构造含已删除笔记、缺 note 的 link、空 links、null title、双成功重建、空且 ok、linksError/notesError 返回 previous（同一引用）、失败无 previous、undefined error 视同无错、常量文案）。改 `memos-view.tsx`：`loadConversions` 两次查询都解构 `{ data, error }`；links 有 error 不再发 notes 查询；结果交 `resolveMemoConversionsLoad`（previous 用 `lastConversionsRef` 保存，不加进依赖）；失败保留上次结果 + `setConversionsError(true)`，catch 同样置错不清空；`conversionsError && memos.length > 0` 时在「刷新失败」提示框下方显示 `MEMO_CONVERSIONS_ERROR_HINT` + 重试按钮（沿用同款 destructive 小框样式）。转笔记 RPC、主列表、标签条/深链、渲染三态逻辑均未动。
+- 2026-10-18：本地验证：`tsc --noEmit` 退出码 0；`pnpm lint` 无警告无错误（退出码 0）；`vitest run` 全量 **2105 passed / 2 skipped**（278 文件；基线 2094+2，本任务 +11）。未跑 e2e（按任务要求）。
