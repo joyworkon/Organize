@@ -45,6 +45,8 @@ import {
   nextReadingItemsAfterLoad,
   nextReadingItemsAfterTagScope,
 } from "@/lib/reading/list-load";
+import { nextReadingStatsAfterLoad } from "@/lib/reading/stats-load";
+import type { ReadingStats } from "@/lib/reading/stats-load";
 
 type FilterStatus = "all" | ReadingStatus;
 type SmartSortOption = "smart" | "newest" | "oldest" | "reading" | "progress";
@@ -184,7 +186,10 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
     } catch {}
   }, []);
 
-  const [stats, setStats] = useState({ total: 0, unread: 0, reading: 0, read: 0 });
+  // null = 从未成功加载过（分段计数显示「—」而不是假 0）；曾成功后失败保留上次数字
+  const [stats, setStats] = useState<ReadingStats | null>(null);
+  /** 计数查询失败：非空时计数不可信，给 title + 一行小字提示 */
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   const selection = useSelection<ReadingItem>();
   const { selectedIds, isSelectMode, toggle, selectAll, clear, isSelected } = selection;
@@ -196,6 +201,9 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
   /** 上次成功快照的引用读取：fetchItems 闭包里取 previous，避免把 items 加进 deps 造成重载循环 */
   const itemsRef = useRef<ReadingItem[]>([]);
   itemsRef.current = items;
+  /** 同上：fetchStats 闭包里取 previous 计数，避免把 stats 加进 deps 造成重复拉取 */
+  const statsRef = useRef<ReadingStats | null>(null);
+  statsRef.current = stats;
 
   const reqIdRef = useRef(0);
 
@@ -316,17 +324,18 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("reading_items")
       .select("reading_status")
       .eq("user_id", user.id);
-    const all = data || [];
-    setStats({
-      total: all.length,
-      unread: all.filter((i) => i.reading_status === "unread").length,
-      reading: all.filter((i) => i.reading_status === "reading").length,
-      read: all.filter((i) => i.reading_status === "read").length,
+    // 查询失败不得把计数伪装成全 0：从未成功显示「—」，曾成功保留上次数字
+    const plan = nextReadingStatsAfterLoad({
+      previous: statsRef.current,
+      data,
+      error,
     });
+    setStats(plan.stats);
+    setStatsError(plan.statsError);
   }, [supabase]);
 
   useEffect(() => {
@@ -623,14 +632,19 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
               )}
             >
               {tab.label}
-              <span className="ml-1.5 text-xs text-muted-foreground">
-                {tab.value === "all"
-                  ? stats.total
-                  : tab.value === "unread"
-                    ? stats.unread
-                    : tab.value === "reading"
-                      ? stats.reading
-                      : stats.read}
+              <span
+                className="ml-1.5 text-xs text-muted-foreground"
+                title={statsError ?? undefined}
+              >
+                {stats === null
+                  ? "—"
+                  : tab.value === "all"
+                    ? stats.total
+                    : tab.value === "unread"
+                      ? stats.unread
+                      : tab.value === "reading"
+                        ? stats.reading
+                        : stats.read}
               </span>
             </button>
           ))}
@@ -674,6 +688,13 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
           </Button>
         </div>
       </div>
+
+      {/* 计数查询失败：不伪装成 0，一行小字说明（其它操作触发的 fetchStats 会自然重试） */}
+      {statsError && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {statsError}
+        </p>
+      )}
 
       {isSelectMode && (
         <BatchActionsBar
