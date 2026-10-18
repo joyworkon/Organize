@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { TaskMonthView } from "@/components/tasks/task-month-view";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
+import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad } from "@/lib/tasks/countdown";
+import { isOnline } from "@/lib/offline/network";
 import { toast } from "@/hooks/use-toast";
 import type { CountdownDay, TaskRecurrenceRule } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
@@ -178,6 +180,8 @@ function CalendarPageInner() {
   const searchParams = useSearchParams();
   const { tasks, loading, refetch, supabase } = useTaskWorkspaceData();
   const [countdowns, setCountdowns] = useState<CountdownDay[]>([]);
+  const countdownsRef = useRef<CountdownDay[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [addDate, setAddDate] = useState<Date | null>(null);
   const scope = (searchParams.get("scope") as SidebarSelection["scope"]) || "all";
   const selection = useMemo<SidebarSelection>(
@@ -190,14 +194,28 @@ function CalendarPageInner() {
   );
 
   const loadCountdowns = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data, error } = await supabase
-      .from("countdown_days")
-      .select("*")
-      .eq("user_id", user.id)
-      .is("deleted_at", null);
-    if (!error) setCountdowns((data || []) as CountdownDay[]);
+    let data: readonly CountdownDay[] | null | undefined;
+    let error: unknown = null;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const result = await supabase
+        .from("countdown_days")
+        .select("*")
+        .eq("user_id", user.id)
+        .is("deleted_at", null);
+      data = result.data as CountdownDay[] | null;
+      error = result.error;
+    } catch (caughtError) {
+      error = caughtError;
+    }
+    const plan = nextCountdownDaysAfterLoad({ previous: countdownsRef.current, data, error });
+    countdownsRef.current = plan.days;
+    setCountdowns(plan.days);
+    setLoadError(plan.loadError);
+    if (plan.loadError && isOnline()) {
+      toast({ title: "倒数日加载失败", description: plan.loadError, variant: "destructive" });
+    }
   }, [supabase]);
 
   useEffect(() => {
@@ -259,6 +277,14 @@ function CalendarPageInner() {
       {loading && (
         <div className="absolute inset-0 z-20 grid place-items-center rounded-lg bg-background/60">
           <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      )}
+      {loadError && (
+        <div className="mx-2 mt-2 flex shrink-0 items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2" role="alert">
+          <p className="min-w-0 text-xs text-destructive">{COUNTDOWN_LOAD_ERROR_MESSAGE}</p>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void loadCountdowns()}>
+            重试
+          </Button>
         </div>
       )}
       <TaskMonthView
