@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Paperclip } from "@/components/icons";
 import type { TaskAttachment, TaskWithTags } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { isOnline } from "@/lib/offline/network";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -14,7 +15,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { TaskAttachmentList } from "@/components/tasks/task-attachment-list";
+import {
+  TASK_ATTACHMENTS_LIST_LOAD_ERROR_MESSAGE,
+  nextAttachmentsAfterLoad,
+} from "@/lib/tasks/attachments-list-load";
 
 interface TaskAttachmentsDialogProps {
   tasks: TaskWithTags[];
@@ -32,25 +38,44 @@ export function TaskAttachmentsDialog({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  /** 附件列表加载失败（在线时）：没有已加载的列表时显示错误 + 重试，而不是「暂无任务附件」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 上次成功快照：刷新失败时原样保留（load 的闭包读不到最新 state） */
+  const attachmentsRef = useRef<TaskAttachment[]>([]);
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    const load = async () => {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("task_attachments")
-        .select("*")
-        .order("created_at", { ascending: false });
-      setLoading(false);
-      if (error) {
-        toast({ title: "读取附件失败", variant: "destructive" });
-        return;
-      }
-      setAttachments((data || []) as TaskAttachment[]);
-    };
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("task_attachments")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setLoading(false);
+    // 失败保留上次成功快照 + 错误态与重试，不得伪装成「暂无任务附件」
+    const plan = nextAttachmentsAfterLoad({
+      previous: attachmentsRef.current,
+      data: data ?? null,
+      error,
+    });
+    attachmentsRef.current = plan.attachments;
+    setAttachments(plan.attachments);
+    setLoadError(plan.loadError);
+    // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+    if (plan.loadError && isOnline()) {
+      toast({ title: TASK_ATTACHMENTS_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+    }
+  };
+
+  const retryLoad = () => {
+    setLoadError(null);
     void load();
-  }, [open, supabase]);
+  };
+
+  useEffect(() => {
+    if (open) void load();
+    // 每次打开时刷新；supabase 客户端按 useMemo 稳定。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const taskNames = useMemo(
     () => Object.fromEntries(tasks.map((task) => [task.id, task.title])),
@@ -94,19 +119,41 @@ export function TaskAttachmentsDialog({
           <div className="grid min-h-40 place-items-center text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
+        ) : loadError && attachments.length === 0 ? (
+          /* 加载失败不得伪装成「暂无任务附件」：无快照给错误空态 + 重试 */
+          <div className="grid place-items-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground" role="alert">
+            <Paperclip className="h-7 w-7" />
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Button size="sm" variant="outline" onClick={retryLoad}>重试</Button>
+          </div>
         ) : (
-          <TaskAttachmentList
-            attachments={filtered}
-            emptyText={query ? "没有匹配的附件" : "暂无任务附件"}
-            taskNames={taskNames}
-            onOpenTask={(taskId) => {
-              setOpen(false);
-              onOpenTask(taskId);
-            }}
-            onDeleted={(attachmentId) =>
-              setAttachments((items) => items.filter((item) => item.id !== attachmentId))
-            }
-          />
+          <>
+            {/* 刷新失败但已有列表：保留列表 + 持久行内提示 + 就地重试（toast 会消失） */}
+            {loadError && (
+              <div
+                className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+                role="alert"
+              >
+                <span className="text-xs text-destructive">{loadError}</span>
+                <Button size="sm" variant="outline" onClick={retryLoad}>重试</Button>
+              </div>
+            )}
+            <TaskAttachmentList
+              attachments={filtered}
+              emptyText={query ? "没有匹配的附件" : "暂无任务附件"}
+              taskNames={taskNames}
+              onOpenTask={(taskId) => {
+                setOpen(false);
+                onOpenTask(taskId);
+              }}
+              onDeleted={(attachmentId) => {
+                setAttachments((items) => items.filter((item) => item.id !== attachmentId));
+                attachmentsRef.current = attachmentsRef.current.filter(
+                  (item) => item.id !== attachmentId
+                );
+              }}
+            />
+          </>
         )}
       </DialogContent>
     </Dialog>
