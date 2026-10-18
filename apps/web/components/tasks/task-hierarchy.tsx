@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronRight, CornerUpLeft, Plus } from "@/components/icons";
 import type { Task } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
@@ -13,6 +14,10 @@ import { isImeComposing } from "@/lib/input/submit-guard";
 import { enqueueTaskOp, makeTaskCreateOp, makeTaskUpdateOp } from "@/lib/offline/task-queue";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { requestNextRecurringTask } from "@/lib/tasks/recurring";
+import {
+  TASK_HIERARCHY_LIST_LOAD_ERROR_MESSAGE,
+  nextHierarchyAfterLoad,
+} from "@/lib/tasks/hierarchy-list-load";
 
 interface TaskHierarchyProps {
   task: Task;
@@ -26,6 +31,15 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
   const [children, setChildren] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
+  /** 首屏/切任务加载中：空白闪现不该被当成「没有子任务」 */
+  const [loading, setLoading] = useState(true);
+  /** 层级查询失败（在线时）：没有已加载内容时显示错误 + 重试，而不是空白 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 上次成功快照：刷新失败时原样保留（load 的闭包读不到最新 state） */
+  const childrenRef = useRef<Task[]>([]);
+  const parentRef = useRef<Task | null>(null);
+  /** 切任务后仍在途的旧响应不得写入新任务的面板 */
+  const loadSeqRef = useRef(0);
 
   const openTask = (taskId: string) => {
     if (onOpenTask) onOpenTask(taskId);
@@ -33,6 +47,8 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
   };
 
   const loadHierarchy = async () => {
+    const seq = ++loadSeqRef.current;
+    setLoading(true);
     const [childrenResult, parentResult] = await Promise.all([
       supabase
         .from("tasks")
@@ -42,18 +58,61 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
         .order("sort_order", { ascending: true }),
       task.parent_task_id
         ? supabase.from("tasks").select("*").eq("id", task.parent_task_id).maybeSingle()
-        : Promise.resolve({ data: null }),
+        : Promise.resolve({ data: null, error: null }),
     ]);
-    setChildren((childrenResult.data || []) as Task[]);
-    setParent((parentResult.data as Task | null) || null);
+    if (seq !== loadSeqRef.current) return;
+    setLoading(false);
+    // 失败保留上次成功快照 + 错误态与重试，不得伪装成「没有子任务 / 没有上级」；
+    // 无 parent_task_id 时父查询跳过（合法无上级），传 null 与失败区分开
+    const plan = nextHierarchyAfterLoad({
+      previousChildren: childrenRef.current,
+      previousParent: parentRef.current,
+      children: {
+        data: (childrenResult.data as Task[] | null) ?? null,
+        error: childrenResult.error ?? null,
+      },
+      parent: task.parent_task_id
+        ? {
+            data: (parentResult.data as Task | null) ?? null,
+            error: parentResult.error ?? null,
+          }
+        : null,
+    });
+    childrenRef.current = plan.children;
+    parentRef.current = plan.parent;
+    setChildren(plan.children);
+    setParent(plan.parent);
+    setLoadError(plan.loadError);
+    // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+    if (plan.loadError && isOnline()) {
+      toast({ title: TASK_HIERARCHY_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+    }
+  };
+
+  const retryLoad = () => {
+    setLoadError(null);
+    void loadHierarchy();
   };
 
   useEffect(() => {
+    // 接「失败保留快照」后必须先清空旧快照，否则会把上一任务的层级留给新任务
+    childrenRef.current = [];
+    parentRef.current = null;
+    setChildren([]);
+    setParent(null);
+    setLoadError(null);
     setTitle("");
     void loadHierarchy();
     // task.id 是层级查询键，客户端实例保持稳定。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id, task.parent_task_id]);
+
+  /** 乐观变更同步 ref：刷新失败保留快照时不「丢改动」或「复活」旧条目 */
+  const updateChildren = (updater: (current: Task[]) => Task[]) => {
+    const next = updater(childrenRef.current);
+    childrenRef.current = next;
+    setChildren(next);
+  };
 
   const addSubtask = async () => {
     const nextTitle = title.trim();
@@ -92,11 +151,11 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       created_at: now,
       updated_at: now,
     };
-    setChildren((current) => [...current, optimistic]);
+    updateChildren((current) => [...current, optimistic]);
     // F02：只清空被提交的版本（请求期间继续输入的内容保留）
     setTitle((current) => (current === nextTitle ? "" : current));
     const rollback = () => {
-      setChildren((current) => current.filter((item) => item.id !== insertPayload.id));
+      updateChildren((current) => current.filter((item) => item.id !== insertPayload.id));
       setTitle(nextTitle);
     };
     const offlineCreate = () => {
@@ -125,7 +184,7 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       return;
     }
     // 用服务端返回行替换乐观条目（补全生成列与默认值）
-    setChildren((current) =>
+    updateChildren((current) =>
       current.map((item) => item.id === insertPayload.id ? data as Task : item)
     );
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
@@ -138,7 +197,7 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
       completed_at: done ? null : new Date().toISOString(),
     } satisfies Partial<Task>;
     // X1：先乐观更新；离线（或网络异常）直接入队，联网后回放
-    setChildren((current) =>
+    updateChildren((current) =>
       current.map((item) => item.id === child.id ? { ...item, ...patch } : item)
     );
     const offlineUpdate = () => {
@@ -157,7 +216,7 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
         offlineUpdate();
         return;
       }
-      setChildren((current) =>
+      updateChildren((current) =>
         current.map((item) => item.id === child.id ? { ...item, status: child.status, completed_at: child.completed_at } : item)
       );
       toast({
@@ -205,41 +264,70 @@ export function TaskHierarchy({ task, onOpenTask }: TaskHierarchyProps) {
         )}
       </div>
 
-      <div className="space-y-1">
-        {children.map((child) => (
-          <div
-            key={child.id}
-            className="group flex items-center gap-3 rounded-md px-1 py-2 hover:bg-muted/50"
-          >
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={child.status === "done"}
-              aria-label={`完成任务：${child.title}`}
-              onClick={() => void toggleSubtask(child)}
-              className={cn(
-                "grid h-5 w-5 shrink-0 place-items-center rounded-md border",
-                child.status === "done"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-muted-foreground/30"
-              )}
+      {loading && children.length === 0 && !parent ? (
+        <p className="px-1 py-2 text-sm text-muted-foreground">加载中…</p>
+      ) : loadError && children.length === 0 && !parent ? (
+        /* 加载失败不得伪装成「没有子任务」：无快照给错误空态 + 重试 */
+        <div
+          className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2"
+          role="alert"
+        >
+          <span className="text-sm text-destructive">{loadError}</span>
+          <Button type="button" size="sm" variant="outline" onClick={retryLoad}>
+            重试
+          </Button>
+        </div>
+      ) : (
+        <>
+          {/* 刷新失败但已有上级/子任务：保留内容 + 持久行内提示 + 就地重试（toast 会消失） */}
+          {loadError && (
+            <div
+              className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+              role="alert"
             >
-              {child.status === "done" && <Check className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => openTask(child.id)}
-              className={cn(
-                "min-w-0 flex-1 truncate text-left text-sm",
-                child.status === "done" && "text-muted-foreground line-through"
-              )}
-            >
-              {child.title}
-            </button>
-            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+              <span className="text-xs text-destructive">{loadError}</span>
+              <Button type="button" size="sm" variant="outline" onClick={retryLoad}>
+                重试
+              </Button>
+            </div>
+          )}
+          <div className="space-y-1">
+            {children.map((child) => (
+              <div
+                key={child.id}
+                className="group flex items-center gap-3 rounded-md px-1 py-2 hover:bg-muted/50"
+              >
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={child.status === "done"}
+                  aria-label={`完成任务：${child.title}`}
+                  onClick={() => void toggleSubtask(child)}
+                  className={cn(
+                    "grid h-5 w-5 shrink-0 place-items-center rounded-md border",
+                    child.status === "done"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-muted-foreground/30"
+                  )}
+                >
+                  {child.status === "done" && <Check className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openTask(child.id)}
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-left text-sm",
+                    child.status === "done" && "text-muted-foreground line-through"
+                  )}
+                >
+                  {child.title}
+                </button>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       <div className="flex items-center gap-2 border-t pt-3">
         <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
