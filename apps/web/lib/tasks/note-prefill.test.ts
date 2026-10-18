@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildTaskNoteContent } from "./note-prefill";
+import {
+  buildTaskNoteContent,
+  resolveTaskNoteChecklistLoad,
+  TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE,
+} from "./note-prefill";
 
 describe("buildTaskNoteContent", () => {
   it("无描述无子任务时返回默认空文档", () => {
@@ -44,5 +48,40 @@ describe("buildTaskNoteContent", () => {
       { content: "步骤一", is_completed: false },
     ]);
     expect(doc.content.map((node) => node.type)).toEqual(["paragraph", "taskList"]);
+  });
+});
+
+describe("resolveTaskNoteChecklistLoad", () => {
+  it("成功带行时原样透传 rows", () => {
+    const rows = [
+      { content: "买牛奶", is_completed: true },
+      { content: "买面包", is_completed: false },
+    ];
+    expect(resolveTaskNoteChecklistLoad({ data: rows, error: null })).toEqual({ ok: true, rows });
+  });
+
+  it("成功空数组仍 ok：任务本来就没有子任务时照常建便签", () => {
+    expect(resolveTaskNoteChecklistLoad({ data: [], error: null })).toEqual({ ok: true, rows: [] });
+  });
+
+  it("有 error 时失败，message 为常量", () => {
+    expect(resolveTaskNoteChecklistLoad({ data: null, error: new Error("network") })).toEqual({
+      ok: false,
+      message: TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE,
+    });
+  });
+
+  it("data 为 null 且无 error 也算失败", () => {
+    expect(resolveTaskNoteChecklistLoad({ data: null, error: null })).toEqual({
+      ok: false,
+      message: TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE,
+    });
+  });
+
+  it("data 为 undefined 且无 error 同样失败", () => {
+    expect(resolveTaskNoteChecklistLoad({ data: undefined, error: null })).toEqual({
+      ok: false,
+      message: TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE,
+    });
   });
 });
