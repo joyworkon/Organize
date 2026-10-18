@@ -48,6 +48,12 @@ import {
   nextLinkOptionsAfterLoad,
   type LinkOptionsLoadPlan,
 } from "@/lib/lessons/detail-link-options";
+import {
+  LESSON_LINKED_TITLES_LOAD_ERROR_MESSAGE,
+  nextLinkedTitlesAfterLoad,
+  type LinkedTitlesLoadPlan,
+  type LinkedTitlesSnapshot,
+} from "@/lib/lessons/detail-linked-titles";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 
 function nodeText(node: any): string {
@@ -86,6 +92,12 @@ function formatContentText(text: string) {
     </p>
   ));
 }
+
+/** 关联标题补取失败且无旧快照时芯片只有 id（stub）：文案不冒充「未命名 / 无标题」 */
+const LINKED_TITLE_UNAVAILABLE_LABEL = "标题未加载";
+/** lesson 行上该外键为空：不发查询，交给纯函数按「无 id」清空 */
+const EMPTY_LINKED_RESULT = { data: null, error: null };
+const EMPTY_LINKED_SNAPSHOT: LinkedTitlesSnapshot<Task, ReadingItem, Note> = { task: null, reading: null, note: null };
 
 export default function LessonEditorPage() {
   const router = useRouter();
@@ -142,6 +154,29 @@ export default function LessonEditorPage() {
     }
   }, []);
 
+  /** 已关联任务/阅读/笔记三路标题补取任一失败：不伪装成「没有关联内容」 */
+  const [linkedTitlesLoadError, setLinkedTitlesLoadError] = useState<string | null>(null);
+  /** 上次完整成功的关联标题快照：失败的那一路保留旧芯片，直到重试成功；切 lessonId 时清空 */
+  const lastLinkedTitlesRef = useRef<LinkedTitlesSnapshot<Task, ReadingItem, Note>>(EMPTY_LINKED_SNAPSHOT);
+
+  useEffect(() => {
+    lastLinkedTitlesRef.current = EMPTY_LINKED_SNAPSHOT;
+  }, [lessonId]);
+
+  const applyLinkedTitles = useCallback((plan: LinkedTitlesLoadPlan<Task, ReadingItem, Note>) => {
+    setLinkedTask(plan.linkedTask);
+    setLinkedReading(plan.linkedReading);
+    setLinkedNote(plan.linkedNote);
+    setLinkedTitlesLoadError(plan.loadError);
+    if (!plan.loadError) {
+      lastLinkedTitlesRef.current = {
+        task: plan.linkedTask,
+        reading: plan.linkedReading,
+        note: plan.linkedNote,
+      };
+    }
+  }, []);
+
   const fetchLesson = useCallback(async () => {
     if (isNew) {
       setMissing(false);
@@ -177,6 +212,7 @@ export default function LessonEditorPage() {
 
       if (lessonError || !data) {
         setMissing(true);
+        applyLinkedTitles({ linkedTask: null, linkedReading: null, linkedNote: null, loadError: null });
       } else {
         setTitle(data.title || "");
         setContentText(nodeText(data.content));
@@ -185,18 +221,27 @@ export default function LessonEditorPage() {
         setLinkReadingId(data.reading_item_id || "");
         setLinkNoteId(data.note_id || "");
 
-        if (data.task_id) {
-          const { data: taskData } = await supabase.from("tasks").select("id, title").eq("id", data.task_id).single();
-          setLinkedTask((taskData as Task) || null);
-        }
-        if (data.reading_item_id) {
-          const { data: readingData } = await supabase.from("reading_items").select("id, title").eq("id", data.reading_item_id).single();
-          setLinkedReading((readingData as ReadingItem) || null);
-        }
-        if (data.note_id) {
-          const { data: noteData } = await supabase.from("notes").select("id, title").eq("id", data.note_id).single();
-          setLinkedNote((noteData as Note) || null);
-        }
+        const taskId: string | null = data.task_id || null;
+        const readingId: string | null = data.reading_item_id || null;
+        const noteId: string | null = data.note_id || null;
+        const [taskResult, readingResult, noteResult] = await Promise.all([
+          taskId
+            ? supabase.from("tasks").select("id, title").eq("id", taskId).single()
+            : Promise.resolve(EMPTY_LINKED_RESULT),
+          readingId
+            ? supabase.from("reading_items").select("id, title, url").eq("id", readingId).single()
+            : Promise.resolve(EMPTY_LINKED_RESULT),
+          noteId
+            ? supabase.from("notes").select("id, title").eq("id", noteId).single()
+            : Promise.resolve(EMPTY_LINKED_RESULT),
+        ]);
+        applyLinkedTitles(nextLinkedTitlesAfterLoad({
+          ids: { taskId, readingId, noteId },
+          previous: lastLinkedTitlesRef.current,
+          task: { data: (taskResult.data ?? null) as Task | null, error: taskResult.error ?? null },
+          reading: { data: (readingResult.data ?? null) as ReadingItem | null, error: readingResult.error ?? null },
+          note: { data: (noteResult.data ?? null) as Note | null, error: noteResult.error ?? null },
+        }));
 
         const { data: tagLinks, error: tagLinksError } = await supabase.from("lesson_tags").select("tag_id").eq("lesson_id", lessonId);
         const tagsPlan = resolveLessonTagsAfterLoad({
@@ -212,7 +257,7 @@ export default function LessonEditorPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, lessonId, isNew, applyLinkOptions]);
+  }, [supabase, lessonId, isNew, applyLinkOptions, applyLinkedTitles]);
 
   useEffect(() => {
     fetchLesson();
@@ -647,29 +692,38 @@ export default function LessonEditorPage() {
               <p className="text-muted-foreground italic">（无内容）</p>
             )}
 
-            {(linkedTask || linkedReading || linkedNote) && (
+            {(linkedTask || linkedReading || linkedNote || linkedTitlesLoadError) && (
               <div className="border-t pt-4 space-y-2">
                 <div className="text-xs text-muted-foreground font-medium">关联内容</div>
                 <div className="flex flex-wrap gap-2">
                   {linkedTask && (
                     <Link href={`/tasks`} className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md bg-success/10 text-success hover:bg-success/20 transition-colors">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {linkedTask.title}
+                      {linkedTask.title || LINKED_TITLE_UNAVAILABLE_LABEL}
                     </Link>
                   )}
                   {linkedReading && (
                     <Link href={`/library/${linkedReading.id}`} className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
                       <BookOpen className="h-3.5 w-3.5" />
-                      {linkedReading.title || linkedReading.url}
+                      {linkedReading.title || linkedReading.url || LINKED_TITLE_UNAVAILABLE_LABEL}
                     </Link>
                   )}
                   {linkedNote && (
                     <Link href={`/notes/${linkedNote.id}`} className="inline-flex items-center gap-1 text-sm px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
                       <FileText className="h-3.5 w-3.5" />
-                      {linkedNote.title || "无标题笔记"}
+                      {/* notes.title 可空：失败态下空标题分不清真·无标题与 stub，不冒充「无标题笔记」 */}
+                      {linkedNote.title || (linkedTitlesLoadError ? LINKED_TITLE_UNAVAILABLE_LABEL : "无标题笔记")}
                     </Link>
                   )}
                 </div>
+                {linkedTitlesLoadError && (
+                  <div className="flex flex-wrap items-center gap-2" role="alert">
+                    <span className="text-xs text-destructive">{LESSON_LINKED_TITLES_LOAD_ERROR_MESSAGE}</span>
+                    <Button variant="outline" size="sm" onClick={() => fetchLesson()}>
+                      重试
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
