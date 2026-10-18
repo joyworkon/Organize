@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { buildWorkspaceRows, type WorkspaceView } from "@/lib/collab/workspace";
+import {
+  nextSidebarPresenceAfterLoad,
+  SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT,
+  type PresenceLoadOutcome,
+} from "@/lib/layout/sidebar-collab-presence-load";
 
 /**
  * 协作空间管理页的数据源（P5 后续产品卡）。
@@ -93,28 +98,58 @@ export function useWorkspaces() {
  * 侧边栏「协作空间」条件入口用：只要知道「有没有 team 空间」就够了（limit 1）。
  * mock 后端恒为 false，入口自然隐藏——与「与我共享」入口同一约定。
  */
-export function useHasTeamWorkspaces(): boolean {
+export function useHasTeamWorkspaces(): {
+  has: boolean;
+  loadError: string | null;
+  refresh: () => void;
+} {
   const supabase = useMemo(() => createClient(), []);
-  const [hasTeam, setHasTeam] = useState(false);
+  const lastHasRef = useRef<boolean | null>(null);
+  const requestIdRef = useRef(0);
+  const [presence, setPresence] = useState<{
+    has: boolean;
+    loadError: string | null;
+  }>({ has: false, loadError: null });
 
-  useEffect(() => {
-    let active = true;
+  const refresh = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     void (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !active) return;
-      const { data } = await supabase
-        .from("workspaces")
-        .select("id")
-        .eq("kind", "team")
-        .limit(1);
-      if (active) setHasTeam((data || []).length > 0);
+      let outcome: PresenceLoadOutcome;
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+        if (authError) {
+          outcome = { ok: false, error: SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT };
+        } else if (!user) {
+          outcome = { ok: true, has: false };
+        } else {
+          const { data, error } = await supabase
+            .from("workspaces")
+            .select("id")
+            .eq("kind", "team")
+            .limit(1);
+          outcome = error
+            ? { ok: false, error: SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT }
+            : { ok: true, has: (data || []).length > 0 };
+        }
+      } catch {
+        outcome = { ok: false, error: SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT };
+      }
+      if (requestId !== requestIdRef.current) return;
+      const next = nextSidebarPresenceAfterLoad(lastHasRef.current, outcome);
+      if (outcome.ok) lastHasRef.current = outcome.has;
+      setPresence(next);
     })();
-    return () => {
-      active = false;
-    };
   }, [supabase]);
 
-  return hasTeam;
+  useEffect(() => {
+    refresh();
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [refresh]);
+
+  return { ...presence, refresh };
 }

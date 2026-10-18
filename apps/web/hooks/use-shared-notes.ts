@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
+import {
+  nextSidebarPresenceAfterLoad,
+  SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT,
+  type PresenceLoadOutcome,
+} from "@/lib/layout/sidebar-collab-presence-load";
 
 export interface SharedNoteItem {
   id: string;
@@ -115,29 +120,59 @@ export function useSharedNotes(limit = 100) {
  * 侧边栏条件入口用：只要知道「有没有」就够了，limit 1 的最轻查询。
  * mock 后端恒为 false（单账号没有共享行），入口自然隐藏。
  */
-export function useHasSharedNotes(): boolean {
+export function useHasSharedNotes(): {
+  has: boolean;
+  loadError: string | null;
+  refresh: () => void;
+} {
   const supabase = useMemo(() => createClient(), []);
-  const [hasShared, setHasShared] = useState(false);
+  const lastHasRef = useRef<boolean | null>(null);
+  const requestIdRef = useRef(0);
+  const [presence, setPresence] = useState<{
+    has: boolean;
+    loadError: string | null;
+  }>({ has: false, loadError: null });
 
-  useEffect(() => {
-    let active = true;
+  const refresh = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     void (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !active) return;
-      const { data } = await supabase
-        .from("notes")
-        .select("id")
-        .neq("user_id", user.id)
-        .is("deleted_at", null)
-        .limit(1);
-      if (active) setHasShared((data || []).length > 0);
+      let outcome: PresenceLoadOutcome;
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+        if (authError) {
+          outcome = { ok: false, error: SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT };
+        } else if (!user) {
+          outcome = { ok: true, has: false };
+        } else {
+          const { data, error } = await supabase
+            .from("notes")
+            .select("id")
+            .neq("user_id", user.id)
+            .is("deleted_at", null)
+            .limit(1);
+          outcome = error
+            ? { ok: false, error: SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT }
+            : { ok: true, has: (data || []).length > 0 };
+        }
+      } catch {
+        outcome = { ok: false, error: SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT };
+      }
+      if (requestId !== requestIdRef.current) return;
+      const next = nextSidebarPresenceAfterLoad(lastHasRef.current, outcome);
+      if (outcome.ok) lastHasRef.current = outcome.has;
+      setPresence(next);
     })();
-    return () => {
-      active = false;
-    };
   }, [supabase]);
 
-  return hasShared;
+  useEffect(() => {
+    refresh();
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [refresh]);
+
+  return { ...presence, refresh };
 }
