@@ -138,7 +138,15 @@ export function Sidebar() {
   const { tags: sidebarTags, loadError: sidebarTagsLoadError, refresh: refreshSidebarTags } =
     useAllTags();
   const supabase = useMemo(() => createClient(), []);
-  const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
+  const {
+    tasks,
+    lists,
+    loadError: tasksLoadError,
+    createList,
+    updateList,
+    deleteList,
+    refetch: refetchTasks,
+  } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
   const {
     has: hasSharedNotes,
@@ -588,17 +596,31 @@ const visibleNavItems = useMemo(() => {
                   </button>
                 </div>
                 {tasksExpanded && (
-                  <TaskSidebar
-                    lists={lists}
-                    tasks={tasks}
-                    selection={taskSelection}
-                    active={isTaskListContext}
-                    hideHeading
-                    onSelect={navigateToTasks}
-                    onCreateList={() => void createTaskList()}
-                    onRenameList={(list) => void renameTaskList(list)}
-                    onDeleteList={(list) => void deleteTaskList(list)}
-                  />
+                  <>
+                    {tasksLoadError && (
+                      <div className="flex items-center gap-2 px-3 py-1 text-xs text-destructive">
+                        <span role="alert" className="min-w-0 flex-1">{tasksLoadError}</span>
+                        <button
+                          type="button"
+                          onClick={() => void refetchTasks()}
+                          className="shrink-0 transition-colors hover:text-foreground"
+                        >
+                          重试
+                        </button>
+                      </div>
+                    )}
+                    <TaskSidebar
+                      lists={lists}
+                      tasks={tasks}
+                      selection={taskSelection}
+                      active={isTaskListContext}
+                      hideHeading
+                      onSelect={navigateToTasks}
+                      onCreateList={() => void createTaskList()}
+                      onRenameList={(list) => void renameTaskList(list)}
+                      onDeleteList={(list) => void deleteTaskList(list)}
+                    />
+                  </>
                 )}
               </div>
             );
