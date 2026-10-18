@@ -31,6 +31,11 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { mutateTrash } from "@/lib/trash/client";
 import { useHotkey, hasOpenDialog } from "@/lib/hooks/use-hotkey";
+import {
+  LESSONS_LIST_LOAD_ERROR_MESSAGE,
+  nextLessonsAfterLoad,
+} from "@/lib/lessons/list-load";
+import { isOnline } from "@/lib/offline/network";
 
 type TypeFilter = "all" | LessonType;
 
@@ -40,6 +45,10 @@ export function LessonsList() {
   const [allTags, setAllTags] = useState<TagWithCount[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 复盘列表加载失败（在线时）：没有已加载的列表时显示错误 + 重试，而不是「还没有复盘」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 上次成功快照：刷新失败时原样保留（fetchLessons 的 deps 里读不到 state） */
+  const lessonsRef = useRef<LessonWithTags[]>([]);
   const supabase = useMemo(() => createClient(), []);
 
   const [search, setSearch] = useState("");
@@ -52,19 +61,44 @@ export function LessonsList() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: lessonsData } = await supabase
+      const { data: lessonsData, error: lessonsError } = await supabase
         .from("lessons")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
+      // lessons 主查询失败：保留上次成功快照 + 错误态与重试，不得伪装成「还没有复盘」
+      if (lessonsError || lessonsData === null) {
+        const plan = nextLessonsAfterLoad({
+          previous: lessonsRef.current,
+          data: null,
+          error: lessonsError,
+        });
+        lessonsRef.current = plan.lessons;
+        setLessons(plan.lessons);
+        setLoadError(plan.loadError);
+        // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+        if (isOnline()) {
+          toast({ title: LESSONS_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+        }
+        return;
+      }
+
       const lessonsList = (lessonsData || []) as any[];
 
-      const [{ data: tagLinks }, { data: tagsData }, { data: lessonTagLinks }] = await Promise.all([
+      const [tagLinksRes, tagsRes, lessonTagLinksRes] = await Promise.all([
         supabase.from("lesson_tags").select("lesson_id, tag_id"),
         supabase.from("tags").select("id, name").eq("user_id", user.id).order("name"),
         supabase.from("lesson_tags").select("tag_id"),
       ]);
+
+      // 标签相关查询失败：不冲掉已成功的 lessons，tag 映射按空降级（主列表仍以 lessons 结果为准）
+      if ((tagLinksRes.error || tagsRes.error || lessonTagLinksRes.error) && isOnline()) {
+        toast({ title: "标签信息加载失败", variant: "destructive" });
+      }
+      const tagLinks = tagLinksRes.data || [];
+      const tagsData = tagsRes.data || [];
+      const lessonTagLinks = lessonTagLinksRes.data || [];
 
       const tagMap = new Map((tagsData || []).map((t) => [t.id, t as Tag]));
 
@@ -94,7 +128,9 @@ export function LessonsList() {
         tags: linksByLesson.get(l.id) || [],
       }));
 
+      lessonsRef.current = lessonsWithTags;
       setLessons(lessonsWithTags);
+      setLoadError(null);
     } finally {
       setLoading(false);
     }
@@ -102,6 +138,12 @@ export function LessonsList() {
 
   useEffect(() => {
     fetchLessons();
+  }, [fetchLessons]);
+
+  /** 首屏失败后的重试：清错后重新拉取（清掉后会短暂回到加载中） */
+  const retry = useCallback(() => {
+    setLoadError(null);
+    void fetchLessons();
   }, [fetchLessons]);
 
   const handleDelete = async (lessonId: string) => {
@@ -202,13 +244,39 @@ export function LessonsList() {
         />
       </div>
 
-      {loading ? (
+      {/* 刷新失败但已有列表：保留列表 + 持久行内提示 + 就地重试（toast 会消失） */}
+      {loadError && lessons.length > 0 && (
+        <div
+          className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+          role="alert"
+        >
+          <span className="text-xs text-destructive">{loadError}</span>
+          <Button size="sm" variant="outline" onClick={retry}>
+            重试
+          </Button>
+        </div>
+      )}
+
+      {/* 加载失败不得伪装成「还没有复盘」/「没有匹配的复盘」：
+          无快照给错误空态 + 重试；正在加载且无内容才显示骨架屏（刷新时保留旧列表不闪烁） */}
+      {loading && lessons.length === 0 && !loadError ? (
         <div className="grid gap-2 sm:gap-3" aria-busy="true" aria-label="复盘加载中">
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="h-[110px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : loadError && lessons.length === 0 ? (
+        <EmptyState
+          icon={Lightbulb}
+          title={loadError}
+          description="网络或服务暂时不可用，请重试"
+          action={
+            <Button variant="outline" onClick={retry}>
+              重试
+            </Button>
+          }
+        />
+      ) : filtered.length === 0 && !loadError ? (
         (() => {
           const hasFilter = search.trim() !== "" || typeFilter !== "all" || selectedTagIds.length > 0;
           return (
