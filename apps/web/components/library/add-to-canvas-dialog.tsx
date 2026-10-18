@@ -22,6 +22,11 @@ import {
   CANVAS_LIST_LOAD_ERROR_MESSAGE,
   nextCanvasItemsAfterLoad,
 } from "@/lib/canvas/list-load";
+import {
+  CANVAS_BOARDS_LOAD_ERROR_MESSAGE,
+  nextBoardIdAfterLoad,
+  nextBoardsAfterLoad,
+} from "@/lib/canvas/boards-load";
 import { isOnline } from "@/lib/offline/network";
 import { createBoardShape, CANVAS_SCHEMA_VERSION } from "@/lib/canvas/model";
 import { excerptSnapshot, sourceRefFromLibraryItem } from "@/lib/library/material-source";
@@ -64,6 +69,12 @@ export function AddToCanvasDialog({
   /** 重试计数：自增让下方 effect 重新 listCanvases */
   const [reloadCount, setReloadCount] = useState(0);
   const [boards, setBoards] = useState<BoardOption[]>([]);
+  /** 上次成功的页面快照，带所属 canvasId：换画布后旧画布的页面不得当作新画布的快照 */
+  const boardsRef = useRef<{ canvasId: string; boards: BoardOption[] }>({ canvasId: "", boards: [] });
+  /** 页面加载失败：与画布列表的 loadError 独立，两跳各自诚实；不得把失败伪装成「该画布没有页面」 */
+  const [boardsLoadError, setBoardsLoadError] = useState<string | null>(null);
+  /** 页面重试计数：自增让下方 effect 重新 getCanvas */
+  const [boardsReloadCount, setBoardsReloadCount] = useState(0);
   const [regions, setRegions] = useState<Array<{ id: string; name: string }>>([]);
   const [canvasId, setCanvasId] = useState<string>(NEW_CANVAS);
   const [boardId, setBoardId] = useState<string>("");
@@ -107,34 +118,52 @@ export function AddToCanvasDialog({
   // 选中现有画布 → 拉页面（区块数）
   useEffect(() => {
     if (!open || canvasId === NEW_CANVAS) {
+      boardsRef.current = { canvasId: "", boards: [] };
       setBoards([]);
       setBoardId("");
+      setBoardsLoadError(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       setBoardsLoading(true);
+      setBoardsLoadError(null);
       const res = await getCanvas(canvasId);
       if (cancelled) return;
-      if (res.ok) {
-        setBoards(
-          res.row.content.boards.map((b, i) => ({
-            id: b.id,
-            name: b.name || `页面 ${i + 1}`,
-            regionCount: b.regions.length,
-          })),
-        );
-        setBoardId(res.row.content.boards[0]?.id ?? "");
-      } else {
-        setBoards([]);
-        setBoardId("");
+      // 只有同一画布的上次成功结果才算快照；换画布时 previous 为空，失败就走「错误 + 重试」而非沿用旧画布页面
+      const previous = boardsRef.current.canvasId === canvasId ? boardsRef.current.boards : [];
+      // getCanvas 失败不得吞成空数组伪装成「该画布没有页面」，交给纯函数保留快照并产出错误文案
+      const plan = res.ok
+        ? nextBoardsAfterLoad({
+            previous,
+            ok: true,
+            boards: res.row.content.boards.map((b, i) => ({
+              id: b.id,
+              name: b.name || `页面 ${i + 1}`,
+              regionCount: b.regions.length,
+            })),
+          })
+        : nextBoardsAfterLoad({ previous, ok: false });
+      boardsRef.current = { canvasId, boards: plan.boards };
+      setBoards(plan.boards);
+      setBoardsLoadError(plan.loadError);
+      setBoardId((current) => nextBoardIdAfterLoad(plan.boards, current));
+      // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+      if (plan.loadError && isOnline()) {
+        toast({ title: CANVAS_BOARDS_LOAD_ERROR_MESSAGE, variant: "destructive" });
       }
       setBoardsLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, canvasId]);
+  }, [open, canvasId, boardsReloadCount]);
+
+  /** 页面加载失败后的重试：清错后重新拉取当前画布的 getCanvas */
+  const retryLoadBoards = () => {
+    setBoardsLoadError(null);
+    setBoardsReloadCount((count) => count + 1);
+  };
 
   // 选中页面 → 拉区块
   useEffect(() => {
@@ -286,22 +315,49 @@ export function AddToCanvasDialog({
             </label>
             {canvasId !== NEW_CANVAS && (
               <>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">页面</span>
-                  <select
-                    className="h-8 rounded-md border bg-background px-2 text-sm"
-                    aria-label="选择页面"
-                    value={boardId}
-                    disabled={boardsLoading}
-                    onChange={(e) => setBoardId(e.target.value)}
+                {boardsLoadError && boards.length === 0 ? (
+                  /* 页面加载失败且无快照：错误 + 重试，不得只渲染空下拉伪装成「该画布没有页面」 */
+                  <div
+                    className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+                    role="alert"
                   >
-                    {boards.map((b, i) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name || `页面 ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <span className="text-xs text-destructive">{boardsLoadError}</span>
+                    <Button size="sm" variant="outline" onClick={retryLoadBoards}>
+                      重试
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {/* 刷新失败但已有页面快照：保留下拉 + 持久行内提示 + 就地重试（toast 会消失） */}
+                    {boardsLoadError && (
+                      <div
+                        className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+                        role="alert"
+                      >
+                        <span className="text-xs text-destructive">{boardsLoadError}</span>
+                        <Button size="sm" variant="outline" onClick={retryLoadBoards}>
+                          重试
+                        </Button>
+                      </div>
+                    )}
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="text-muted-foreground">页面</span>
+                      <select
+                        className="h-8 rounded-md border bg-background px-2 text-sm"
+                        aria-label="选择页面"
+                        value={boardId}
+                        disabled={boardsLoading}
+                        onChange={(e) => setBoardId(e.target.value)}
+                      >
+                        {boards.map((b, i) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name || `页面 ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="text-muted-foreground">区块</span>
                   <select
