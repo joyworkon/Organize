@@ -22,6 +22,8 @@ interface HighlightsPanelProps {
   references: Record<string, HighlightReferenceState>;
   loadError?: string | null;
   onRetry?: () => void;
+  referencesLoadError?: string | null;
+  onRetryReferences?: () => void;
   onDelete: (id: string) => Promise<void>;
   onConvert: (id: string, targetType: "note" | "task") => Promise<void>;
   onOpenReference: (targetType: "note" | "task", id: string) => void;
@@ -39,6 +41,8 @@ export function HighlightsPanel({
   references,
   loadError,
   onRetry,
+  referencesLoadError,
+  onRetryReferences,
   onDelete,
   onConvert,
   onOpenReference,
@@ -113,7 +117,7 @@ export function HighlightsPanel({
     }
     return (
       <span className="inline-flex min-h-8 items-center rounded-md border border-dashed px-2 text-xs text-muted-foreground">
-        {state === "deleted" ? `${label}已在垃圾箱` : state === "missing" ? `${label}引用已失效` : "检查中"}
+        {state === "deleted" ? `${label}已在垃圾箱` : state === "missing" ? `${label}引用已失效` : referencesLoadError ? "引用状态未知" : "检查中"}
       </span>
     );
   };
@@ -130,6 +134,27 @@ export function HighlightsPanel({
           <button
             type="button"
             onClick={onRetry}
+            className="min-h-8 shrink-0 rounded-md border border-destructive/30 px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
+          >
+            重试
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderReferencesLoadError = () => {
+    if (!referencesLoadError) return null;
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-sm text-destructive"
+      >
+        <span className="min-w-0 flex-1">{referencesLoadError}</span>
+        {onRetryReferences && (
+          <button
+            type="button"
+            onClick={onRetryReferences}
             className="min-h-8 shrink-0 rounded-md border border-destructive/30 px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
           >
             重试
@@ -204,6 +229,7 @@ export function HighlightsPanel({
           </button>
         </div>
         <div className="overflow-y-auto h-[calc(100%-57px)] p-4">
+          {renderReferencesLoadError()}
           {highlights.length === 0 ? (
             loadError ? renderLoadError() : (
               <div className="text-center py-12 text-muted-foreground text-sm">
@@ -246,6 +272,7 @@ export function HighlightsPanel({
           </div>
         </div>
         <div className="p-4">
+          {renderReferencesLoadError()}
           {highlights.length === 0 ? (
             loadError ? renderLoadError() : (
               <div className="text-center py-8 text-muted-foreground text-sm">
