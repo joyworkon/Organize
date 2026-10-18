@@ -91,6 +91,7 @@ import {
   internalLinkKey,
   type InternalLinkStateRow,
 } from "@/lib/note-links";
+import { nextContentLinkStatesAfterLoad } from "@/lib/notes/content-link-states-load";
 
 // 页面级展示偏好按单篇笔记持久化（当前用 localStorage；接真实后端后可换成 notes 表的页面设置字段）。
 const fullWidthKey = (id: string) => `organize:note:${id}:fullWidth`;
@@ -248,6 +249,9 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     };
   }, [collabConfigured, collabUser, supabase]);
   const [contentLinkStates, setContentLinkStates] = useState<Record<string, InternalLinkStateRow>>({});
+  const contentLinkStatesRef = useRef(contentLinkStates);
+  const [contentLinkStatesLoadError, setContentLinkStatesLoadError] = useState<string | null>(null);
+  const [contentLinkStatesLoadAttempt, setContentLinkStatesLoadAttempt] = useState(0);
   // 轻量内联提示（拷贝链接/内容成功等），不依赖全局 Toast。
   const [toast, setToast] = useState("");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -572,7 +576,9 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     const noteIds = links.filter((link) => link.type === "note").map((link) => link.url);
     const readingIds = links.filter((link) => link.type === "reading").map((link) => link.url);
     if (noteIds.length === 0 && readingIds.length === 0) {
-      setContentLinkStates({});
+      contentLinkStatesRef.current = {};
+      setContentLinkStates(contentLinkStatesRef.current);
+      setContentLinkStatesLoadError(null);
       return () => {
         active = false;
       };
@@ -584,22 +590,31 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         p_reading_item_ids: readingIds,
       })
       .then(({ data, error }) => {
-        if (!active || error || !data) return;
-        setContentLinkStates(
-          (data as InternalLinkStateRow[]).reduce<Record<string, InternalLinkStateRow>>(
-            (states, row) => {
-              states[internalLinkKey(row.resource_type, row.resource_id)] = row;
-              return states;
-            },
-            {}
-          )
+        if (!active) return;
+        const plan = nextContentLinkStatesAfterLoad<InternalLinkStateRow>(
+          error || !data
+            ? { previous: contentLinkStatesRef.current, ok: false, error }
+            : {
+                previous: contentLinkStatesRef.current,
+                ok: true,
+                states: (data as InternalLinkStateRow[]).reduce<Record<string, InternalLinkStateRow>>(
+                  (states, row) => {
+                    states[internalLinkKey(row.resource_type, row.resource_id)] = row;
+                    return states;
+                  },
+                  {}
+                ),
+              }
         );
+        setContentLinkStates(plan.states);
+        setContentLinkStatesLoadError(plan.loadError);
+        if (plan.loadError === null) contentLinkStatesRef.current = plan.states;
       });
 
     return () => {
       active = false;
     };
-  }, [content, supabase]);
+  }, [content, supabase, contentLinkStatesLoadAttempt]);
 
   // G2 反向同步（任务→笔记）：R08 抽离至 useLinkedTaskSync——
   // 无引用笔记不产生 3 秒轮询；不可见暂停、聚焦/可见立即同步、请求不重叠
@@ -1720,6 +1735,27 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
         {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
         <LinkedTaskBanner noteId={noteId} />
+
+        {contentLinkStatesLoadError && (
+          <div
+            className="mt-2 flex flex-wrap items-center gap-2 text-xs text-destructive"
+            role="alert"
+          >
+            <span>{contentLinkStatesLoadError}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-2 text-xs text-destructive hover:text-destructive"
+              onClick={() => {
+                setContentLinkStatesLoadError(null);
+                setContentLinkStatesLoadAttempt((attempt) => attempt + 1);
+              }}
+            >
+              重试
+            </Button>
+          </div>
+        )}
 
         {attachmentsOpen && editorInstance && (
           <NoteAttachmentsPanel
