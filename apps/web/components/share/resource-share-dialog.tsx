@@ -39,6 +39,7 @@ import {
   nextTransferCandidatesAfterLoad,
   type TransferCandidate,
 } from "@/lib/share/transfer-candidates-load";
+import { nextTransferCandidateNamesAfterLoad } from "@/lib/share/transfer-candidate-names-load";
 import {
   nextCollaboratorGrantsAfterLoad,
   type CollaboratorGrantRow,
@@ -745,9 +746,12 @@ function TransferOwnershipSection({
     async (signal?: { active: boolean }) => {
       const isActive = () => !signal || signal.active;
       setReloadingCandidates(true);
-      // 流水线成功时组装好的候选；failed = 任一查询 throw，走纯函数失败分支
-      let assembled: CandidateUser[] | null = null;
+      // ACL + members 主流水线成功后去重、排除自己的候选 id；failed = 任一查询 throw，走 #403 主失败逻辑
+      let userIds: string[] = [];
       let failed = false;
+      // user_profiles 名称查询：error 不丢（成员列表本身已成功），交给名称纯函数诚实处理
+      const nameById = new Map<string, string | null>();
+      let profileError: unknown = null;
       try {
         const {
           data: { user },
@@ -762,42 +766,46 @@ function TransferOwnershipSection({
         const editorWorkspaceIds = (grantRows || [])
           .filter((row) => row.access_role === "editor" || row.access_role === "owner")
           .map((row) => row.workspace_id);
-        if (editorWorkspaceIds.length === 0) {
-          assembled = [];
-        } else {
+        if (editorWorkspaceIds.length > 0) {
           const { data: memberRows, error: memberErr } = await supabase
             .from("workspace_members")
             .select("user_id")
             .in("workspace_id", editorWorkspaceIds);
           if (memberErr) throw new Error(memberErr.message);
-          const userIds = [...new Set((memberRows || []).map((m) => m.user_id))].filter(
+          userIds = [...new Set((memberRows || []).map((m) => m.user_id))].filter(
             (uid) => uid && uid !== user?.id
           );
-          if (userIds.length === 0) {
-            assembled = [];
-          } else {
-            // 共享空间成员的档案可见（064）；查不到名字时回退「成员」
-            const { data: profileRows } = await supabase
-              .from("user_profiles")
-              .select("user_id, display_name")
-              .in("user_id", userIds);
-            const names = new Map(
-              (profileRows || []).map((p) => [p.user_id, p.display_name as string | null])
-            );
-            assembled = userIds.map((uid) => ({ user_id: uid, name: names.get(uid) ?? null }));
-          }
+        }
+        if (userIds.length > 0) {
+          // 共享空间成员的档案可见（064）；查不到名字时回退「协作者」
+          const { data: profileRows, error: profileErr } = await supabase
+            .from("user_profiles")
+            .select("user_id, display_name")
+            .in("user_id", userIds);
+          for (const p of profileRows || [])
+            nameById.set(p.user_id, p.display_name as string | null);
+          profileError = profileErr;
         }
       } catch {
         failed = true;
       }
-      const next = nextTransferCandidatesAfterLoad({
-        previous: candidatesRef.current,
-        data: assembled,
-        error: failed,
-      });
       if (!isActive()) return;
-      setCandidatesLoadError(next.loadError);
-      if (next.loadError === null) {
+      if (failed) {
+        // ACL / members 主失败路径与 #403 一致：保留上次成功快照 + 错误 + 重试
+        const next = nextTransferCandidatesAfterLoad({
+          previous: candidatesRef.current,
+          data: null,
+          error: true,
+        });
+        setCandidatesLoadError(next.loadError);
+      } else {
+        const next = nextTransferCandidateNamesAfterLoad({
+          userIds,
+          nameById,
+          error: profileError,
+        });
+        // 名称失败也保留候选列表（缺名回退「协作者」）并更新成功快照：成员列表已成功
+        setCandidatesLoadError(next.loadError);
         candidatesRef.current = next.candidates;
         setCandidates(next.candidates);
       }
