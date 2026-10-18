@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -43,6 +43,11 @@ import {
   planLessonTagSave,
   resolveLessonTagsAfterLoad,
 } from "@/lib/lessons/detail-tags";
+import {
+  LESSON_LINK_OPTIONS_LOAD_ERROR_MESSAGE,
+  nextLinkOptionsAfterLoad,
+  type LinkOptionsLoadPlan,
+} from "@/lib/lessons/detail-link-options";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 
 function nodeText(node: any): string {
@@ -114,6 +119,28 @@ export default function LessonEditorPage() {
   const [loadedTags, setLoadedTags] = useState<Tag[]>([]);
   /** 标签（tags 全量 + lesson_tags 关联）加载失败：不伪装成「没有标签」，保存时 skip 不删已有标签 */
   const [tagsLoadError, setTagsLoadError] = useState<string | null>(null);
+  /** 关联任务/阅读/笔记三个选项列表任一加载失败：不伪装成「没有任何可选条目」 */
+  const [linkOptionsLoadError, setLinkOptionsLoadError] = useState<string | null>(null);
+  /** 上次完整成功的关联选项快照：失败的那一路保留旧下拉内容，直到重试成功 */
+  const lastLinkOptionsRef = useRef<{ tasks: Task[]; readingItems: ReadingItem[]; notes: Note[] }>({
+    tasks: [],
+    readingItems: [],
+    notes: [],
+  });
+
+  const applyLinkOptions = useCallback((plan: LinkOptionsLoadPlan<Task, ReadingItem, Note>) => {
+    setTasks(plan.tasks);
+    setReadingItems(plan.readingItems);
+    setNotes(plan.notes);
+    setLinkOptionsLoadError(plan.loadError);
+    if (!plan.loadError) {
+      lastLinkOptionsRef.current = {
+        tasks: plan.tasks,
+        readingItems: plan.readingItems,
+        notes: plan.notes,
+      };
+    }
+  }, []);
 
   const fetchLesson = useCallback(async () => {
     if (isNew) {
@@ -126,7 +153,7 @@ export default function LessonEditorPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [{ data: tagsData, error: tagsError }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
+      const [{ data: tagsData, error: tagsError }, { data: tasksData, error: tasksError }, { data: readingsData, error: readingsError }, { data: notesData, error: notesError }] = await Promise.all([
         supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
         supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
@@ -134,9 +161,12 @@ export default function LessonEditorPage() {
       ]);
 
       setAllTags((tagsData || []) as Tag[]);
-      setTasks((tasksData || []) as Task[]);
-      setReadingItems((readingsData || []) as ReadingItem[]);
-      setNotes((notesData || []) as Note[]);
+      applyLinkOptions(nextLinkOptionsAfterLoad({
+        previous: lastLinkOptionsRef.current,
+        tasks: { data: (tasksData ?? null) as Task[] | null, error: tasksError ?? null },
+        readings: { data: (readingsData ?? null) as ReadingItem[] | null, error: readingsError ?? null },
+        notes: { data: (notesData ?? null) as Note[] | null, error: notesError ?? null },
+      }));
 
       const { data, error: lessonError } = await supabase
         .from("lessons")
@@ -182,31 +212,36 @@ export default function LessonEditorPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, lessonId, isNew]);
+  }, [supabase, lessonId, isNew, applyLinkOptions]);
 
   useEffect(() => {
     fetchLesson();
   }, [fetchLesson]);
 
+  /** 新建态选项加载：tags 维持原写法；关联三路失败时保留下拉旧快照并给出错误行 */
+  const loadNewOptions = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const [{ data: tagsData }, { data: tasksData, error: tasksError }, { data: readingsData, error: readingsError }, { data: notesData, error: notesError }] = await Promise.all([
+      supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
+      supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("notes").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(50),
+    ]);
+    setAllTags((tagsData || []) as Tag[]);
+    applyLinkOptions(nextLinkOptionsAfterLoad({
+      previous: lastLinkOptionsRef.current,
+      tasks: { data: (tasksData ?? null) as Task[] | null, error: tasksError ?? null },
+      readings: { data: (readingsData ?? null) as ReadingItem[] | null, error: readingsError ?? null },
+      notes: { data: (notesData ?? null) as Note[] | null, error: notesError ?? null },
+    }));
+  }, [supabase, applyLinkOptions]);
+
   useEffect(() => {
     if (editing && isNew) {
-      const loadOptions = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const [{ data: tagsData }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
-          supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
-          supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
-          supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
-          supabase.from("notes").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(50),
-        ]);
-        setAllTags((tagsData || []) as Tag[]);
-        setTasks((tasksData || []) as Task[]);
-        setReadingItems((readingsData || []) as ReadingItem[]);
-        setNotes((notesData || []) as Note[]);
-      };
-      loadOptions();
+      loadNewOptions();
     }
-  }, [editing, isNew, supabase]);
+  }, [editing, isNew, loadNewOptions]);
 
   const handleCreateTag = async (name: string): Promise<string | null> => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -547,6 +582,20 @@ export default function LessonEditorPage() {
                 </Select>
               </div>
             </div>
+            {linkOptionsLoadError && (
+              <div className="flex flex-wrap items-center gap-2" role="alert">
+                <span className="text-xs text-destructive">
+                  {LESSON_LINK_OPTIONS_LOAD_ERROR_MESSAGE}，下拉可能不完整
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => (isNew ? loadNewOptions() : fetchLesson())}
+                >
+                  重试
+                </Button>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button variant="outline" onClick={() => isNew ? router.push("/tasks/lessons") : setEditing(false)} disabled={saving}>
