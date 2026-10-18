@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Tag } from "@organize/shared";
 import {
   LESSON_TAGS_LOAD_ERROR_MESSAGE,
+  nextAllTagsAfterLoad,
   planLessonTagSave,
   resolveLessonTagsAfterLoad,
 } from "./detail-tags";
@@ -100,6 +101,58 @@ describe("resolveLessonTagsAfterLoad", () => {
     });
     expect(fromLinks.tags).toEqual([]);
     expect(fromLinks.loadError).toBe(LESSON_TAGS_LOAD_ERROR_MESSAGE);
+  });
+});
+
+describe("nextAllTagsAfterLoad", () => {
+  it("on success replaces the previous snapshot (even with an empty list) and clears the error", () => {
+    const plan = nextAllTagsAfterLoad({
+      previous: allTags,
+      data: [],
+      error: null,
+    });
+    expect(plan.tags).toEqual([]);
+    expect(plan.loadError).toBeNull();
+  });
+
+  it("on error keeps the previous snapshot and surfaces the error message", () => {
+    const plan = nextAllTagsAfterLoad({
+      previous: allTags,
+      data: null,
+      error: { message: "tags boom" },
+    });
+    expect(plan.tags).toEqual(allTags);
+    expect(plan.loadError).toBe("tags boom");
+  });
+
+  it("falls back to the constant message when the error message is blank", () => {
+    const plan = nextAllTagsAfterLoad({
+      previous: allTags,
+      data: null,
+      error: { message: "   " },
+    });
+    expect(plan.tags).toEqual(allTags);
+    expect(plan.loadError).toBe(LESSON_TAGS_LOAD_ERROR_MESSAGE);
+  });
+
+  it("treats null data without error as a failure too, keeping the previous snapshot", () => {
+    const plan = nextAllTagsAfterLoad({
+      previous: allTags,
+      data: null,
+      error: null,
+    });
+    expect(plan.tags).toEqual(allTags);
+    expect(plan.loadError).toBe(LESSON_TAGS_LOAD_ERROR_MESSAGE);
+  });
+
+  it("keeps an empty previous snapshot on first-screen failure (no fake tag list)", () => {
+    const plan = nextAllTagsAfterLoad({
+      previous: [],
+      data: null,
+      error: { message: "boom" },
+    });
+    expect(plan.tags).toEqual([]);
+    expect(plan.loadError).toBe("boom");
   });
 });
 
