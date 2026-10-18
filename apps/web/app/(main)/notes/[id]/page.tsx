@@ -44,6 +44,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
+import { RESOURCE_TAGS_LOAD_ERROR_HINT } from "@/lib/tags/resource-tags-load";
 import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { saveRpcNameForRole, type CollabRole } from "@/lib/collab/roles";
 import { useNoteCollab, colorFromUserId } from "@/hooks/use-note-collab";
@@ -144,7 +145,13 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
   // 页面属性：标签（note_tags，经 /api/notes/[id]/tags 增删，hook 内乐观更新）
   const { tags: allTagOptions, refresh: refreshAllTags } = useAllTags();
-  const { tags: noteTags, addTag: addNoteTag, removeTag: removeNoteTag } = useResourceTags("note", noteId);
+  const {
+    tags: noteTags,
+    loadError: noteTagsLoadError,
+    refresh: refreshNoteTags,
+    addTag: addNoteTag,
+    removeTag: removeNoteTag,
+  } = useResourceTags("note", noteId);
   // 展示用补全颜色：GET /api/notes/[id]/tags 只回 id/name，颜色从全量标签对齐
   const displayNoteTags = useMemo(
     () =>
@@ -1696,6 +1703,20 @@ function NoteEditorContent({ noteId, invalidateRef }: {
             </TagSelector>
           )}
         </div>
+        {noteTagsLoadError && (
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
+            <span>{RESOURCE_TAGS_LOAD_ERROR_HINT}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-2 text-xs text-destructive hover:text-destructive"
+              onClick={() => void refreshNoteTags()}
+            >
+              重试
+            </Button>
+          </div>
+        )}
 
         {/* 关联任务横幅：有待办指向本笔记时显示回跳入口 */}
         <LinkedTaskBanner noteId={noteId} />

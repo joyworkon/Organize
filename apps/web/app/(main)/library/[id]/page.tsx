@@ -39,6 +39,7 @@ import { FavoriteButton } from "@/components/favorite-button";
 import { TagSelector } from "@/components/tags/tag-selector";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
+import { RESOURCE_TAGS_LOAD_ERROR_HINT } from "@/lib/tags/resource-tags-load";
 import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
@@ -106,7 +107,13 @@ export default function ReadingDetailPage() {
 
   // 页面属性：标签（item_tags，经 /api/reading-items/[id]/tags 增删，hook 内乐观更新）
   const { tags: allTagOptions, refresh: refreshAllTags } = useAllTags();
-  const { tags: itemTags, addTag: addItemTag, removeTag: removeItemTag } = useResourceTags("reading_item", itemId);
+  const {
+    tags: itemTags,
+    loadError: itemTagsLoadError,
+    refresh: refreshItemTags,
+    addTag: addItemTag,
+    removeTag: removeItemTag,
+  } = useResourceTags("reading_item", itemId);
   // 展示用补全颜色：GET /api/reading-items/[id]/tags 只回 id/name，颜色从全量标签对齐
   const displayItemTags = useMemo(
     () =>
@@ -1243,6 +1250,20 @@ export default function ReadingDetailPage() {
               </button>
             </TagSelector>
           </div>
+          {itemTagsLoadError && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
+              <span>{RESOURCE_TAGS_LOAD_ERROR_HINT}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="px-2 text-xs text-destructive hover:text-destructive"
+                onClick={() => void refreshItemTags()}
+              >
+                重试
+              </Button>
+            </div>
+          )}
         </header>
 
         {/* 文章内容（整理稿可编辑：编辑态下暂不渲染高亮菜单） */}
