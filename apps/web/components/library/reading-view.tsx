@@ -38,6 +38,13 @@ import { EmptyState } from "@/components/ui/empty-state";import {
   SelectValue,
 } from "@/components/ui/select";
 import { mutateTrash } from "@/lib/trash/client";
+import { isOnline } from "@/lib/offline/network";
+import {
+  READING_LIST_LOAD_ERROR_MESSAGE,
+  READING_TAG_FILTER_ERROR_MESSAGE,
+  nextReadingItemsAfterLoad,
+  nextReadingItemsAfterTagScope,
+} from "@/lib/reading/list-load";
 
 type FilterStatus = "all" | ReadingStatus;
 type SmartSortOption = "smart" | "newest" | "oldest" | "reading" | "progress";
@@ -131,6 +138,8 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  /** 列表加载失败（在线时）：无已加载内容显示错误 + 重试，而不是「还没有保存的内容」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
   const requestedStatus = searchParams.get("status");
@@ -184,6 +193,9 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
 
   const itemsLenRef = useRef(0);
   itemsLenRef.current = items.length;
+  /** 上次成功快照的引用读取：fetchItems 闭包里取 previous，避免把 items 加进 deps 造成重载循环 */
+  const itemsRef = useRef<ReadingItem[]>([]);
+  itemsRef.current = items;
 
   const reqIdRef = useRef(0);
 
@@ -206,20 +218,37 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
 
       let scopedIds: string[] | null = null;
       if (selectedTagIds.length > 0) {
-        const { data: tagRows } = await supabase
+        const { data: tagRows, error: tagError } = await supabase
           .from("item_tags")
           .select("item_id")
           .in("tag_id", selectedTagIds);
-        if (!tagRows || tagRows.length === 0) {
-          if (reqIdRef.current !== myReqId) return;
+        if (reqIdRef.current !== myReqId) return;
+        // 筛选前置查询失败：保留上次列表并报错，不得伪装成「没有找到匹配的内容」
+        const scope = nextReadingItemsAfterTagScope({
+          previous: itemsRef.current,
+          tagRows,
+          tagError,
+        });
+        if (scope.status === "error") {
+          setLoadError(scope.loadError);
+          setLoading(false);
+          setLoadingMore(false);
+          // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+          if (isOnline()) {
+            toast({ title: READING_TAG_FILTER_ERROR_MESSAGE, variant: "destructive" });
+          }
+          return;
+        }
+        if (scope.status === "empty") {
           setItems([]);
           setTotal(0);
           setHasMore(false);
+          setLoadError(null);
           setLoading(false);
           setLoadingMore(false);
           return;
         }
-        scopedIds = Array.from(new Set(tagRows.map((r) => r.item_id as string)));
+        scopedIds = scope.scopedIds;
       }
 
       let query = supabase
@@ -246,7 +275,23 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
 
       const { data, count, error } = await query;
       if (reqIdRef.current !== myReqId) return;
-      if (error) {
+      if (error || data === null) {
+        if (append) {
+          // 追加失败：已有列表原样保留，仅提示本页失败（对齐 memos），不静默
+          if (isOnline()) toast({ title: "加载更多失败", variant: "destructive" });
+        } else {
+          // 整页失败：保留上次成功快照 + 错误态与重试，不伪装成「还没有保存的内容」
+          const plan = nextReadingItemsAfterLoad({
+            previous: itemsRef.current,
+            data: null,
+            error,
+          });
+          setItems(plan.items);
+          setLoadError(plan.loadError);
+          if (isOnline()) {
+            toast({ title: READING_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+          }
+        }
         setLoading(false);
         setLoadingMore(false);
         return;
@@ -256,6 +301,7 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
         setItems((prev) => [...prev, ...next]);
       } else {
         setItems(next);
+        setLoadError(null);
       }
       setTotal(count ?? 0);
       setHasMore(next.length === PAGE_SIZE);
@@ -314,6 +360,12 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
   }, [fetchStats, refreshTick]);
 
   const loadMore = () => fetchItems(true);
+
+  /** 加载失败后的重试：清错后重新拉取（清掉后会短暂回到骨架屏） */
+  const retry = useCallback(() => {
+    setLoadError(null);
+    void fetchItems(false);
+  }, [fetchItems]);
 
   const exitSelection = useCallback(() => {
     clear();
@@ -662,12 +714,38 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
         />
       )}
 
-      {loading ? (
+      {/* 刷新失败但已有列表：保留列表 + 持久行内提示 + 就地重试（toast 会消失） */}
+      {loadError && items.length > 0 && (
+        <div
+          className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+          role="alert"
+        >
+          <span className="text-xs text-destructive">{loadError}</span>
+          <Button size="sm" variant="outline" onClick={retry}>
+            重试
+          </Button>
+        </div>
+      )}
+
+      {/* 加载失败不得伪装成「还没有保存的内容」/「没有找到匹配的内容」：
+          无快照给错误空态 + 重试；正在加载且无内容才显示骨架屏（刷新时保留旧列表不闪烁） */}
+      {loading && items.length === 0 ? (
         <div className="grid gap-0" aria-busy="true" aria-label="文章加载中">
           {Array.from({ length: 5 }).map((_, index) => (
             <div key={index} className="h-[96px] animate-pulse rounded-lg bg-muted/60" />
           ))}
         </div>
+      ) : loadError && items.length === 0 ? (
+        <EmptyState
+          icon={BookOpen}
+          title={loadError}
+          description="网络或服务暂时不可用，请重试"
+          action={
+            <Button variant="outline" onClick={retry}>
+              重试
+            </Button>
+          }
+        />
       ) : sortedItems.length === 0 ? (
         (() => {
           const hasFilter = search.trim() !== "" || selectedTagIds.length > 0 || filter !== "all";
