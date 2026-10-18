@@ -40,6 +40,7 @@ import { toast } from "@/hooks/use-toast";
 import { mutateTrash } from "@/lib/trash/client";
 import {
   LESSON_TAGS_LOAD_ERROR_MESSAGE,
+  nextAllTagsAfterLoad,
   planLessonTagSave,
   resolveLessonTagsAfterLoad,
 } from "@/lib/lessons/detail-tags";
@@ -131,6 +132,8 @@ export default function LessonEditorPage() {
   const [loadedTags, setLoadedTags] = useState<Tag[]>([]);
   /** 标签（tags 全量 + lesson_tags 关联）加载失败：不伪装成「没有标签」，保存时 skip 不删已有标签 */
   const [tagsLoadError, setTagsLoadError] = useState<string | null>(null);
+  /** 上次成功加载的全量标签快照：新建态 tags 查询失败时保留旧选项（不伪装成「一个标签都没有」），直到重试成功 */
+  const lastAllTagsRef = useRef<Tag[]>([]);
   /** 关联任务/阅读/笔记三个选项列表任一加载失败：不伪装成「没有任何可选条目」 */
   const [linkOptionsLoadError, setLinkOptionsLoadError] = useState<string | null>(null);
   /** 上次完整成功的关联选项快照：失败的那一路保留旧下拉内容，直到重试成功 */
@@ -263,17 +266,26 @@ export default function LessonEditorPage() {
     fetchLesson();
   }, [fetchLesson]);
 
-  /** 新建态选项加载：tags 维持原写法；关联三路失败时保留下拉旧快照并给出错误行 */
+  /** 新建态选项加载：tags 失败保留旧快照并给出错误行；关联三路失败时同样保留下拉旧快照 */
   const loadNewOptions = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const [{ data: tagsData }, { data: tasksData, error: tasksError }, { data: readingsData, error: readingsError }, { data: notesData, error: notesError }] = await Promise.all([
+    const [{ data: tagsData, error: tagsError }, { data: tasksData, error: tasksError }, { data: readingsData, error: readingsError }, { data: notesData, error: notesError }] = await Promise.all([
       supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
       supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
       supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
       supabase.from("notes").select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(50),
     ]);
-    setAllTags((tagsData || []) as Tag[]);
+    const tagsPlan = nextAllTagsAfterLoad({
+      previous: lastAllTagsRef.current,
+      data: (tagsData ?? null) as Tag[] | null,
+      error: tagsError ?? null,
+    });
+    setAllTags(tagsPlan.tags);
+    setTagsLoadError(tagsPlan.loadError);
+    if (!tagsPlan.loadError) {
+      lastAllTagsRef.current = tagsPlan.tags;
+    }
     applyLinkOptions(nextLinkOptionsAfterLoad({
       previous: lastLinkOptionsRef.current,
       tasks: { data: (tasksData ?? null) as Task[] | null, error: tasksError ?? null },
@@ -567,9 +579,16 @@ export default function LessonEditorPage() {
               {tagsLoadError && (
                 <div className="flex flex-wrap items-center gap-2" role="alert">
                   <span className="text-xs text-destructive">
-                    {LESSON_TAGS_LOAD_ERROR_MESSAGE}，保存时不会改动已有标签
+                    {/* 新建没有已有 lesson_tags 可保护，不写「不会改动已有标签」 */}
+                    {isNew
+                      ? `${LESSON_TAGS_LOAD_ERROR_MESSAGE}，请重试后再选标签`
+                      : `${LESSON_TAGS_LOAD_ERROR_MESSAGE}，保存时不会改动已有标签`}
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => fetchLesson()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => (isNew ? loadNewOptions() : fetchLesson())}
+                  >
                     重试
                   </Button>
                 </div>
