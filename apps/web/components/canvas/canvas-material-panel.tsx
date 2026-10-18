@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LibraryItem } from "@organize/shared";
 import { FileText, Image as ImageIcon, Quote, Loader2, StickyNote } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { nextMaterialItemsAfterLoad } from "@/lib/canvas/material-search-load";
 
 export interface CanvasMaterialPanelProps {
   /** 引用整条资料卡片。 */
@@ -31,6 +32,12 @@ const KIND_LABEL: Record<LibraryItem["source_type"], string> = {
 export function CanvasMaterialPanel({ onInsertCard, onInsertExcerpt, onInsertImage }: CanvasMaterialPanelProps) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<LibraryItem[]>([]);
+  /** 上次成功快照：搜索失败时原样保留（effect 闭包读不到最新 state） */
+  const itemsRef = useRef<LibraryItem[]>([]);
+  /** 搜索失败：与「没有匹配的资料」区分，空结果 + 错误走错误态，非空结果 + 错误走旧列表 + 行内提示 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 重试计数：自增让下方 effect 用当前 query 重新搜索 */
+  const [reloadCount, setReloadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selection, setSelection] = useState("");
@@ -42,24 +49,49 @@ export function CanvasMaterialPanel({ onInsertCard, onInsertExcerpt, onInsertIma
     const seq = ++seqRef.current;
     const timer = setTimeout(async () => {
       setLoading(true);
+      // 失败/成功统一走纯函数：失败保留上次成功快照 + 错误文案（不伪装成「没有匹配的资料」，
+      // 也不把旧关键词结果冒充新关键词匹配），成功替换并清错；过期请求（seq 不符）结果与失败一并丢弃
+      const applyFailure = () => {
+        const plan = nextMaterialItemsAfterLoad<LibraryItem>({ previous: itemsRef.current, ok: false });
+        itemsRef.current = plan.items;
+        setItems(plan.items);
+        setLoadError(plan.loadError);
+      };
+      const applySuccess = (fresh: LibraryItem[]) => {
+        const plan = nextMaterialItemsAfterLoad<LibraryItem>({ previous: itemsRef.current, ok: true, items: fresh });
+        itemsRef.current = plan.items;
+        setItems(plan.items);
+        setLoadError(plan.loadError);
+        setExpandedId(null);
+      };
       try {
         const params = new URLSearchParams({ view: "all", limit: "20" });
         const q = query.trim();
         if (q) params.set("q", q);
         const res = await fetch(`/api/library/items?${params}`, { cache: "no-store" });
-        if (!res.ok) return;
+        if (seq !== seqRef.current) return;
+        if (!res.ok) {
+          applyFailure();
+          return;
+        }
         const data = (await res.json()) as { items: LibraryItem[] };
         if (seq !== seqRef.current) return;
-        setItems(data.items);
-        setExpandedId(null);
+        applySuccess(data.items);
       } catch {
-        /* 网络异常静默；下次输入重试 */
+        if (seq !== seqRef.current) return;
+        applyFailure();
       } finally {
         if (seq === seqRef.current) setLoading(false);
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, reloadCount]);
+
+  /** 搜索失败后的重试：清错后用当前 query 重新搜索 */
+  const retrySearch = () => {
+    setLoadError(null);
+    setReloadCount((count) => count + 1);
+  };
 
   // 预览区选区跟踪（插入选中摘录用）；预览切换时清空
   const trackSelection = useCallback(() => {
@@ -86,10 +118,27 @@ export function CanvasMaterialPanel({ onInsertCard, onInsertExcerpt, onInsertIma
         <p className="canvas-material-empty" role="status">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> 搜索中…
         </p>
-      ) : items.length === 0 ? (
-        <p className="canvas-material-empty">没有匹配的资料</p>
+      ) : loadError && items.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-3" role="alert">
+          <span className="text-xs text-destructive">{loadError}</span>
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={retrySearch}>
+            重试
+          </Button>
+        </div>
       ) : (
-        <ul className="canvas-material-list" aria-label="资料搜索结果">
+        <>
+          {loadError && items.length > 0 && (
+            <p className="canvas-material-empty flex-wrap gap-2" role="alert">
+              <span className="text-xs text-destructive">{loadError}，以下为上次结果</span>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={retrySearch}>
+                重试
+              </Button>
+            </p>
+          )}
+          {items.length === 0 ? (
+            <p className="canvas-material-empty">没有匹配的资料</p>
+          ) : (
+            <ul className="canvas-material-list" aria-label="资料搜索结果">
           {items.map((item) => (
             <li key={`${item.source_type}-${item.id}`} className="canvas-material-item">
               <button
@@ -162,6 +211,8 @@ export function CanvasMaterialPanel({ onInsertCard, onInsertExcerpt, onInsertIma
             </li>
           ))}
         </ul>
+          )}
+        </>
       )}
     </div>
   );
