@@ -35,6 +35,10 @@ import {
   nextInviteWorkspacesAfterLoad,
   type InviteWorkspaceRow,
 } from "@/lib/share/invite-workspaces-load";
+import {
+  nextTransferCandidatesAfterLoad,
+  type TransferCandidate,
+} from "@/lib/share/transfer-candidates-load";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { ShareResourceType } from "@organize/shared";
 
@@ -668,13 +672,22 @@ function TransferOwnershipSection({
   const supabase = useMemo(() => createClient(), []);
   const [candidates, setCandidates] = useState<CandidateUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [candidatesLoadError, setCandidatesLoadError] = useState<string | null>(null);
+  const [reloadingCandidates, setReloadingCandidates] = useState(false);
   const [selected, setSelected] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 上次成功的候选快照：重试失败时作为 previous 保留，不把失败伪装成「还没有可移交的协作者」
+  const candidatesRef = useRef<TransferCandidate[]>([]);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
+  // 可重入加载：signal.active 为 false 时丢弃过期结果（resource 切换 / 卸载）
+  const loadCandidates = useCallback(
+    async (signal?: { active: boolean }) => {
+      const isActive = () => !signal || signal.active;
+      setReloadingCandidates(true);
+      // 流水线成功时组装好的候选；failed = 任一查询 throw，走纯函数失败分支
+      let assembled: CandidateUser[] | null = null;
+      let failed = false;
       try {
         const {
           data: { user },
@@ -690,44 +703,57 @@ function TransferOwnershipSection({
           .filter((row) => row.access_role === "editor" || row.access_role === "owner")
           .map((row) => row.workspace_id);
         if (editorWorkspaceIds.length === 0) {
-          if (active) setCandidates([]);
-          return;
+          assembled = [];
+        } else {
+          const { data: memberRows, error: memberErr } = await supabase
+            .from("workspace_members")
+            .select("user_id")
+            .in("workspace_id", editorWorkspaceIds);
+          if (memberErr) throw new Error(memberErr.message);
+          const userIds = [...new Set((memberRows || []).map((m) => m.user_id))].filter(
+            (uid) => uid && uid !== user?.id
+          );
+          if (userIds.length === 0) {
+            assembled = [];
+          } else {
+            // 共享空间成员的档案可见（064）；查不到名字时回退「成员」
+            const { data: profileRows } = await supabase
+              .from("user_profiles")
+              .select("user_id, display_name")
+              .in("user_id", userIds);
+            const names = new Map(
+              (profileRows || []).map((p) => [p.user_id, p.display_name as string | null])
+            );
+            assembled = userIds.map((uid) => ({ user_id: uid, name: names.get(uid) ?? null }));
+          }
         }
-        const { data: memberRows, error: memberErr } = await supabase
-          .from("workspace_members")
-          .select("user_id")
-          .in("workspace_id", editorWorkspaceIds);
-        if (memberErr) throw new Error(memberErr.message);
-        const userIds = [...new Set((memberRows || []).map((m) => m.user_id))].filter(
-          (uid) => uid && uid !== user?.id
-        );
-        if (userIds.length === 0) {
-          if (active) setCandidates([]);
-          return;
-        }
-        // 共享空间成员的档案可见（064）；查不到名字时回退「成员」
-        const { data: profileRows } = await supabase
-          .from("user_profiles")
-          .select("user_id, display_name")
-          .in("user_id", userIds);
-        const names = new Map(
-          (profileRows || []).map((p) => [p.user_id, p.display_name as string | null])
-        );
-        if (!active) return;
-        setCandidates(
-          userIds.map((uid) => ({ user_id: uid, name: names.get(uid) ?? null }))
-        );
       } catch {
-        // 候选加载失败按空集处理（协作功能整体不可用时段典型如此），不阻塞其他段
-        if (active) setCandidates([]);
-      } finally {
-        if (active) setLoading(false);
+        failed = true;
       }
-    })();
+      const next = nextTransferCandidatesAfterLoad({
+        previous: candidatesRef.current,
+        data: assembled,
+        error: failed,
+      });
+      if (!isActive()) return;
+      setCandidatesLoadError(next.loadError);
+      if (next.loadError === null) {
+        candidatesRef.current = next.candidates;
+        setCandidates(next.candidates);
+      }
+      setReloadingCandidates(false);
+      setLoading(false);
+    },
+    [resourceType, resourceId, supabase]
+  );
+
+  useEffect(() => {
+    const signal = { active: true };
+    void loadCandidates(signal);
     return () => {
-      active = false;
+      signal.active = false;
     };
-  }, [resourceType, resourceId, supabase]);
+  }, [loadCandidates]);
 
   const transfer = async () => {
     if (!selected) return;
@@ -755,6 +781,21 @@ function TransferOwnershipSection({
     }
   };
 
+  // 候选加载失败行（有/无旧快照都显示；保留旧候选时出现在列表下方）
+  const candidatesRetryRow = candidatesLoadError ? (
+    <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+      {candidatesLoadError}
+      <button
+        type="button"
+        onClick={() => void loadCandidates()}
+        disabled={reloadingCandidates}
+        className="text-primary hover:underline disabled:opacity-50"
+      >
+        {reloadingCandidates ? "重试中…" : "重试"}
+      </button>
+    </p>
+  ) : null;
+
   return (
     <section className="space-y-2">
       <h3 className="flex items-center gap-1.5 text-sm font-medium">
@@ -765,34 +806,39 @@ function TransferOwnershipSection({
         <div className="flex items-center justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
+      ) : candidatesLoadError && candidates.length === 0 ? (
+        candidatesRetryRow
       ) : candidates.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           还没有可移交的协作者。先在上方邀请并把对方设为「可编辑」。
         </p>
       ) : (
-        <div className="flex gap-2">
-          <Select value={selected} onValueChange={setSelected}>
-            <SelectTrigger aria-label="选择协作者" className="h-8 w-[180px]">
-              <SelectValue placeholder="选择协作者" />
-            </SelectTrigger>
-            <SelectContent>
-              {candidates.map((c) => (
-                <SelectItem key={c.user_id} value={c.user_id}>
-                  {c.name || "协作者"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void transfer()}
-            disabled={busy || !selected}
-            className="gap-1.5"
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            移交
-          </Button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <Select value={selected} onValueChange={setSelected}>
+              <SelectTrigger aria-label="选择协作者" className="h-8 w-[180px]">
+                <SelectValue placeholder="选择协作者" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((c) => (
+                  <SelectItem key={c.user_id} value={c.user_id}>
+                    {c.name || "协作者"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void transfer()}
+              disabled={busy || !selected}
+              className="gap-1.5"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              移交
+            </Button>
+          </div>
+          {candidatesRetryRow}
         </div>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
