@@ -1,6 +1,8 @@
 "use client";
 
 import { aiResultToBlocks } from "@/lib/ai/result-blocks";
+import { nextBlockCommentsAfterLoad } from "@/lib/editor/block-comments-load";
+import { nextMoveNotesAfterLoad } from "@/lib/editor/move-notes-load";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import type { AIBlockResult, CommentThread, EditSuggestion, Note } from "@organize/shared";
@@ -67,33 +69,46 @@ function MoveDialog({ editor, noteId, target, onClose }: { editor: Editor; noteI
   const [loading, setLoading] = useState(true);
   const [moving, setMoving] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const lastSuccessRef = useRef<Note[]>([]);
 
-  useEffect(() => {
+  const loadNotes = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     // 笔记列表走浏览器端 Supabase 客户端：会话内 RLS 查询，
     // 假后端（NEXT_PUBLIC_MOCK_BACKEND）模式下同样可用
-    const supabase = createClient();
-    void (async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) throw new Error("未登录");
-        const { data, error } = await supabase
-          .from("notes")
-          .select("id, title, icon, updated_at")
-          .eq("user_id", user.id)
-          .neq("id", noteId)
-          .is("deleted_at", null)
-          .order("updated_at", { ascending: false });
-        if (error) throw new Error("无法加载笔记");
-        setNotes((data || []) as unknown as Note[]);
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "无法加载笔记");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await supabase
+        .from("notes")
+        .select("id, title, icon, updated_at")
+        .eq("user_id", user.id)
+        .neq("id", noteId)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false });
+      if (error) throw new Error("无法加载笔记");
+      const next = nextMoveNotesAfterLoad({
+        previous: lastSuccessRef.current,
+        ok: true,
+        notes: (data || []) as unknown as Note[],
+      });
+      lastSuccessRef.current = next.notes;
+      setNotes(next.notes);
+      setLoadError(next.loadError);
+    } catch {
+      const next = nextMoveNotesAfterLoad({ previous: lastSuccessRef.current, ok: false });
+      setNotes(next.notes);
+      setLoadError(next.loadError);
+    } finally {
+      setLoading(false);
+    }
   }, [noteId]);
+
+  useEffect(() => { void loadNotes(); }, [loadNotes]);
 
   const filtered = notes.filter((note) => (note.title || "无标题").toLowerCase().includes(query.toLowerCase()));
   const move = async (targetNoteId: string) => {
@@ -128,9 +143,10 @@ function MoveDialog({ editor, noteId, target, onClose }: { editor: Editor; noteI
     <Modal title="移动到" icon={<Search className="h-4 w-4" />} onClose={onClose}>
       <div className="editor-dialog-search"><Search className="h-4 w-4" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记…" /></div>
       {error && <p className="editor-dialog-error">{error}</p>}
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadNotes()}>重试</button></div>}
       <div className="note-picker">
         {loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}
-        {!loading && filtered.length === 0 && <div className="editor-dialog-empty">没有可移动到的笔记</div>}
+        {!loading && !loadError && filtered.length === 0 && <div className="editor-dialog-empty">没有可移动到的笔记</div>}
         {filtered.map((note) => <button type="button" key={note.id} onClick={() => move(note.id)} disabled={Boolean(moving)}><span><strong>{note.title || "无标题"}</strong><small>{new Date(note.updated_at).toLocaleString("zh-CN")}</small></span>{moving === note.id && <Loader2 className="h-4 w-4 animate-spin" />}</button>)}
       </div>
     </Modal>
@@ -144,15 +160,33 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const lastSuccessRef = useRef<CommentThread[]>([]);
 
   const reload = useCallback(async () => {
-    const response = await fetch(`/api/notes/${noteId}/comments?blockId=${encodeURIComponent(target.id)}`);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "评论加载失败");
-    setThreads(data);
+    try {
+      const response = await fetch(`/api/notes/${noteId}/comments?blockId=${encodeURIComponent(target.id)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "评论加载失败");
+      const next = nextBlockCommentsAfterLoad({ previous: lastSuccessRef.current, ok: true, threads: data });
+      lastSuccessRef.current = next.threads;
+      setThreads(next.threads);
+      setLoadError(next.loadError);
+    } catch (reason) {
+      const next = nextBlockCommentsAfterLoad({ previous: lastSuccessRef.current, ok: false });
+      setThreads(next.threads);
+      setLoadError(next.loadError);
+      throw reason;
+    }
   }, [noteId, target.id]);
 
-  useEffect(() => { reload().catch((reason) => setError(reason.message)).finally(() => setLoading(false)); }, [reload]);
+  const loadThreads = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    return reload().catch(() => undefined).finally(() => setLoading(false));
+  }, [reload]);
+
+  useEffect(() => { void loadThreads(); }, [loadThreads]);
 
   const submit = async () => {
     if (!text.trim()) return;
@@ -190,9 +224,10 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
     <Modal title="区块评论" icon={<MessageSquare className="h-4 w-4" />} onClose={onClose} wide>
       <div className="comment-block-preview">{target.text || `［${target.type} 区块］`}</div>
       {error && <p className="editor-dialog-error">{error}</p>}
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadThreads()}>重试</button></div>}
       <div className="comment-thread-list">
         {loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}
-        {!loading && threads.length === 0 && <div className="editor-dialog-empty">还没有评论</div>}
+        {!loading && !loadError && threads.length === 0 && <div className="editor-dialog-empty">还没有评论</div>}
         {threads.map((thread) => (
           <section key={thread.id} className={thread.resolved_at ? "is-resolved" : ""}>
             <div className="comment-thread-head"><span>{thread.resolved_at ? "已解决" : "讨论中"}</span><button type="button" onClick={() => mutate("PATCH", { threadId: thread.id, resolved: !thread.resolved_at })}>{thread.resolved_at ? "重新打开" : "解决"}</button><button type="button" onClick={() => mutate("DELETE", { threadId: thread.id })}><Trash2 className="h-3.5 w-3.5" /></button></div>
