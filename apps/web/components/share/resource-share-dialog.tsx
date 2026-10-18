@@ -48,6 +48,12 @@ import {
   nextCollaboratorWorkspaceNamesAfterLoad,
   type CollaboratorGrantAclRow,
 } from "@/lib/share/collaborator-workspace-names-load";
+import {
+  nextShareSessionsClaimedAfterLoad,
+  SHARE_SESSIONS_CLAIMED_LOAD_ERROR_HINT,
+  type ShareSessionsClaimed,
+  type ShareSessionsClaimedLoadOutcome,
+} from "@/lib/share/share-sessions-claimed-load";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { ShareResourceType } from "@organize/shared";
 
@@ -982,12 +988,6 @@ function pickLimits(data: {
   };
 }
 
-interface ClaimedSummary {
-  active: number;
-  released: number;
-  ips: string[];
-}
-
 function PublicLinkSection({
   resourceType,
   resourceId,
@@ -1013,7 +1013,9 @@ function PublicLinkSection({
   // 072：过期时间选择（建议默认 7 天，§6 非协商项），创建与改模式共用
   const [expiry, setExpiry] = useState<ShareExpiryChoice>("7d");
   // 082：名额占用概览（属主视角）+ 释放中
-  const [claimed, setClaimed] = useState<ClaimedSummary | null>(null);
+  const [claimed, setClaimed] = useState<ShareSessionsClaimed | null>(null);
+  const [claimedLoadError, setClaimedLoadError] = useState<string | null>(null);
+  const lastClaimedRef = useRef<ShareSessionsClaimed | null>(null);
   const [releasing, setReleasing] = useState(false);
 
   /** /api/share 各响应形状统一收口，省得三处 setShare 各写一份（082 加了 id 与档位） */
@@ -1029,14 +1031,23 @@ function PublicLinkSection({
     });
   }, []);
 
+  const applyOutcome = useCallback((outcome: ShareSessionsClaimedLoadOutcome) => {
+    const next = nextShareSessionsClaimedAfterLoad(lastClaimedRef.current, outcome);
+    if (outcome.ok) lastClaimedRef.current = outcome.claimed;
+    setClaimed(next.claimed);
+    setClaimedLoadError(next.loadError);
+  }, []);
+
   /**
    * 名额占用概览（082）：list_share_sessions 是属主专属 RPC（函数内再校
    * auth.uid() = owner_id），浏览器客户端带着用户会话直接调即可。
-   * 失败只是看不到概览，不影响面板其余功能——故静默置 null。
+   * 失败保留上次成功概览并显示可重试提示，不把查询失败伪装成无占用。
    */
   const loadSessions = useCallback(async (shareId: string) => {
     if (!shareId) {
       setClaimed(null);
+      setClaimedLoadError(null);
+      lastClaimedRef.current = null;
       return;
     }
     try {
@@ -1045,20 +1056,30 @@ function PublicLinkSection({
         p_share_id: shareId,
       });
       if (rpcErr) {
-        setClaimed(null);
+        applyOutcome({
+          ok: false,
+          error: rpcErr.message ? `名额占用读取失败：${rpcErr.message}` : "名额占用读取失败",
+        });
         return;
       }
       const rows = (data ?? []) as { released: boolean; ip: string | null }[];
       const active = rows.filter((r) => !r.released);
-      setClaimed({
-        active: active.length,
-        released: rows.filter((r) => r.released).length,
-        ips: Array.from(new Set(active.map((r) => r.ip).filter((ip): ip is string => !!ip))),
+      applyOutcome({
+        ok: true,
+        claimed: {
+          active: active.length,
+          released: rows.filter((r) => r.released).length,
+          ips: Array.from(new Set(active.map((r) => r.ip).filter((ip): ip is string => !!ip))),
+        },
       });
-    } catch {
-      setClaimed(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      applyOutcome({
+        ok: false,
+        error: message ? `名额占用读取失败：${message}` : "名额占用读取失败",
+      });
     }
-  }, []);
+  }, [applyOutcome]);
 
   const loadShare = useCallback(async () => {
     setLoading(true);
@@ -1075,6 +1096,8 @@ function PublicLinkSection({
       } else {
         setShare(null);
         setClaimed(null);
+        setClaimedLoadError(null);
+        lastClaimedRef.current = null;
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载失败");
@@ -1216,6 +1239,9 @@ function PublicLinkSection({
       });
       if (!res.ok) throw new Error("撤销失败");
       setShare(null);
+      setClaimed(null);
+      setClaimedLoadError(null);
+      lastClaimedRef.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "撤销失败");
     }
@@ -1335,6 +1361,20 @@ function PublicLinkSection({
                   </button>
                 )}
               </div>
+              {claimedLoadError && share.session_limit !== null && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-destructive">
+                    {SHARE_SESSIONS_CLAIMED_LOAD_ERROR_HINT}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void loadSessions(share.id)}
+                    className="text-xs text-muted-foreground hover:underline"
+                  >
+                    重试
+                  </button>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 {share.session_limit === null
                   ? "任何人持链接都能打开（不限设备）。"
