@@ -5,3 +5,4 @@
 - 2026-10-18 19:07 EDT：新增 `apps/web/lib/notes/content-link-states-load.ts` 与 6 个纯函数单测。定向 Vitest 退出码 0：1 file passed，6 tests passed。
 - 2026-10-18 19:10 EDT：完成 `notes/[id]/page.tsx` 接线：ref 保留上次成功 map；RPC error/空 data 经纯函数返回 previous + loadError；成功替换并清错；无内链清空 states 与 error；attempt 触发重试；LinkedTaskBanner 后、编辑器前增加 `role="alert"` 与「重试」Button。未改排除清单文件。
 - 2026-10-18 19:10 EDT：完整本地验证通过（均在仓库根执行）：`corepack pnpm -C apps/web exec tsc --noEmit` 退出码 0；`corepack pnpm -C apps/web lint` 退出码 0、无 ESLint warnings/errors；`corepack pnpm -C apps/web exec vitest run` 退出码 0，288 files passed / 1 skipped，2167 tests passed / 2 skipped（基线 2161 passed / 2 skipped，净增 6）。未运行本地 e2e。
+- 2026-10-18 19:11 EDT：业务提交 `749249d`（仅 4 个允许文件）已推送 `fix/note-content-link-states-load-honesty`，并创建 PR #424：https://github.com/joyworkon/Organize/pull/424。其他 docs/handoff 改动与 TASK.md/PROMPT.md 均未暂存、未提交。
