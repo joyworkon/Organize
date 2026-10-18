@@ -6,7 +6,11 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { checkTaskCompletionBlockers } from "@/lib/tasks/dependencies";
 import { requestNextRecurringTask } from "@/lib/tasks/recurring";
-import { buildTaskNoteContent } from "@/lib/tasks/note-prefill";
+import {
+  buildTaskNoteContent,
+  resolveTaskNoteChecklistLoad,
+  TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE,
+} from "@/lib/tasks/note-prefill";
 import { claimTaskNoteCreation, releaseTaskNoteCreation } from "@/lib/tasks/note-link";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
@@ -374,15 +378,21 @@ export default function TaskDetailPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: checklistRows } = await supabase
+      const { data: checklistRows, error: checklistError } = await supabase
         .from("task_checklists")
         .select("content, is_completed")
         .eq("task_id", task.id)
         .order("sort_order", { ascending: true });
+      // 子任务读取失败时不建便签：note_id 一旦落库，下次点击只会进残缺便签，无法重新预填
+      const checklistLoad = resolveTaskNoteChecklistLoad({ data: checklistRows, error: checklistError });
+      if (!checklistLoad.ok) {
+        toast({ title: TASK_NOTE_CHECKLIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
+        return;
+      }
       const { data: note, error } = await supabase.from("notes").insert({
         user_id: user.id,
         title: `${task.title} - 便签`,
-        content: buildTaskNoteContent(task, checklistRows || []),
+        content: buildTaskNoteContent(task, checklistLoad.rows),
       }).select("id").single();
       if (error || !note) { toast({ title: "创建便签失败", variant: "destructive" }); return; }
       // 关联写失败时不导航：note_id 没落库就跳走，下次点击会再建一条孤儿便签
