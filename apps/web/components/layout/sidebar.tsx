@@ -34,6 +34,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
 import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
+import {
+  nextSidebarNoteTreeAfterLoad,
+  type SidebarNoteItem,
+} from "@/lib/layout/sidebar-note-tree-load";
 import { useNoteGroups } from "@/hooks/use-note-groups";
 import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged, shouldShowGroupsLoadError } from "@/lib/notes/groups";
 import { useOnlineStatus } from "@/lib/offline/network";
@@ -122,6 +126,9 @@ export function Sidebar() {
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
+  // 笔记树查询失败的诚实提示：从未成功时用提示+重试替代「还没有笔记」；曾成功时保留旧树再提示
+  const [noteTreeError, setNoteTreeError] = useState<string | null>(null);
+  const lastNoteRowsRef = useRef<SidebarNoteItem[] | null>(null);
   const [creatingNote, setCreatingNote] = useState(false);
   // 资料库分组下的标签快捷列表：展开时拉取，标签增删经 organize:tags-changed 事件刷新
   const { tags: sidebarTags, loadError: sidebarTagsLoadError, refresh: refreshSidebarTags } =
@@ -175,24 +182,22 @@ const visibleNavItems = useMemo(() => {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("notes")
         .select("id, title, icon, parent_note_id, updated_at, is_pinned")
         .eq("user_id", user.id)
         .is("deleted_at", null)
         .order("updated_at", { ascending: false });
-      setNoteTree(
-        buildNoteTree(
-          (data || []).map((note) => ({
-            id: note.id,
-            title: note.title || null,
-            icon: note.icon || null,
-            parent_note_id: note.parent_note_id || null,
-            updated_at: note.updated_at,
-            is_pinned: !!note.is_pinned,
-          }))
-        )
-      );
+      const plan = nextSidebarNoteTreeAfterLoad({
+        previous: lastNoteRowsRef.current,
+        data,
+        error,
+      });
+      setNoteTreeError(plan.loadError);
+      if (plan.rows && !plan.loadError) {
+        lastNoteRowsRef.current = plan.rows;
+        setNoteTree(buildNoteTree(plan.rows));
+      }
     } finally {
       setNotesLoading(false);
     }
@@ -209,6 +214,20 @@ const visibleNavItems = useMemo(() => {
     window.addEventListener("organize:notes-changed", reload);
     return () => window.removeEventListener("organize:notes-changed", reload);
   }, [loadNoteTree, notesExpanded]);
+
+  // 树查询失败的一行小字提示 + 重试：树为空时替代「还没有笔记」，树非空时附在旧树下方
+  const noteTreeErrorLine = noteTreeError && (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
+      <span role="alert">{noteTreeError}</span>
+      <button
+        type="button"
+        onClick={() => void loadNoteTree()}
+        className="transition-colors hover:text-foreground"
+      >
+        重试
+      </button>
+    </div>
+  );
 
   useEffect(() => {
     const reloadTasks = () => void refetchTasks();
@@ -654,12 +673,17 @@ const visibleNavItems = useMemo(() => {
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         加载笔记...
                       </div>
+                    ) : noteTreeError && noteTree.length === 0 ? (
+                      noteTreeErrorLine
                     ) : (
-                      <SidebarGroupedNotes
-                        nodes={noteTree}
-                        pathname={pathname}
-                        onNavigate={() => setMobileOpen(false)}
-                      />
+                      <>
+                        <SidebarGroupedNotes
+                          nodes={noteTree}
+                          pathname={pathname}
+                          onNavigate={() => setMobileOpen(false)}
+                        />
+                        {noteTreeErrorLine}
+                      </>
                     )}
                   </div>
                 )}
