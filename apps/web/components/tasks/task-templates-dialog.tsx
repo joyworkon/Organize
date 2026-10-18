@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, LayoutTemplate, Pencil, Plus, Trash2 } from "@/components/icons";
 import type {
   TaskCategory,
@@ -16,6 +16,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { isOnline } from "@/lib/offline/network";
 import {
   Dialog,
   DialogContent,
@@ -25,11 +26,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   buildTaskFromTemplate,
   normalizeTaskTemplate,
   type TaskTemplateSnapshot,
 } from "@/lib/tasks/templates";
+import {
+  TASK_TEMPLATES_LIST_LOAD_ERROR_MESSAGE,
+  nextTemplatesAfterLoad,
+} from "@/lib/tasks/templates-list-load";
 
 interface TaskTemplatesDialogProps {
   lists: TaskList[];
@@ -66,6 +72,10 @@ export function TaskTemplatesDialog({
   const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
+  /** 模板列表加载失败（在线时）：没有已加载的列表时显示错误 + 重试，而不是「还没有任务模板」 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 上次成功快照：刷新失败时原样保留（loadTemplates 的闭包读不到最新 state） */
+  const templatesRef = useRef<TaskTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
@@ -79,11 +89,24 @@ export function TaskTemplatesDialog({
       .select("*")
       .order("updated_at", { ascending: false });
     setLoading(false);
-    if (error) {
-      toast({ title: "读取模板失败", variant: "destructive" });
-      return;
+    // 失败保留上次成功快照 + 错误态与重试，不得伪装成「还没有任务模板」
+    const plan = nextTemplatesAfterLoad({
+      previous: templatesRef.current,
+      data: data ?? null,
+      error,
+    });
+    templatesRef.current = plan.templates;
+    setTemplates(plan.templates);
+    setLoadError(plan.loadError);
+    // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+    if (plan.loadError && isOnline()) {
+      toast({ title: TASK_TEMPLATES_LIST_LOAD_ERROR_MESSAGE, variant: "destructive" });
     }
-    setTemplates((data || []) as TaskTemplate[]);
+  };
+
+  const retryLoadTemplates = () => {
+    setLoadError(null);
+    void loadTemplates();
   };
 
   useEffect(() => {
@@ -162,6 +185,7 @@ export function TaskTemplatesDialog({
     }
     setDeleteId(null);
     setTemplates((items) => items.filter((item) => item.id !== id));
+    templatesRef.current = templatesRef.current.filter((item) => item.id !== id);
     toast({ title: "模板已删除" });
   };
 
@@ -286,34 +310,55 @@ export function TaskTemplatesDialog({
             <div className="max-h-[55vh] space-y-2 overflow-y-auto">
               {loading ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">加载中…</p>
+              ) : loadError && templates.length === 0 ? (
+                /* 加载失败不得伪装成「还没有任务模板」：无快照给错误空态 + 重试 */
+                <div className="grid place-items-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground" role="alert">
+                  <FilePlus2 className="h-7 w-7" />
+                  <p className="text-sm text-destructive">{loadError}</p>
+                  <Button size="sm" variant="outline" onClick={retryLoadTemplates}>重试</Button>
+                </div>
               ) : templates.length === 0 ? (
                 <div className="grid place-items-center gap-2 rounded-lg border border-dashed py-10 text-muted-foreground">
                   <FilePlus2 className="h-7 w-7" />
                   <p className="text-sm">还没有任务模板</p>
                 </div>
-              ) : templates.map((template) => {
-                const snapshot = normalizeTaskTemplate(template.template, template.name);
-                return (
-                  <div key={template.id} className="rounded-lg border p-3">
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium">{template.name}</p>
-                        <p className="truncate text-sm text-muted-foreground">{snapshot.title}</p>
-                      </div>
-                      <button type="button" onClick={() => beginEdit(template)} aria-label="编辑模板" className="rounded p-2 hover:bg-muted"><Pencil className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => setDeleteId(template.id)} aria-label="删除模板" className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => void applyTemplate(template)} className="h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground">套用</button>
+              ) : (
+                <>
+                  {/* 刷新失败但已有列表：保留列表 + 持久行内提示 + 就地重试（toast 会消失） */}
+                  {loadError && (
+                    <div
+                      className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+                      role="alert"
+                    >
+                      <span className="text-xs text-destructive">{loadError}</span>
+                      <Button size="sm" variant="outline" onClick={retryLoadTemplates}>重试</Button>
                     </div>
-                    {deleteId === template.id && (
-                      <div className="mt-3 flex items-center justify-end gap-2 border-t pt-3 text-sm">
-                        <span className="mr-auto text-muted-foreground">确定删除这个模板？</span>
-                        <button type="button" onClick={() => setDeleteId(null)} className="rounded-md border px-3 py-1.5">取消</button>
-                        <button type="button" onClick={() => void deleteTemplate(template.id)} className="rounded-md bg-destructive px-3 py-1.5 text-destructive-foreground">删除</button>
+                  )}
+                  {templates.map((template) => {
+                    const snapshot = normalizeTaskTemplate(template.template, template.name);
+                    return (
+                      <div key={template.id} className="rounded-lg border p-3">
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">{template.name}</p>
+                            <p className="truncate text-sm text-muted-foreground">{snapshot.title}</p>
+                          </div>
+                          <button type="button" onClick={() => beginEdit(template)} aria-label="编辑模板" className="rounded p-2 hover:bg-muted"><Pencil className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => setDeleteId(template.id)} aria-label="删除模板" className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => void applyTemplate(template)} className="h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground">套用</button>
+                        </div>
+                        {deleteId === template.id && (
+                          <div className="mt-3 flex items-center justify-end gap-2 border-t pt-3 text-sm">
+                            <span className="mr-auto text-muted-foreground">确定删除这个模板？</span>
+                            <button type="button" onClick={() => setDeleteId(null)} className="rounded-md border px-3 py-1.5">取消</button>
+                            <button type="button" onClick={() => void deleteTemplate(template.id)} className="rounded-md bg-destructive px-3 py-1.5 text-destructive-foreground">删除</button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </>
+              )}
             </div>
           </>
         )}
