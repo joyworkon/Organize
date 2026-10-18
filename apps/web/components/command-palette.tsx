@@ -1,5 +1,10 @@
 "use client";
 import { readingSourceLabel } from "@/lib/reading/source";
+import {
+  COMMAND_PALETTE_SEARCH_ERROR_MESSAGE,
+  nextCommandPaletteSearchAfterLoad,
+  type CommandPaletteSearchCounts,
+} from "@/lib/search/command-palette-search-load";
 
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -65,14 +70,7 @@ type SearchResult = {
   item: ReadingItem | Note | Task | Lesson | Memo | TagType;
 };
 
-type SearchCounts = {
-  reading: number;
-  note: number;
-  task: number;
-  lesson: number;
-  tag: number;
-  memo: number;
-};
+type SearchCounts = CommandPaletteSearchCounts;
 
 const RECENT_SEARCHES_KEY = "organize:recent-searches";
 const MAX_RECENT_SEARCHES = 5;
@@ -294,12 +292,17 @@ export function CommandPalette() {
     memo: 0,
   });
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [linkInputOpen, setLinkInputOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [submittingLink, setSubmittingLink] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const searchExecutedRef = useRef(false);
+  const lastSuccessRef = useRef<{ results: SearchResult[]; counts: SearchCounts }>({
+    results: [],
+    counts: { reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 },
+  });
 
   const isMockMode = process.env.NEXT_PUBLIC_MOCK_BACKEND === "true";
 
@@ -380,11 +383,14 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (open) {
+      const emptyCounts = { reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 };
       setSearchQuery("");
       setResults([]);
       setLinkInputOpen(false);
       setLinkUrl("");
-      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 });
+      setCounts(emptyCounts);
+      setLoadError(null);
+      lastSuccessRef.current = { results: [], counts: emptyCounts };
       setRecentSearches(getRecentSearches());
       searchExecutedRef.current = false;
     }
@@ -409,11 +415,31 @@ export function CommandPalette() {
 
   const performSearch = useCallback(async (query: string) => {
     if (!isSearchableQuery(query)) {
+      const emptyCounts = { reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 };
       setResults([]);
-      setCounts({ reading: 0, note: 0, task: 0, lesson: 0, tag: 0, memo: 0 });
+      setCounts(emptyCounts);
+      setLoadError(null);
+      lastSuccessRef.current = { results: [], counts: emptyCounts };
       searchExecutedRef.current = false;
       return;
     }
+
+    const applySearchOutcome = (
+      outcome: { ok: true; results: SearchResult[]; counts: SearchCounts } | { ok: false },
+    ) => {
+      const previous = lastSuccessRef.current;
+      const next = nextCommandPaletteSearchAfterLoad<SearchResult>({
+        previousResults: previous.results,
+        previousCounts: previous.counts,
+        ...outcome,
+      });
+      setResults(next.results);
+      setCounts(next.counts);
+      setLoadError(next.loadError);
+      if (outcome.ok) {
+        lastSuccessRef.current = { results: next.results, counts: next.counts };
+      }
+    };
 
     setLoading(true);
     searchExecutedRef.current = true;
@@ -421,6 +447,7 @@ export function CommandPalette() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setResults([]);
+        setLoadError(null);
         return;
       }
 
@@ -469,14 +496,14 @@ export function CommandPalette() {
         const memoAll = (mockDb.memos as Memo[])
           .filter((memo) => memo.user_id === user.id && !memo.deleted_at && memo.content.toLowerCase().includes(q));
 
-        setCounts({
+        const nextCounts = {
           reading: readingAll.length,
           note: noteAll.length,
           task: taskAll.length,
           lesson: lessonAll.length,
           tag: tagAll.length,
           memo: memoAll.length,
-        });
+        };
 
         const readingMatches = readingAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "reading" as const, item }));
         const noteMatches = noteAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "note" as const, item }));
@@ -485,7 +512,11 @@ export function CommandPalette() {
         const tagMatches = tagAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "tag" as const, item }));
 
         const memoMatches = memoAll.slice(0, SEARCH_LIMIT).map((item) => ({ type: "memo" as const, item }));
-        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches]);
+        applySearchOutcome({
+          ok: true,
+          results: [...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches],
+          counts: nextCounts,
+        });
       } else {
         const [readingRes, notesRes, tasksRes, lessonsRes, tagsRes, memosRes] = await Promise.all([
           supabase
@@ -529,14 +560,26 @@ export function CommandPalette() {
             .limit(SEARCH_LIMIT),
         ]);
 
-        setCounts({
+        if (
+          readingRes.error ||
+          notesRes.error ||
+          tasksRes.error ||
+          lessonsRes.error ||
+          tagsRes.error ||
+          memosRes.error
+        ) {
+          applySearchOutcome({ ok: false });
+          return;
+        }
+
+        const nextCounts = {
           reading: readingRes.count || 0,
           note: notesRes.count || 0,
           task: tasksRes.count || 0,
           lesson: lessonsRes.count || 0,
           tag: tagsRes.count || 0,
           memo: memosRes.count || 0,
-        });
+        };
 
         const readingMatches: SearchResult[] = (readingRes.data || []).map((item) => ({
           type: "reading",
@@ -568,10 +611,14 @@ export function CommandPalette() {
           item: item as Memo,
         }));
 
-        setResults([...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches]);
+        applySearchOutcome({
+          ok: true,
+          results: [...readingMatches, ...noteMatches, ...taskMatches, ...lessonMatches, ...tagMatches, ...memoMatches],
+          counts: nextCounts,
+        });
       }
     } catch {
-      setResults([]);
+      applySearchOutcome({ ok: false });
     } finally {
       setLoading(false);
     }
@@ -756,7 +803,7 @@ export function CommandPalette() {
 
   const hasResults = results.length > 0;
   const showSearch = isSearchableQuery(searchQuery);
-  const showEmptyState = showSearch && !loading && !hasResults && searchExecutedRef.current;
+  const showEmptyState = showSearch && !loading && !loadError && !hasResults && searchExecutedRef.current;
   const showRecentSearches = !showSearch && !linkInputOpen && recentSearches.length > 0;
 
   return (
@@ -776,7 +823,7 @@ export function CommandPalette() {
           autoFocus
         />
         <CommandList>
-          <CommandEmpty>没有找到结果</CommandEmpty>
+          {!loadError && <CommandEmpty>没有找到结果</CommandEmpty>}
 
           {linkInputOpen ? (
             <div className="p-3 space-y-3">
@@ -842,6 +889,15 @@ export function CommandPalette() {
               {showSearch && loading && (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                   搜索中...
+                </div>
+              )}
+
+              {showSearch && !loading && loadError && (
+                <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span className="text-sm text-destructive">{COMMAND_PALETTE_SEARCH_ERROR_MESSAGE}</span>
+                  <Button variant="outline" size="sm" onClick={() => void performSearch(searchQuery)}>
+                    重试
+                  </Button>
                 </div>
               )}
 
