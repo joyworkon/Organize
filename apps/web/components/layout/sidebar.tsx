@@ -38,6 +38,10 @@ import {
   nextSidebarNoteTreeAfterLoad,
   type SidebarNoteItem,
 } from "@/lib/layout/sidebar-note-tree-load";
+import {
+  SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT,
+  SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT,
+} from "@/lib/layout/sidebar-collab-presence-load";
 import { useNoteGroups } from "@/hooks/use-note-groups";
 import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged, shouldShowGroupsLoadError } from "@/lib/notes/groups";
 import { useOnlineStatus } from "@/lib/offline/network";
@@ -136,8 +140,16 @@ export function Sidebar() {
   const supabase = useMemo(() => createClient(), []);
   const { tasks, lists, createList, updateList, deleteList, refetch: refetchTasks } = useTaskRepository();
   const recentNotes = useOpenTabsStore((state) => state.recents);
-  const hasSharedNotes = useHasSharedNotes();
-  const hasTeamWorkspaces = useHasTeamWorkspaces();
+  const {
+    has: hasSharedNotes,
+    loadError: sharedNotesLoadError,
+    refresh: refreshSharedNotesPresence,
+  } = useHasSharedNotes();
+  const {
+    has: hasTeamWorkspaces,
+    loadError: teamWorkspacesLoadError,
+    refresh: refreshTeamWorkspacesPresence,
+  } = useHasTeamWorkspaces();
 // 一级导航 = 静态项 + 条件项（与我共享 / 协作空间，插在「资料库」之后成组；
 // 两个条件入口各自探测，mock 后端恒隐藏）
 const visibleNavItems = useMemo(() => {
@@ -711,6 +723,36 @@ const visibleNavItems = useMemo(() => {
             </Link>
           );
         })}
+        {sharedNotesLoadError && (
+          <div className="flex items-center gap-2 px-3 py-1 text-xs text-destructive">
+            <span role="alert" className="min-w-0 flex-1">
+              {SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT}
+            </span>
+            <button
+              type="button"
+              aria-label="重试与我共享状态读取"
+              onClick={refreshSharedNotesPresence}
+              className="shrink-0 transition-colors hover:text-foreground"
+            >
+              重试
+            </button>
+          </div>
+        )}
+        {teamWorkspacesLoadError && (
+          <div className="flex items-center gap-2 px-3 py-1 text-xs text-destructive">
+            <span role="alert" className="min-w-0 flex-1">
+              {SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT}
+            </span>
+            <button
+              type="button"
+              aria-label="重试协作空间状态读取"
+              onClick={refreshTeamWorkspacesPresence}
+              className="shrink-0 transition-colors hover:text-foreground"
+            >
+              重试
+            </button>
+          </div>
+        )}
       </nav>
 
       <div className={cn("border-t", compact ? "p-2" : "p-3")}>
