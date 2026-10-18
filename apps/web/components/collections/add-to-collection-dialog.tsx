@@ -2,12 +2,14 @@
 
 // 「加入集合」对话框（阶段 3）：选择既有集合或新建；自动主题建议以芯片展示，
 // 点击确认才采用——绝不自动写入手动分类。同批导入可整批加入（ids 多值）。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Plus, Check } from "@/components/icons";
+import { Loader2, Plus, Check, FilePlus } from "@/components/icons";
 import { toast } from "@/hooks/use-toast";
+import { isOnline } from "@/lib/offline/network";
 import { suggestCollections, type CollectionSummary } from "@/lib/collections/types";
+import { nextCollectionsAfterLoad } from "@/lib/collections/list-load";
 
 export interface AddToCollectionTarget {
   sourceType: "reading" | "memo" | "file";
@@ -27,6 +29,12 @@ export function AddToCollectionDialog({
   onAdded?: () => void;
 }) {
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  /** 集合列表加载失败：没有已加载的列表时显示错误 + 重试，而不是「还没有集合」假空态 */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** 上次成功快照：刷新失败时原样保留（effect 闭包读不到最新 state） */
+  const collectionsRef = useRef<CollectionSummary[]>([]);
+  /** 重试计数：自增让下方 effect 重新拉 /api/collections */
+  const [reloadCount, setReloadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [newName, setNewName] = useState("");
@@ -36,26 +44,50 @@ export function AddToCollectionDialog({
     if (!target) return;
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
+    // 建议芯片按当前目标计算；换目标/重试先清，失败时不残留上一目标的建议
+    setSuggestedIds([]);
     void (async () => {
+      let ok = false;
+      let data: { collections?: CollectionSummary[]; error?: string } | null = null;
+      let fetchError: { message?: string } | null = null;
       try {
         const res = await fetch("/api/collections", { cache: "no-store" });
-        const data = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!res.ok) {
-          toast({ title: data?.error || "集合加载失败", variant: "destructive" });
-          return;
-        }
-        const list = (data.collections ?? []) as CollectionSummary[];
-        setCollections(list);
-        setSuggestedIds(suggestCollections(list, { title: target.hintTitle, tags: target.hintTags }));
-      } finally {
-        if (!cancelled) setLoading(false);
+        ok = res.ok;
+        data = await res.json().catch(() => null);
+        if (!ok && data?.error) fetchError = { message: data.error };
+      } catch {
+        // 网络异常等：拿不到 JSON 错误体，交给纯函数回退常量文案
       }
+      if (cancelled) return;
+      // 失败保留上次成功快照 + 错误态与重试，不得伪装成「还没有集合」
+      const plan = nextCollectionsAfterLoad({
+        previous: collectionsRef.current,
+        data: ok ? (data?.collections ?? null) : null,
+        error: ok ? null : fetchError,
+      });
+      collectionsRef.current = plan.collections;
+      setCollections(plan.collections);
+      setLoadError(plan.loadError);
+      if (plan.loadError) {
+        // 离线时的失败是预期行为，由顶栏离线角标表达，不另弹 toast
+        if (isOnline()) toast({ title: plan.loadError, variant: "destructive" });
+      } else {
+        setSuggestedIds(
+          suggestCollections(plan.collections, { title: target.hintTitle, tags: target.hintTags }),
+        );
+      }
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [target]);
+  }, [target, reloadCount]);
+
+  const retryLoadCollections = () => {
+    setLoadError(null);
+    setReloadCount((count) => count + 1);
+  };
 
   const suggested = useMemo(
     () => collections.filter((c) => suggestedIds.includes(c.id)),
@@ -133,8 +165,28 @@ export function AddToCollectionDialog({
           <div className="flex justify-center py-6">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
+        ) : loadError && collections.length === 0 ? (
+          /* 加载失败不得伪装成「还没有集合」：无快照给错误空态 + 重试 */
+          <div
+            className="mt-3 grid place-items-center gap-2 rounded-lg border border-dashed py-8 text-muted-foreground"
+            role="alert"
+          >
+            <FilePlus className="h-6 w-6" />
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Button size="sm" variant="outline" onClick={retryLoadCollections}>重试</Button>
+          </div>
         ) : (
           <div className="mt-3 max-h-64 space-y-1 overflow-y-auto" aria-label="集合列表">
+            {/* 刷新失败但已有列表：保留列表 + 持久行内提示 + 就地重试（toast 会消失） */}
+            {loadError && (
+              <div
+                className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
+                role="alert"
+              >
+                <span className="text-xs text-destructive">{loadError}</span>
+                <Button size="sm" variant="outline" onClick={retryLoadCollections}>重试</Button>
+              </div>
+            )}
             {suggested.length > 0 && (
               <>
                 <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
