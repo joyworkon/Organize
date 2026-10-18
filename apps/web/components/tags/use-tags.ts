@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Tag, TagWithCount } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { nextAllTagsAfterLoad } from "@/lib/tags/all-tags-load";
+import {
+  nextResourceTagsAfterLoad,
+  type ResourceTagsLoadOutcome,
+} from "@/lib/tags/resource-tags-load";
 
 type TaggableResource = "note" | "reading_item";
 
@@ -132,49 +136,75 @@ export function useAllTags() {
 export function useResourceTags(resource: TaggableResource, resourceId: string | null) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const lastSuccessRef = useRef<Tag[]>([]);
 
   const base = RESOURCE_ENDPOINT[resource];
   const linkTable = RESOURCE_LINK_TABLE[resource].link;
   const foreignKey = RESOURCE_LINK_TABLE[resource].foreignKey;
 
+  const applyOutcome = useCallback((outcome: ResourceTagsLoadOutcome) => {
+    const next = nextResourceTagsAfterLoad(lastSuccessRef.current, outcome);
+    if (outcome.ok) {
+      lastSuccessRef.current = next.tags;
+    }
+    setTags(next.tags);
+    setLoadError(next.loadError);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!resourceId) {
       setTags([]);
+      setLoadError(null);
+      lastSuccessRef.current = [];
       return;
     }
     setLoading(true);
     try {
       if (MOCK_BACKEND) {
         const supabase = createClient();
-        const { data: links } = await supabase
+        const { data: links, error: linksError } = await supabase
           .from(linkTable)
           .select("tag_id")
           .eq(foreignKey, resourceId);
+        if (linksError) {
+          applyOutcome({ ok: false, error: `标签读取失败：${linksError.message}` });
+          return;
+        }
         const tagIds = (links || []).map((row) => row.tag_id);
         if (tagIds.length === 0) {
-          setTags([]);
+          applyOutcome({ ok: true, tags: [] });
           return;
         }
         // mock 查询构造器不支持嵌入 select，分两步：关联表 → 按 id 取标签
-        const { data: tagRows } = await supabase
+        const { data: tagRows, error: tagsError } = await supabase
           .from("tags")
           .select("id, name, color")
           .in("id", tagIds);
-        setTags((tagRows || []) as Tag[]);
+        if (tagsError) {
+          applyOutcome({ ok: false, error: `标签读取失败：${tagsError.message}` });
+          return;
+        }
+        applyOutcome({ ok: true, tags: (tagRows || []) as Tag[] });
         return;
       }
 
       const res = await fetch(`${base}/${resourceId}/tags`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setTags(data as Tag[]);
+        applyOutcome({ ok: true, tags: data as Tag[] });
+      } else {
+        applyOutcome({ ok: false, error: `标签读取失败（HTTP ${res.status}）` });
       }
-    } catch {
-      // 静默
+    } catch (err) {
+      applyOutcome({
+        ok: false,
+        error: err instanceof Error && err.message ? `标签读取失败：${err.message}` : "标签读取失败",
+      });
     } finally {
       setLoading(false);
     }
-  }, [base, foreignKey, linkTable, resourceId]);
+  }, [applyOutcome, base, foreignKey, linkTable, resourceId]);
 
   useEffect(() => {
     refresh();
@@ -232,6 +262,16 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
       } else if (tag.name) {
         setTags((prev) => (prev.some((t) => t.name === tag.name) ? prev : [...prev, optimistic]));
       }
+      const tagsAfterAdd = (tagId: string) => {
+        const resolved = { ...optimistic, id: tagId };
+        if (tag.id) {
+          return tags.some((t) => t.id === tag.id) ? tags : [...tags, resolved];
+        }
+        if (tag.name) {
+          return tags.some((t) => t.name === tag.name) ? tags : [...tags, resolved];
+        }
+        return tags;
+      };
 
       try {
         if (MOCK_BACKEND) {
@@ -244,6 +284,7 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
           setTags((prev) =>
             prev.map((t) => (t.id === optimistic.id ? { ...t, id: tagId } : t))
           );
+          lastSuccessRef.current = tagsAfterAdd(tagId);
           return tagId;
         }
 
@@ -259,6 +300,7 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
             setTags((prev) =>
               prev.map((t) => (t.id === optimistic.id ? { ...t, id: data.tag_id } : t))
             );
+            lastSuccessRef.current = tagsAfterAdd(data.tag_id);
           }
           return data?.tag_id as string | undefined;
         }
@@ -267,7 +309,7 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
         setTags((prev) => prev.filter((t) => t.id !== optimistic.id));
       }
     },
-    [base, mockResolveAndLink, resourceId]
+    [base, mockResolveAndLink, resourceId, tags]
   );
 
   const removeTag = useCallback(
@@ -283,9 +325,11 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
             .delete()
             .eq(foreignKey, resourceId)
             .eq("tag_id", tagId);
+          lastSuccessRef.current = snapshot.filter((t) => t.id !== tagId);
           return;
         }
         await fetch(`${base}/${resourceId}/tags?tag_id=${tagId}`, { method: "DELETE" });
+        lastSuccessRef.current = snapshot.filter((t) => t.id !== tagId);
       } catch {
         setTags(snapshot);
       }
@@ -293,5 +337,5 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
     [base, foreignKey, linkTable, resourceId, tags]
   );
 
-  return { tags, loading, refresh, addTag, removeTag };
+  return { tags, loading, loadError, refresh, addTag, removeTag };
 }
