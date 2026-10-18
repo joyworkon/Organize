@@ -42,7 +42,19 @@
 - `corepack pnpm -C apps/web lint` → exit 0（No ESLint warnings or errors）。
 - `corepack pnpm -C apps/web exec vitest run` → exit 0，**2010 passed / 2 skipped**（基线 2005 passed / 2 skipped，+5 = 新单测 5 例）。未本地跑 e2e。
 
-## 步骤 5：提交 / PR / CI / 合并
+## 步骤 5：提交 / PR / CI / 合并 ✅
 
-（进行中）
+- 提交 `50b0ee9`（4 文件：material-search-load.ts / .test.ts / canvas-material-panel.tsx / 本 PROGRESS.md；其它 docs/handoff/* 保持未跟踪），push 特性分支。
+- `gh pr create` → **PR #396**。
+- CI 五项全绿：verify pass (2m12s) / db-test pass (1m27s) / e2e-test pass (8m36s) / sw-e2e pass (3m25s) / collab-e2e pass (11m1s)。
+- `gh pr merge 396 --squash --delete-branch` → 合并提交 **`76dee59`**，远程与本地特性分支已删；本地切回 master 并已同步（HEAD = 76dee59）。
+- 本条目为合并后补记，经 docs 小 PR 入库（不直推 master）。
+
+## 完成定义核对 ✅
+
+- PR #396 已 squash 合并进 master，本地 master 已同步（76dee59）。
+- 资料面板搜索失败不再显示「没有匹配的资料」；旧关键词结果不再无提示冒充新结果（行内「资料搜索失败，以下为上次结果」+ 重试）；成功空结果行为不变。
+- 新增纯函数 + 5 例单测；未改 workspace / 插入逻辑 / API / e2e / globals.css / boards-load.ts / list-load.ts。
+- tsc / lint / vitest（2010 passed / 2 skipped）全绿；CI 五项全绿。任务完成。
+
 
