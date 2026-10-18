@@ -730,6 +730,7 @@ const visibleNavItems = useMemo(() => {
             </span>
             <button
               type="button"
+              aria-label="重试与我共享状态读取"
               onClick={refreshSharedNotesPresence}
               className="shrink-0 transition-colors hover:text-foreground"
             >
@@ -744,6 +745,7 @@ const visibleNavItems = useMemo(() => {
             </span>
             <button
               type="button"
+              aria-label="重试协作空间状态读取"
               onClick={refreshTeamWorkspacesPresence}
               className="shrink-0 transition-colors hover:text-foreground"
             >
