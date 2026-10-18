@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { parseMemoTags } from "@/lib/memos/tags";
+import { countMemoTagsLocally, MEMO_TAG_COUNTS_FALLBACK_HINT } from "@/lib/memos/tag-counts";
 import { AddToCanvasButton } from "./add-to-canvas-dialog";
 import { AddToCollectionsButton } from "@/components/collections/add-to-collections-button";
 import type { LibraryItem } from "@organize/shared";
@@ -248,7 +249,10 @@ export function MemosView({ search }: MemosViewProps) {
           toast({ title: "该速记已删除或不存在", description: "可从列表继续浏览其他速记" });
           return;
         }
-        if (!res.ok) return;
+        if (!res.ok) {
+          toast({ title: "无法定位该速记", description: "加载失败，请稍后重试", variant: "destructive" });
+          return;
+        }
         const memo = (await res.json()) as Memo;
         setMemos((prev) => (prev.some((m) => m.id === memo.id) ? prev : [memo, ...prev]));
         setHighlightId(memoParam);
@@ -257,32 +261,39 @@ export function MemosView({ search }: MemosViewProps) {
         );
         setTimeout(() => setHighlightId(null), 3000);
       } catch {
-        // 网络失败静默：列表仍是完整可用状态
+        // 网络失败时列表仍可用，但深链无反馈会让用户以为没生效，显式提示
+        toast({ title: "无法定位该速记", description: "加载失败，请稍后重试", variant: "destructive" });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, memos, loading]);
 
-  // F04：标签计数来自服务端全量聚合（此前由前 500 条本地统计，大数量下失真）
-  const [tagCounts, setTagCounts] = useState<Array<[string, number]>>([]);
+  // F04：标签计数来自服务端全量聚合（此前由前 500 条本地统计，大数量下失真）；
+  // 聚合失败（非 2xx / 网络异常）时降级为按当前已加载速记本地计数，配提示，不整条消失
+  const [serverTagCounts, setServerTagCounts] = useState<Array<[string, number]>>([]);
+  const [tagCountsFallback, setTagCountsFallback] = useState(false);
   useEffect(() => {
     void (async () => {
       try {
         const res = await fetch("/api/memos/tags", { cache: "no-store" });
-        if (!res.ok) return;
-        const rows = (await res.json()) as Array<{ tag: string; count: number }>;
-        setTagCounts(rows.map((r) => [r.tag, r.count]));
-      } catch {
-        // 聚合失败时退回本地统计（旧逻辑），保底可用
-        const map = new Map<string, number>();
-        for (const memo of memos) {
-          for (const tag of memo.tags || []) map.set(tag, (map.get(tag) || 0) + 1);
+        if (!res.ok) {
+          setTagCountsFallback(true);
+          return;
         }
-        setTagCounts(Array.from(map.entries()).sort((a, b) => b[1] - a[1]));
+        const rows = (await res.json()) as Array<{ tag: string; count: number }>;
+        setServerTagCounts(rows.map((r) => [r.tag, r.count]));
+        setTagCountsFallback(false);
+      } catch {
+        setTagCountsFallback(true);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 降级时基于当前 memos 计算（依赖 memos 的 useMemo，不闭包挂载时的初始 []）
+  const tagCounts = useMemo(
+    () => (tagCountsFallback ? countMemoTagsLocally(memos) : serverTagCounts),
+    [tagCountsFallback, memos, serverTagCounts]
+  );
 
   const visible = useMemo(() => {
     const byTag = filterTag ? memos.filter((m) => m.tags?.includes(filterTag)) : memos;
@@ -478,9 +489,12 @@ export function MemosView({ search }: MemosViewProps) {
         </div>
       </div>
 
-      {/* 标签筛选 */}
+      {/* 标签筛选（降级时按已加载速记本地计数，提示行说明口径） */}
       {tagCounts.length > 0 && (
         <div className="mobile-filter-strip flex flex-wrap items-center gap-1.5">
+          {tagCountsFallback && (
+            <span className="w-full text-xs text-muted-foreground">{MEMO_TAG_COUNTS_FALLBACK_HINT}</span>
+          )}
           <button
             type="button"
             onClick={() => setFilterTag(null)}
