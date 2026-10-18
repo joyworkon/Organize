@@ -38,6 +38,11 @@ import { LESSON_TYPE_CONFIG } from "@organize/shared";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "@/hooks/use-toast";
 import { mutateTrash } from "@/lib/trash/client";
+import {
+  LESSON_TAGS_LOAD_ERROR_MESSAGE,
+  planLessonTagSave,
+  resolveLessonTagsAfterLoad,
+} from "@/lib/lessons/detail-tags";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 
 function nodeText(node: any): string {
@@ -107,6 +112,8 @@ export default function LessonEditorPage() {
   const [linkedReading, setLinkedReading] = useState<ReadingItem | null>(null);
   const [linkedNote, setLinkedNote] = useState<Note | null>(null);
   const [loadedTags, setLoadedTags] = useState<Tag[]>([]);
+  /** 标签（tags 全量 + lesson_tags 关联）加载失败：不伪装成「没有标签」，保存时 skip 不删已有标签 */
+  const [tagsLoadError, setTagsLoadError] = useState<string | null>(null);
 
   const fetchLesson = useCallback(async () => {
     if (isNew) {
@@ -119,7 +126,7 @@ export default function LessonEditorPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [{ data: tagsData }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
+      const [{ data: tagsData, error: tagsError }, { data: tasksData }, { data: readingsData }, { data: notesData }] = await Promise.all([
         supabase.from("tags").select("id, name, color").eq("user_id", user.id).order("name"),
         supabase.from("tasks").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
         supabase.from("reading_items").select("id, title").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
@@ -161,11 +168,16 @@ export default function LessonEditorPage() {
           setLinkedNote((noteData as Note) || null);
         }
 
-        const { data: tagLinks } = await supabase.from("lesson_tags").select("tag_id").eq("lesson_id", lessonId);
-        const tagIds = (tagLinks || []).map(l => l.tag_id);
-        const lessonTags = (tagsData || []).filter(t => tagIds.includes(t.id)) as Tag[];
-        setSelectedTags(lessonTags.map(t => ({ id: t.id, name: t.name, color: t.color })));
-        setLoadedTags(lessonTags);
+        const { data: tagLinks, error: tagLinksError } = await supabase.from("lesson_tags").select("tag_id").eq("lesson_id", lessonId);
+        const tagsPlan = resolveLessonTagsAfterLoad({
+          allTags: (tagsData || null) as Tag[] | null,
+          allTagsError: tagsError,
+          links: tagLinks,
+          linksError: tagLinksError,
+        });
+        setSelectedTags(tagsPlan.tags.map(t => ({ id: t.id, name: t.name, color: t.color })));
+        setLoadedTags(tagsPlan.tags);
+        setTagsLoadError(tagsPlan.loadError);
       }
     } finally {
       setLoading(false);
@@ -253,6 +265,10 @@ export default function LessonEditorPage() {
           .single();
         if (error) throw error;
         savedId = data.id;
+        if (selectedTags.length > 0) {
+          const links = selectedTags.map(t => ({ lesson_id: savedId, tag_id: t.id }));
+          await supabase.from("lesson_tags").insert(links);
+        }
       } else {
         savedId = lessonId;
         const { error } = await supabase
@@ -260,12 +276,20 @@ export default function LessonEditorPage() {
           .update(payload)
           .eq("id", lessonId);
         if (error) throw error;
-        await supabase.from("lesson_tags").delete().eq("lesson_id", lessonId);
-      }
-
-      if (selectedTags.length > 0) {
-        const links = selectedTags.map(t => ({ lesson_id: savedId, tag_id: t.id }));
-        await supabase.from("lesson_tags").insert(links);
+        const tagPlan = planLessonTagSave({ tagsLoadError, selectedTagIds: selectedTags.map(t => t.id) });
+        if (tagPlan.kind === "replace") {
+          const { error: deleteError } = await supabase.from("lesson_tags").delete().eq("lesson_id", lessonId);
+          let tagSaveFailed = Boolean(deleteError);
+          if (tagPlan.tagIds.length > 0) {
+            const links = tagPlan.tagIds.map(tag_id => ({ lesson_id: savedId, tag_id }));
+            const { error: insertError } = await supabase.from("lesson_tags").insert(links);
+            tagSaveFailed = tagSaveFailed || Boolean(insertError);
+          }
+          // 复盘正文已保存成功，标签失败不阻断跳转，用 toast 告知
+          if (tagSaveFailed) {
+            toast({ title: "标签保存失败", variant: "destructive" });
+          }
+        }
       }
 
       router.push(`/lessons/${savedId}`);
@@ -460,6 +484,16 @@ export default function LessonEditorPage() {
                   triggerLabel={selectedTags.length > 0 ? "添加" : "添加标签"}
                 />
               </div>
+              {tagsLoadError && (
+                <div className="flex flex-wrap items-center gap-2" role="alert">
+                  <span className="text-xs text-destructive">
+                    {LESSON_TAGS_LOAD_ERROR_MESSAGE}，保存时不会改动已有标签
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => fetchLesson()}>
+                    重试
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="grid sm:grid-cols-3 gap-4">
@@ -544,6 +578,14 @@ export default function LessonEditorPage() {
                 {loadedTags.map((tag) => (
                   <TagBadge key={tag.id} tag={tag} />
                 ))}
+              </div>
+            )}
+            {tagsLoadError && (
+              <div className="flex flex-wrap items-center gap-2" role="alert">
+                <span className="text-xs text-destructive">{LESSON_TAGS_LOAD_ERROR_MESSAGE}</span>
+                <Button variant="outline" size="sm" onClick={() => fetchLesson()}>
+                  重试
+                </Button>
               </div>
             )}
           </header>
