@@ -46,6 +46,7 @@ import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
 import { nextHighlightsAfterLoad } from "@/lib/reading/highlights-load";
+import { nextHighlightReferencesAfterLoad } from "@/lib/reading/highlight-references-load";
 import { nextOtherItemsAfterLoad } from "@/lib/reading/other-items-load";
 import { canWriteReadingState, findHighlightMarks, nextReadingProgress, readyHighlightDeepLink, unwrapMark } from "@/lib/reading/progress";
 
@@ -159,6 +160,8 @@ export default function ReadingDetailPage() {
   const [highlightReferences, setHighlightReferences] = useState<
     Record<string, HighlightReferenceState>
   >({});
+  const highlightReferencesRef = useRef<Record<string, HighlightReferenceState>>({});
+  const [highlightReferencesLoadError, setHighlightReferencesLoadError] = useState<string | null>(null);
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -190,17 +193,32 @@ export default function ReadingDetailPage() {
     const { data, error } = await supabase.rpc("get_highlight_reference_states", {
       p_reading_item_id: itemId,
     });
-    if (error || !data) return;
-    setHighlightReferences(
-      (data as HighlightReferenceState[]).reduce<Record<string, HighlightReferenceState>>(
-        (result, row) => {
-          result[row.highlight_id] = row;
-          return result;
-        },
-        {}
-      )
+    const plan = nextHighlightReferencesAfterLoad<HighlightReferenceState>(
+      error || !data
+        ? { previous: highlightReferencesRef.current, ok: false, error }
+        : {
+            previous: highlightReferencesRef.current,
+            ok: true,
+            references: (data as HighlightReferenceState[]).reduce<Record<string, HighlightReferenceState>>(
+              (result, row) => {
+                result[row.highlight_id] = row;
+                return result;
+              },
+              {}
+            ),
+          }
     );
+    setHighlightReferences(plan.references);
+    setHighlightReferencesLoadError(plan.loadError);
+    if (plan.loadError === null) {
+      highlightReferencesRef.current = plan.references;
+    }
   }, [itemId, supabase]);
+
+  const retryLoadHighlightReferences = useCallback(() => {
+    setHighlightReferencesLoadError(null);
+    void loadHighlightReferences();
+  }, [loadHighlightReferences]);
 
   // 同步当前条目到插件上下文（ctx.getCurrentItem），卸载时清空
   useEffect(() => {
@@ -225,7 +243,9 @@ export default function ReadingDetailPage() {
     highlightsRef.current = [];
     setHighlights([]);
     setHighlightsLoadError(null);
+    highlightReferencesRef.current = {};
     setHighlightReferences({});
+    setHighlightReferencesLoadError(null);
     progressRef.current = 0;
     canWriteStateRef.current = false;
     setCanWriteState(false);
@@ -1116,6 +1136,8 @@ export default function ReadingDetailPage() {
         references={highlightReferences}
         loadError={highlightsLoadError}
         onRetry={retryLoadHighlights}
+        referencesLoadError={highlightReferencesLoadError}
+        onRetryReferences={retryLoadHighlightReferences}
         onDelete={handleDeleteHighlight}
         onConvert={(id, targetType) => handleConvertHighlight(id, targetType)}
         onOpenReference={(targetType, id) =>
