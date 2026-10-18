@@ -48,6 +48,7 @@ import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highligh
 import { nextHighlightsAfterLoad } from "@/lib/reading/highlights-load";
 import { nextHighlightReferencesAfterLoad } from "@/lib/reading/highlight-references-load";
 import { nextOtherItemsAfterLoad } from "@/lib/reading/other-items-load";
+import { nextReadingNoteIdAfterLookup } from "@/lib/reading/reading-note-lookup-load";
 import { canWriteReadingState, findHighlightMarks, nextReadingProgress, readyHighlightDeepLink, unwrapMark } from "@/lib/reading/progress";
 
 interface RecommendedItem {
@@ -141,6 +142,9 @@ export default function ReadingDetailPage() {
   const [isConvertingToNote, setIsConvertingToNote] = useState(false);
   // 「读 → 记 → 复盘」闭环：本文关联的读书笔记（有则直接打开，无则一键创建）
   const [readingNoteId, setReadingNoteId] = useState<string | null>(null);
+  const readingNoteIdRef = useRef<string | null>(null);
+  const [readingNoteLookupLoadError, setReadingNoteLookupLoadError] = useState<string | null>(null);
+  const [readingNoteLookupAttempt, setReadingNoteLookupAttempt] = useState(0);
   const [isCreatingReadingNote, setIsCreatingReadingNote] = useState(false);
   const [isRefetching, setIsRefetching] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -735,8 +739,11 @@ export default function ReadingDetailPage() {
 
   /** 两个笔记入口共用的互斥锁：防止同时点两个入口各建一篇 */
   const noteLockRef = useRef(false);
-  const findExistingReadingNote = useCallback(async (): Promise<string | null> => {
-    const { data } = await supabase
+  const findExistingReadingNote = useCallback(async (): Promise<
+    | { ok: true; noteId: string | null }
+    | { ok: false; error?: { message?: string } | null }
+  > => {
+    const { data, error } = await supabase
       .from("notes")
       .select("id")
       .eq("reading_item_id", itemId)
@@ -744,7 +751,8 @@ export default function ReadingDetailPage() {
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
-    return data?.id ?? null;
+    if (error) return { ok: false, error };
+    return { ok: true, noteId: data?.id ?? null };
   }, [itemId, supabase]);
 
   const handleConvertToNote = useCallback(async () => {
@@ -758,11 +766,23 @@ export default function ReadingDetailPage() {
         return;
       }
       // 同一篇文章只关联一篇笔记：「转为笔记」与「读书笔记」共用，已有则直接打开
-      const existingId = await findExistingReadingNote();
-      if (existingId) {
-        setReadingNoteId(existingId);
+      const existing = await findExistingReadingNote();
+      if (!existing.ok) {
+        const plan = nextReadingNoteIdAfterLookup({
+          previous: readingNoteIdRef.current,
+          ok: false,
+          error: existing.error,
+        });
+        setReadingNoteLookupLoadError(plan.loadError);
+        toast({ title: plan.loadError, variant: "destructive" });
+        return;
+      }
+      readingNoteIdRef.current = existing.noteId;
+      setReadingNoteId(existing.noteId);
+      setReadingNoteLookupLoadError(null);
+      if (existing.noteId) {
         toast({ title: "这篇文章已有关联笔记，已为你打开" });
-        router.push(`/notes/${existingId}`);
+        router.push(`/notes/${existing.noteId}`);
         return;
       }
       toast({ title: "正在创建笔记..." });
@@ -847,6 +867,7 @@ export default function ReadingDetailPage() {
         return;
       }
 
+      readingNoteIdRef.current = data.id;
       setReadingNoteId(data.id);
       toast({ title: "笔记创建成功" });
       router.push(`/notes/${data.id}`);
@@ -859,6 +880,16 @@ export default function ReadingDetailPage() {
   }, [highlights, item, itemId, supabase, router, isConvertingToNote, findExistingReadingNote]);
 
   useEffect(() => {
+    readingNoteIdRef.current = null;
+    setReadingNoteId(null);
+    setReadingNoteLookupLoadError(null);
+  }, [itemId]);
+
+  const retryReadingNoteLookup = useCallback(() => {
+    setReadingNoteLookupAttempt((attempt) => attempt + 1);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     void supabase
       .from("notes")
@@ -868,13 +899,23 @@ export default function ReadingDetailPage() {
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => {
-        if (active) setReadingNoteId(data?.id ?? null);
+      .then(({ data, error }) => {
+        if (!active) return;
+        const plan = nextReadingNoteIdAfterLookup(
+          error
+            ? { previous: readingNoteIdRef.current, ok: false, error }
+            : { previous: readingNoteIdRef.current, ok: true, noteId: data?.id ?? null }
+        );
+        if (plan.loadError === null) {
+          readingNoteIdRef.current = plan.noteId;
+        }
+        setReadingNoteId(plan.noteId);
+        setReadingNoteLookupLoadError(plan.loadError);
       });
     return () => {
       active = false;
     };
-  }, [itemId, supabase]);
+  }, [itemId, supabase, readingNoteLookupAttempt]);
 
   const handleReadingNote = useCallback(async () => {
     if (!item || isCreatingReadingNote || noteLockRef.current) return;
@@ -891,10 +932,22 @@ export default function ReadingDetailPage() {
         return;
       }
       // 初次查询可能还没回来，或另一入口刚建过：落库前再查一次
-      const existingId = await findExistingReadingNote();
-      if (existingId) {
-        setReadingNoteId(existingId);
-        router.push(`/notes/${existingId}`);
+      const existing = await findExistingReadingNote();
+      if (!existing.ok) {
+        const plan = nextReadingNoteIdAfterLookup({
+          previous: readingNoteIdRef.current,
+          ok: false,
+          error: existing.error,
+        });
+        setReadingNoteLookupLoadError(plan.loadError);
+        toast({ title: plan.loadError, variant: "destructive" });
+        return;
+      }
+      readingNoteIdRef.current = existing.noteId;
+      setReadingNoteId(existing.noteId);
+      setReadingNoteLookupLoadError(null);
+      if (existing.noteId) {
+        router.push(`/notes/${existing.noteId}`);
         return;
       }
       const content = buildReadingNoteContent(
@@ -910,6 +963,7 @@ export default function ReadingDetailPage() {
         toast({ title: "创建读书笔记失败，请重试", variant: "destructive" });
         return;
       }
+      readingNoteIdRef.current = data.id;
       setReadingNoteId(data.id);
       router.push(`/notes/${data.id}`);
     } finally {
@@ -1466,7 +1520,7 @@ export default function ReadingDetailPage() {
           <span className="text-xs text-muted-foreground">
             阅读进度: {Math.round(scrollProgress)}%
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {/* 阅读状态是单一开关：已读时只提供「撤销」，未读/在读时只提供「标记已读」 */}
             {!canWriteState ? null : item.reading_status === "read" ? (
               <Button variant="ghost" size="sm" onClick={() => updateStatus("unread")} title="标记为未读">
@@ -1478,14 +1532,30 @@ export default function ReadingDetailPage() {
                 标记已读
               </Button>
             )}
-            <Button size="sm" disabled={isCreatingReadingNote} onClick={() => void handleReadingNote()}>
-              {isCreatingReadingNote ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <PenLine className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {readingNoteId ? "打开读书笔记" : "写读书笔记"}
-            </Button>
+            {readingNoteLookupLoadError && (
+              <div role="alert" className="flex items-center gap-1 text-xs text-destructive">
+                <span>{readingNoteLookupLoadError}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="px-2 text-destructive hover:text-destructive"
+                  onClick={retryReadingNoteLookup}
+                >
+                  重试
+                </Button>
+              </div>
+            )}
+            {(!readingNoteLookupLoadError || readingNoteId) && (
+              <Button size="sm" disabled={isCreatingReadingNote} onClick={() => void handleReadingNote()}>
+                {isCreatingReadingNote ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <PenLine className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {readingNoteId ? "打开读书笔记" : "写读书笔记"}
+              </Button>
+            )}
           </div>
         </div>
       </div>
