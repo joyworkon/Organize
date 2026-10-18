@@ -46,6 +46,7 @@ import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
 import { nextHighlightsAfterLoad } from "@/lib/reading/highlights-load";
+import { nextOtherItemsAfterLoad } from "@/lib/reading/other-items-load";
 import { canWriteReadingState, findHighlightMarks, nextReadingProgress, readyHighlightDeepLink, unwrapMark } from "@/lib/reading/progress";
 
 interface RecommendedItem {
@@ -148,6 +149,9 @@ export default function ReadingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [bionicMode, setBionicMode] = useState(false);
   const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
+  const otherItemsRef = useRef<RecommendedItem[]>([]);
+  const [otherItemsLoadError, setOtherItemsLoadError] = useState<string | null>(null);
+  const [otherItemsLoadAttempt, setOtherItemsLoadAttempt] = useState(0);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const highlightsRef = useRef<Highlight[]>([]);
   const [highlightsLoadError, setHighlightsLoadError] = useState<string | null>(null);
@@ -215,6 +219,9 @@ export default function ReadingDetailPage() {
     setLoading(true);
     setLoadError(false);
     setItem(null);
+    otherItemsRef.current = [];
+    setOtherItems([]);
+    setOtherItemsLoadError(null);
     highlightsRef.current = [];
     setHighlights([]);
     setHighlightsLoadError(null);
@@ -364,25 +371,42 @@ export default function ReadingDetailPage() {
     }
   }, [item, highlights, loading]);
 
+  const retryLoadOtherItems = useCallback(() => {
+    setOtherItemsLoadError(null);
+    setOtherItemsLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
   useEffect(() => {
+    let active = true;
     async function loadOtherItems() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
+      if (!active || !user) return;
+      const { data, error } = await supabase
         .from("reading_items")
         .select("id, title, url, content, reading_status, created_at, reading_progress, is_pinned, tags:tags!item_tags(id, name)")
         .eq("user_id", user.id)
         .neq("id", itemId)
         .order("created_at", { ascending: false })
         .limit(20);
-      if (data) {
-        setOtherItems(data as RecommendedItem[]);
+      if (!active) return;
+      const plan = nextOtherItemsAfterLoad<RecommendedItem>(
+        error || !data
+          ? { previous: otherItemsRef.current, ok: false, error }
+          : { previous: otherItemsRef.current, ok: true, items: data as RecommendedItem[] }
+      );
+      setOtherItems(plan.items);
+      setOtherItemsLoadError(plan.loadError);
+      if (plan.loadError === null) {
+        otherItemsRef.current = plan.items;
       }
     }
-    loadOtherItems();
-  }, [itemId, supabase]);
+    void loadOtherItems();
+    return () => {
+      active = false;
+    };
+  }, [itemId, supabase, otherItemsLoadAttempt]);
 
   const calculateNormalProgress = useCallback((): number => {
     const container = contentRef.current;
@@ -1343,6 +1367,20 @@ export default function ReadingDetailPage() {
 
         {/* 下一篇推荐 */}
         <div className="pb-24 mt-12">
+          {otherItemsLoadError && (
+            <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 text-sm text-destructive">
+              <span>{otherItemsLoadError}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="px-2 text-destructive hover:text-destructive"
+                onClick={retryLoadOtherItems}
+              >
+                重试
+              </Button>
+            </div>
+          )}
           {recommendedItem ? (
             <Link href={`/library/${recommendedItem.id}`}>
               <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer">
@@ -1376,7 +1414,7 @@ export default function ReadingDetailPage() {
                 </div>
               </div>
             </Link>
-          ) : (
+          ) : otherItemsLoadError ? null : (
             <Link href="/library">
               <div className="border rounded-md p-4 hover:bg-accent transition-colors cursor-pointer text-center">
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
