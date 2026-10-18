@@ -45,6 +45,7 @@ import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
+import { nextHighlightsAfterLoad } from "@/lib/reading/highlights-load";
 import { canWriteReadingState, findHighlightMarks, nextReadingProgress, readyHighlightDeepLink, unwrapMark } from "@/lib/reading/progress";
 
 interface RecommendedItem {
@@ -148,6 +149,9 @@ export default function ReadingDetailPage() {
   const [bionicMode, setBionicMode] = useState(false);
   const [otherItems, setOtherItems] = useState<RecommendedItem[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const highlightsRef = useRef<Highlight[]>([]);
+  const [highlightsLoadError, setHighlightsLoadError] = useState<string | null>(null);
+  const [highlightsLoadAttempt, setHighlightsLoadAttempt] = useState(0);
   const [highlightReferences, setHighlightReferences] = useState<
     Record<string, HighlightReferenceState>
   >({});
@@ -211,7 +215,9 @@ export default function ReadingDetailPage() {
     setLoading(true);
     setLoadError(false);
     setItem(null);
+    highlightsRef.current = [];
     setHighlights([]);
+    setHighlightsLoadError(null);
     setHighlightReferences({});
     progressRef.current = 0;
     canWriteStateRef.current = false;
@@ -299,6 +305,11 @@ export default function ReadingDetailPage() {
     };
   }, [item, itemId, supabase]);
 
+  const retryLoadHighlights = useCallback(() => {
+    setHighlightsLoadError(null);
+    setHighlightsLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
   useEffect(() => {
     let active = true;
     async function loadHighlights() {
@@ -307,8 +318,16 @@ export default function ReadingDetailPage() {
         .select("*")
         .eq("reading_item_id", itemId)
         .order("created_at", { ascending: false });
-      if (active && !error && data) {
-        setHighlights(data as Highlight[]);
+      if (!active) return;
+      const plan = nextHighlightsAfterLoad<Highlight>(
+        error || !data
+          ? { previous: highlightsRef.current, ok: false, error }
+          : { previous: highlightsRef.current, ok: true, highlights: data as Highlight[] }
+      );
+      setHighlights(plan.highlights);
+      setHighlightsLoadError(plan.loadError);
+      if (plan.loadError === null) {
+        highlightsRef.current = plan.highlights;
         await loadHighlightReferences();
       }
     }
@@ -318,7 +337,7 @@ export default function ReadingDetailPage() {
     return () => {
       active = false;
     };
-  }, [itemId, loadHighlightReferences, supabase]);
+  }, [itemId, loadHighlightReferences, supabase, highlightsLoadAttempt]);
 
   // E02-2：任务侧「关联阅读」深链 ?hl={highlightId}——内容渲染后按高亮正文定位并
   // 滚动闪烁；高亮已删或正文匹配不到时静默降级为条目顶部（不滚动）。一次性消费。
@@ -1071,6 +1090,8 @@ export default function ReadingDetailPage() {
         onClose={() => setShowHighlightsPanel(false)}
         highlights={highlights}
         references={highlightReferences}
+        loadError={highlightsLoadError}
+        onRetry={retryLoadHighlights}
         onDelete={handleDeleteHighlight}
         onConvert={(id, targetType) => handleConvertHighlight(id, targetType)}
         onOpenReference={(targetType, id) =>
