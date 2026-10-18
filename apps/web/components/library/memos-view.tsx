@@ -17,6 +17,11 @@ import { AddToCollectionsButton } from "@/components/collections/add-to-collecti
 import type { LibraryItem } from "@organize/shared";
 import { filterByPageSearch } from "@/lib/search/page-search";
 import { clearMemoDraft, loadMemoDraft, saveMemoDraft } from "@/lib/memos/draft";
+import {
+  MEMO_CONVERSIONS_ERROR_HINT,
+  resolveMemoConversionsLoad,
+  type MemoConversion,
+} from "@/lib/memos/conversions";
 import { submitMemo, MEMO_MAX_LENGTH } from "@/lib/memos/save-memo";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import { emitDataChanged, subscribeDataChanged } from "@/lib/desktop/notch";
@@ -135,39 +140,43 @@ export function MemosView({ search }: MemosViewProps) {
   );
 
   // R11：速记 → 关联笔记状态（memo_notes join notes 含软删，用于状态展示）
-  const [conversions, setConversions] = useState<
-    Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>
-  >(new Map());
+  const [conversions, setConversions] = useState<Map<string, MemoConversion>>(new Map());
+  // 关联状态读取失败：保留上次结果（不清空），列表上方提示 + 重试
+  const [conversionsError, setConversionsError] = useState(false);
+  const lastConversionsRef = useRef(new Map<string, MemoConversion>());
+  lastConversionsRef.current = conversions;
 
   const loadConversions = useCallback(async () => {
     try {
       // 两次普通查询（不依赖关联嵌入 select；mock 与真实后端行为一致）
-      const { data: links } = await supabase
+      const { data: links, error: linksError } = await supabase
         .from("memo_notes")
         .select("memo_id, note_id");
-      const noteIds = ((links || []) as Array<{ note_id: string }>).map((l) => l.note_id);
-      const notesById = new Map<string, { title: string | null; deleted_at: string | null }>();
-      if (noteIds.length > 0) {
-        const { data: linkedNotes } = await supabase
-          .from("notes")
-          .select("id, title, deleted_at")
-          .in("id", noteIds);
-        for (const n of (linkedNotes || []) as Array<{ id: string; title: string | null; deleted_at: string | null }>) {
-          notesById.set(n.id, { title: n.title, deleted_at: n.deleted_at });
+      let notes: Array<{ id: string; title: string | null; deleted_at: string | null }> | null = null;
+      let notesError: unknown = null;
+      if (!linksError) {
+        const noteIds = ((links || []) as Array<{ note_id: string }>).map((l) => l.note_id);
+        if (noteIds.length > 0) {
+          const { data: linkedNotes, error: notesQueryError } = await supabase
+            .from("notes")
+            .select("id, title, deleted_at")
+            .in("id", noteIds);
+          notes = (linkedNotes || []) as Array<{ id: string; title: string | null; deleted_at: string | null }>;
+          notesError = notesQueryError;
         }
       }
-      const next = new Map<string, { noteId: string; noteTitle: string | null; noteDeleted: boolean }>();
-      for (const link of (links || []) as Array<{ memo_id: string; note_id: string }>) {
-        const note = notesById.get(link.note_id);
-        next.set(link.memo_id, {
-          noteId: link.note_id,
-          noteTitle: note?.title ?? null,
-          noteDeleted: note?.deleted_at != null,
-        });
-      }
-      setConversions(next);
+      const result = resolveMemoConversionsLoad({
+        links: (links || []) as Array<{ memo_id: string; note_id: string }>,
+        notes,
+        linksError,
+        notesError,
+        previous: lastConversionsRef.current,
+      });
+      setConversions(result.conversions);
+      setConversionsError(!result.ok);
     } catch (e) {
       console.error("[loadConversions]", e);
+      setConversionsError(true);
     }
   }, [supabase]);
 
@@ -544,6 +553,12 @@ export function MemosView({ search }: MemosViewProps) {
         <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
           <span className="text-xs text-destructive">刷新失败，当前显示的是上次内容</span>
           <Button size="sm" variant="ghost" onClick={() => void fetchMemos()}>重试</Button>
+        </div>
+      )}
+      {conversionsError && memos.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <span className="text-xs text-destructive">{MEMO_CONVERSIONS_ERROR_HINT}</span>
+          <Button size="sm" variant="ghost" onClick={() => void loadConversions()}>重试</Button>
         </div>
       )}
       {loading && memos.length === 0 ? (
