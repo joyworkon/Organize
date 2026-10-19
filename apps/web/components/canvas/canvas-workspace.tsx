@@ -16,6 +16,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { Keyboard } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -92,6 +93,8 @@ import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
+import { allCanvasBlockIds, canvasShortcutLabels, duplicateCanvasSelection, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
+import { CanvasShortcutsDialog } from "./canvas-shortcuts-dialog";
 import { useIsNarrowViewport } from "./use-is-narrow-viewport";
 import { displayKey } from "./canvas-block";
 import { useCanvasSelector } from "./use-canvas-selector";
@@ -164,6 +167,11 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [shortcutLabels, setShortcutLabels] = useState(() => canvasShortcutLabels());
+  useEffect(() => {
+    setShortcutLabels(canvasShortcutLabels(navigator.platform));
+  }, []);
   const [userId, setUserId] = useState("");
   const narrow = useIsNarrowViewport();
   /** 左侧面板折叠（窄空间可折叠，默认展开）。 */
@@ -387,16 +395,63 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     return () => window.removeEventListener("organize:fonts-ready", remeasure);
   }, [measurer, store]);
 
+  // ---------------- 关闭/刷新前 flush ----------------
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const controller = autosaveRef.current;
+      if (controller?.hasPending) {
+        void controller.flush();
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  // ---------------- 工具条动作 ----------------
+
+  /** 浮动添加/属性面板覆盖的区域不算可用画布，新建与适合全部使用同一矩形。 */
+  const visibleViewportNow = useCallback(() => {
+    const shell = shellRef.current;
+    if (!shell) return null;
+    const rect = shell.getBoundingClientRect();
+    const parent = shell.parentElement;
+    const leftPanel = parent?.querySelector(".canvas-add-panel-wrap")?.getBoundingClientRect();
+    const rightPanel = parent?.querySelector(".canvas-property-bar")?.getBoundingClientRect();
+    const x = leftPanel ? Math.max(0, leftPanel.right - rect.left + 16) : 0;
+    const right = rightPanel ? Math.min(rect.width, rightPanel.left - rect.left - 16) : rect.width;
+    return { x, y: 40, width: Math.max(120, right - x), height: Math.max(120, rect.height - 104) };
+  }, []);
+
+  /** Buttons and shortcuts keep the same visible world point under the viewport center. */
+  const changeCanvasZoom = useCallback((zoom: number) => {
+    const rect = visibleViewportNow();
+    if (rect) store.getState().setViewport(zoomCanvasAtCenter(store.getState().viewport, zoom, rect));
+  }, [store, visibleViewportNow]);
+
+  const fitAll = useCallback(() => {
+    const rect = visibleViewportNow();
+    zoomToFit(
+      scene,
+      (vp) => store.getState().setViewport({ ...vp, x: (vp.x ?? 0) + (rect?.x ?? 0), y: (vp.y ?? 0) + (rect?.y ?? 0) }),
+      rect ? { width: rect.width, height: rect.height } : { width: 1200, height: 800 },
+    );
+  }, [scene, store, visibleViewportNow]);
+
   // ---------------- 键盘 ----------------
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (load.phase !== "ready" || e.defaultPrevented || e.isComposing || e.keyCode === 229 || hasOpenDialog()) return;
       const s = store.getState();
       if (s.previewMode && e.key === "Escape") {
         s.togglePreview();
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z") {
+        if (s.readOnly || s.previewMode) return;
         // 目标是否为画布块内文本域（受控 textarea）：画布统一撤销接管，
         // 防止与文档撤销打架；普通输入框（页面名/属性栏/搜索等）走原生，不抢。
         const target = e.target as HTMLElement | null;
@@ -421,7 +476,37 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       }
       // 输入控件内（区块名编辑/属性栏输入框/对话框）不触发画布快捷键
       if (isTypingTarget(e)) return;
-      if (s.editingBlockId || s.readOnly || s.previewMode) return;
+      if (s.editingBlockId) return;
+      const action = matchCanvasShortcut(e);
+      if (action) {
+        if (action === "duplicate" && (s.readOnly || s.previewMode)) return;
+        e.preventDefault();
+        // Capture consumes canvas keys before focused objects and the global ? help.
+        e.stopPropagation();
+        switch (action) {
+          case "select-all": {
+            const blockIds = allCanvasBlockIds(s.doc);
+            if (blockIds.length) s.select({ kind: "blocks", blockIds });
+            break;
+          }
+          case "duplicate": {
+            const result = duplicateCanvasSelection(s.doc, s.selection);
+            s.apply(s.selection?.kind === "blocks" ? "复制多个模块" : s.selection?.kind === "region" ? "复制区块" : "复制模块", () => result);
+            if (result.blockIds && result.blockIds.length > 1) {
+              store.getState().clearFocus();
+              store.getState().select({ kind: "blocks", blockIds: result.blockIds });
+            }
+            break;
+          }
+          case "zoom-in": changeCanvasZoom(s.viewport.zoom * 1.2); break;
+          case "zoom-out": changeCanvasZoom(s.viewport.zoom / 1.2); break;
+          case "zoom-reset": changeCanvasZoom(1); break;
+          case "zoom-fit": fitAll(); break;
+          case "help": setShowShortcuts(true); break;
+        }
+        return;
+      }
+      if (s.readOnly || s.previewMode) return;
       if (e.code === "Space") {
         setSpaceHeld(true);
         return;
@@ -458,37 +543,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [store]);
-
-  // ---------------- 关闭/刷新前 flush ----------------
-
-  useEffect(() => {
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      const controller = autosaveRef.current;
-      if (controller?.hasPending) {
-        void controller.flush();
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
-
-  // ---------------- 工具条动作 ----------------
-
-  /** 浮动添加/属性面板覆盖的区域不算可用画布，新建与适合全部使用同一矩形。 */
-  const visibleViewportNow = useCallback(() => {
-    const shell = shellRef.current;
-    if (!shell) return null;
-    const rect = shell.getBoundingClientRect();
-    const parent = shell.parentElement;
-    const leftPanel = parent?.querySelector(".canvas-add-panel-wrap")?.getBoundingClientRect();
-    const rightPanel = parent?.querySelector(".canvas-property-bar")?.getBoundingClientRect();
-    const x = leftPanel ? Math.max(0, leftPanel.right - rect.left + 16) : 0;
-    const right = rightPanel ? Math.min(rect.width, rightPanel.left - rect.left - 16) : rect.width;
-    return { x, y: 40, width: Math.max(120, right - x), height: Math.max(120, rect.height - 104) };
-  }, []);
+  }, [store, load.phase, changeCanvasZoom, fitAll]);
 
   const worldCenterNow = useCallback(() => {
     const rect = visibleViewportNow();
@@ -990,7 +1045,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
               className="shrink-0 text-muted-foreground"
               onClick={() => store.getState().undo()}
               disabled={!canUndo || previewMode}
-              title="撤销（⌘Z）"
+              title={`撤销（${shortcutLabels.mod}Z）`}
               aria-label="撤销"
             >
               <Undo2 className="h-4 w-4" />
@@ -1002,7 +1057,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
               className="shrink-0 text-muted-foreground"
               onClick={() => store.getState().redo()}
               disabled={!canRedo || previewMode}
-              title="重做（⇧⌘Z）"
+              title={`重做（${shortcutLabels.shift}${shortcutLabels.mod}Z）`}
               aria-label="重做"
             >
               <Redo2 className="h-4 w-4" />
@@ -1210,9 +1265,9 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           variant="ghost"
           size="icon"
           className="shrink-0 text-muted-foreground"
-          title="缩小"
+          title={`缩小（${shortcutLabels.mod}-）`}
           aria-label="缩小"
-          onClick={() => store.getState().setViewport({ zoom: clampZoom(viewport.zoom / 1.2) })}
+          onClick={() => changeCanvasZoom(store.getState().viewport.zoom / 1.2)}
         >
           <Minus className="h-4 w-4" />
         </Button>
@@ -1224,13 +1279,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           variant="ghost"
           size="icon"
           className="shrink-0 text-muted-foreground"
-          title="放大"
+          title={`放大（${shortcutLabels.mod}=）`}
           aria-label="放大"
-          onClick={() => store.getState().setViewport({ zoom: clampZoom(viewport.zoom * 1.2) })}
+          onClick={() => changeCanvasZoom(store.getState().viewport.zoom * 1.2)}
         >
           <Plus className="h-4 w-4" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" aria-label="重置为 100%" onClick={() => store.getState().setViewport({ zoom: 1 })} title="重置为 100%">
+        <Button type="button" variant="ghost" size="sm" aria-label="重置为 100%" onClick={() => changeCanvasZoom(1)} title={`重置为 100%（${shortcutLabels.mod}0）`}>
           100%
         </Button>
         <Button
@@ -1238,20 +1293,27 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           variant="ghost"
           size="icon"
           className="shrink-0 text-muted-foreground"
-          title="适合全部"
+          title={`适合全部（${shortcutLabels.shift}1）`}
           aria-label="适合全部"
-          onClick={() => {
-            const rect = visibleViewportNow();
-            zoomToFit(
-              scene,
-              (vp) => store.getState().setViewport({ ...vp, x: (vp.x ?? 0) + (rect?.x ?? 0), y: (vp.y ?? 0) + (rect?.y ?? 0) }),
-              rect ? { width: rect.width, height: rect.height } : { width: 1200, height: 800 },
-            );
-          }}
+          onClick={fitAll}
         >
           <Maximize2 className="h-4 w-4" />
         </Button>
+        {!narrow && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-muted-foreground"
+            title="键盘快捷键（?）"
+            aria-label="键盘快捷键"
+            onClick={() => setShowShortcuts(true)}
+          >
+            <Keyboard className="h-4 w-4" />
+          </Button>
+        )}
       </div>
+      <CanvasShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} labels={shortcutLabels} />
 
       {/* 云端版本查看 */}
       <Dialog open={showRemoteDialog} onOpenChange={setShowRemoteDialog}>
