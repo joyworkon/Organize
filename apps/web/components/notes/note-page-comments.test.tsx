@@ -413,3 +413,75 @@ describe("NotePageComments 解决/删除写诚实性", () => {
     expect(findAction("重新打开").disabled).toBe(false);
   });
 });
+
+describe("NotePageComments 发送回滚诚实性", () => {
+  /** 建楼成功、首条评论 insert 失败，进入回滚分支前的公共前置 */
+  async function startFailingSubmit(body: string) {
+    render("note-a");
+    await flushLoad(state.supabase.threadSelects[0], []);
+
+    const textarea = container.querySelector("textarea")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(textarea, body);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="发送评论"]')!.click();
+    });
+
+    const threadInsert = state.supabase.inserts.find((i) => i.table === "note_comment_threads");
+    await act(async () => {
+      threadInsert!.deferred.resolve({ data: threadRow("t-new", "note-a"), error: null });
+    });
+    const commentInsert = state.supabase.inserts.find((i) => i.table === "note_comments");
+    expect(commentInsert?.payload.body).toBe(body);
+    await act(async () => {
+      commentInsert!.deferred.resolve({ data: null, error: { message: "insert failed" } });
+    });
+  }
+
+  it("评论写入失败且回滚成功：通用失败文案、草稿保留、不重新加载", async () => {
+    await startFailingSubmit("保留的草稿");
+
+    const rollback = state.supabase.deletes[0];
+    expect(rollback?.table).toBe("note_comment_threads");
+    expect(rollback?.filters).toMatchObject({ id: "t-new", note_id: "note-a" });
+    await act(async () => {
+      rollback!.deferred.resolve({ data: [{ id: "t-new" }], error: null });
+    });
+
+    expect(container.textContent).toContain("评论发送失败，请稍后重试");
+    expect(container.textContent).not.toContain("空评论未能撤回");
+    expect(container.querySelector("textarea")!.value).toBe("保留的草稿");
+    // 回滚成功：不触发重新加载（仍是首次那次）
+    expect(state.supabase.threadSelects).toHaveLength(1);
+  });
+
+  it("回滚删除返回 0 行（RLS 拒绝）：具体文案、刷新列表、草稿保留", async () => {
+    await startFailingSubmit("保留的草稿");
+
+    await act(async () => {
+      state.supabase.deletes[0].deferred.resolve({ data: [], error: null });
+    });
+    // 回滚失败 → 触发新一轮加载反映残留的空线程
+    expect(state.supabase.threadSelects).toHaveLength(2);
+    await flushLoad(state.supabase.threadSelects[1], [threadRow("t-new", "note-a")], []);
+
+    expect(container.textContent).toContain("评论发送失败，且空评论未能撤回，请刷新后处理");
+    expect(container.querySelector("textarea")!.value).toBe("保留的草稿");
+  });
+
+  it("回滚删除抛异常：具体文案、无未处理 rejection、原错误不被回滚异常掩盖", async () => {
+    await startFailingSubmit("保留的草稿");
+
+    await act(async () => {
+      state.supabase.deletes[0].deferred.reject(new Error("network down"));
+    });
+    expect(state.supabase.threadSelects).toHaveLength(2);
+    await flushLoad(state.supabase.threadSelects[1], [threadRow("t-new", "note-a")], []);
+
+    expect(container.textContent).toContain("评论发送失败，且空评论未能撤回，请刷新后处理");
+    expect(container.querySelector("textarea")!.value).toBe("保留的草稿");
+  });
+});
