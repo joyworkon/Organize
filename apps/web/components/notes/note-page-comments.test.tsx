@@ -37,11 +37,24 @@ interface InsertCall {
   payload: Record<string, unknown>;
   deferred: Deferred;
 }
+interface UpdateCall {
+  table: string;
+  payload: Record<string, unknown>;
+  filters: Record<string, unknown>;
+  deferred: Deferred;
+}
+interface DeleteCall {
+  table: string;
+  filters: Record<string, unknown>;
+  deferred: Deferred;
+}
 
 function createFakeSupabase() {
   const threadSelects: ThreadSelect[] = [];
   const commentSelects: CommentSelect[] = [];
   const inserts: InsertCall[] = [];
+  const updates: UpdateCall[] = [];
+  const deletes: DeleteCall[] = [];
 
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -74,6 +87,16 @@ function createFakeSupabase() {
           inserts.push({ table, payload, deferred });
           return builder;
         },
+        update(payload: Record<string, unknown>) {
+          deferred = makeDeferred();
+          updates.push({ table, payload, filters, deferred });
+          return builder;
+        },
+        delete() {
+          deferred = makeDeferred();
+          deletes.push({ table, filters, deferred });
+          return builder;
+        },
         async single() {
           return deferred!.promise;
         },
@@ -87,7 +110,7 @@ function createFakeSupabase() {
       return builder;
     },
   };
-  return { client, threadSelects, commentSelects, inserts };
+  return { client, threadSelects, commentSelects, inserts, updates, deletes };
 }
 
 const state = vi.hoisted(() => ({ supabase: createFakeSupabase() }));
@@ -288,5 +311,105 @@ describe("NotePageComments 切笔记隔离", () => {
     expect(textarea.value).toBe("");
     // B 的加载仍是唯一在途请求（A 的收尾没有为 B 发起新一轮）
     expect(state.supabase.threadSelects.filter((s) => s.noteId === "note-b")).toHaveLength(1);
+  });
+});
+
+describe("NotePageComments 解决/删除写诚实性", () => {
+  function findAction(text: string): HTMLButtonElement {
+    return [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes(text),
+    )! as HTMLButtonElement;
+  }
+
+  async function renderWithThread() {
+    render("note-a");
+    await flushLoad(
+      state.supabase.threadSelects[0],
+      [threadRow("t-a", "note-a")],
+      [commentRow("c-a", "t-a", "评论A")],
+    );
+  }
+
+  it("解决返回 0 行（RLS 拒绝/行不存在）时显示失败文案，不重新加载", async () => {
+    await renderWithThread();
+
+    const resolveButton = findAction("解决");
+    await act(async () => {
+      resolveButton.click();
+    });
+
+    // 进行中：该线程按钮禁用，请求结束后恢复
+    expect(resolveButton.disabled).toBe(true);
+    const update = state.supabase.updates[0];
+    expect(update?.table).toBe("note_comment_threads");
+    expect(update?.filters).toMatchObject({ id: "t-a", note_id: "note-a" });
+    expect(typeof update?.payload.resolved_at).toBe("string");
+
+    await act(async () => {
+      update!.deferred.resolve({ data: [], error: null });
+    });
+
+    expect(container.textContent).toContain("评论状态更新失败");
+    expect(container.textContent).toContain("评论A");
+    // 没有触发重新加载（仍是首次那次）
+    expect(state.supabase.threadSelects).toHaveLength(1);
+    expect(findAction("解决").disabled).toBe(false);
+  });
+
+  it("删除返回 0 行时显示失败文案，不重新加载", async () => {
+    await renderWithThread();
+
+    await act(async () => {
+      findAction("删除").click();
+    });
+    const deletion = state.supabase.deletes[0];
+    expect(deletion?.table).toBe("note_comment_threads");
+    expect(deletion?.filters).toMatchObject({ id: "t-a", note_id: "note-a" });
+
+    await act(async () => {
+      deletion!.deferred.resolve({ data: [], error: null });
+    });
+
+    expect(container.textContent).toContain("删除评论失败");
+    expect(container.textContent).toContain("评论A");
+    expect(state.supabase.threadSelects).toHaveLength(1);
+  });
+
+  it("解决请求抛异常时显示失败文案，不产生未处理 rejection", async () => {
+    await renderWithThread();
+
+    await act(async () => {
+      findAction("解决").click();
+    });
+    await act(async () => {
+      state.supabase.updates[0].deferred.reject(new Error("network down"));
+    });
+
+    expect(container.textContent).toContain("评论状态更新失败");
+    expect(container.textContent).toContain("评论A");
+    expect(state.supabase.threadSelects).toHaveLength(1);
+    expect(findAction("解决").disabled).toBe(false);
+  });
+
+  it("解决成功后重新加载并展示最新状态", async () => {
+    await renderWithThread();
+
+    await act(async () => {
+      findAction("解决").click();
+    });
+    await act(async () => {
+      state.supabase.updates[0].deferred.resolve({ data: [{ id: "t-a" }], error: null });
+    });
+
+    // 成功 → 触发新一轮加载
+    expect(state.supabase.threadSelects).toHaveLength(2);
+    expect(container.textContent).not.toContain("评论状态更新失败");
+    await flushLoad(
+      state.supabase.threadSelects[1],
+      [{ ...threadRow("t-a", "note-a"), resolved_at: "2026-10-19T01:00:00Z" }],
+      [commentRow("c-a", "t-a", "评论A")],
+    );
+    expect(container.textContent).toContain("重新打开");
+    expect(findAction("重新打开").disabled).toBe(false);
   });
 });

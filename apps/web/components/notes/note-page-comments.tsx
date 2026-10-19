@@ -31,6 +31,8 @@ export function NotePageComments({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+  // 进行中写操作（解决/删除）的线程 id：只禁用对应线程的按钮，不阻塞其它线程与发送框
+  const [pendingThreadIds, setPendingThreadIds] = useState<ReadonlySet<string>>(new Set());
 
   // noteId 只作为 key 触发 effect；异步链路统一走 ref，保证发起时快照可判失效。
   // ref 在 effect 内更新（不在渲染期写），避免并发渲染被丢弃时误判。
@@ -168,31 +170,56 @@ export function NotePageComments({
   const toggleResolved = async (thread: CommentThread) => {
     const token: CommentLoadToken = { noteId: noteIdRef.current, seq: loadSeqRef.current };
     const isCurrent = () => shouldApplyCommentResult(token, noteIdRef.current, loadSeqRef.current);
-    const { error: updateError } = await supabase
-      .from("note_comment_threads")
-      .update({ resolved_at: thread.resolved_at ? null : new Date().toISOString() })
-      .eq("id", thread.id)
-      .eq("note_id", token.noteId);
-    if (updateError) {
+    setPendingThreadIds((prev) => new Set(prev).add(thread.id));
+    try {
+      // .select("id")：RLS 拒绝或行不存在时 PostgREST 返回 0 行且 error=null，需按行数判失败
+      const { data: updatedRows, error: updateError } = await supabase
+        .from("note_comment_threads")
+        .update({ resolved_at: thread.resolved_at ? null : new Date().toISOString() })
+        .eq("id", thread.id)
+        .eq("note_id", token.noteId)
+        .select("id");
+      if (updateError || !updatedRows || updatedRows.length === 0) {
+        if (isCurrent()) setDraft((prev) => ({ ...prev, error: "评论状态更新失败" }));
+        return;
+      }
+      if (isCurrent()) await loadThreads();
+    } catch {
       if (isCurrent()) setDraft((prev) => ({ ...prev, error: "评论状态更新失败" }));
-      return;
+    } finally {
+      setPendingThreadIds((prev) => {
+        const next = new Set(prev);
+        next.delete(thread.id);
+        return next;
+      });
     }
-    if (isCurrent()) await loadThreads();
   };
 
   const deleteThread = async (threadId: string) => {
     const token: CommentLoadToken = { noteId: noteIdRef.current, seq: loadSeqRef.current };
     const isCurrent = () => shouldApplyCommentResult(token, noteIdRef.current, loadSeqRef.current);
-    const { error: deleteError } = await supabase
-      .from("note_comment_threads")
-      .delete()
-      .eq("id", threadId)
-      .eq("note_id", token.noteId);
-    if (deleteError) {
+    setPendingThreadIds((prev) => new Set(prev).add(threadId));
+    try {
+      const { data: deletedRows, error: deleteError } = await supabase
+        .from("note_comment_threads")
+        .delete()
+        .eq("id", threadId)
+        .eq("note_id", token.noteId)
+        .select("id");
+      if (deleteError || !deletedRows || deletedRows.length === 0) {
+        if (isCurrent()) setDraft((prev) => ({ ...prev, error: "删除评论失败" }));
+        return;
+      }
+      if (isCurrent()) await loadThreads();
+    } catch {
       if (isCurrent()) setDraft((prev) => ({ ...prev, error: "删除评论失败" }));
-      return;
+    } finally {
+      setPendingThreadIds((prev) => {
+        const next = new Set(prev);
+        next.delete(threadId);
+        return next;
+      });
     }
-    if (isCurrent()) await loadThreads();
   };
 
   return (
@@ -250,11 +277,19 @@ export function NotePageComments({
                 </div>
               ))}
               <div className="note-page-comment-actions">
-                <button type="button" onClick={() => void toggleResolved(thread)}>
+                <button
+                  type="button"
+                  disabled={pendingThreadIds.has(thread.id)}
+                  onClick={() => void toggleResolved(thread)}
+                >
                   <Check className="h-3.5 w-3.5" />
                   {thread.resolved_at ? "重新打开" : "解决"}
                 </button>
-                <button type="button" onClick={() => void deleteThread(thread.id)}>
+                <button
+                  type="button"
+                  disabled={pendingThreadIds.has(thread.id)}
+                  onClick={() => void deleteThread(thread.id)}
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                   删除
                 </button>
