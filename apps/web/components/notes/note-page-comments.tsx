@@ -278,6 +278,9 @@ export function NotePageComments({
         </div>
       ) : (
         <div className="space-y-3">
+          {!loadFailed && threads.length === 0 && (
+            <div className="editor-dialog-empty">还没有评论</div>
+          )}
           {threads.map((thread) => (
             <article
               key={thread.id}
@@ -342,6 +345,7 @@ export function NotePageComments({
               void submit();
             }
           }}
+          aria-label="写下评论"
           placeholder="写下评论..."
           maxLength={5000}
         />

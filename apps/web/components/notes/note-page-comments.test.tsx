@@ -187,6 +187,42 @@ afterEach(() => {
   container.remove();
 });
 
+describe("NotePageComments 空状态与可访问性", () => {
+  it("加载中隐藏空态，加载完成且无评论时显示空态，输入框仍可用", async () => {
+    render("note-a");
+    expect(container.textContent).toContain("加载评论...");
+    expect(container.textContent).not.toContain("还没有评论");
+
+    await flushLoad(state.supabase.threadSelects[0], []);
+
+    expect(container.textContent).toContain("还没有评论");
+    expect(container.textContent).not.toContain("加载评论...");
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.getAttribute("aria-label")).toBe("写下评论");
+    expect(textarea.placeholder).toBe("写下评论...");
+    expect(textarea.disabled).toBe(false);
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(textarea, "第一条评论");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(textarea.value).toBe("第一条评论");
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="发送评论"]')!.disabled).toBe(false);
+  });
+
+  it("已有评论时显示评论内容而非空态", async () => {
+    render("note-a");
+    await flushLoad(
+      state.supabase.threadSelects[0],
+      [threadRow("t-a", "note-a")],
+      [commentRow("c-a", "t-a", "已有评论")],
+    );
+
+    expect(container.textContent).toContain("已有评论");
+    expect(container.textContent).not.toContain("还没有评论");
+  });
+});
+
 describe("NotePageComments 切笔记隔离", () => {
   it("笔记 A 的晚到响应不得覆盖笔记 B 的列表与计数", async () => {
     render("note-a");
@@ -252,6 +288,7 @@ describe("NotePageComments 切笔记隔离", () => {
       state.supabase.threadSelects[0].deferred.reject(new Error("network down"));
     });
     expect(container.textContent).toContain("评论加载失败");
+    expect(container.textContent).not.toContain("还没有评论");
 
     const retry = [...container.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("重试"),
@@ -261,6 +298,8 @@ describe("NotePageComments 切笔记隔离", () => {
     await act(async () => {
       retry!.click();
     });
+    expect(container.textContent).toContain("加载评论...");
+    expect(container.textContent).not.toContain("还没有评论");
     await flushLoad(
       state.supabase.threadSelects[1],
       [threadRow("t-a", "note-a")],
