@@ -47,6 +47,10 @@ import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { RESOURCE_TAGS_LOAD_ERROR_HINT } from "@/lib/tags/resource-tags-load";
 import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
 import { saveRpcNameForRole, type CollabRole } from "@/lib/collab/roles";
+import {
+  resolveResourceRole,
+  type ResolvedResourceRole,
+} from "@/lib/share/resource-role-load";
 import { useNoteCollab, colorFromUserId } from "@/hooks/use-note-collab";
 import { NotePresenceBar } from "@/components/notes/note-presence-bar";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
@@ -197,6 +201,9 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
   const [noteRole, setNoteRole] = useState<CollabRole | null>(null);
   const noteRoleRef = useRef<CollabRole | null>(null);
+  // resource_role 未成功取到有效角色时为真：安全兜底 viewer 保留，
+  // 但 UI 必须诚实标「权限未加载」并可重试，不伪装「仅查看」。
+  const [noteRoleUnverified, setNoteRoleUnverified] = useState(false);
   // 实时协作会话（P5-03，ADR 0003）：显式配置 NEXT_PUBLIC_COLLAB_WS_URL 且真实后端时启用
   const collabConfigured =
     Boolean(process.env.NEXT_PUBLIC_COLLAB_WS_URL)
@@ -358,18 +365,35 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   }, [supabase]);
 
   // 协作角色判定（P5-02 卡 4）：属主无需 RPC（行的 user_id 即事实）；
-  // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理
-  //（宁可只读也不误写）。前端不自行推导角色。
+  // 协作者调 063 的唯一判定入口 resource_role。失败（error 或抛错）不能静默伪装成
+  // 「只读协作者」：读 error + try/catch，统一经 resolveResourceRole 收敛——
+  // 兜底 viewer 保留（宁可只读也不误写），但 unverified 必须透传给 UI。前端不自行推导角色。
   const resolveCollabRole = useCallback(
-    async (id: string): Promise<CollabRole> => {
-      const { data: role } = await supabase.rpc("resource_role", {
-        p_resource_type: "note",
-        p_resource_id: id,
-      });
-      return role === "owner" || role === "editor" || role === "viewer" ? role : "viewer";
+    async (id: string): Promise<ResolvedResourceRole> => {
+      let outcome: { data: unknown; error: unknown };
+      try {
+        outcome = await supabase.rpc("resource_role", {
+          p_resource_type: "note",
+          p_resource_id: id,
+        });
+      } catch (e) {
+        outcome = { data: null, error: e };
+      }
+      return resolveResourceRole(outcome);
     },
     [supabase]
   );
+
+  // 只重跑角色判定，不整页重载笔记（避免丢未保存编辑）。
+  // 属主角色来自行 user_id 的事实判定，无需重试；角色未判定时由 loadNote 主链负责。
+  const retryLoadNoteRole = useCallback(() => {
+    if (noteRoleRef.current === null || noteRoleRef.current === "owner") return;
+    void resolveCollabRole(noteId).then((result) => {
+      noteRoleRef.current = result.role;
+      setNoteRole(result.role);
+      setNoteRoleUnverified(result.unverified);
+    });
+  }, [noteId, resolveCollabRole]);
 
   // 加载笔记
   useEffect(() => {
@@ -384,6 +408,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       migrationRef.current = null;
       noteRoleRef.current = null;
       setNoteRole(null);
+      setNoteRoleUnverified(false);
       setSeedContent(null);
       setPageTemplate("default");
       // X1：getSession 读本地会话（无网络请求）——离线打开「待同步的离线创建笔记」
@@ -410,11 +435,14 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
       if (!active) return;
       if (!error && data) {
-        const loadedRole: CollabRole =
-          data.user_id === user.id ? "owner" : await resolveCollabRole(noteId);
+        const resolvedRole: ResolvedResourceRole =
+          data.user_id === user.id
+            ? { role: "owner", unverified: false }
+            : await resolveCollabRole(noteId);
         if (!active) return;
-        noteRoleRef.current = loadedRole;
-        setNoteRole(loadedRole);
+        noteRoleRef.current = resolvedRole.role;
+        setNoteRole(resolvedRole.role);
+        setNoteRoleUnverified(resolvedRole.unverified);
         const loadedTitle = data.title || "";
         const loadedContent = data.content || { type: "doc", content: [{ type: "paragraph" }] };
         setSeedContent(loadedContent);
@@ -464,7 +492,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         // 一次性幂等迁移：DB 是默认值且 localStorage 有旧值时，搬入 DB。
         // 成功后 DB 非默认，下次加载条件自动不成立，不会重复迁移。
         // 协作 viewer 跳过：排版偏好写不进别人的笔记，标脏只会造成永远的「未保存」。
-        if (loadedRole !== "viewer") {
+        if (resolvedRole.role !== "viewer") {
           try {
             const lw = localStorage.getItem(fullWidthKey(noteId));
             const f = localStorage.getItem(fontKey(noteId));
@@ -1864,6 +1892,8 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         myRole={noteRole ?? "owner"}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
+        roleUnverified={noteRoleUnverified}
+        onRetryRole={retryLoadNoteRole}
       />
 
       <NoteMoveDialog
