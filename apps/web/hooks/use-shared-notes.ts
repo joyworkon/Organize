@@ -8,6 +8,7 @@ import {
   SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT,
   type PresenceLoadOutcome,
 } from "@/lib/layout/sidebar-collab-presence-load";
+import { nextSharedNotesAfterLoad } from "@/lib/share/shared-notes-list-load";
 
 export interface SharedNoteItem {
   id: string;
@@ -37,6 +38,7 @@ interface RawNoteRow {
  */
 export function useSharedNotes(limit = 100) {
   const supabase = useMemo(() => createClient(), []);
+  const lastNotesRef = useRef<SharedNoteItem[]>([]);
   const [notes, setNotes] = useState<SharedNoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,9 @@ export function useSharedNotes(limit = 100) {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
+        lastNotesRef.current = [];
         setNotes([]);
+        setError(null);
         return;
       }
       const { data, error: queryErr } = await supabase
@@ -62,36 +66,32 @@ export function useSharedNotes(limit = 100) {
       if (queryErr) throw new Error(queryErr.message);
       const rows = (data || []) as RawNoteRow[];
 
+      let assembled: SharedNoteItem[] = [];
       // mock 后端只有一个账号：neq 过滤后天然为空，不额外发角色/档案查询
-      if (rows.length === 0) {
-        setNotes([]);
-        return;
-      }
+      if (rows.length > 0) {
+        const withRoles = await Promise.all(
+          rows.map(async (row) => {
+            const { data: role } = await supabase.rpc("resource_role", {
+              p_resource_type: "note",
+              p_resource_id: row.id,
+            });
+            // RLS 已保证可见 ⇒ 角色必然非空；防御值取 viewer（宁可错杀为只读）
+            const myRole = isCollabRole(role) ? role : "viewer";
+            return { row, myRole };
+          })
+        );
 
-      const withRoles = await Promise.all(
-        rows.map(async (row) => {
-          const { data: role } = await supabase.rpc("resource_role", {
-            p_resource_type: "note",
-            p_resource_id: row.id,
-          });
-          // RLS 已保证可见 ⇒ 角色必然非空；防御值取 viewer（宁可错杀为只读）
-          const myRole = isCollabRole(role) ? role : "viewer";
-          return { row, myRole };
-        })
-      );
+        const ownerIds = [...new Set(rows.map((row) => row.user_id))];
+        const profiles = new Map<string, { display_name: string | null; avatar_url: string | null }>();
+        const { data: profileRows } = await supabase
+          .from("user_profiles")
+          .select("id, display_name, avatar_url")
+          .in("id", ownerIds);
+        for (const profile of profileRows || []) {
+          profiles.set(profile.id, { display_name: profile.display_name ?? null, avatar_url: profile.avatar_url ?? null });
+        }
 
-      const ownerIds = [...new Set(rows.map((row) => row.user_id))];
-      const profiles = new Map<string, { display_name: string | null; avatar_url: string | null }>();
-      const { data: profileRows } = await supabase
-        .from("user_profiles")
-        .select("id, display_name, avatar_url")
-        .in("id", ownerIds);
-      for (const profile of profileRows || []) {
-        profiles.set(profile.id, { display_name: profile.display_name ?? null, avatar_url: profile.avatar_url ?? null });
-      }
-
-      setNotes(
-        withRoles.map(({ row, myRole }) => ({
+        assembled = withRoles.map(({ row, myRole }) => ({
           id: row.id,
           title: row.title || null,
           icon: row.icon || null,
@@ -100,10 +100,25 @@ export function useSharedNotes(limit = 100) {
           ownerName: profiles.get(row.user_id)?.display_name ?? null,
           ownerAvatarUrl: profiles.get(row.user_id)?.avatar_url ?? null,
           myRole,
-        }))
-      );
+        }));
+      }
+
+      const next = nextSharedNotesAfterLoad({
+        previousNotes: lastNotesRef.current,
+        data: assembled,
+        error: null,
+      });
+      lastNotesRef.current = next.notes;
+      setNotes(next.notes);
+      setError(next.loadError);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "加载共享笔记失败");
+      const next = nextSharedNotesAfterLoad({
+        previousNotes: lastNotesRef.current,
+        data: null,
+        error: e,
+      });
+      setNotes(next.notes);
+      setError(next.loadError);
     } finally {
       setLoading(false);
     }
