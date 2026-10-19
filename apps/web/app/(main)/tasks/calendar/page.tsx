@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
@@ -40,7 +41,7 @@ function dateKey(date: Date): string {
 }
 
 interface CalendarAddDialogProps {
-  date: Date | null;
+  range: { start: Date; end?: Date } | null;
   onClose: () => void;
   onCreated: () => Promise<void> | void;
   supabase: ReturnType<typeof useTaskWorkspaceData>["supabase"];
@@ -48,11 +49,14 @@ interface CalendarAddDialogProps {
 }
 
 /** 点击日历日期后弹出的快捷创建弹窗：任务 / 倒数日两个页签 */
-function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }: CalendarAddDialogProps) {
+function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId }: CalendarAddDialogProps) {
+  const date = range?.start;
   const [tab, setTab] = useState<"task" | "countdown">("task");
   const [title, setTitle] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [time, setTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("10:00");
+  const [endNextDay, setEndNextDay] = useState(false);
   const [repeat, setRepeat] = useState("none");
   const [repeatAnnually, setRepeatAnnually] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,20 +66,32 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
       setTab("task");
       setTitle("");
       setAllDay(false);
-      // 从时间网格空白处点击进来时带具体时刻；月视图日期点击是零点，回落 09:00
-      const clickedTime =
-        date.getHours() !== 0 || date.getMinutes() !== 0
-          ? `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-          : "09:00";
-      setTime(clickedTime);
+      // 网格总是传 end（含零点），只有普通日期入口回落到 09:00。
+      const start = new Date(date);
+      if (!range?.end && start.getHours() === 0 && start.getMinutes() === 0) start.setHours(9);
+      const end = range?.end ?? new Date(start.getTime() + 60 * 60_000);
+      const clock = (value: Date) => `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+      setTime(clock(start));
+      setEndTime(clock(end));
+      setEndNextDay(dateKey(start) !== dateKey(end));
       setRepeat("none");
       setRepeatAnnually(false);
     }
-  }, [date]);
+  }, [date, range]);
 
   if (!date) return null;
 
+  const [hour, minute] = (allDay ? "00:00" : time).split(":").map(Number);
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
+  const [endHour, endMinute] = endTime.split(":").map(Number);
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + (endNextDay ? 1 : 0), endHour, endMinute);
+  const timeError = tab === "task" && !allDay
+    ? !time || !endTime ? "请填写开始和结束时间"
+      : !(end.getTime() > start.getTime()) ? "结束时间需晚于开始时间" : null
+    : null;
+
   const save = async () => {
+    if (saving || timeError) return;
     const trimmed = title.trim();
     if (!trimmed) {
       toast({ title: "请填写标题", variant: "destructive" });
@@ -86,8 +102,6 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("未登录");
       if (tab === "task") {
-        const [hour, minute] = (allDay ? "00:00" : time).split(":").map(Number);
-        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour || 0, minute || 0);
         const recurrence = repeat === "none" ? null : { frequency: repeat as TaskRecurrenceRule["frequency"], interval: 1 };
         const payload = {
           id: crypto.randomUUID(),
@@ -98,7 +112,7 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
           category: "work",
           list_id: defaultListId,
           schedule_start_at: start.toISOString(),
-          schedule_end_at: null,
+          schedule_end_at: allDay ? null : end.toISOString(),
           due_date: start.toISOString(),
           all_day: allDay,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -136,8 +150,8 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
           <DialogDescription>添加后会显示在日历对应日期上</DialogDescription>
         </DialogHeader>
         <div className="flex rounded-lg bg-muted p-1 text-sm">
-          <button type="button" onClick={() => setTab("task")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "task" ? "bg-background font-medium" : "text-muted-foreground"}`}>任务</button>
-          <button type="button" onClick={() => setTab("countdown")} className={`flex-1 rounded-md px-3 py-1.5 ${tab === "countdown" ? "bg-background font-medium" : "text-muted-foreground"}`}>倒数日</button>
+          <Button type="button" variant="ghost" aria-pressed={tab === "task"} onClick={() => setTab("task")} className={`flex-1 ${tab === "task" ? "bg-background hover:bg-background" : "text-muted-foreground"}`}>任务</Button>
+          <Button type="button" variant="ghost" aria-pressed={tab === "countdown"} onClick={() => setTab("countdown")} className={`flex-1 ${tab === "countdown" ? "bg-background hover:bg-background" : "text-muted-foreground"}`}>倒数日</Button>
         </div>
         <div className="space-y-4">
           <label className="block space-y-2 text-sm font-medium">
@@ -148,19 +162,31 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
             <>
               <div className="flex items-center gap-3 text-sm">
                 <label className="flex items-center gap-2"><Checkbox checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} />全天</label>
-                {!allDay && (
-                  <label className="flex items-center gap-2">
-                    时间
-                    <Input type="time" value={time} onChange={(event) => setTime(event.target.value)} className="w-[120px]" />
-                  </label>
-                )}
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                重复
-                <select value={repeat} onChange={(event) => setRepeat(event.target.value)} className="ml-auto rounded-md border bg-transparent px-2 py-1.5">
-                  {RECURRENCE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
+              {!allDay && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="min-w-0 space-y-2 text-sm">
+                      <span>开始</span>
+                      <Input type="time" value={time} onChange={(event) => setTime(event.target.value)} aria-invalid={Boolean(timeError)} aria-describedby={timeError ? "calendar-time-error" : undefined} />
+                    </label>
+                    <label className="min-w-0 space-y-2 text-sm">
+                      <span>结束{endNextDay ? "（次日）" : ""}</span>
+                      <Input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} aria-invalid={Boolean(timeError)} aria-describedby={timeError ? "calendar-time-error" : undefined} />
+                    </label>
+                  </div>
+                  {timeError && <p id="calendar-time-error" role="alert" className="text-sm text-destructive">{timeError}</p>}
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm">
+                <label htmlFor="calendar-repeat">重复</label>
+                <Select value={repeat} onValueChange={setRepeat}>
+                  <SelectTrigger id="calendar-repeat" className="ml-auto w-[140px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {RECURRENCE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </>
           ) : (
             <label className="flex items-center gap-2 text-sm"><Checkbox checked={repeatAnnually} onCheckedChange={(checked) => setRepeatAnnually(checked === true)} />每年重复</label>
@@ -168,7 +194,7 @@ function CalendarAddDialog({ date, onClose, onCreated, supabase, defaultListId }
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button onClick={() => void save()} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}添加</Button>
+          <Button onClick={() => void save()} disabled={saving || Boolean(timeError)}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}添加</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -182,7 +208,7 @@ function CalendarPageInner() {
   const [countdowns, setCountdowns] = useState<CountdownDay[]>([]);
   const countdownsRef = useRef<CountdownDay[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [addDate, setAddDate] = useState<Date | null>(null);
+  const [addRange, setAddRange] = useState<{ start: Date; end?: Date } | null>(null);
   const scope = (searchParams.get("scope") as SidebarSelection["scope"]) || "all";
   const selection = useMemo<SidebarSelection>(
     () => ({ scope, listId: scope === "list" ? searchParams.get("list") : null }),
@@ -293,11 +319,11 @@ function CalendarPageInner() {
         onTaskClick={(task) => router.push(`/tasks/${task.id}`)}
         onRescheduleTask={rescheduleTask}
         onUpdateTaskSchedule={updateTaskSchedule}
-        onDateClick={(date) => setAddDate(date)}
+        onDateClick={(start, end) => setAddRange({ start, end })}
       />
       <CalendarAddDialog
-        date={addDate}
-        onClose={() => setAddDate(null)}
+        range={addRange}
+        onClose={() => setAddRange(null)}
         onCreated={async () => {
           await Promise.all([refetch(), loadCountdowns()]);
         }}

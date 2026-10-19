@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
+import { useHotkey } from "@/lib/hooks/use-hotkey";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
@@ -81,6 +82,19 @@ export function timeGridSlotMinutes(offsetY: number): number {
   return Math.min(1440 - SNAP_MIN, snapMinutes((offsetY / HOUR_HEIGHT) * 60));
 }
 
+/** 空白拖选独立按 15 分钟吸附；不改变已有任务的 30 分钟改期规则。 */
+const CREATE_SNAP_MIN = 15;
+
+export function timeGridRangeFromOffsets(startOffsetY: number, currentOffsetY: number): { startMin: number; endMin: number } {
+  const snap = (offset: number) => Math.min(1440, Math.max(0,
+    Math.round((offset / HOUR_HEIGHT) * 60 / CREATE_SNAP_MIN) * CREATE_SNAP_MIN
+  ));
+  const a = snap(startOffsetY);
+  const b = snap(currentOffsetY);
+  const startMin = Math.min(1440 - CREATE_SNAP_MIN, a, b);
+  return { startMin, endMin: Math.max(startMin + CREATE_SNAP_MIN, a, b) };
+}
+
 interface WeekTimedEvent {
   task: TaskWithTags;
   startMin: number;
@@ -89,7 +103,15 @@ interface WeekTimedEvent {
   lanes: number;
 }
 
-/** 单日定时事件布局：只收「起止都在当天」的事件，重叠的贪心分列 */
+function isSingleDayTimed(start: Date, end: Date): boolean {
+  return isSameDay(start, end) || (
+    end.getTime() > start.getTime() && minutesSinceMidnight(end) === 0 &&
+    end.getSeconds() === 0 && end.getMilliseconds() === 0 &&
+    isSameDay(start, new Date(end.getTime() - 1))
+  );
+}
+
+/** 单日定时事件布局：包含当天 24:00 右开边界，重叠的贪心分列。 */
 export function layoutDayTimedEvents(
   tasks: TaskWithTags[],
   day: Date
@@ -101,12 +123,12 @@ export function layoutDayTimedEvents(
     if (!start || task.all_day) continue;
     const end = taskEnd(task);
     if (!end) continue;
-    if (dateOnly(start).getTime() !== dayTime || dateOnly(end).getTime() !== dayTime) {
+    if (dateOnly(start).getTime() !== dayTime || !isSingleDayTimed(start, end)) {
       continue; // 跨天任务走全天条
     }
     const startMin = start.getHours() * 60 + start.getMinutes();
-    const rawEndMin = end.getHours() * 60 + end.getMinutes();
-    const endMin = Math.max(startMin + 30, rawEndMin === startMin ? startMin + 60 : rawEndMin);
+    const rawEndMin = isSameDay(start, end) ? minutesSinceMidnight(end) : 1440;
+    const endMin = Math.max(startMin + CREATE_SNAP_MIN, rawEndMin === startMin ? startMin + 60 : rawEndMin);
     plain.push({ task, startMin, endMin });
   }
   plain.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
@@ -131,6 +153,17 @@ export function layoutDayTimedEvents(
   return result;
 }
 
+interface TimeGridSelection {
+  pointerId: number;
+  column: HTMLDivElement;
+  day: Date;
+  dayIdx: number;
+  startOffsetY: number;
+  startMin: number;
+  endMin: number;
+  moved: boolean;
+}
+
 interface WeekDragState {
   taskId: string;
   allDayChip: boolean;
@@ -152,7 +185,7 @@ interface TimeGridViewProps {
   countdowns: CountdownDay[];
   onTaskClick?: (task: TaskWithTags) => void;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
-  onDateClick?: (date: Date) => void;
+  onDateClick?: (date: Date, end?: Date) => void;
 }
 
 /** 日 / 周视图共用 1 或 7 列时间网格，沿用同一套拖拽与创建回调。 */
@@ -173,6 +206,70 @@ export function TimeGridView({
   const includesToday = todayIndex >= 0;
   const firstDayKey = keyFor(days[0]);
   const lastDayKey = keyFor(days[days.length - 1]);
+
+  const selectionRef = useRef<TimeGridSelection | null>(null);
+  const [selection, setSelection] = useState<TimeGridSelection | null>(null);
+  const suppressCreateClickRef = useRef(false);
+
+  const clearSelection = useCallback(() => {
+    const current = selectionRef.current;
+    selectionRef.current = null;
+    setSelection(null);
+    if (current?.column.hasPointerCapture(current.pointerId)) {
+      current.column.releasePointerCapture(current.pointerId);
+    }
+  }, []);
+
+  const cancelSelection = useCallback(() => {
+    if (!selectionRef.current) return;
+    suppressCreateClickRef.current = true;
+    clearSelection();
+  }, [clearSelection]);
+
+  useHotkey(selection ? [{ key: "Escape", handler: cancelSelection, allowInInput: true }] : []);
+  useEffect(() => { cancelSelection(); }, [firstDayKey, lastDayKey, cancelSelection]);
+
+  const startSelection = (event: React.PointerEvent<HTMLDivElement>, day: Date, dayIdx: number) => {
+    // 任务按钮及其子元素（包括手柄）不进入空白创建，即使未提供改期回调。
+    if (!onDateClick || event.button !== 0 || !event.isPrimary || selectionRef.current ||
+        (event.target as HTMLElement).closest("button, input, [role='button']")) return;
+    suppressCreateClickRef.current = false;
+    const column = event.currentTarget;
+    const startOffsetY = event.clientY - column.getBoundingClientRect().top;
+    const next = {
+      pointerId: event.pointerId, column, day, dayIdx, startOffsetY,
+      ...timeGridRangeFromOffsets(startOffsetY, startOffsetY), moved: false,
+    };
+    column.setPointerCapture(event.pointerId);
+    selectionRef.current = next;
+    setSelection(next);
+  };
+
+  const moveSelection = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = selectionRef.current;
+    if (!current || current.pointerId !== event.pointerId) return null;
+    const offsetY = event.clientY - current.column.getBoundingClientRect().top;
+    const next = {
+      ...current, ...timeGridRangeFromOffsets(current.startOffsetY, offsetY),
+      moved: current.moved || Math.abs(offsetY - current.startOffsetY) >= HOUR_HEIGHT * CREATE_SNAP_MIN / 60,
+    };
+    selectionRef.current = next;
+    setSelection(next);
+    return next;
+  };
+
+  const endSelection = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = moveSelection(event);
+    if (!current) return;
+    clearSelection();
+    if (!current.moved) return; // 轻点仍由 click 处理。
+    suppressCreateClickRef.current = true;
+    const { day, startMin, endMin } = current;
+    onDateClick?.(
+      new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, startMin),
+      new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, endMin)
+    );
+  };
 
   const dragTask = (drag && tasks.find((t) => t.id === drag.taskId)) || null;
 
@@ -211,7 +308,7 @@ export function TimeGridView({
           const end = taskEnd(task);
           if (!end) return false;
           const singleTimed =
-            !task.all_day && dateOnly(start).getTime() === dateOnly(end).getTime();
+            !task.all_day && isSingleDayTimed(start, end);
           if (singleTimed) return false;
           return (
             Math.max(dateOnly(start).getTime(), dayStart) <=
@@ -515,13 +612,28 @@ export function TimeGridView({
                 <div
                   key={di}
                   className={cn(
-                    "relative border-l",
+                    "relative border-l select-none",
                     isSameDay(day, now) && "bg-accent/50",
                     target && "bg-primary/5"
                   )}
+                  data-time-grid-day={keyFor(day)}
+                  style={{ touchAction: onDateClick ? "none" : undefined }}
+                  onPointerDown={(event) => startSelection(event, day, di)}
+                  onPointerMove={moveSelection}
+                  onPointerUp={endSelection}
+                  onPointerCancel={(event) => {
+                    if (selectionRef.current?.pointerId === event.pointerId) cancelSelection();
+                  }}
+                  onLostPointerCapture={(event) => {
+                    if (selectionRef.current?.pointerId === event.pointerId) cancelSelection();
+                  }}
                   onClick={
                     onDateClick
                       ? (e) => {
+                          if (suppressCreateClickRef.current) {
+                            suppressCreateClickRef.current = false;
+                            return;
+                          }
                           const rect = e.currentTarget.getBoundingClientRect();
                           const slot = timeGridSlotMinutes(e.clientY - rect.top);
                           onDateClick(
@@ -531,7 +643,8 @@ export function TimeGridView({
                               day.getDate(),
                               Math.floor(slot / 60),
                               slot % 60
-                            )
+                            ),
+                            new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, slot + 60)
                           );
                         }
                       : undefined
@@ -555,7 +668,8 @@ export function TimeGridView({
                         key={ev.task.id}
                         type="button"
                         className={cn(
-                          "absolute inset-x-0.5 z-10 flex flex-col items-start gap-0.5 overflow-hidden px-1.5 py-1 text-left text-xs font-medium",
+                          "absolute inset-x-0.5 z-10 flex overflow-hidden px-1.5 text-left text-xs font-medium",
+                          ev.endMin - ev.startMin < 30 ? "items-center gap-1 leading-none" : "flex-col items-start gap-0.5 py-1",
                           categoryClass(ev.task),
                           isDragged && "opacity-30"
                         )}
@@ -563,7 +677,7 @@ export function TimeGridView({
                           top: (ev.startMin / 60) * HOUR_HEIGHT + 1,
                           height: Math.max(
                             ((ev.endMin - ev.startMin) / 60) * HOUR_HEIGHT - 2,
-                            22
+                            12
                           ),
                           width: ev.lanes > 1 ? `calc(${100 / ev.lanes}% - 4px)` : undefined,
                           left: ev.lanes > 1 ? `calc(${(ev.lane * 100) / ev.lanes}% + 2px)` : undefined,
@@ -581,13 +695,27 @@ export function TimeGridView({
                           onTaskClick?.(ev.task);
                         }}
                       >
-                        <span className="w-full truncate opacity-80">
+                        <span className={cn("truncate opacity-80", ev.endMin - ev.startMin < 30 ? "shrink-0" : "w-full")}>
                           {minutesLabel(ev.startMin)}
                         </span>
-                        <span className="line-clamp-3 w-full">{ev.task.title}</span>
+                        <span className={ev.endMin - ev.startMin < 30 ? "truncate" : "line-clamp-3 w-full"}>{ev.task.title}</span>
                       </button>
                     );
                   })}
+                  {selection?.moved && selection.dayIdx === di && (
+                    <div
+                      role="status"
+                      className="pointer-events-none absolute inset-x-0.5 z-30 rounded-md border border-dashed border-primary/40 bg-primary/10 px-1 text-xs font-medium tabular-nums"
+                      style={{
+                        top: (selection.startMin / 60) * HOUR_HEIGHT,
+                        height: ((selection.endMin - selection.startMin) / 60) * HOUR_HEIGHT,
+                      }}
+                    >
+                      <span className="whitespace-nowrap rounded-sm bg-background px-0.5">
+                        {minutesLabel(selection.startMin)} – {minutesLabel(selection.endMin)}
+                      </span>
+                    </div>
+                  )}
                   {/* 拖拽中的虚线占位框（仅目标列） */}
                   {drag && !drag.allDayChip && drag.moved && drag.dayIdx === di && (
                     <div
@@ -826,7 +954,7 @@ interface TaskMonthViewProps {
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   /** 点击日期空白处（月视图单元格 / 年视图小日历 / 日视图添加按钮） */
-  onDateClick?: (date: Date) => void;
+  onDateClick?: (date: Date, end?: Date) => void;
 }
 
 function CountdownChip({ item, compact = false }: { item: CountdownDay; compact?: boolean }) {
