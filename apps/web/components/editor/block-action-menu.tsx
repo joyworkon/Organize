@@ -1,6 +1,8 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { TextSelection } from "@tiptap/pm/state";
 import {
@@ -40,6 +42,8 @@ export interface EditorSkillAction {
   icon?: string;
   run: (target: EditorBlockTarget) => void | Promise<void>;
 }
+
+const ROW_BUTTON_CLASS = "h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1 text-left font-normal";
 
 const TEXT_COLORS = [
   { label: "默认", value: null },
@@ -303,7 +307,7 @@ export function BlockActionMenu({
                 {!canTransformTarget && <div className="editor-menu-empty">{target.type} 是结构化区块，不能直接转换；请先复制其中的文本。</div>}
                 {canTransformTarget && transformCommands.map((command) => {
                   const Icon = command.icon;
-                  return <button key={command.id} type="button"
+                  return <Button variant="ghost" size="sm" className={ROW_BUTTON_CLASS} key={command.id} type="button"
                     onMouseEnter={(event) => {
                       if (!command.preview) {
                         setPreview(null);
@@ -320,7 +324,7 @@ export function BlockActionMenu({
                       const pos = resolveTransformPos(editor, target);
                       command.run(editor, pos);
                       focusAndHighlightBlock(editor, target.id);
-                    })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</button>;
+                    })}><Icon className="h-4 w-4" /><span>{command.label}</span>{command.shortcut && <kbd>{command.shortcut}</kbd>}</Button>;
                 })}
               </div>
               {(() => {
@@ -338,18 +342,18 @@ export function BlockActionMenu({
             <div className="editor-menu-scroll compact color-menu">
               <div className="editor-menu-label">文字颜色</div>
               {TEXT_COLORS.map((color) => (
-                <button key={color.label} type="button" onClick={() => finish(() => {
+                <Button variant="ghost" size="sm" className={ROW_BUTTON_CLASS} key={color.label} type="button" onClick={() => finish(() => {
                   if (!selectBlockText(editor, target)) return;
                   color.value ? editor.chain().focus().setColor(color.value).run() : editor.chain().focus().unsetColor().run();
                 })}>
-                  <span className="color-swatch text-swatch" style={{ color: color.value || "inherit" }}>A</span><span>{color.label}</span>
-                </button>
+                  <span aria-hidden="true" className="color-swatch text-swatch" style={{ color: color.value || "inherit" }}>A</span><span>{color.label}</span>
+                </Button>
               ))}
               <div className="editor-menu-label">背景颜色</div>
               {BACKGROUNDS.map((color) => (
-                <button key={color.label} type="button" onClick={() => finish(() => { editor.commands.setBlockBackground(target.pos, color.value); })}>
+                <Button variant="ghost" size="sm" className={ROW_BUTTON_CLASS} key={color.label} type="button" onClick={() => finish(() => { editor.commands.setBlockBackground(target.pos, color.value); })}>
                   <span className="color-swatch" style={{ background: color.value || "transparent" }} /><span>{color.label}</span>
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -371,10 +375,13 @@ export function BlockActionMenu({
                       { label: "方形", value: "square" },
                     ]
               ) as Array<{ label: string; value: ListStyle }>).map((option) => (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   key={option.value}
                   type="button"
-                  className={listParent.style === option.value ? "is-active" : ""}
+                  aria-pressed={listParent.style === option.value}
+                  className={cn(ROW_BUTTON_CLASS, listParent.style === option.value && "is-active bg-accent text-accent-foreground")}
                   onClick={() =>
                     finish(() => {
                       setListStyle(editor, target.pos, option.value);
@@ -384,7 +391,7 @@ export function BlockActionMenu({
                   <ListStylePreview type={listParent.type} style={option.value} />
                   <span>{option.label}</span>
                   {listParent.style === option.value && <Check className="h-4 w-4" />}
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -393,7 +400,7 @@ export function BlockActionMenu({
               <div className="editor-menu-search"><Search className="h-4 w-4" /><input value={subQuery} onChange={(event) => setSubQuery(event.target.value)} placeholder="搜索技能…" autoFocus /></div>
               <div className="editor-menu-scroll compact">
                 {skills.filter((skill) => skill.label.toLowerCase().includes(subQuery.toLowerCase())).map((skill) => (
-                  <button key={skill.id} type="button" onClick={() => finish(() => skill.run(target))}><span className="skill-icon">{skill.icon || "✦"}</span><span>{skill.label}</span></button>
+                  <Button variant="ghost" size="sm" className={ROW_BUTTON_CLASS} key={skill.id} type="button" onClick={() => finish(() => skill.run(target))}><span className="skill-icon">{skill.icon || "✦"}</span><span>{skill.label}</span></Button>
                 ))}
                 {skills.length === 0 && <div className="editor-menu-empty">没有已启用的笔记技能</div>}
               </div>
@@ -484,8 +491,12 @@ function ListStylePreview({
 function Action({ icon: Icon, label, onClick, query, suffix, shortcut, danger, badge, onMouseEnter, onMouseLeave, active }: { icon: typeof Check; label: string; onClick: (() => void) | ((event: React.MouseEvent<HTMLButtonElement>) => void); query: string; suffix?: React.ReactNode; shortcut?: string; danger?: boolean; badge?: number; onMouseEnter?: (event: React.MouseEvent<HTMLButtonElement>) => void; onMouseLeave?: () => void; active?: boolean }) {
   if (query && !label.toLowerCase().includes(query.toLowerCase())) return null;
   return (
-    <button type="button" className={danger ? "danger" : active ? "is-active" : ""} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      <Icon className="h-4 w-4" /><span>{label}</span>{badge ? <em>{badge}</em> : null}{shortcut && <kbd>{shortcut}</kbd>}{suffix && <span className="menu-suffix">{suffix}</span>}
-    </button>
+    <Button variant="ghost" size="sm" type="button" aria-pressed={active} className={cn(
+      ROW_BUTTON_CLASS,
+      active && "is-active bg-accent text-accent-foreground",
+      danger && "danger text-destructive hover:bg-destructive/10 hover:text-destructive"
+    )} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      <Icon className={cn("h-4 w-4 shrink-0", danger && "text-destructive")} /><span>{label}</span>{badge ? <em>{badge}</em> : null}{shortcut && <kbd>{shortcut}</kbd>}{suffix && <span className="menu-suffix">{suffix}</span>}
+    </Button>
   );
 }

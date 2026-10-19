@@ -3103,18 +3103,11 @@
   color: hsl(var(--foreground));
   font-size: 14px;
 }
-.editor-menu-search > button {
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: inherit;
-}
 .editor-menu-scroll {
   flex: 1 1 auto;
   min-height: 0;
   max-height: min(470px, calc(100vh - 130px));
-  padding: 2px 8px 8px;
+  padding: 6px 8px 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3133,28 +3126,7 @@
   font-size: 12px;
   font-weight: 650;
 }
-.editor-menu-scroll button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 38px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.editor-menu-scroll button:hover,
-.editor-menu-scroll button.is-active {
-  background: hsl(var(--accent));
-}
-.editor-menu-scroll button.danger {
-  color: hsl(var(--destructive));
-}
-.editor-menu-scroll button > svg,
+.editor-menu-scroll button > svg:not(.text-destructive),
 .editor-menu-scroll button > .skill-icon {
   flex: 0 0 auto;
   color: hsl(var(--muted-foreground));
@@ -3192,13 +3164,7 @@
   font-size: 14px;
 }
 .block-action-popover .editor-menu-scroll {
-  padding: 1px 6px 6px;
-}
-.block-action-popover .editor-menu-scroll button {
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 7px;
-  font-size: 14px;
+  padding: 6px;
 }
 .block-action-popover .editor-menu-label {
   padding: 6px 7px 3px;
@@ -3221,12 +3187,6 @@
 .block-action-flyout .editor-menu-scroll {
   max-height: min(420px, calc(100vh - 120px));
 }
-.block-action-flyout .editor-menu-scroll button {
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 7px;
-  font-size: 14px;
-}
 .block-action-flyout .editor-menu-label {
   padding: 6px 7px 3px;
 }
@@ -3247,7 +3207,6 @@
   font-style: normal;
 }
 .menu-suffix svg { width: 15px; height: 15px; }
-.editor-menu-close,
 .editor-menu-meta {
   display: flex;
   align-items: center;
