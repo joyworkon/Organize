@@ -149,10 +149,35 @@ export function NotePageComments({
       });
       if (commentError) {
         if (createdThreadId) {
-          await supabase
-            .from("note_comment_threads")
-            .delete()
-            .eq("id", createdThreadId);
+          // 回滚新建的空线程：.select("id") 按行数判失败（RLS 拒绝时 0 行且 error=null）；
+          // 独立 try/catch，避免回滚异常覆盖原始 commentError
+          let rollbackOk = false;
+          try {
+            const { data: rollbackRows, error: rollbackError } = await supabase
+              .from("note_comment_threads")
+              .delete()
+              .eq("id", createdThreadId)
+              .eq("note_id", token.noteId)
+              .select("id");
+            rollbackOk = !rollbackError && !!rollbackRows && rollbackRows.length > 0;
+          } catch {
+            rollbackOk = false;
+          }
+          if (!rollbackOk) {
+            // 空线程已残留：刷新列表反映真实状态，并给出具体文案。
+            // loadThreads 开头会清空 draft.error，故先 await 再写文案；
+            // loadThreads 递增 loadSeq 使 token 过期，await 后改按 noteId 判定。
+            if (isCurrent()) {
+              await loadThreads();
+              if (noteIdRef.current === token.noteId) {
+                setDraft((prev) => ({
+                  ...prev,
+                  error: "评论发送失败，且空评论未能撤回，请刷新后处理",
+                }));
+              }
+            }
+            return;
+          }
         }
         throw commentError;
       }
