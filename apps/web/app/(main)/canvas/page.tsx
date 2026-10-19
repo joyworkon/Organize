@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Loader2, Plus, Trash2 } from "@/components/icons";
+import { Copy, LayoutTemplate, Loader2, Plus, Trash2 } from "@/components/icons";
 import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
 import {
   createCanvas,
@@ -21,6 +21,7 @@ import {
 import { CANVAS_LIST_LOAD_ERROR_MESSAGE, nextCanvasItemsAfterLoad } from "@/lib/canvas/list-load";
 import { isOnline } from "@/lib/offline/network";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { toast } from "@/hooks/use-toast";
 
@@ -138,12 +139,11 @@ export default function CanvasListPage() {
       {/* 加载失败不得伪装成「还没有画布」：无快照给错误块 + 重试，有快照保留列表 + 行内提示 */}
       {items === null ? (
         loadError ? (
-          <div className="flex flex-col items-center gap-3 py-16">
-            <p className="text-sm text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
-            <Button variant="outline" onClick={retry}>
-              重试
-            </Button>
-          </div>
+          <EmptyState
+            icon={LayoutTemplate}
+            title={CANVAS_LIST_LOAD_ERROR_MESSAGE}
+            action={<Button variant="outline" onClick={retry}>重试</Button>}
+          />
         ) : (
           <div className="flex items-center gap-2 py-16 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
@@ -151,22 +151,23 @@ export default function CanvasListPage() {
         )
       ) : items.length === 0 ? (
         loadError ? (
-          <div className="flex flex-col items-center gap-3 py-16">
-            <p className="text-sm text-destructive">{CANVAS_LIST_LOAD_ERROR_MESSAGE}</p>
-            <Button variant="outline" onClick={retry}>
-              重试
-            </Button>
-          </div>
+          <EmptyState
+            icon={LayoutTemplate}
+            title={CANVAS_LIST_LOAD_ERROR_MESSAGE}
+            action={<Button variant="outline" onClick={retry}>重试</Button>}
+          />
         ) : (
-          <div className="canvas-list-empty">
-            <p className="text-lg font-medium">还没有画布</p>
-            <p className="text-sm text-muted-foreground">
-              把想法写下来，让版式自己长出来：双击画布空白处即可开始输入。
-            </p>
-            <Button onClick={() => void create()} disabled={creating}>
-              <Plus className="h-4 w-4" /> 新建构思画布
-            </Button>
-          </div>
+          <EmptyState
+            icon={LayoutTemplate}
+            title="还没有画布"
+            description="把想法写下来，让版式自己长出来：双击画布空白处即可开始输入。"
+            action={
+              <Button onClick={() => void create()} disabled={creating}>
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                新建构思画布
+              </Button>
+            }
+          />
         )
       ) : (
         <>
