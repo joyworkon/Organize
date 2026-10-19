@@ -18,3 +18,6 @@
   - `lib/mock/api-shim.ts` `patchPlugin`：0 行 500「插件不存在」→ 404「插件不存在或无权限」，与真实路由对齐。
   - 单测：新增 `lib/plugin/api-mutation.test.ts`（18 例）；`lib/mock/api-shim.test.ts` 末尾补 PATCH 已知/未知 id 两例。
 - [x] 本地验证：`tsc --noEmit` exit 0；`next lint` exit 0（无警告）。
+- [x] `vitest run` 全量：306 文件通过、**2319 passed / 2 skipped**，exit 0（基线 2298 + 新增 20，另 1 例为既有浮动）。
+- [x] 提交 `7d4e408`（8 文件：2 route + 插件页 + api-mutation + 测试 + shim + shim 测试 + 本 PROGRESS），push 并开 PR #447。
+- [x] CI 五项全绿（run 39247158327）：verify 3m30s / db-test 2m31s / sw-e2e 4m5s / e2e-test 8m51s / collab-e2e 11m11s。
