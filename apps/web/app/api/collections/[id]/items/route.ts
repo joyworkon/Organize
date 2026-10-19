@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
 import {
+  classifyCollectionExistsQuery,
+  classifyCollectionItemUpsertError,
+} from "@/lib/collections/items-api";
+import {
   isCollectionSourceType,
   type CollectionItemView,
 } from "@/lib/collections/types";
@@ -83,10 +87,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     : [];
   if (!ids.length) return NextResponse.json({ error: "ids 不能为空" }, { status: 400 });
 
-  // 集合必须属于当前用户（RLS 双保险）；先验证存在
-  const { data: collection } = await supabase
+  // 集合必须属于当前用户（RLS 双保险）；先验证存在——DB 错误不得伪装成 404
+  const { data: collection, error: collectionError } = await supabase
     .from("collections").select("id").eq("id", id).maybeSingle();
-  if (!collection) return NextResponse.json({ error: "集合不存在" }, { status: 404 });
+  const collectionState = classifyCollectionExistsQuery({ data: collection, error: collectionError });
+  if (collectionState === "error") return serverError(collectionError);
+  if (collectionState === "missing") return NextResponse.json({ error: "集合不存在" }, { status: 404 });
 
   const column =
     body.sourceType === "reading" ? "reading_item_id"
@@ -104,8 +110,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     .upsert(rows, { onConflict: `collection_id,${column}`, ignoreDuplicates: true })
     .select("id");
   if (error) {
-    const message = error.code === "23503" ? "来源不存在或不可访问" : error.message;
-    return NextResponse.json({ error: message }, { status: error.code === "23503" ? 400 : 500 });
+    // 23503 → 400 明确文案；其它错误走 serverError（500 通用文案，不泄露 error.message）
+    const clientError = classifyCollectionItemUpsertError(error);
+    if (clientError) {
+      return NextResponse.json({ error: clientError.error }, { status: clientError.status });
+    }
+    return serverError(error);
   }
   return NextResponse.json({ added: inserted?.length ?? 0 });
 }
