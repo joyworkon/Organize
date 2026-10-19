@@ -9,6 +9,7 @@ import {
   type PresenceLoadOutcome,
 } from "@/lib/layout/sidebar-collab-presence-load";
 import { nextSharedNotesAfterLoad } from "@/lib/share/shared-notes-list-load";
+import { nextSharedNoteOwnerProfilesAfterLoad } from "@/lib/share/shared-notes-owner-names-load";
 
 export interface SharedNoteItem {
   id: string;
@@ -42,6 +43,7 @@ export function useSharedNotes(limit = 100) {
   const [notes, setNotes] = useState<SharedNoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ownerNamesError, setOwnerNamesError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -54,6 +56,7 @@ export function useSharedNotes(limit = 100) {
         lastNotesRef.current = [];
         setNotes([]);
         setError(null);
+        setOwnerNamesError(null);
         return;
       }
       const { data, error: queryErr } = await supabase
@@ -67,6 +70,7 @@ export function useSharedNotes(limit = 100) {
       const rows = (data || []) as RawNoteRow[];
 
       let assembled: SharedNoteItem[] = [];
+      let nextOwnerNamesError: string | null = null;
       // mock 后端只有一个账号：neq 过滤后天然为空，不额外发角色/档案查询
       if (rows.length > 0) {
         const withRoles = await Promise.all(
@@ -82,14 +86,17 @@ export function useSharedNotes(limit = 100) {
         );
 
         const ownerIds = [...new Set(rows.map((row) => row.user_id))];
-        const profiles = new Map<string, { display_name: string | null; avatar_url: string | null }>();
-        const { data: profileRows } = await supabase
+        const { data: profileRows, error: profileErr } = await supabase
           .from("user_profiles")
           .select("id, display_name, avatar_url")
           .in("id", ownerIds);
-        for (const profile of profileRows || []) {
-          profiles.set(profile.id, { display_name: profile.display_name ?? null, avatar_url: profile.avatar_url ?? null });
-        }
+        const ownerOutcome = nextSharedNoteOwnerProfilesAfterLoad({
+          previousNotes: lastNotesRef.current,
+          data: profileRows,
+          error: profileErr,
+        });
+        const profiles = ownerOutcome.profiles;
+        nextOwnerNamesError = ownerOutcome.loadError;
 
         assembled = withRoles.map(({ row, myRole }) => ({
           id: row.id,
@@ -111,6 +118,7 @@ export function useSharedNotes(limit = 100) {
       lastNotesRef.current = next.notes;
       setNotes(next.notes);
       setError(next.loadError);
+      setOwnerNamesError(nextOwnerNamesError);
     } catch (e) {
       const next = nextSharedNotesAfterLoad({
         previousNotes: lastNotesRef.current,
@@ -128,7 +136,7 @@ export function useSharedNotes(limit = 100) {
     void refresh();
   }, [refresh]);
 
-  return { notes, loading, error, refresh };
+  return { notes, loading, error, ownerNamesError, refresh };
 }
 
 /**
