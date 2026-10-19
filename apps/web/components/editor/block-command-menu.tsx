@@ -1,6 +1,8 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Puzzle, Search, X } from "@/components/icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createEditorBridge } from "@/lib/plugin/editor-bridge";
@@ -9,7 +11,7 @@ import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { BLOCK_COMMANDS, commandMatches, executeNestedCommand, isCommandAvailableInContext } from "./block-commands";
 import { EditorPopover } from "./editor-popover";
 import { resolveTriggerDeleteRange } from "./slash-trigger";
-import type { BlockCommandDefinition, BlockCommandContext } from "./types";
+import type { BlockCommandDefinition } from "./types";
 import type { EditorMenuPoint } from "./types";
 
 const CATEGORY_ORDER = ["基本区块", "媒体", "布局", "AI", "插件"] as const;
@@ -165,7 +167,7 @@ export function BlockCommandMenu({
           placeholder="输入以筛选…"
           aria-label="筛选区块"
         />
-        {query && <button type="button" onClick={() => setQuery("")} aria-label="清空"><X className="h-3.5 w-3.5" /></button>}
+        {query && <Button type="button" variant="ghost" size="icon" className="h-7 min-h-7 w-7 min-w-7 shrink-0 md:min-h-7" onClick={() => setQuery("")} aria-label="清空"><X className="h-3.5 w-3.5" /></Button>}
       </div>
       <div className="editor-menu-scroll" role="listbox">
         {options.length === 0 && <div className="editor-menu-empty">没有匹配的区块</div>}
@@ -180,28 +182,36 @@ export function BlockCommandMenu({
                 const Icon = command.icon;
                 const disabled = isDisabled(command);
                 return (
-                  <button
+                  <Button
                     key={command.id}
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     role="option"
                     aria-selected={index === activeIndex}
+                    aria-current={index === activeIndex ? "true" : undefined}
+                    disabled={disabled}
                     aria-disabled={disabled || undefined}
                     title={disabled ? "AI 服务未配置：请到「设置 › AI 服务」填写 API 地址和密钥" : undefined}
-                    className={[index === activeIndex ? "is-active" : "", disabled ? "is-disabled opacity-50 cursor-not-allowed" : ""].join(" ").trim()}
+                    className={cn(
+                      "h-auto w-full justify-start gap-2.5 whitespace-normal px-2 py-2 text-left font-normal md:min-h-[38px]",
+                      index === activeIndex && "is-active bg-accent text-accent-foreground",
+                      disabled && "is-disabled"
+                    )}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => execute(index)}
                   >
                     <Icon className="h-5 w-5" />
                     <span><strong>{command.label}</strong>{(disabled || command.description) && <small>{disabled ? "需先在「设置 › AI 服务」配置" : command.description}</small>}</span>
                     {command.shortcut && <kbd>{command.shortcut}</kbd>}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
           );
         })}
       </div>
-      <button className="editor-menu-close" type="button" onClick={handleClose}><span>关闭菜单</span><kbd>esc</kbd></button>
+      <Button variant="ghost" size="sm" className="editor-menu-close h-auto w-full justify-between rounded-none border-t px-4 py-2 text-[13px] font-normal focus-visible:ring-inset focus-visible:ring-offset-0 md:min-h-10" type="button" onClick={handleClose}><span>关闭菜单</span><kbd>esc</kbd></Button>
     </EditorPopover>
   );
 }
