@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import {
+  buildPluginPatch,
+  parseJsonBody,
+  readPluginDeleteResult,
+  readPluginPatchResult,
+} from "@/lib/plugin/api-mutation";
 
 // PATCH /api/plugins/[id] - 更新插件配置/状态
 export async function PATCH(
@@ -16,23 +23,30 @@ export async function PATCH(
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { config, enabled } = body;
+  const parsed = parseJsonBody(await request.text());
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+  }
 
-  const updateData: Record<string, unknown> = {};
-  if (config !== undefined) updateData.config = config;
-  if (enabled !== undefined) updateData.enabled = enabled;
+  const patch = buildPluginPatch(parsed.body);
+  if (!patch.ok) {
+    return NextResponse.json({ error: "没有可更新的字段" }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from("plugins")
-    .update(updateData)
+    .update(patch.updateData)
     .eq("id", id)
     .eq("user_id", user.id)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const outcome = readPluginPatchResult({ data, error });
+  if (outcome === "not-found") {
+    return NextResponse.json({ error: "插件不存在或无权限" }, { status: 404 });
+  }
+  if (outcome === "server-error") {
+    return serverError(error);
   }
 
   return NextResponse.json(data);
@@ -53,14 +67,19 @@ export async function DELETE(
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("plugins")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id");
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const outcome = readPluginDeleteResult({ data, error });
+  if (outcome === "not-found") {
+    return NextResponse.json({ error: "插件不存在或已卸载" }, { status: 404 });
+  }
+  if (outcome === "server-error") {
+    return serverError(error);
   }
 
   return NextResponse.json({ success: true });
