@@ -45,6 +45,13 @@ import {
   resolveLessonTagsAfterLoad,
 } from "@/lib/lessons/detail-tags";
 import {
+  LESSON_SAVE_ERROR_MESSAGE,
+  resolveLessonInsertResult,
+  resolveLessonSaveUser,
+  resolveLessonTagLinkResult,
+  resolveLessonUpdateResult,
+} from "@/lib/lessons/detail-save";
+import {
   LESSON_LINK_OPTIONS_LOAD_ERROR_MESSAGE,
   nextLinkOptionsAfterLoad,
   type LinkOptionsLoadPlan,
@@ -336,10 +343,14 @@ export default function LessonEditorPage() {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const userPlan = resolveLessonSaveUser(user?.id ?? null);
+      if (userPlan.kind === "failed") {
+        toast({ title: userPlan.message, variant: "destructive" });
+        return;
+      }
 
       const payload = {
-        user_id: user.id,
+        user_id: userPlan.userId,
         title: title.trim() || "未命名复盘",
         content: contentText.trim() ? textToContent(contentText) : null,
         lesson_type: lessonType,
@@ -355,19 +366,33 @@ export default function LessonEditorPage() {
           .insert(payload)
           .select("id")
           .single();
-        if (error) throw error;
-        savedId = data.id;
+        const insertPlan = resolveLessonInsertResult({ data, error });
+        if (insertPlan.kind === "failed") {
+          toast({ title: insertPlan.message, variant: "destructive" });
+          return;
+        }
+        savedId = insertPlan.id;
         if (selectedTags.length > 0) {
           const links = selectedTags.map(t => ({ lesson_id: savedId, tag_id: t.id }));
-          await supabase.from("lesson_tags").insert(links);
+          const { error: linkError } = await supabase.from("lesson_tags").insert(links);
+          const linkPlan = resolveLessonTagLinkResult({ error: linkError });
+          // 复盘正文已保存成功，标签关联失败不阻断跳转，用 toast 告知（与编辑分支同口径）
+          if (linkPlan.kind === "failed") {
+            toast({ title: linkPlan.message, variant: "destructive" });
+          }
         }
       } else {
         savedId = lessonId;
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("lessons")
           .update(payload)
-          .eq("id", lessonId);
-        if (error) throw error;
+          .eq("id", lessonId)
+          .select("id");
+        const updatePlan = resolveLessonUpdateResult({ data, error, lessonId });
+        if (updatePlan.kind === "failed") {
+          toast({ title: updatePlan.message, variant: "destructive" });
+          return;
+        }
         const tagPlan = planLessonTagSave({ tagsLoadError, selectedTagIds: selectedTags.map(t => t.id) });
         if (tagPlan.kind === "replace") {
           const { error: deleteError } = await supabase.from("lesson_tags").delete().eq("lesson_id", lessonId);
@@ -386,6 +411,9 @@ export default function LessonEditorPage() {
 
       router.push(`/lessons/${savedId}`);
       router.refresh();
+    } catch {
+      // 网络异常等非 error 对象 throw：同样 toast 且不跳转，保留用户输入可重试
+      toast({ title: LESSON_SAVE_ERROR_MESSAGE, variant: "destructive" });
     } finally {
       setSaving(false);
     }
