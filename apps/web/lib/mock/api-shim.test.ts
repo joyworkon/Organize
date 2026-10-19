@@ -388,3 +388,23 @@ describe("mock api shim：/api/library/items 资料库统一查询", () => {
     expect(badCursor.body.error).toContain("cursor");
   });
 });
+
+describe("mock api shim：/api/plugins 开关写路径", () => {
+  it("PATCH 已知 id 更新 enabled 并返回该行", async () => {
+    const { status, body } = await call("/api/plugins/plugin-tag-suggest", {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ id: "plugin-tag-suggest", enabled: true });
+  });
+
+  it("PATCH 未知 id 返回 404（与真实路由的 0 行语义对齐）", async () => {
+    const { status, body } = await call("/api/plugins/plugin-404", {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: "插件不存在或无权限" });
+  });
+});

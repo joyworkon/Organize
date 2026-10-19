@@ -1034,7 +1034,7 @@ const listPlugins: MockHandler = () => ({
 
 const patchPlugin: MockHandler = ({ body, params }) => {
   const row = mockDb.plugins.find((r) => r.id === params.id && r.user_id === MOCK_USER.id);
-  if (!row) return { status: 500, body: { error: "插件不存在" } };
+  if (!row) return { status: 404, body: { error: "插件不存在或无权限" } };
   if (body?.config !== undefined) row.config = body.config;
   if (body?.enabled !== undefined) row.enabled = body.enabled;
   row.updated_at = nowIso();

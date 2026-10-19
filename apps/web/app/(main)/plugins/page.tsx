@@ -7,6 +7,7 @@ import { Puzzle, Power, PowerOff } from "@/components/icons";
 import { PageHeader } from "@/components/layout/page-header";
 import { PageSearch } from "@/components/layout/page-search";
 import { filterByPageSearch } from "@/lib/search/page-search";
+import { readPluginRecords } from "@/lib/plugin/api-mutation";
 import { cn } from "@/lib/utils";
 
 /** 扩展点中文名：既用于卡片标签，也作为页内搜索的匹配面 */
@@ -37,8 +38,12 @@ export default function PluginsPage() {
     setPluginError("");
     try {
       const recordsResponse = await fetch("/api/plugins", { cache: "no-store" });
-      const records = await recordsResponse.json();
-      const record = records.find((candidate: { package_name: string }) => candidate.package_name === pluginId);
+      const recordsOutcome = readPluginRecords(
+        recordsResponse.ok,
+        await recordsResponse.json().catch(() => null)
+      );
+      if (!recordsOutcome.ok) throw new Error(recordsOutcome.message);
+      const record = recordsOutcome.records.find((candidate) => candidate.package_name === pluginId);
       if (!record) throw new Error("插件配置不存在，请刷新后重试");
       const response = await fetch(`/api/plugins/${record.id}`, {
         method: "PATCH",

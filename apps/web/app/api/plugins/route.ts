@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import { parseJsonBody } from "@/lib/plugin/api-mutation";
 
 // GET /api/plugins - 获取用户插件列表
 export async function GET(request: NextRequest) {
@@ -18,9 +20,7 @@ export async function GET(request: NextRequest) {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return serverError(error);
 
   return NextResponse.json(data);
 }
@@ -36,8 +36,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { name, package_name, version, config } = body;
+  const parsed = parseJsonBody(await request.text());
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+  }
+  const { name, package_name, version, config } = parsed.body;
 
   if (!name || !package_name) {
     return NextResponse.json(
@@ -62,9 +65,7 @@ export async function POST(request: NextRequest) {
     .select()
     .single();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return serverError(error);
 
   return NextResponse.json(data, { status: 201 });
 }
