@@ -29,6 +29,12 @@ import { TagColorPicker } from "@/components/tags/tag-color-picker";
 import { Label } from "@/components/ui/label";
 import { buildTagCounts } from "./tag-counts";
 import { buildTagDetailItems, type TagDetailItems } from "./tag-detail-load";
+import {
+  deleteTagExceptionOutcome,
+  readDeleteTagResult,
+  readUpdateTagResult,
+  updateTagExceptionOutcome,
+} from "@/lib/tags/tag-manage-mutation";
 
 type DetailFilter = "all" | "reading" | "notes" | "tasks" | "lessons";
 
@@ -240,18 +246,33 @@ export default function TagsPage() {
     if (!editTarget || !editValue.trim()) return;
     setEditing(true);
     try {
-      const { error } = await supabase
+      // .select("id")：0 行命中（已被删除 / RLS 无权限）时 error 为 null，必须按行数判失败
+      const { data, error } = await supabase
         .from("tags")
         .update({ name: editValue.trim(), color: editColor })
-        .eq("id", editTarget.id);
-      if (!error) {
+        .eq("id", editTarget.id)
+        .select("id");
+      const outcome = readUpdateTagResult({ data, error });
+      if (outcome.ok) {
         setEditTarget(null);
         if (selectedTag?.id === editTarget.id) {
           setSelectedTag(null);
         }
         await fetchTags();
         window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+      } else {
+        toast({ title: outcome.toastTitle, variant: "destructive" });
+        // 重名 / 保存失败：对话框保持打开、保留输入可改后重试；0 行：目标已不在，关闭并刷新列表
+        if (outcome.reason === "not-found") {
+          setEditTarget(null);
+          if (selectedTag?.id === editTarget.id) {
+            setSelectedTag(null);
+          }
+          await fetchTags();
+        }
       }
+    } catch {
+      toast({ title: updateTagExceptionOutcome().toastTitle, variant: "destructive" });
     } finally {
       setEditing(false);
     }
@@ -261,15 +282,33 @@ export default function TagsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const { error } = await supabase.from("tags").delete().eq("id", deleteTarget.id);
-      if (!error) {
+      // 同 handleEdit：.select("id") 判 0 行，失败必须可见，不得静默
+      const { data, error } = await supabase
+        .from("tags")
+        .delete()
+        .eq("id", deleteTarget.id)
+        .select("id");
+      const outcome = readDeleteTagResult({ data, error });
+      if (outcome.ok) {
         setDeleteTarget(null);
         if (selectedTag?.id === deleteTarget.id) {
           setSelectedTag(null);
         }
         await fetchTags();
         window.dispatchEvent(new CustomEvent("organize:tags-changed"));
+      } else {
+        toast({ title: outcome.toastTitle, variant: "destructive" });
+        // 删除失败：保留确认对话框与列表项；0 行：目标已不在，关闭并刷新列表
+        if (outcome.reason === "not-found") {
+          setDeleteTarget(null);
+          if (selectedTag?.id === deleteTarget.id) {
+            setSelectedTag(null);
+          }
+          await fetchTags();
+        }
       }
+    } catch {
+      toast({ title: deleteTagExceptionOutcome().toastTitle, variant: "destructive" });
     } finally {
       setDeleting(false);
     }
