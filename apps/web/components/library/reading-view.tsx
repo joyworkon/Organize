@@ -406,6 +406,12 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
         appEvents.emit("reading:status-changed", { itemId: id, from: previous, to: status });
       }
       fetchStats();
+    } else if (isOnline()) {
+      toast({
+        title: "更新阅读状态失败",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -462,6 +468,13 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, is_pinned: !pinned } : it))
       );
+      if (isOnline()) {
+        toast({
+          title: pinned ? "置顶失败" : "取消置顶失败",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -508,18 +521,30 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     const count = ids.length;
-    const res = await fetch("/api/reading-items/batch", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, action: "status", reading_status: status }),
-    });
-    if (res.ok) {
-      setItems((prev) =>
-        prev.map((it) => (selectedIds.has(it.id) ? { ...it, reading_status: status } : it))
-      );
-      exitSelection();
-      fetchStats();
-      toast({ title: `已标记 ${count} 篇为${label}` });
+    try {
+      const res = await fetch("/api/reading-items/batch", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, action: "status", reading_status: status }),
+      });
+      if (res.ok) {
+        setItems((prev) =>
+          prev.map((it) => (selectedIds.has(it.id) ? { ...it, reading_status: status } : it))
+        );
+        exitSelection();
+        fetchStats();
+        toast({ title: `已标记 ${count} 篇为${label}` });
+      } else if (isOnline()) {
+        toast({ title: "批量更新状态失败", variant: "destructive" });
+      }
+    } catch (error) {
+      if (isOnline()) {
+        toast({
+          title: "批量更新状态失败",
+          description: error instanceof Error ? error.message : undefined,
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -537,6 +562,12 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
       );
       exitSelection();
       toast({ title: `已${pinned ? "置顶" : "取消置顶"} ${count} 篇文章` });
+    } else if (isOnline()) {
+      toast({
+        title: "批量置顶失败",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -564,42 +595,57 @@ export function ReadingView({ search, refreshTick, registerEscape }: ReadingView
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
-    let tagId = tag.id;
-    if (tagId?.startsWith("new:")) {
-      const createRes = await fetch("/api/tags", {
+    try {
+      let tagId = tag.id;
+      if (tagId?.startsWith("new:")) {
+        const createRes = await fetch("/api/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: tag.name }),
+        });
+        if (!createRes.ok) {
+          if (isOnline()) toast({ title: "创建标签失败", variant: "destructive" });
+          return;
+        }
+        const created = await createRes.json();
+        tagId = created.id as string;
+      }
+      if (!tagId) return;
+
+      const count = ids.length;
+      const res = await fetch("/api/reading-items/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: tag.name }),
+        body: JSON.stringify({ ids, tag_id: tagId }),
       });
-      if (!createRes.ok) return;
-      const created = await createRes.json();
-      tagId = created.id as string;
-    }
-    if (!tagId) return;
-
-    const count = ids.length;
-    const res = await fetch("/api/reading-items/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, tag_id: tagId }),
-    });
-    if (res.ok) {
-      setItems((prev) =>
-        prev.map((it) =>
-          selectedIds.has(it.id)
-            ? {
-                ...it,
-                tags:
-                  it.tags?.some((t) => t.id === tagId)
-                    ? it.tags
-                    : [...(it.tags || []), { id: tagId!, name: tag.name } as Tag],
-              }
-            : it
-        )
-      );
-      exitSelection();
-      refreshTags();
-      toast({ title: `已为 ${count} 篇文章添加标签` });
+      if (res.ok) {
+        setItems((prev) =>
+          prev.map((it) =>
+            selectedIds.has(it.id)
+              ? {
+                  ...it,
+                  tags:
+                    it.tags?.some((t) => t.id === tagId)
+                      ? it.tags
+                      : [...(it.tags || []), { id: tagId!, name: tag.name } as Tag],
+                }
+              : it
+          )
+        );
+        exitSelection();
+        refreshTags();
+        toast({ title: `已为 ${count} 篇文章添加标签` });
+      } else if (isOnline()) {
+        toast({ title: "批量添加标签失败", variant: "destructive" });
+      }
+    } catch (error) {
+      if (isOnline()) {
+        toast({
+          title: "批量添加标签失败",
+          description: error instanceof Error ? error.message : undefined,
+          variant: "destructive",
+        });
+      }
     }
   };
 
