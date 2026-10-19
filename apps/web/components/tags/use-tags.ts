@@ -5,9 +5,16 @@ import type { Tag, TagWithCount } from "@organize/shared";
 import { createClient } from "@/lib/supabase/client";
 import { nextAllTagsAfterLoad } from "@/lib/tags/all-tags-load";
 import {
+  addTagMutationFromMock,
+  readAddTagMutation,
+  removeTagMutationFromMock,
+  removeTagMutationFromResponse,
+} from "@/lib/tags/resource-tag-mutation";
+import {
   nextResourceTagsAfterLoad,
   type ResourceTagsLoadOutcome,
 } from "@/lib/tags/resource-tags-load";
+import { toast } from "@/hooks/use-toast";
 
 type TaggableResource = "note" | "reading_item";
 
@@ -273,40 +280,35 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
         return tags;
       };
 
-      try {
-        if (MOCK_BACKEND) {
-          const tagId = await mockResolveAndLink(tag);
-          if (!tagId) {
-            setTags((prev) => prev.filter((t) => t.id !== optimistic.id));
-            return;
-          }
-          // 用真实 id 替换临时 id
-          setTags((prev) =>
-            prev.map((t) => (t.id === optimistic.id ? { ...t, id: tagId } : t))
-          );
-          lastSuccessRef.current = tagsAfterAdd(tagId);
-          return tagId;
-        }
-
-        const res = await fetch(`${base}/${resourceId}/tags`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tag.id ? { tag_id: tag.id } : { name: tag.name }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          // 用真实 id 替换临时 id
-          if (data?.tag_id) {
-            setTags((prev) =>
-              prev.map((t) => (t.id === optimistic.id ? { ...t, id: data.tag_id } : t))
-            );
-            lastSuccessRef.current = tagsAfterAdd(data.tag_id);
-          }
-          return data?.tag_id as string | undefined;
-        }
-      } catch {
-        // 失败回滚
+      // 任何失败（HTTP 非 2xx、响应缺 tag_id、网络异常、mock 失败）都回滚乐观标签并提示
+      const rollbackAdd = () => {
         setTags((prev) => prev.filter((t) => t.id !== optimistic.id));
+        toast({ title: "添加标签失败，已回滚", variant: "destructive" });
+      };
+
+      try {
+        const outcome = MOCK_BACKEND
+          ? addTagMutationFromMock(await mockResolveAndLink(tag))
+          : await readAddTagMutation(
+              await fetch(`${base}/${resourceId}/tags`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(tag.id ? { tag_id: tag.id } : { name: tag.name }),
+              })
+            );
+        if (!outcome.ok) {
+          rollbackAdd();
+          return undefined;
+        }
+        // 用真实 id 替换临时 id
+        setTags((prev) =>
+          prev.map((t) => (t.id === optimistic.id ? { ...t, id: outcome.tagId } : t))
+        );
+        lastSuccessRef.current = tagsAfterAdd(outcome.tagId);
+        return outcome.tagId;
+      } catch {
+        rollbackAdd();
+        return undefined;
       }
     },
     [base, mockResolveAndLink, resourceId, tags]
@@ -317,21 +319,36 @@ export function useResourceTags(resource: TaggableResource, resourceId: string |
       if (!resourceId) return;
       const snapshot = tags;
       setTags((cur) => cur.filter((t) => t.id !== tagId));
+      // 任何失败（HTTP 非 2xx、网络异常、mock error）都回滚快照并提示；不更新 lastSuccessRef
+      const rollbackRemove = () => {
+        setTags(snapshot);
+        toast({ title: "移除标签失败，已回滚", variant: "destructive" });
+      };
       try {
         if (MOCK_BACKEND) {
           const supabase = createClient();
-          await supabase
+          const { error } = await supabase
             .from(linkTable)
             .delete()
             .eq(foreignKey, resourceId)
             .eq("tag_id", tagId);
+          if (!removeTagMutationFromMock(error).ok) {
+            rollbackRemove();
+            return;
+          }
           lastSuccessRef.current = snapshot.filter((t) => t.id !== tagId);
           return;
         }
-        await fetch(`${base}/${resourceId}/tags?tag_id=${tagId}`, { method: "DELETE" });
+        const res = await fetch(`${base}/${resourceId}/tags?tag_id=${tagId}`, {
+          method: "DELETE",
+        });
+        if (!removeTagMutationFromResponse(res).ok) {
+          rollbackRemove();
+          return;
+        }
         lastSuccessRef.current = snapshot.filter((t) => t.id !== tagId);
       } catch {
-        setTags(snapshot);
+        rollbackRemove();
       }
     },
     [base, foreignKey, linkTable, resourceId, tags]
