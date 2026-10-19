@@ -30,6 +30,7 @@ import {
   Redo2,
   Undo2,
 } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { hasOpenDialog, isTypingTarget } from "@/lib/hooks/use-hotkey";
 import { createClient } from "@/lib/supabase/client";
@@ -914,9 +915,9 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
               返回列表
             </Link>
             {load.phase === "not-found" && (
-              <button
+              <Button
                 type="button"
-                className="rounded-md border px-3 py-1.5 hover:bg-accent"
+                variant="outline"
                 onClick={async () => {
                   const draft = await loadDraft(userId, documentId);
                   if (!draft) {
@@ -931,7 +932,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
                 }}
               >
                 把本机草稿另存为新画布
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -982,36 +983,42 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         </span>
         {!readOnly && (
           <div className="canvas-header-actions">
-            <button
+            <Button
               type="button"
-              className="canvas-tool-btn"
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-muted-foreground"
               onClick={() => store.getState().undo()}
               disabled={!canUndo || previewMode}
               title="撤销（⌘Z）"
               aria-label="撤销"
             >
               <Undo2 className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="canvas-tool-btn"
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-muted-foreground"
               onClick={() => store.getState().redo()}
               disabled={!canRedo || previewMode}
               title="重做（⇧⌘Z）"
               aria-label="重做"
             >
               <Redo2 className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="canvas-tool-btn"
+              variant={previewMode ? "secondary" : "ghost"}
+              size="icon"
+              className="shrink-0"
               onClick={() => store.getState().togglePreview()}
               title={previewMode ? "退出预览（Esc）" : "预览"}
               aria-label={previewMode ? "退出预览" : "预览"}
               aria-pressed={previewMode}
             >
               <Eye className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         )}
       </header>
@@ -1021,34 +1028,34 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       {recovered && !readOnly && (
         <div className="canvas-banner" role="alert" data-testid="canvas-draft-banner">
           <span>已恢复本机未保存的草稿（可能比云端更新）。</span>
-          <button
+          <Button
             type="button"
-            className="canvas-banner-btn"
+            variant="outline" size="sm"
             onClick={async () => {
               await deleteDraft(userId, documentId);
               window.location.reload();
             }}
           >
             丢弃草稿，用云端版本
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="canvas-banner-btn is-primary"
+            size="sm"
             onClick={() => store.setState({ recoveredFromDraft: false })}
           >
             知道了，继续编辑
-          </button>
+          </Button>
         </div>
       )}
       {saveStatus === "conflict" && !readOnly && (
         <div className="canvas-banner is-warning" role="alert" data-testid="canvas-conflict-banner">
           <span>云端已有更新（保存被拒绝，本地内容未丢失）。</span>
-          <button type="button" className="canvas-banner-btn" onClick={() => setShowRemoteDialog(true)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowRemoteDialog(true)}>
             查看云端版本
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="canvas-banner-btn"
+            variant="outline" size="sm"
             onClick={async () => {
               const res = await duplicateCanvas(
                 { id: documentId, title, content: doc, revision: 0, created_at: "", updated_at: "" },
@@ -1059,14 +1066,14 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             }}
           >
             将本地内容另存为副本
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="canvas-banner-btn is-primary"
+            size="sm"
             onClick={() => store.getState().setSaveStatus("local")}
           >
             暂不处理
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1077,9 +1084,12 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         (panelOpen ? (
           <div className="canvas-add-panel-wrap">
             <div className="canvas-add-panel-topbar">
-              <button
+              <Button
                 type="button"
-                className="canvas-tool-btn"
+                variant={selection === null ? "secondary" : "ghost"}
+                size="icon"
+                className="shrink-0"
+                aria-pressed={selection === null}
                 title="选择（点击空白取消选择）"
                 aria-label="选择工具"
                 onClick={() => {
@@ -1088,16 +1098,18 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
                 }}
               >
                 <MousePointerClick className="h-4 w-4" />
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="canvas-tool-btn"
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-muted-foreground"
                 title="折叠添加面板"
                 aria-label="折叠添加面板"
                 onClick={() => setPanelOpen(false)}
               >
                 <PanelLeftClose className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
             <CanvasAddPanel
               store={store}
@@ -1123,15 +1135,17 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             />
           </div>
         ) : (
-          <button
+          <Button
             type="button"
-            className="canvas-tool-btn canvas-add-panel-expand"
+            variant="outline"
+            size="icon"
+            className="canvas-add-panel-expand text-muted-foreground"
             title="展开添加面板"
             aria-label="展开添加面板"
             onClick={() => setPanelOpen(true)}
           >
             <PanelLeftOpen className="h-4 w-4" />
-          </button>
+          </Button>
         ))}
       {/* 统一图片文件选择器：「添加→图片」的目标在点击按钮瞬间已快照 */}
       <input
@@ -1191,33 +1205,39 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
 
       {/* 缩放控件 */}
       <div className="canvas-zoom" role="group" aria-label="缩放">
-        <button
+        <Button
           type="button"
-          className="canvas-tool-btn"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground"
           title="缩小"
           aria-label="缩小"
           onClick={() => store.getState().setViewport({ zoom: clampZoom(viewport.zoom / 1.2) })}
         >
           <Minus className="h-4 w-4" />
-        </button>
+        </Button>
         <span className="canvas-zoom-value" aria-live="polite">
           {Math.round(viewport.zoom * 100)}%
         </span>
-        <button
+        <Button
           type="button"
-          className="canvas-tool-btn"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground"
           title="放大"
           aria-label="放大"
           onClick={() => store.getState().setViewport({ zoom: clampZoom(viewport.zoom * 1.2) })}
         >
           <Plus className="h-4 w-4" />
-        </button>
-        <button type="button" className="canvas-zoom-fit" onClick={() => store.getState().setViewport({ zoom: 1 })} title="重置为 100%">
+        </Button>
+        <Button type="button" variant="ghost" size="sm" aria-label="重置为 100%" onClick={() => store.getState().setViewport({ zoom: 1 })} title="重置为 100%">
           100%
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-tool-btn"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground"
           title="适合全部"
           aria-label="适合全部"
           onClick={() => {
@@ -1230,7 +1250,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           }}
         >
           <Maximize2 className="h-4 w-4" />
-        </button>
+        </Button>
       </div>
 
       {/* 云端版本查看 */}
@@ -1244,12 +1264,11 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           </DialogHeader>
           <p className="text-sm text-muted-foreground">云端标题：{remoteRow?.title || "未命名画布"}</p>
           <div className="flex justify-end gap-2">
-            <button type="button" className="rounded-md border px-3 py-1.5 text-sm" onClick={() => setShowRemoteDialog(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowRemoteDialog(false)}>
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
               onClick={async () => {
                 const remote = await getCanvas(documentId);
                 if (remote.ok) {
@@ -1265,7 +1284,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
               }}
             >
               用云端版本替换本地内容
-            </button>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -9,6 +9,8 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Trash2 } from "@/components/icons";
 import {
   attachFreeItemToRegion,
@@ -126,10 +128,18 @@ export function CanvasPropertyBar({
     return <div className="canvas-property-bar" aria-label="多个模块属性">
       <h3 className="canvas-prop-title">已选中 {selection.blockIds.length} 个模块</h3>
       <p className="text-xs text-muted-foreground">拖动任一选中模块可一起移动；Shift 点击可增减选区。</p>
-      <button type="button" className="canvas-prop-btn" onClick={() => {
-        store.getState().apply("删除多个模块", (d) => ({ doc: selection.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, d) }));
-        store.getState().select(null);
-      }}>删除选中模块</button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="gap-1 border-destructive/40 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => {
+          store.getState().apply("删除多个模块", (d) => ({ doc: selection.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, d) }));
+          store.getState().select(null);
+        }}
+      >
+        删除选中模块
+      </Button>
     </div>;
   }
 
@@ -218,13 +228,15 @@ export function CanvasPropertyBar({
             }
           />
         </label>
-        <button
+        <Button
           type="button"
-          className="canvas-prop-danger"
+          variant="outline"
+          size="sm"
+          className="gap-1 border-destructive/40 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => store.getState().apply("删除页面", (d) => deleteBoard(d, { boardId: board.id }))}
         >
           <Trash2 className="h-3.5 w-3.5" /> 删除页面
-        </button>
+        </Button>
       </div>
     );
   }
@@ -426,18 +438,22 @@ export function CanvasPropertyBar({
           </>
         )}
         <div className="canvas-prop-row canvas-prop-actions">
-          <button
+          <Button
             type="button"
-            className="canvas-prop-btn"
+            variant="outline"
+            size="sm"
+            className="min-w-0 flex-1 px-1 text-xs"
             onClick={() =>
               store.getState().apply("上移一层", (d) => updateFreeItem(d, { itemId: item.id, zIndex: item.zIndex + 1 }))
             }
           >
             上移一层
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="canvas-prop-btn"
+            variant="outline"
+            size="sm"
+            className="min-w-0 flex-1 px-1 text-xs"
             onClick={() =>
               store.getState().apply("下移一层", (d) =>
                 updateFreeItem(d, { itemId: item.id, zIndex: Math.max(0, item.zIndex - 1) }),
@@ -445,15 +461,17 @@ export function CanvasPropertyBar({
             }
           >
             下移一层
-          </button>
+          </Button>
         </div>
-        <button
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           onClick={() => setMoveTargetOpen(true)}
         >
           移入区块…
-        </button>
+        </Button>
         <MoveFreeItemDialog
           store={store}
           doc={doc}
@@ -462,13 +480,15 @@ export function CanvasPropertyBar({
           onOpenChange={setMoveTargetOpen}
         />
         <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />
-        <button
+        <Button
           type="button"
-          className="canvas-prop-danger"
+          variant="outline"
+          size="sm"
+          className="gap-1 border-destructive/40 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => store.getState().apply("删除自由容器", (d) => deleteFreeItem(d, { itemId: item.id }))}
         >
           <Trash2 className="h-3.5 w-3.5" /> 删除
-        </button>
+        </Button>
       </div>
     );
   }
@@ -727,7 +747,7 @@ export function CanvasPropertyBar({
           </p>
           <div className="canvas-prop-row canvas-prop-actions">
             <a
-              className="canvas-prop-btn"
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-w-0 flex-1 px-1 text-xs")}
               href={
                 sourceRef.kind === "memo"
                   ? `/library?view=memos&memo=${encodeURIComponent(sourceRef.id)}`
@@ -741,26 +761,30 @@ export function CanvasPropertyBar({
             >
               打开来源
             </a>
-            <button
+            <Button
               type="button"
-              className="canvas-prop-btn"
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 px-1 text-xs"
               disabled={!onRefreshSource || (sourceStatuses ? statusOf(sourceStatuses, sourceRef) === "missing" : false)}
               title={sourceStatuses && statusOf(sourceStatuses, sourceRef) === "missing" ? "来源不可用，无法更新" : "按来源当前内容重建快照（可撤销）"}
               onClick={() => onRefreshSource?.(block.id)}
             >
               更新快照
-            </button>
+            </Button>
             {block.type !== "materialCard" && (
-              <button
+              <Button
                 type="button"
-                className="canvas-prop-btn"
+                variant="outline"
+                size="sm"
+                className="min-w-0 flex-1 px-1 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 title="移除来源引用（快照内容保留）"
                 onClick={() =>
                   store.getState().apply("移除来源引用", (d) => detachSourceRef(d, { blockId: block.id }))
                 }
               >
                 移除引用
-              </button>
+              </Button>
             )}
           </div>
         </>
@@ -776,9 +800,11 @@ export function CanvasPropertyBar({
       <RadiusControl store={store} blockId={block.id} />
       <h3 className="canvas-prop-subtitle">所在行</h3>
       <div className="canvas-prop-row canvas-prop-actions">
-        <button
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={section.columns.length >= 6 || !canAddColumnAt(regionInnerWidth(board, region), section.gap ?? regionGap(board, region), section.columns.length)}
           title={section.columns.length >= 6 ? "每行最多六列" : canAddColumnAt(regionInnerWidth(board, region), section.gap ?? regionGap(board, region), section.columns.length) ? "在右侧添加一列" : "当前宽度不足，请先加宽页面"}
           onClick={() =>
@@ -793,10 +819,12 @@ export function CanvasPropertyBar({
           }
         >
           加列
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
           disabled={!canRemoveColumn}
           title={canRemoveColumn ? "删除最后一列（仅空列）" : "仅可删除空列，且至少保留一列"}
           onClick={() =>
@@ -810,12 +838,14 @@ export function CanvasPropertyBar({
           }
         >
           减列
-        </button>
+        </Button>
       </div>
       <div className="canvas-prop-row canvas-prop-actions">
-        <button
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={section.columns.length < 2}
           title={section.columns.length < 2 ? "等分需要至少两列" : "将当前行所有列恢复为等宽"}
           onClick={() =>
@@ -825,10 +855,12 @@ export function CanvasPropertyBar({
           }
         >
           等分
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={!isTwoCols}
           title={isTwoCols ? "左列占 1/3" : "仅两列可用"}
           onClick={() =>
@@ -838,10 +870,12 @@ export function CanvasPropertyBar({
           }
         >
           1:2
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={!isTwoCols}
           title={isTwoCols ? "左列占 2/3" : "仅两列可用"}
           onClick={() =>
@@ -851,11 +885,13 @@ export function CanvasPropertyBar({
           }
         >
           2:1
-        </button>
+        </Button>
         {canSmartRecompute(section) && (
-          <button
+          <Button
             type="button"
-            className="canvas-prop-btn"
+            variant="outline"
+            size="sm"
+            className="min-w-0 flex-1 px-1 text-xs"
             title="一文一图智能比例"
             onClick={() => {
               store.getState().apply("智能比例", (d) =>
@@ -865,7 +901,7 @@ export function CanvasPropertyBar({
             }}
           >
             智能
-          </button>
+          </Button>
         )}
       </div>
       {isTwoCols && (
@@ -931,25 +967,31 @@ export function CanvasPropertyBar({
         <span className="text-xs text-muted-foreground">{section.gap ?? board.gap}px</span>
       </label>
       <div className="canvas-prop-row canvas-prop-actions">
-        <button
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           onClick={() => store.getState().apply("复制模块", (d) => duplicateBlock(d, { blockId: block.id }))}
         >
           复制
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={blockIndex === 0}
           title={blockIndex === 0 ? "已经是本列第一个模块" : "在本列上移"}
           onClick={() => store.getState().apply("模块上移", (d) => moveBlock(d, { blockId: block.id, direction: "up" }))}
         >
           上移
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="canvas-prop-btn"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           disabled={blockIndex === column.blocks.length - 1}
           title={blockIndex === column.blocks.length - 1 ? "已经是本列最后一个模块" : "在本列下移"}
           onClick={() =>
@@ -957,15 +999,17 @@ export function CanvasPropertyBar({
           }
         >
           下移
-        </button>
+        </Button>
       </div>
-      <button
+      <Button
         type="button"
-        className="canvas-prop-danger"
+        variant="outline"
+        size="sm"
+        className="gap-1 border-destructive/40 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={() => store.getState().apply("删除模块", (d) => deleteBlock(d, { blockId: block.id }))}
       >
         <Trash2 className="h-3.5 w-3.5" /> 删除模块
-      </button>
+      </Button>
     </div>
   );
 }
@@ -982,14 +1026,15 @@ function ReplaceImageRow({
   return (
     <div className="canvas-prop-row">
       <span className="canvas-prop-label">图片</span>
-      <button
+      <Button
         type="button"
-        className="canvas-prop-btn"
-        style={{ flex: 1 }}
+        variant="outline"
+        size="sm"
+        className="min-w-0 flex-1 px-1 text-xs"
         onClick={() => inputRef.current?.click()}
       >
         替换图片…
-      </button>
+      </Button>
       <input
         ref={inputRef}
         type="file"
@@ -1020,16 +1065,18 @@ function ModeRow({
   return (
     <div className="canvas-prop-row" role="radiogroup">
       {options.map((opt) => (
-        <button
+        <Button
           key={opt.value}
           type="button"
           role="radio"
           aria-checked={value === opt.value}
-          className={`canvas-seg ${value === opt.value ? "is-active" : ""}`}
+          variant={value === opt.value ? "secondary" : "outline"}
+          size="sm"
+          className="min-w-0 flex-1 px-1 text-xs"
           onClick={() => onChange(opt.value)}
         >
           {opt.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -1206,16 +1253,15 @@ function MoveFreeItemDialog({
           </label>
         </div>
         <div className="flex justify-end gap-2">
-          <button
+          <Button
             type="button"
-            className="rounded-md border px-3 py-1.5 text-sm"
+            variant="outline"
             onClick={() => onOpenChange(false)}
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
             disabled={!effectiveBoardId || !effectiveRegionId}
             onClick={() => {
               store.getState().apply("移入区块", (d) =>
@@ -1229,7 +1275,7 @@ function MoveFreeItemDialog({
             }}
           >
             移入
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

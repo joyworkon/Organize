@@ -238,7 +238,7 @@ for (const zoom of [0.5, 1, 2]) {
     await page.locator("[data-block-id] textarea").fill("右列下一块\n更多正文");
     await page.getByRole("textbox", { name: "画布名称", exact: true }).focus();
     // 通过真实缩放控件改比例，随后直接检查屏幕矩形与局部坐标。
-    await page.getByRole("button", { name: "100%", exact: true }).click();
+    await page.getByRole("button", { name: "重置为 100%", exact: true }).click();
     if (zoom !== 1) {
       const control = page.getByRole("button", { name: zoom < 1 ? "缩小" : "放大", exact: true });
       for (let i = 0; i < 4; i++) await control.click();
