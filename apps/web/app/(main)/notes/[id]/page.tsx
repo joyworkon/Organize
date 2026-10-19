@@ -1889,7 +1889,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       <ResourceShareDialog
         resourceType="note"
         resourceId={noteId}
-        myRole={noteRole ?? "owner"}
+        myRole={noteRole}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
         roleUnverified={noteRoleUnverified}

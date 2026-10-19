@@ -62,8 +62,8 @@ interface ResourceShareDialogProps {
   /** 资源域：笔记页传 'note'，文章详情页传 'reading_item'（069） */
   resourceType: ShareResourceType;
   resourceId: string;
-  /** 我对这个资源的角色；owner 才能改授权，其余只读浏览 */
-  myRole: CollabRole;
+  /** 我对这个资源的角色；null 表示尚未判定，owner 才能改授权，其余已判定角色只读浏览 */
+  myRole: CollabRole | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** resource_role 未成功取到有效角色时为真：myRole 只是安全兜底 viewer，必须诚实提示而不是伪装「仅查看」 */
@@ -150,6 +150,7 @@ export function ResourceShareDialog({
   roleUnverified = false,
   onRetryRole,
 }: ResourceShareDialogProps) {
+  const isRolePending = myRole === null;
   const isOwner = myRole === "owner";
   const copy = COPY[resourceType];
 
@@ -158,7 +159,9 @@ export function ResourceShareDialog({
       <DialogContent onClick={(e) => e.stopPropagation()} className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
-          <DialogDescription>{isOwner ? copy.ownerDesc : copy.collaboratorDesc}</DialogDescription>
+          <DialogDescription>
+            {isRolePending ? "正在确认你的权限…" : isOwner ? copy.ownerDesc : copy.collaboratorDesc}
+          </DialogDescription>
         </DialogHeader>
 
         {roleUnverified && (
@@ -176,7 +179,11 @@ export function ResourceShareDialog({
           </p>
         )}
 
-        {isOwner ? (
+        {isRolePending ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            正在确认你的权限…
+          </p>
+        ) : isOwner ? (
           <OwnerShareSections resourceType={resourceType} resourceId={resourceId} />
         ) : (
           <CollaboratorGrants resourceType={resourceType} resourceId={resourceId} />
