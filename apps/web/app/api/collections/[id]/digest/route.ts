@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAIConfig, redactSecret } from "@/lib/ai/server";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { serverError } from "@/lib/api/error";
+import {
+  parseDigestBody,
+  classifyDigestQuery,
+  classifyDigestBudgetError,
+} from "@/lib/collections/digest-api";
 import { isMockBackend } from "@/lib/env";
 import { stripHtmlToText } from "@/lib/collections/digest-text";
 import {
@@ -15,13 +21,6 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
-
-interface Body {
-  sourceType?: unknown;
-  ids?: unknown;
-  /** preview=true 只返回预算与来源清单（生成前预览），不调用 AI、不写库 */
-  preview?: unknown;
-}
 
 /**
  * POST /api/collections/[id]/digest — 从集合选中的来源生成合并整理稿（阶段 4）。
@@ -40,9 +39,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "演示模式不调用真实 AI；整理稿生成需要连接后端并配置 AI 服务" }, { status: 501 });
   }
 
-  let body: Body;
-  try { body = await request.json(); }
+  let body;
+  try { body = parseDigestBody(await request.json()); }
   catch { return NextResponse.json({ error: "请求格式无效" }, { status: 400 }); }
+  if (!body) return NextResponse.json({ error: "请求格式无效" }, { status: 400 });
 
   const sourceType = body.sourceType;
   if (sourceType !== "reading" && sourceType !== "memo" && sourceType !== "file") {
@@ -57,10 +57,12 @@ export async function POST(request: NextRequest, { params }: Params) {
   const sources: DigestSourceInput[] = [];
   for (const sourceId of ids) {
     if (sourceType === "reading") {
-      const { data: row } = await supabase
+      const result = classifyDigestQuery(await supabase
         .from("reading_items").select("id, title, content, url")
-        .eq("id", sourceId).maybeSingle();
-      if (!row) return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+        .eq("id", sourceId).maybeSingle());
+      if (result.state === "error") return serverError(result.error);
+      if (result.state === "missing") return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+      const row = result.data;
       const text = stripHtmlToText(row.content ?? "");
       if (!text) return NextResponse.json({ error: `「${row.title || row.url}」没有可整理的正文` }, { status: 400 });
       sources.push({
@@ -68,10 +70,12 @@ export async function POST(request: NextRequest, { params }: Params) {
         text, contentHash: await sha256Hex(text),
       });
     } else if (sourceType === "memo") {
-      const { data: row } = await supabase
+      const result = classifyDigestQuery(await supabase
         .from("memos").select("id, content")
-        .eq("id", sourceId).maybeSingle();
-      if (!row) return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+        .eq("id", sourceId).maybeSingle());
+      if (result.state === "error") return serverError(result.error);
+      if (result.state === "missing") return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+      const row = result.data;
       const text = String(row.content ?? "");
       if (!text.trim()) return NextResponse.json({ error: "选中的速记没有内容" }, { status: 400 });
       sources.push({
@@ -80,17 +84,20 @@ export async function POST(request: NextRequest, { params }: Params) {
       });
     } else {
       // 导入文件：整理其提取正文（有 reading_item_id 时）或文件名占位说明
-      const { data: row } = await supabase
+      const result = classifyDigestQuery(await supabase
         .from("import_files").select("id, file_name, reading_item_id")
-        .eq("id", sourceId).maybeSingle();
-      if (!row) return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+        .eq("id", sourceId).maybeSingle());
+      if (result.state === "error") return serverError(result.error);
+      if (result.state === "missing") return NextResponse.json({ error: "来源不存在或不可访问" }, { status: 400 });
+      const row = result.data;
       let text = "";
       let label = row.file_name;
       if (row.reading_item_id) {
-        const { data: reading } = await supabase
+        const reading = classifyDigestQuery(await supabase
           .from("reading_items").select("content")
-          .eq("id", row.reading_item_id).maybeSingle();
-        text = stripHtmlToText(reading?.content ?? "");
+          .eq("id", row.reading_item_id).maybeSingle());
+        if (reading.state === "error") return serverError(reading.error);
+        text = stripHtmlToText(reading.state === "ok" ? reading.data.content ?? "" : "");
       }
       if (!text) text = `（该文件没有可提取的正文；文件名：${row.file_name}）`;
       sources.push({ sourceType: "file", sourceId, label, text, contentHash: await sha256Hex(text) });
@@ -102,9 +109,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     totalChars = assertDigestBudget(sources);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "来源预算超限";
-    const budget = error instanceof Error && error.name === "DigestBudgetError";
-    return NextResponse.json({ error: message }, { status: budget ? 413 : 400 });
+    const budget = classifyDigestBudgetError(error);
+    if (budget) return NextResponse.json({ error: budget.error }, { status: budget.status });
+    return serverError(error);
   }
 
   const key = await digestKey(sources);
@@ -123,12 +130,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   // 幂等：同来源集合同版本已有整理稿 → 直接返回
-  const { data: existing } = await supabase
+  const existing = classifyDigestQuery(await supabase
     .from("reading_items").select("id, title")
     .eq("user_id", user.id).eq("url", `urn:organize:digest:${key}`)
-    .maybeSingle();
-  if (existing) {
-    return NextResponse.json({ digestId: existing.id, title: existing.title, reused: true });
+    .maybeSingle());
+  if (existing.state === "error") return serverError(existing.error);
+  if (existing.state === "ok") {
+    return NextResponse.json({ digestId: existing.data.id, title: existing.data.title, reused: true });
   }
 
   if (!await checkRateLimit(`ai:digest:${user.id}`, 5, 60_000)) {
@@ -149,7 +157,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   // 落库：整理稿是独立 reading_item（URN 稳定键）+ 溯源行；不改动任何来源
-  const { data: inserted, error: insertError } = await supabase
+  const saved = classifyDigestQuery(await supabase
     .from("reading_items")
     .insert({
       user_id: user.id,
@@ -162,13 +170,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       reading_progress: 0,
     })
     .select("id, title")
-    .single();
-  if (insertError || !inserted) {
-    return NextResponse.json(
-      { error: insertError?.message ?? "整理稿保存失败（AI 已生成，可重试复用）" },
-      { status: 500 },
-    );
+    .single());
+  if (saved.state !== "ok") {
+    return serverError(saved.state === "error" ? saved.error : new Error("整理稿保存未返回数据"));
   }
+  const inserted = saved.data;
 
   // 溯源：来源与版本指纹（sha256）；失败不影响整理稿本体（重新生成幂等复用）
   const provenanceRows = sources.map((s) => ({
@@ -178,10 +184,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     source_id: s.sourceId,
     content_hash: s.contentHash,
   }));
-  await supabase.from("digest_sources").upsert(provenanceRows, {
+  const { error: provenanceError } = await supabase.from("digest_sources").upsert(provenanceRows, {
     onConflict: "digest_id,source_type,source_id",
     ignoreDuplicates: true,
   });
+  if (provenanceError) console.error("整理稿溯源保存失败", provenanceError);
 
   return NextResponse.json({ digestId: inserted.id, title: inserted.title, reused: false });
 }
