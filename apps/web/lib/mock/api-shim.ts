@@ -236,18 +236,26 @@ const listSuggestions: MockHandler = ({ params, url }) => {
   const blockId = url.searchParams.get("blockId");
   const rows = mockDb.note_suggestions
     .filter((s) => s.note_id === params.id && (!blockId || s.block_id === blockId))
-    .sort((a, b) => (a.created_at > b.created_at ? 1 : -1));
+    // 与真实路由一致：created_at 倒序
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   return { body: rows };
 };
 
 const createSuggestion: MockHandler = ({ body, params }) => {
-  if (!body?.blockId || !body?.originalBlock || !body?.proposedBlock) {
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  // 与真实路由一致：blockId 必须是非空字符串，originalBlock / proposedBlock 必须是对象
+  if (
+    typeof body.blockId !== "string" ||
+    !body.blockId.trim() ||
+    !isPlainObject(body.originalBlock) ||
+    !isPlainObject(body.proposedBlock)
+  ) {
     return { status: 400, body: { error: "建议内容不完整" } };
   }
   const row = {
     id: genId("note_suggestions"),
     note_id: params.id,
-    block_id: body.blockId,
+    block_id: body.blockId.trim(),
     user_id: MOCK_USER.id,
     original_block: body.originalBlock,
     proposed_block: body.proposedBlock,
@@ -259,7 +267,13 @@ const createSuggestion: MockHandler = ({ body, params }) => {
 };
 
 const patchSuggestion: MockHandler = ({ body, params }) => {
-  if (!body?.suggestionId || !["accepted", "rejected"].includes(body.status)) {
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  // 与真实路由一致：suggestionId 必须是非空字符串，status 必须是 accepted / rejected
+  if (
+    typeof body.suggestionId !== "string" ||
+    !body.suggestionId ||
+    !["accepted", "rejected"].includes(body.status)
+  ) {
     return { status: 400, body: { error: "无效状态" } };
   }
   const row = mockDb.note_suggestions.find(
@@ -276,22 +290,32 @@ const patchSuggestion: MockHandler = ({ body, params }) => {
 // ---- 跨笔记移动块（对齐 move_note_block RPC）----
 
 const moveBlock: MockHandler = ({ body, params }) => {
-  const targetNoteId = String(body?.targetNoteId || "");
-  const blockId = String(body?.blockId || "");
-  if (!targetNoteId || !blockId || targetNoteId === params.id) {
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  // 与真实路由一致：字段必须是非空字符串，不再 String() 强转
+  if (
+    typeof body.targetNoteId !== "string" ||
+    typeof body.blockId !== "string" ||
+    !body.targetNoteId.trim() ||
+    !body.blockId.trim() ||
+    body.targetNoteId === params.id
+  ) {
     return { status: 400, body: { error: "移动目标无效" } };
   }
+  const targetNoteId = body.targetNoteId.trim();
+  const blockId = body.blockId.trim();
   const source = findNote(params.id);
   const target = findNote(targetNoteId);
   if (!source || !target) {
-    return { status: 409, body: { error: "Note not found or access denied" } };
+    // 与真实路由对 RPC 'Note not found or access denied' 的映射一致
+    return { status: 404, body: { error: "笔记不存在或无权限" } };
   }
 
   const sourceBlocks: any[] = source.content?.content ?? [];
   const index = sourceBlocks.findIndex(
     (block) => block?.attrs?.id === blockId
   );
-  if (index === -1) return { status: 409, body: { error: "Block not found" } };
+  // 与真实路由对 RPC 'Block not found' 的映射一致
+  if (index === -1) return { status: 404, body: { error: "块不存在" } };
 
   const movingBlock = sourceBlocks[index];
   const remaining = sourceBlocks.filter((_, i) => i !== index);

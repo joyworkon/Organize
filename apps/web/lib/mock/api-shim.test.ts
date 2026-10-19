@@ -187,7 +187,7 @@ describe("mock api shim", () => {
     expect(thread.note_id).toBe("note-2");
   });
 
-  it("移动块：同笔记 400、块不存在 409、目标不存在 409", async () => {
+  it("移动块：同笔记 400、块不存在 404、目标不存在 404（与真实路由映射一致）", async () => {
     const same = await call("/api/notes/note-1/move-block", {
       method: "POST",
       body: JSON.stringify({ targetNoteId: "note-1", blockId: "blk-1" }),
@@ -199,14 +199,86 @@ describe("mock api shim", () => {
       method: "POST",
       body: JSON.stringify({ targetNoteId: "note-2", blockId: "blk-404" }),
     });
-    expect(missingBlock.status).toBe(409);
-    expect(missingBlock.body).toEqual({ error: "Block not found" });
+    expect(missingBlock.status).toBe(404);
+    expect(missingBlock.body).toEqual({ error: "块不存在" });
 
     const missingNote = await call("/api/notes/note-1/move-block", {
       method: "POST",
       body: JSON.stringify({ targetNoteId: "note-404", blockId: "blk-1" }),
     });
-    expect(missingNote.status).toBe(409);
+    expect(missingNote.status).toBe(404);
+    expect(missingNote.body).toEqual({ error: "笔记不存在或无权限" });
+  });
+
+  it("移动块：非对象 body / 字段类型错 → 400（不再 String() 强转）", async () => {
+    const arrayBody = await call("/api/notes/note-1/move-block", {
+      method: "POST",
+      body: JSON.stringify(["note-2", "blk-1"]),
+    });
+    expect(arrayBody.status).toBe(400);
+    expect(arrayBody.body).toEqual({ error: "请求格式错误" });
+
+    for (const payload of [
+      { targetNoteId: 42, blockId: "blk-1" },
+      { targetNoteId: "note-2", blockId: null },
+      { targetNoteId: "note-2" },
+    ]) {
+      const { status, body } = await call("/api/notes/note-1/move-block", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      expect(status).toBe(400);
+      expect(body).toEqual({ error: "移动目标无效" });
+    }
+  });
+
+  it("建议：非对象 body → 400 请求格式错误；字段类型错 → 400；列表按 created_at 倒序", async () => {
+    const arrayBody = await call("/api/notes/note-1/suggestions", {
+      method: "POST",
+      body: JSON.stringify([]),
+    });
+    expect(arrayBody.status).toBe(400);
+    expect(arrayBody.body).toEqual({ error: "请求格式错误" });
+
+    for (const payload of [
+      { blockId: 42, originalBlock: {}, proposedBlock: {} },
+      { blockId: "block-a", originalBlock: "text", proposedBlock: {} },
+      { blockId: "block-a", originalBlock: {}, proposedBlock: [] },
+      { blockId: "block-a", originalBlock: {} },
+    ]) {
+      const { status, body } = await call("/api/notes/note-1/suggestions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      expect(status).toBe(400);
+      expect(body).toEqual({ error: "建议内容不完整" });
+    }
+
+    const patchBad = await call("/api/notes/note-1/suggestions", {
+      method: "PATCH",
+      body: JSON.stringify({ suggestionId: 42, status: "accepted" }),
+    });
+    expect(patchBad.status).toBe(400);
+    expect(patchBad.body).toEqual({ error: "无效状态" });
+
+    // 与真实路由一致：GET 按 created_at 倒序（新建在前）；显式设定时间戳避免同毫秒并列
+    const first = await call("/api/notes/note-1/suggestions", {
+      method: "POST",
+      body: JSON.stringify({ blockId: "block-a", originalBlock: { type: "paragraph" }, proposedBlock: { type: "paragraph" } }),
+    });
+    const second = await call("/api/notes/note-1/suggestions", {
+      method: "POST",
+      body: JSON.stringify({ blockId: "block-a", originalBlock: { type: "paragraph" }, proposedBlock: { type: "heading" } }),
+    });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const { mockDb } = await import("@/lib/supabase/mock-data");
+    mockDb.note_suggestions.find((s: any) => s.id === first.body.id)!.created_at = "2026-01-01T00:00:00.000Z";
+    mockDb.note_suggestions.find((s: any) => s.id === second.body.id)!.created_at = "2026-01-02T00:00:00.000Z";
+    const list = await call("/api/notes/note-1/suggestions");
+    expect(list.status).toBe(200);
+    const ids = (list.body as Array<{ id: string }>).map((row) => row.id);
+    expect(ids.indexOf(second.body.id)).toBeLessThan(ids.indexOf(first.body.id));
   });
 
   it("速记：创建解析标签、列表倒序、tag 筛选、编辑重解析、软删后不可见", async () => {
