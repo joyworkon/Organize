@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useSharedNotes, type SharedNoteItem } from "@/hooks/use-shared-notes";
 import { collabRoleLabel } from "@/lib/collab/roles";
+import { SHARED_NOTE_ROLE_UNVERIFIED_LABEL } from "@/lib/share/shared-notes-role-load";
 
 /**
  * 「与我共享」列表页（P5-02 卡 4）。
@@ -21,14 +22,17 @@ import { collabRoleLabel } from "@/lib/collab/roles";
  */
 export default function SharedNotesPage() {
   const router = useRouter();
-  const { notes, loading, error, ownerNamesError, refresh } = useSharedNotes();
+  const { notes, loading, error, ownerNamesError, rolesError, refresh } = useSharedNotes();
   const [keyword, setKeyword] = useState("");
 
   const filtered = useMemo(
     () =>
       filterByPageSearch(notes, keyword, (note) => ({
         title: note.title,
-        extra: [note.ownerName, collabRoleLabel(note.myRole)],
+        extra: [
+          note.ownerName,
+          note.roleUnverified ? SHARED_NOTE_ROLE_UNVERIFIED_LABEL : collabRoleLabel(note.myRole),
+        ],
       })),
     [notes, keyword]
   );
@@ -76,6 +80,18 @@ export default function SharedNotesPage() {
             </button>
           </div>
         )}
+        {!loading && rolesError && notes.length > 0 && (
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <p className="text-sm text-destructive">{rolesError}</p>
+            <button
+              type="button"
+              className="shrink-0 text-sm text-primary hover:underline"
+              onClick={() => void refresh()}
+            >
+              重试
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -112,8 +128,11 @@ export default function SharedNotesPage() {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {note.title || "无标题"}
                     </span>
-                    <Badge variant={note.myRole === "viewer" ? "secondary" : "outline"} className="shrink-0">
-                      {collabRoleLabel(note.myRole)}
+                    <Badge
+                      variant={note.roleUnverified || note.myRole === "viewer" ? "secondary" : "outline"}
+                      className="shrink-0"
+                    >
+                      {note.roleUnverified ? SHARED_NOTE_ROLE_UNVERIFIED_LABEL : collabRoleLabel(note.myRole)}
                     </Badge>
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
+import { type CollabRole } from "@/lib/collab/roles";
 import {
   nextSidebarPresenceAfterLoad,
   SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT,
@@ -10,6 +10,10 @@ import {
 } from "@/lib/layout/sidebar-collab-presence-load";
 import { nextSharedNotesAfterLoad } from "@/lib/share/shared-notes-list-load";
 import { nextSharedNoteOwnerProfilesAfterLoad } from "@/lib/share/shared-notes-owner-names-load";
+import {
+  resolveSharedNoteRole,
+  sharedNotesRoleLoadError,
+} from "@/lib/share/shared-notes-role-load";
 
 export interface SharedNoteItem {
   id: string;
@@ -21,6 +25,8 @@ export interface SharedNoteItem {
   ownerAvatarUrl: string | null;
   /** 我对这篇笔记的有效角色（resource_role 结论，前端不自行推导） */
   myRole: CollabRole;
+  /** resource_role 未成功时为真：myRole 是 viewer 安全兜底，UI 须标「权限未加载」而非「仅查看」 */
+  roleUnverified: boolean;
 }
 
 interface RawNoteRow {
@@ -44,6 +50,7 @@ export function useSharedNotes(limit = 100) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ownerNamesError, setOwnerNamesError] = useState<string | null>(null);
+  const [rolesError, setRolesError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -57,6 +64,7 @@ export function useSharedNotes(limit = 100) {
         setNotes([]);
         setError(null);
         setOwnerNamesError(null);
+        setRolesError(null);
         return;
       }
       const { data, error: queryErr } = await supabase
@@ -75,13 +83,25 @@ export function useSharedNotes(limit = 100) {
       if (rows.length > 0) {
         const withRoles = await Promise.all(
           rows.map(async (row) => {
-            const { data: role } = await supabase.rpc("resource_role", {
-              p_resource_type: "note",
-              p_resource_id: row.id,
+            // 单行失败不拖垮整页：try/catch 包住，错误交给 resolveSharedNoteRole 收敛
+            let roleData: unknown = null;
+            let roleError: unknown = null;
+            try {
+              const { data, error } = await supabase.rpc("resource_role", {
+                p_resource_type: "note",
+                p_resource_id: row.id,
+              });
+              roleData = data;
+              roleError = error;
+            } catch (e) {
+              roleError = e;
+            }
+            // RLS 已保证可见 ⇒ 角色必然非空；失败时防御值取 viewer（宁可错杀为只读），但标 roleUnverified
+            const { myRole, roleUnverified } = resolveSharedNoteRole({
+              data: roleData,
+              error: roleError,
             });
-            // RLS 已保证可见 ⇒ 角色必然非空；防御值取 viewer（宁可错杀为只读）
-            const myRole = isCollabRole(role) ? role : "viewer";
-            return { row, myRole };
+            return { row, myRole, roleUnverified };
           })
         );
 
@@ -98,7 +118,7 @@ export function useSharedNotes(limit = 100) {
         const profiles = ownerOutcome.profiles;
         nextOwnerNamesError = ownerOutcome.loadError;
 
-        assembled = withRoles.map(({ row, myRole }) => ({
+        assembled = withRoles.map(({ row, myRole, roleUnverified }) => ({
           id: row.id,
           title: row.title || null,
           icon: row.icon || null,
@@ -107,6 +127,7 @@ export function useSharedNotes(limit = 100) {
           ownerName: profiles.get(row.user_id)?.display_name ?? null,
           ownerAvatarUrl: profiles.get(row.user_id)?.avatar_url ?? null,
           myRole,
+          roleUnverified,
         }));
       }
 
@@ -119,6 +140,7 @@ export function useSharedNotes(limit = 100) {
       setNotes(next.notes);
       setError(next.loadError);
       setOwnerNamesError(nextOwnerNamesError);
+      setRolesError(sharedNotesRoleLoadError(assembled));
     } catch (e) {
       const next = nextSharedNotesAfterLoad({
         previousNotes: lastNotesRef.current,
@@ -136,7 +158,7 @@ export function useSharedNotes(limit = 100) {
     void refresh();
   }, [refresh]);
 
-  return { notes, loading, error, ownerNamesError, refresh };
+  return { notes, loading, error, ownerNamesError, rolesError, refresh };
 }
 
 /**
