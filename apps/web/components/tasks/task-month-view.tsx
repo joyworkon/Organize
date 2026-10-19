@@ -21,6 +21,28 @@ const COUNTDOWN_STRIP_PX = 20;
 
 export type CalendarMode = "day" | "week" | "month" | "year";
 
+/** 指针横坐标相对当前周行映射为 0–6，越过左右边缘时夹紧。 */
+export function monthColFromClientX(clientX: number, rowLeft: number, rowWidth: number): number {
+  if (rowWidth <= 0) return 0;
+  return Math.min(6, Math.max(0, Math.floor(((clientX - rowLeft) / rowWidth) * 7)));
+}
+
+/** 月视图只换日期，保留原开始的本地墙钟时分（与既有改期合同一致）。 */
+export function monthRescheduleTargetDate(target: Date, originalStart: Date): Date {
+  return new Date(target.getFullYear(), target.getMonth(), target.getDate(), originalStart.getHours(), originalStart.getMinutes());
+}
+
+interface MonthDragState {
+  task: TaskWithTags;
+  originalStart: Date;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lane: number;
+  moved: boolean;
+  target: Date | null;
+}
+
 /* ------------------------- 日 / 周共用时间网格 ------------------------- */
 
 const HOUR_HEIGHT = 56; // 1 小时网格高度
@@ -827,8 +849,13 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   const [mode, setMode] = useState<CalendarMode>("month");
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
-  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const monthGridRef = useRef<HTMLDivElement>(null);
+  const monthRowsRef = useRef<Array<HTMLDivElement | null>>([]);
+  // ref 同步保存最终落点，避免 pointermove/up 紧邻时读到上一帧的 React state。
+  const monthDragRef = useRef<MonthDragState | null>(null);
+  const suppressMonthClickRef = useRef(false);
+  const [monthDrag, setMonthDrag] = useState<MonthDragState | null>(null);
+  const dragOverDate = monthDrag?.moved && monthDrag.target ? keyFor(monthDrag.target) : null;
   const cells = useMemo(() => getMonthCells(cursor), [cursor]);
   const weekDays = useMemo(() => weekDaysOf(cursor), [cursor]);
   const monthTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
@@ -893,11 +920,70 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
         })()
     : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日 ${WEEKDAYS[(selectedDate.getDay() + 6) % 7]}`;
 
-  /** 从拖拽事件的横坐标算出目标列（0-6），用于行级 drop */
-  const colFromEvent = (event: React.DragEvent<HTMLElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = (event.clientX - rect.left) / rect.width;
-    return Math.min(6, Math.max(0, Math.floor(ratio * 7)));
+  const startMonthDrag = (event: React.PointerEvent<HTMLButtonElement>, task: TaskWithTags, lane: number) => {
+    if (!onRescheduleTask || event.button !== 0 || !event.isPrimary || monthDragRef.current) return;
+    const originalStart = getTaskDate(task);
+    if (!originalStart) return;
+    event.stopPropagation();
+    suppressMonthClickRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const next: MonthDragState = {
+      task, originalStart, pointerId: event.pointerId,
+      startX: event.clientX, startY: event.clientY, lane, moved: false, target: null,
+    };
+    monthDragRef.current = next;
+    setMonthDrag(next);
+  };
+
+  const moveMonthDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const current = monthDragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    // 续段可出现在原 start 日之后；轻点或手抖不能把整段平移到续段当天。
+    const moved = current.moved || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) >= 5;
+    let target: Date | null = null;
+    const gridRect = monthGridRef.current?.getBoundingClientRect();
+    if (moved && gridRect && event.clientY >= gridRect.top && event.clientY < gridRect.bottom) {
+      // capture 后 event.currentTarget 始终是源按钮，必须按实际周行矩形命中跨周落点。
+      for (let i = 0; i < weeks.length; i += 1) {
+        const rect = monthRowsRef.current[i]?.getBoundingClientRect();
+        if (rect && rect.width > 0 && event.clientY >= rect.top && event.clientY < rect.bottom) {
+          target = weeks[i][monthColFromClientX(event.clientX, rect.left, rect.width)];
+          break;
+        }
+      }
+    }
+    if (current.moved !== moved || current.target?.getTime() !== target?.getTime()) {
+      const next = { ...current, moved, target };
+      monthDragRef.current = next;
+      setMonthDrag(next);
+    }
+  };
+
+  const clearMonthDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    monthDragRef.current = null;
+    setMonthDrag(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const endMonthDrag = async (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (monthDragRef.current?.pointerId !== event.pointerId) return;
+    moveMonthDrag(event);
+    const current = monthDragRef.current!;
+    const changed = current.target !== null && !isSameDay(current.target, current.originalStart);
+    // 放回原日保留 click；改期或拖出网格则吞掉随后的 click，防止打开详情。
+    suppressMonthClickRef.current = current.moved && (changed || current.target === null);
+    clearMonthDrag(event);
+    if (changed && current.target && onRescheduleTask) {
+      await onRescheduleTask(current.task.id, monthRescheduleTargetDate(current.target, current.originalStart));
+    }
+  };
+
+  const cancelMonthDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (monthDragRef.current?.pointerId !== event.pointerId) return;
+    suppressMonthClickRef.current = true;
+    clearMonthDrag(event);
   };
 
   return (
@@ -982,29 +1068,15 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
       {mode === "month" && (
         <>
           <div className="hidden shrink-0 grid-cols-7 border-b bg-muted/20 md:grid">{WEEKDAYS.map((day) => <div key={day} className="border-r px-2 py-3 text-center text-sm text-muted-foreground last:border-r-0">{day}</div>)}</div>
-          <div className="hidden min-h-0 flex-1 flex-col overflow-y-auto md:flex">
+          <div ref={monthGridRef} className="hidden min-h-0 flex-1 flex-col overflow-y-auto md:flex">
             {weeks.map((week, weekIndex) => {
               const { segments, hiddenByCol } = weekLayouts[weekIndex];
               return (
                 <div
                   key={keyFor(week[0])}
+                  ref={(node) => { monthRowsRef.current[weekIndex] = node; }}
                   className="relative grid flex-1 grid-cols-7"
                   style={{ minHeight: DAY_HEADER_PX + MAX_LANES * LANE_HEIGHT_PX + COUNTDOWN_STRIP_PX + 8 }}
-                  onDragOver={onRescheduleTask ? (event) => { event.preventDefault(); setDragOverDate(keyFor(week[colFromEvent(event)])); } : undefined}
-                  onDragLeave={() => setDragOverDate(null)}
-                  onDrop={onRescheduleTask ? async (event) => {
-                    event.preventDefault();
-                    const col = colFromEvent(event);
-                    const task = monthTasks.find((item) => item.id === dragTaskId);
-                    setDragOverDate(null);
-                    setDragTaskId(null);
-                    if (!task) return;
-                    const start = getTaskDate(task);
-                    if (!start) return;
-                    const target = week[col];
-                    const next = new Date(target.getFullYear(), target.getMonth(), target.getDate(), start.getHours(), start.getMinutes());
-                    await onRescheduleTask(task.id, next);
-                  } : undefined}
                 >
                   {week.map((date, col) => {
                     const inMonth = cells[weekIndex * 7 + col].inMonth;
@@ -1030,18 +1102,31 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                     <button
                       type="button"
                       key={`${seg.task.id}-${weekIndex}`}
-                      draggable={Boolean(onRescheduleTask)}
-                      onDragStart={(event) => { setDragTaskId(seg.task.id); event.dataTransfer.effectAllowed = "move"; }}
-                      onDragEnd={() => setDragTaskId(null)}
-                      onClick={(event) => { event.stopPropagation(); onTaskClick?.(seg.task); }}
+                      onPointerDown={(event) => startMonthDrag(event, seg.task, seg.lane)}
+                      onPointerMove={moveMonthDrag}
+                      onPointerUp={endMonthDrag}
+                      onPointerCancel={cancelMonthDrag}
+                      onLostPointerCapture={cancelMonthDrag}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const suppressed = suppressMonthClickRef.current;
+                        suppressMonthClickRef.current = false;
+                        if (suppressed && event.detail > 0) {
+                          event.preventDefault();
+                          return;
+                        }
+                        onTaskClick?.(seg.task);
+                      }}
                       className={cn(
                         "absolute z-10 flex items-center gap-1 px-1.5 text-left text-xs transition-colors hover:brightness-95",
+                        onRescheduleTask && "cursor-grab select-none active:cursor-grabbing",
                         categoryClass(seg.task),
                         !seg.continuesBefore && "rounded-l",
                         !seg.continuesAfter && "rounded-r",
-                        dragTaskId === seg.task.id && "opacity-40"
+                        monthDrag?.moved && monthDrag.task.id === seg.task.id && "opacity-40"
                       )}
                       style={{
+                        touchAction: onRescheduleTask ? "none" : undefined,
                         top: DAY_HEADER_PX + seg.lane * LANE_HEIGHT_PX + 2,
                         height: LANE_HEIGHT_PX - 4,
                         left: `calc(${(seg.startCol / 7) * 100}% + ${seg.continuesBefore ? 0 : 2}px)`,
@@ -1054,6 +1139,21 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                       <span className="min-w-0 flex-1 truncate">{seg.task.title}</span>
                       {!seg.continuesAfter && timeLabel(seg.task) && <span className="shrink-0 text-[10px] opacity-70">{timeLabel(seg.task)}</span>}
                     </button>
+                  ))}
+                  {monthDrag?.moved && week.map((date, col) => dragOverDate === keyFor(date) && (
+                    <div
+                      key={`ghost-${col}`}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute z-20 truncate rounded border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-foreground"
+                      style={{
+                        top: DAY_HEADER_PX + monthDrag.lane * LANE_HEIGHT_PX + 2,
+                        height: LANE_HEIGHT_PX - 4,
+                        left: `calc(${(col / 7) * 100}% + 2px)`,
+                        width: `calc(${100 / 7}% - 4px)`,
+                      }}
+                    >
+                      {monthDrag.task.title}
+                    </div>
                   ))}
                 </div>
               );

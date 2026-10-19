@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, TimeGridView } from "./task-month-view";
+import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthColFromClientX, monthRescheduleTargetDate, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, TimeGridView } from "./task-month-view";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -110,6 +110,35 @@ describe("getMonthAgenda（移动端日程）", () => {
   });
 });
 
+
+describe("月视图 pointer 落点", () => {
+  it.each([
+    [-200, 0], [99, 0], [100, 0], [199, 0], [200, 1],
+    [450, 3], [700, 6], [799, 6], [800, 6], [1200, 6],
+  ])("clientX=%i 映射到列 %i（行从 100 开始，宽 700）", (x, col) => {
+    expect(monthColFromClientX(x, 100, 700)).toBe(col);
+  });
+
+  it("负坐标的周行与未布局行不会产生非法列", () => {
+    expect(monthColFromClientX(-150, -200, 700)).toBe(0);
+    expect(monthColFromClientX(-50, -200, 700)).toBe(1);
+    expect(monthColFromClientX(100, 100, 0)).toBe(0);
+  });
+
+  it("跨周/月/年只替换日期，保留本地时分且不改原日期对象", () => {
+    const start = new Date(2026, 11, 30, 23, 45, 12);
+    const target = new Date(2027, 0, 4);
+    const next = monthRescheduleTargetDate(target, start);
+    expect(next).toEqual(new Date(2027, 0, 4, 23, 45));
+    expect(start).toEqual(new Date(2026, 11, 30, 23, 45, 12));
+    expect(target).toEqual(new Date(2027, 0, 4));
+  });
+
+  it("跨夏令时周仍保持墙钟时分", () => {
+    expect(monthRescheduleTargetDate(new Date(2026, 10, 2), new Date(2026, 9, 30, 9, 15)))
+      .toEqual(new Date(2026, 10, 2, 9, 15));
+  });
+});
 
 describe("layoutWeekSegments（跨天任务连续条布局）", () => {
   // 2026-08-17 是周一，这一周为 8/17（周一）~ 8/23（周日）
