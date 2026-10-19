@@ -99,6 +99,14 @@ const deleteVersion: MockHandler = ({ params }) => {
 
 // ---- 块评论（线程嵌套评论）----
 
+// 与真实路由一致：顶层非对象 body → 400「请求格式错误」
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+// 与真实路由一致：字段「提供了」的判定（非 undefined / null / 空串）
+const provided = (value: unknown): boolean =>
+  value !== undefined && value !== null && value !== "";
+
 const threadWithComments = (thread: any) => ({
   ...thread,
   comments: mockDb.note_comments
@@ -117,13 +125,21 @@ const listCommentThreads: MockHandler = ({ params, url }) => {
 };
 
 const createComment: MockHandler = ({ body, params }) => {
-  const blockId = body?.blockId;
-  // 与真实路由一致：评论文本字段是 body.body
-  const text = String(body?.body || "").trim();
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  // 与真实路由一致：threadId 提供时必须是字符串
+  if (provided(body.threadId) && typeof body.threadId !== "string") {
+    return { status: 400, body: { error: "请求格式错误" } };
+  }
+  // 与真实路由一致：blockId / body 必须是字符串，不再 String() 强转
+  if (typeof body.blockId !== "string" || typeof body.body !== "string") {
+    return { status: 400, body: { error: "评论内容无效" } };
+  }
+  const blockId = body.blockId.trim();
+  const text = body.body.trim();
   if (!blockId || !text || text.length > 5000) {
     return { status: 400, body: { error: "评论内容无效" } };
   }
-  if (body.threadId) {
+  if (provided(body.threadId)) {
     const thread = mockDb.note_comment_threads.find(
       (t) => t.id === body.threadId && t.note_id === params.id
     );
@@ -158,19 +174,26 @@ const createComment: MockHandler = ({ body, params }) => {
 };
 
 const patchComment: MockHandler = ({ body, params }) => {
-  if (body?.commentId && typeof body.body === "string") {
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  if (provided(body.commentId)) {
+    if (typeof body.commentId !== "string" || typeof body.body !== "string") {
+      return { status: 400, body: { error: "请求格式错误" } };
+    }
     const text = body.body.trim();
     if (!text || text.length > 5000) return { status: 400, body: { error: "评论内容无效" } };
     const comment = mockDb.note_comments.find((c) => c.id === body.commentId);
-    if (!comment) return { status: 500, body: { error: "评论不存在" } };
+    if (!comment) return { status: 404, body: { error: "评论不存在或无权限" } };
     comment.body = text;
     return { body: comment };
   }
-  if (body?.threadId && typeof body.resolved === "boolean") {
+  if (provided(body.threadId)) {
+    if (typeof body.threadId !== "string" || typeof body.resolved !== "boolean") {
+      return { status: 400, body: { error: "请求格式错误" } };
+    }
     const thread = mockDb.note_comment_threads.find(
       (t) => t.id === body.threadId && t.note_id === params.id
     );
-    if (!thread) return { status: 500, body: { error: "线程不存在" } };
+    if (!thread) return { status: 404, body: { error: "评论线程不存在" } };
     thread.resolved_at = body.resolved ? nowIso() : null;
     return { body: threadWithComments(thread) };
   }
@@ -178,17 +201,32 @@ const patchComment: MockHandler = ({ body, params }) => {
 };
 
 const deleteComment: MockHandler = ({ body, params }) => {
-  if (body?.commentId) {
+  if (!isPlainObject(body)) return { status: 400, body: { error: "请求格式错误" } };
+  if (provided(body.commentId)) {
+    if (typeof body.commentId !== "string") {
+      return { status: 400, body: { error: "请求格式错误" } };
+    }
+    // 与真实路由一致：删到 0 行 → 404，不再假装成功
+    const exists = mockDb.note_comments.some((c) => c.id === body.commentId);
+    if (!exists) return { status: 404, body: { error: "评论不存在或无权限" } };
     mockDb.note_comments = mockDb.note_comments.filter((c) => c.id !== body.commentId);
-  } else if (body?.threadId) {
+    return { body: { success: true } };
+  }
+  if (provided(body.threadId)) {
+    if (typeof body.threadId !== "string") {
+      return { status: 400, body: { error: "请求格式错误" } };
+    }
+    const exists = mockDb.note_comment_threads.some(
+      (t) => t.id === body.threadId && t.note_id === params.id
+    );
+    if (!exists) return { status: 404, body: { error: "评论线程不存在" } };
     mockDb.note_comment_threads = mockDb.note_comment_threads.filter(
       (t) => !(t.id === body.threadId && t.note_id === params.id)
     );
     mockDb.note_comments = mockDb.note_comments.filter((c) => c.thread_id !== body.threadId);
-  } else {
-    return { status: 400, body: { error: "无效操作" } };
+    return { body: { success: true } };
   }
-  return { body: { success: true } };
+  return { status: 400, body: { error: "无效操作" } };
 };
 
 // ---- 块建议（pending → accepted/rejected）----
@@ -1169,8 +1207,14 @@ export function installMockApiShim() {
         501
       );
     }
+    let body: unknown;
     try {
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    } catch {
+      // 与真实路由一致：非法 JSON → 400，不回显解析错误细节
+      return jsonResponse({ error: "请求格式错误" }, 400);
+    }
+    try {
       const values = pathname.match(route.pattern)!.slice(1);
       const params: Record<string, string> = { id: values[0], versionId: values[1] };
       const result = await route.handler({
