@@ -21,7 +21,7 @@ import { collabRoleLabel } from "@/lib/collab/roles";
  */
 export default function SharedNotesPage() {
   const router = useRouter();
-  const { notes, loading, error, refresh } = useSharedNotes();
+  const { notes, loading, error, ownerNamesError, refresh } = useSharedNotes();
   const [keyword, setKeyword] = useState("");
 
   const filtered = useMemo(
@@ -55,6 +55,18 @@ export default function SharedNotesPage() {
         {!loading && error && notes.length > 0 && (
           <div role="alert" className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
             <p className="text-sm text-destructive">{error}</p>
+            <button
+              type="button"
+              className="shrink-0 text-sm text-primary hover:underline"
+              onClick={() => void refresh()}
+            >
+              重试
+            </button>
+          </div>
+        )}
+        {!loading && ownerNamesError && notes.length > 0 && (
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <p className="text-sm text-destructive">{ownerNamesError}</p>
             <button
               type="button"
               className="shrink-0 text-sm text-primary hover:underline"
@@ -105,7 +117,7 @@ export default function SharedNotesPage() {
                     </Badge>
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    来自 {note.ownerName || "协作者"}
+                    来自 {note.ownerName || (ownerNamesError ? "分享者（姓名未加载）" : "协作者")}
                     {" · "}
                     更新于 {new Date(note.updatedAt).toLocaleString("zh-CN", {
                       month: "numeric",
