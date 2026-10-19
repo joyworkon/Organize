@@ -21,7 +21,7 @@ const COUNTDOWN_STRIP_PX = 20;
 
 export type CalendarMode = "day" | "week" | "month" | "year";
 
-/* ------------------------- 周视图（时间网格） ------------------------- */
+/* ------------------------- 日 / 周共用时间网格 ------------------------- */
 
 const HOUR_HEIGHT = 56; // 1 小时网格高度
 const SNAP_MIN = 30; // 拖拽吸附粒度
@@ -47,6 +47,16 @@ export function weekDaysOf(anchor: Date): Date[] {
 /** 拖拽落点按 30 分钟吸附 */
 export function snapMinutes(minutes: number): number {
   return Math.max(0, Math.round(minutes / SNAP_MIN) * SNAP_MIN);
+}
+
+/** 本地墙钟时间，忽略秒数。 */
+export function minutesSinceMidnight(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+/** 相对完整日期列顶部的像素位置 → 当天的 30 分钟槽位。 */
+export function timeGridSlotMinutes(offsetY: number): number {
+  return Math.min(1440 - SNAP_MIN, snapMinutes((offsetY / HOUR_HEIGHT) * 60));
 }
 
 interface WeekTimedEvent {
@@ -114,40 +124,51 @@ function minutesLabel(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
-interface WeekGridViewProps {
+interface TimeGridViewProps {
   days: Date[];
   tasks: TaskWithTags[];
   countdowns: CountdownDay[];
-  today: Date;
   onTaskClick?: (task: TaskWithTags) => void;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   onDateClick?: (date: Date) => void;
 }
 
-/** 周视图：7 天 × 24 小时时间网格，事件卡可拖拽换日/换时间（30 分钟吸附，跟手幽灵卡 + 目标时间标签） */
-function WeekGridView({
+/** 日 / 周视图共用 1 或 7 列时间网格，沿用同一套拖拽与创建回调。 */
+export function TimeGridView({
   days,
   tasks,
   countdowns,
-  today,
   onTaskClick,
   onUpdateTaskSchedule,
   onDateClick,
-}: WeekGridViewProps) {
+}: TimeGridViewProps) {
   const gridRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0 });
   const [drag, setDrag] = useState<WeekDragState | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const todayIndex = days.findIndex((day) => isSameDay(day, now));
+  const includesToday = todayIndex >= 0;
+  const firstDayKey = keyFor(days[0]);
+  const lastDayKey = keyFor(days[days.length - 1]);
 
   const dragTask = (drag && tasks.find((t) => t.id === drag.taskId)) || null;
 
   useEffect(() => {
-    // 默认滚动到早上 7 点
-    if (gridRef.current) gridRef.current.scrollTop = 7 * HOUR_HEIGHT - 8;
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
   }, []);
 
-  const weekCountdowns = useMemo(
-    () => countdownsInRange(countdowns, days[0], days[6]),
+  useEffect(() => {
+    // 翻到新的日期范围时定位；分钟刷新不打断用户手动滚动。
+    if (!gridRef.current) return;
+    gridRef.current.scrollTop = includesToday
+      ? Math.max(0, (minutesSinceMidnight(new Date()) / 60) * HOUR_HEIGHT - HOUR_HEIGHT)
+      : 7 * HOUR_HEIGHT - 8;
+  }, [firstDayKey, lastDayKey, includesToday]);
+
+  const visibleCountdowns = useMemo(
+    () => countdownsInRange(countdowns, days[0], days[days.length - 1]),
     [countdowns, days]
   );
 
@@ -233,9 +254,9 @@ function WeekGridView({
   const computeDragTarget = (clientX: number, clientY: number) => {
     if (!drag || !gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
-    const colWidth = (rect.width - GUTTER_W) / 7;
+    const colWidth = (gridRef.current.clientWidth - GUTTER_W) / days.length;
     const dayIdx = Math.min(
-      6,
+      days.length - 1,
       Math.max(0, Math.floor((clientX - rect.left - GUTTER_W) / colWidth))
     );
     const yMin =
@@ -367,15 +388,15 @@ function WeekGridView({
           <div
             key={i}
             className={cn(
-              "flex-1 border-l px-1 py-2 text-center",
-              isSameDay(day, today) && "bg-accent/60"
+              "min-w-0 flex-1 border-l px-1 py-2 text-center",
+              isSameDay(day, now) && "bg-accent/60"
             )}
           >
-            <div className="text-xs text-muted-foreground">{WEEK_DAY_LABELS[i]}</div>
+            <div className="text-xs text-muted-foreground">{WEEK_DAY_LABELS[(day.getDay() + 6) % 7]}</div>
             <div
               className={cn(
                 "mx-auto mt-0.5 grid h-6 w-6 place-items-center rounded-full text-sm",
-                isSameDay(day, today) && "bg-primary font-semibold text-primary-foreground"
+                isSameDay(day, now) && "bg-primary font-semibold text-primary-foreground"
               )}
             >
               {day.getDate()}
@@ -391,13 +412,13 @@ function WeekGridView({
         </div>
         {days.map((day, di) => {
           const chips = dayAllDay[di];
-          const chips_countdown = weekCountdowns.get(keyFor(day)) || [];
+          const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
           return (
             <div
               key={di}
               className={cn(
-                "min-h-[38px] flex-1 space-y-1 border-l p-1",
-                isSameDay(day, today) && "bg-accent/60"
+                "min-h-[38px] min-w-0 flex-1 space-y-1 border-l p-1",
+                isSameDay(day, now) && "bg-accent/60"
               )}
             >
               {chips_countdown.map((item) => (
@@ -458,7 +479,7 @@ function WeekGridView({
               </div>
             ))}
           </div>
-          <div className="relative grid flex-1 grid-cols-7">
+          <div className={cn("relative grid min-w-0 flex-1", days.length === 1 ? "grid-cols-1" : "grid-cols-7")}>
             {hours.map((h) => (
               <div
                 key={h}
@@ -473,18 +494,14 @@ function WeekGridView({
                   key={di}
                   className={cn(
                     "relative border-l",
-                    isSameDay(day, today) && "bg-accent/50",
+                    isSameDay(day, now) && "bg-accent/50",
                     target && "bg-primary/5"
                   )}
                   onClick={
                     onDateClick
                       ? (e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
-                          const yMin =
-                            ((e.clientY - rect.top + (gridRef.current?.scrollTop ?? 0)) /
-                              HOUR_HEIGHT) *
-                            60;
-                          const slot = snapMinutes(yMin);
+                          const slot = timeGridSlotMinutes(e.clientY - rect.top);
                           onDateClick(
                             new Date(
                               day.getFullYear(),
@@ -498,6 +515,16 @@ function WeekGridView({
                       : undefined
                   }
                 >
+                  {di === todayIndex && (
+                    <div
+                      role="img"
+                      aria-label={`此刻 ${minutesLabel(minutesSinceMidnight(now))}`}
+                      className="pointer-events-none absolute inset-x-0 z-20 border-t border-destructive"
+                      style={{ top: (minutesSinceMidnight(now) / 60) * HOUR_HEIGHT }}
+                    >
+                      <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-destructive" />
+                    </div>
+                  )}
                   {dayEvents[di].map((ev) => {
                     const isDragged =
                       drag?.taskId === ev.task.id && !drag.allDayChip;
@@ -572,7 +599,7 @@ function WeekGridView({
                         )}
                       >
                         <span className="truncate text-sm font-semibold">
-                          {WEEK_DAY_LABELS[drag.dayIdx]} {minutesLabel(drag.slotMin)}
+                          {WEEK_DAY_LABELS[(days[drag.dayIdx].getDay() + 6) % 7]} {minutesLabel(drag.slotMin)}
                         </span>
                       </div>
                     </div>
@@ -939,12 +966,11 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
               onAdd={onDateClick ? () => onDateClick(selectedDate) : undefined}
             />
           </div>
-          <div className="hidden min-h-0 flex-1 md:block">
-            <WeekGridView
+          <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
+            <TimeGridView
               days={weekDays}
               tasks={monthTasks}
               countdowns={countdowns}
-              today={today}
               onTaskClick={onTaskClick}
               onUpdateTaskSchedule={onUpdateTaskSchedule}
               onDateClick={onDateClick}
@@ -1131,14 +1157,13 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
       )}
 
       {mode === "day" && (
-        <DayView
-          date={selectedDate}
+        <TimeGridView
+          days={[selectedDate]}
           tasks={monthTasks}
           countdowns={countdowns}
           onTaskClick={onTaskClick}
           onUpdateTaskSchedule={onUpdateTaskSchedule}
-          onRescheduleTask={onRescheduleTask}
-          onAdd={onDateClick ? () => onDateClick(selectedDate) : undefined}
+          onDateClick={onDateClick}
         />
       )}
 
