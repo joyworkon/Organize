@@ -18,6 +18,9 @@ import { DynamicView } from "@/components/database/dynamic-view";
 import { applyFilters } from "@/components/database/view-shared/filters";
 import { applySorts } from "@/components/database/view-shared/sorts";
 import type { DatabaseFilter, DatabaseSort } from "@/components/database/view-shared/types";
+import { toast } from "@/hooks/use-toast";
+import { isOnline } from "@/lib/offline/network";
+import { readMutationError, resolveBlockMutationResult } from "@/lib/databases/block-mutation-result";
 
 /**
  * databaseBlock —— 数据库块（atom）
@@ -88,17 +91,35 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
     return result;
   }, [rows, record, activeView]);
 
+  // 写失败统一反馈：在线时弹 destructive toast（离线由顶栏离线角标表达，对齐阅读库惯例）
+  const notifyMutationFailure = useCallback((message: string) => {
+    if (isOnline()) toast({ title: message, variant: "destructive" });
+  }, []);
+
   const patchViews = useCallback(async (newViews: DatabaseView[]) => {
     if (!record) return;
+    const previousViews = record.views;
     setRecord({ ...record, views: newViews });
     try {
-      await fetch(`/api/databases/${databaseId}`, {
+      const res = await fetch(`/api/databases/${databaseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ views: newViews }),
       });
-    } catch { /* 静默失败，本地已更新 */ }
-  }, [record, databaseId]);
+      const result = resolveBlockMutationResult({
+        ok: res.ok,
+        bodyError: res.ok ? undefined : await readMutationError(res),
+        fallback: "保存视图失败",
+      });
+      if (!result.ok) {
+        setRecord((prev) => (prev ? { ...prev, views: previousViews } : prev));
+        notifyMutationFailure(result.message);
+      }
+    } catch {
+      setRecord((prev) => (prev ? { ...prev, views: previousViews } : prev));
+      notifyMutationFailure("保存视图失败");
+    }
+  }, [record, databaseId, notifyMutationFailure]);
 
   const handleAddView = useCallback((view: DatabaseView) => {
     patchViews([...views, view]);
@@ -134,33 +155,80 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values: defaults || {} }),
       });
-      if (!res.ok) throw new Error("添加行失败");
+      const result = resolveBlockMutationResult({
+        ok: res.ok,
+        bodyError: res.ok ? undefined : await readMutationError(res),
+        fallback: "添加行失败",
+      });
+      if (!result.ok) {
+        notifyMutationFailure(result.message);
+        return;
+      }
       const newRow = (await res.json()) as DatabaseRowRecord;
       setRows((prev) => [...prev, newRow]);
-    } catch { /* ignore */ }
-  }, [databaseId]);
+    } catch {
+      notifyMutationFailure("添加行失败");
+    }
+  }, [databaseId, notifyMutationFailure]);
 
   const handleDeleteRow = useCallback(async (rowId: string) => {
     if (!window.confirm("确定删除这一行？")) return;
+    const rowIndex = rows.findIndex((r) => r.id === rowId);
+    const row = rows[rowIndex];
     setRows((prev) => prev.filter((r) => r.id !== rowId));
+    const rollback = () => {
+      if (!row) return;
+      setRows((prev) => {
+        if (prev.some((r) => r.id === rowId)) return prev;
+        const next = [...prev];
+        next.splice(Math.min(Math.max(rowIndex, 0), next.length), 0, row);
+        return next;
+      });
+    };
     try {
-      await fetch(`/api/databases/${databaseId}/rows/${rowId}`, { method: "DELETE" });
-    } catch { void load(); }
-  }, [databaseId, load]);
+      const res = await fetch(`/api/databases/${databaseId}/rows/${rowId}`, { method: "DELETE" });
+      const result = resolveBlockMutationResult({
+        ok: res.ok,
+        bodyError: res.ok ? undefined : await readMutationError(res),
+        fallback: "删除行失败",
+      });
+      if (!result.ok) {
+        rollback();
+        notifyMutationFailure(result.message);
+      }
+    } catch {
+      rollback();
+      notifyMutationFailure("删除行失败");
+    }
+  }, [rows, databaseId, notifyMutationFailure]);
 
   const handleUpdateCell = useCallback(async (rowId: string, propId: string, value: unknown) => {
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
     const newValues = { ...(row.values as Record<string, unknown>), [propId]: value };
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, values: newValues } : r)));
+    const rollback = () =>
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, values: row.values } : r)));
     try {
-      await fetch(`/api/databases/${databaseId}/rows/${rowId}`, {
+      const res = await fetch(`/api/databases/${databaseId}/rows/${rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values: newValues }),
       });
-    } catch { void load(); }
-  }, [rows, databaseId, load]);
+      const result = resolveBlockMutationResult({
+        ok: res.ok,
+        bodyError: res.ok ? undefined : await readMutationError(res),
+        fallback: "保存单元格失败",
+      });
+      if (!result.ok) {
+        rollback();
+        notifyMutationFailure(result.message);
+      }
+    } catch {
+      rollback();
+      notifyMutationFailure("保存单元格失败");
+    }
+  }, [rows, databaseId, notifyMutationFailure]);
 
   const handleUpdateRowSort = useCallback(async (rowId: string, newSort: number, groupValue?: unknown) => {
     const row = rows.find((r) => r.id === rowId);
@@ -173,14 +241,30 @@ function DatabaseBlockView({ node, selected, updateAttributes }: NodeViewProps) 
       if (groupProp) newValues[groupProp.id] = groupValue;
     }
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, sort: newSort, values: newValues } : r)));
+    const rollback = () =>
+      setRows((prev) =>
+        prev.map((r) => (r.id === rowId ? { ...r, sort: row.sort, values: row.values } : r))
+      );
     try {
-      await fetch(`/api/databases/${databaseId}/rows/${rowId}`, {
+      const res = await fetch(`/api/databases/${databaseId}/rows/${rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sort: newSort, values: newValues }),
       });
-    } catch { void load(); }
-  }, [rows, databaseId, record, load]);
+      const result = resolveBlockMutationResult({
+        ok: res.ok,
+        bodyError: res.ok ? undefined : await readMutationError(res),
+        fallback: "保存排序失败",
+      });
+      if (!result.ok) {
+        rollback();
+        notifyMutationFailure(result.message);
+      }
+    } catch {
+      rollback();
+      notifyMutationFailure("保存排序失败");
+    }
+  }, [rows, databaseId, record, notifyMutationFailure]);
 
   const title = record?.title || (loading ? "加载中…" : "未命名数据库");
   const icon = record?.icon || "";
