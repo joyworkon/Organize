@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import { parseJsonBody } from "@/lib/databases/api-mutation";
 import type { Database as DatabaseRecord } from "@organize/shared";
 
 const DEFAULT_SCHEMA = [
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
   query = query.order("created_at", { ascending: true });
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data as DatabaseRecord[]);
 }
 
@@ -44,7 +46,14 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
-  const body = await request.json().catch(() => ({}));
+  const parsed = await parseJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.rejection.error },
+      { status: parsed.rejection.status }
+    );
+  }
+  const body = parsed.body;
   const title = typeof body.title === "string" ? body.title : "未命名数据库";
   const icon = typeof body.icon === "string" ? body.icon : null;
   const parent_note_id = typeof body.parent_note_id === "string" && body.parent_note_id.length
@@ -68,7 +77,7 @@ export async function POST(request: NextRequest) {
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .maybeSingle();
-    if (noteErr) return NextResponse.json({ error: noteErr.message }, { status: 500 });
+    if (noteErr) return serverError(noteErr);
     if (!noteCheck) return NextResponse.json({ error: "父笔记不存在" }, { status: 400 });
   }
 
@@ -86,6 +95,6 @@ export async function POST(request: NextRequest) {
     .select("id, parent_note_id, title, icon, schema, views, created_at, updated_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data as DatabaseRecord, { status: 201 });
 }
