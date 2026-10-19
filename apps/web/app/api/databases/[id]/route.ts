@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import {
+  buildDatabasePatchUpdate,
+  databasePatchRejection,
+  parseJsonBody,
+  resolveDatabaseDelete,
+} from "@/lib/databases/api-mutation";
 import type { Database as DatabaseRecord } from "@organize/shared";
 
 // GET /api/databases/[id]  获取单个数据库（含 schema/views）
@@ -19,7 +26,7 @@ export async function GET(
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   if (!data) return NextResponse.json({ error: "数据库不存在" }, { status: 404 });
   return NextResponse.json(data as DatabaseRecord);
 }
@@ -34,15 +41,21 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const updates: Record<string, unknown> = {};
-  if (typeof body.title === "string") updates.title = body.title;
-  if ("icon" in body) updates.icon = body.icon === null ? null : (typeof body.icon === "string" ? body.icon : undefined);
-  if (Array.isArray(body.schema)) updates.schema = body.schema;
-  if (Array.isArray(body.views)) updates.views = body.views;
-  if (!Object.keys(updates).length) {
-    return NextResponse.json({ error: "没有可更新的字段" }, { status: 400 });
+  const parsed = await parseJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.rejection.error },
+      { status: parsed.rejection.status }
+    );
   }
+  const built = buildDatabasePatchUpdate(parsed.body);
+  if (!built.ok) {
+    return NextResponse.json(
+      { error: built.rejection.error },
+      { status: built.rejection.status }
+    );
+  }
+  const updates = built.updates;
 
   const { data, error } = await supabase
     .from("db_databases")
@@ -53,7 +66,17 @@ export async function PATCH(
     .select("id, parent_note_id, title, icon, schema, views, created_at, updated_at")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // 0 行（不存在 / 已删 / 不属于本人）→ 404；真实数据库故障走 serverError，不泄露 message
+    const rejection = databasePatchRejection(error);
+    if (rejection) {
+      return NextResponse.json(
+        { error: rejection.error },
+        { status: rejection.status }
+      );
+    }
+    return serverError(error);
+  }
   return NextResponse.json(data as DatabaseRecord);
 }
 
@@ -69,12 +92,19 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
   const { id } = await params;
-  const { error } = await supabase.rpc("mutate_trash", {
+  const { data, error } = await supabase.rpc("mutate_trash", {
     p_action: "soft_delete",
     p_resource_type: "database",
     p_ids: [id],
   });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const result = resolveDatabaseDelete(error, data);
+  if (result.status === "server-error") return serverError(error);
+  if (result.status === "rejected") {
+    return NextResponse.json(
+      { error: result.rejection.error },
+      { status: result.rejection.status }
+    );
+  }
   return NextResponse.json({ ok: true });
 }
