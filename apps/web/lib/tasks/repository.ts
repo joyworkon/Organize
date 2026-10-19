@@ -14,6 +14,7 @@ import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { enqueueTaskOp, makeTaskUpdateOp, type PendingTaskOp } from "@/lib/offline/task-queue";
 import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
 import { nextTaskRepositoryAfterLoad } from "@/lib/tasks/repository-load";
+import { deleteTaskListRemote, updateTaskListRemote } from "@/lib/tasks/task-list-mutation";
 
 /** 把被拒更改写入 per-user dead-letter（UI 在任务工作台呈现） */
 function stashRejectedChange(userId: string, op: PendingTaskOp, error: unknown): void {
@@ -225,10 +226,8 @@ export function useTaskRepository() {
   const updateList = useCallback(async (listId: string, patch: Partial<TaskList>) => {
     const prev = lists;
     setLists((cur) => cur.map((l) => l.id === listId ? { ...l, ...patch } : l));
-    try {
-      const { error } = await supabase.from("task_lists").update(patch).eq("id", listId);
-      if (error) throw error;
-    } catch {
+    const result = await updateTaskListRemote(supabase, listId, patch);
+    if (!result.ok) {
       setLists(prev);
       toast({ title: "更新清单失败，已回滚", variant: "destructive" });
     }
@@ -238,13 +237,17 @@ export function useTaskRepository() {
   const deleteList = useCallback(async (listId: string) => {
     const prev = lists;
     setLists((cur) => cur.filter((l) => l.id !== listId));
-    try {
-      // 任务 list_id 置空
-      await supabase.from("tasks").update({ list_id: null }).eq("list_id", listId);
-      await supabase.from("task_lists").update({ deleted_at: new Date().toISOString() }).eq("id", listId);
+    const result = await deleteTaskListRemote(supabase, listId);
+    if (result.ok) {
       await fetchAll();
-    } catch {
-      setLists(prev);
+      return;
+    }
+    setLists(prev);
+    if (result.stage === "delete-list") {
+      // 任务可能已被移到未分类，重新拉取以反映真实状态
+      await fetchAll();
+      toast({ title: "清单未能删除，其中任务已移到未分类，请重试", variant: "destructive" });
+    } else {
       toast({ title: "删除清单失败，已回滚", variant: "destructive" });
     }
   }, [supabase, fetchAll, lists]);
