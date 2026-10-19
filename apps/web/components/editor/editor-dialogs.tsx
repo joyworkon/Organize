@@ -2,6 +2,7 @@
 
 import { aiResultToBlocks } from "@/lib/ai/result-blocks";
 import { nextBlockCommentsAfterLoad } from "@/lib/editor/block-comments-load";
+import { nextBlockSuggestionsAfterLoad } from "@/lib/editor/block-suggestions-load";
 import { dialogMutationErrorMessage } from "@/lib/editor/dialog-mutation-error";
 import { nextMoveNotesAfterLoad } from "@/lib/editor/move-notes-load";
 import type { Editor, JSONContent } from "@tiptap/core";
@@ -271,13 +272,35 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
   const [suggestions, setSuggestions] = useState<EditSuggestion[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const lastSuccessRef = useRef<EditSuggestion[]>([]);
   const supported = SUGGESTABLE.has(target.type);
 
   const reload = useCallback(async () => {
-    const response = await fetch(`/api/notes/${noteId}/suggestions?blockId=${encodeURIComponent(target.id)}`);
-    if (response.ok) setSuggestions(await response.json());
+    try {
+      const response = await fetch(`/api/notes/${noteId}/suggestions?blockId=${encodeURIComponent(target.id)}`);
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "编辑建议加载失败");
+      const next = nextBlockSuggestionsAfterLoad({ previous: lastSuccessRef.current, ok: true, suggestions: data });
+      lastSuccessRef.current = next.suggestions;
+      setSuggestions(next.suggestions);
+      setLoadError(next.loadError);
+    } catch (reason) {
+      const next = nextBlockSuggestionsAfterLoad({ previous: lastSuccessRef.current, ok: false });
+      setSuggestions(next.suggestions);
+      setLoadError(next.loadError);
+      throw reason;
+    }
   }, [noteId, target.id]);
-  useEffect(() => { void reload(); }, [reload]);
+
+  const loadSuggestions = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    return reload().catch(() => undefined).finally(() => setLoading(false));
+  }, [reload]);
+
+  useEffect(() => { void loadSuggestions(); }, [loadSuggestions]);
 
   const create = async () => {
     if (!supported || !draft.trim() || draft === target.text) return;
@@ -286,7 +309,7 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
       const proposed = withProposedText(target.json, draft.trim());
       const response = await fetch(`/api/notes/${noteId}/suggestions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blockId: target.id, originalBlock: target.json, proposedBlock: proposed }) });
       const data = await response.json();
-      if (!response.ok) setError(data.error || "建议保存失败"); else await reload();
+      if (!response.ok) setError(data.error || "建议保存失败"); else await reload().catch(() => undefined);
     } catch {
       setError("网络异常，建议保存失败");
     } finally {
@@ -320,7 +343,7 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
       setError(dialogMutationErrorMessage({ serverMessage: data?.error, fallback }));
       return;
     }
-    // reload 保持静默加载语义，这里只吞掉潜在 rejection，不新增报错
+    // reload 内部已把失败归入 loadError（带重试入口），这里只吞掉 rethrow，不重复报错
     await reload().catch(() => undefined);
   };
 
@@ -329,7 +352,8 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
       {!supported && <p className="editor-dialog-error">该类型区块暂不支持文本建议。可先转换为文本、标题、引用、代码或标注。</p>}
       {supported && <><label className="editor-field"><span>原文</span><div className="suggestion-original">{target.text || "（空）"}</div></label><label className="editor-field"><span>建议内容</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} /></label><div className="editor-dialog-actions"><button className="primary" type="button" onClick={create} disabled={busy || !draft.trim() || draft === target.text}>{busy && <Loader2 className="h-4 w-4 animate-spin" />}保存建议</button></div></>}
       {error && <p className="editor-dialog-error">{error}</p>}
-      <div className="suggestion-list">{suggestions.map((suggestion) => <article key={suggestion.id}><div><strong>{suggestion.status === "pending" ? "待处理" : suggestion.status === "accepted" ? "已接受" : "已拒绝"}</strong><time>{new Date(suggestion.created_at).toLocaleString("zh-CN")}</time></div><p>{nodeText(suggestion.proposed_block as JSONContent)}</p>{suggestion.status === "pending" && <footer><button type="button" onClick={() => decide(suggestion, "rejected")}>拒绝</button><button type="button" className="primary" onClick={() => decide(suggestion, "accepted")}><Check className="h-3.5 w-3.5" />接受</button></footer>}</article>)}</div>
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadSuggestions()}>重试</button></div>}
+      <div className="suggestion-list">{loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}{!loading && !loadError && suggestions.length === 0 && <div className="editor-dialog-empty">还没有编辑建议</div>}{suggestions.map((suggestion) => <article key={suggestion.id}><div><strong>{suggestion.status === "pending" ? "待处理" : suggestion.status === "accepted" ? "已接受" : "已拒绝"}</strong><time>{new Date(suggestion.created_at).toLocaleString("zh-CN")}</time></div><p>{nodeText(suggestion.proposed_block as JSONContent)}</p>{suggestion.status === "pending" && <footer><button type="button" onClick={() => decide(suggestion, "rejected")}>拒绝</button><button type="button" className="primary" onClick={() => decide(suggestion, "accepted")}><Check className="h-3.5 w-3.5" />接受</button></footer>}</article>)}</div>
     </Modal>
   );
 }
