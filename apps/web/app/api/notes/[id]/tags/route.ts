@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
+import { parseNoteTagPostBody } from "@/lib/notes/note-tags-api";
 
 // GET /api/notes/[id]/tags - 列出某篇笔记的标签
 export async function GET(
@@ -58,22 +59,26 @@ export async function POST(
   }
 
   const { id } = await params;
-  const body = await request.json();
-  const tagId: string | undefined = body?.tag_id;
-  const tagName: string | undefined = body?.name?.toString().trim();
+  const parsed = await parseNoteTagPostBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.rejection.error },
+      { status: parsed.rejection.status }
+    );
+  }
 
-  let resolvedTagId = tagId;
+  let resolvedTagId = parsed.ref.tagId;
 
   // 如果传的是 name，先 upsert 拿到 tag_id
-  if (!resolvedTagId && tagName) {
+  if (!resolvedTagId && parsed.ref.tagName) {
     const { data: tag, error: tagErr } = await supabase
       .from("tags")
-      .upsert({ user_id: user.id, name: tagName }, { onConflict: "user_id,name" })
+      .upsert({ user_id: user.id, name: parsed.ref.tagName }, { onConflict: "user_id,name" })
       .select("id")
       .single();
 
     if (tagErr) {
-      return NextResponse.json({ error: tagErr.message }, { status: 500 });
+      return serverError(tagErr);
     }
     resolvedTagId = tag.id;
   }
