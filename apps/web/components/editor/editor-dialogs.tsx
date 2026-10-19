@@ -2,6 +2,7 @@
 
 import { aiResultToBlocks } from "@/lib/ai/result-blocks";
 import { nextBlockCommentsAfterLoad } from "@/lib/editor/block-comments-load";
+import { dialogMutationErrorMessage } from "@/lib/editor/dialog-mutation-error";
 import { nextMoveNotesAfterLoad } from "@/lib/editor/move-notes-load";
 import type { Editor, JSONContent } from "@tiptap/core";
 import { showPrompt } from "@/components/ui/prompt-dialog";
@@ -208,15 +209,28 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
     }
   };
 
-  const mutate = async (method: "PATCH" | "DELETE", body: Record<string, unknown>) => {
-    const response = await fetch(`/api/notes/${noteId}/comments`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (response.ok) await reload();
+  const mutate = async (method: "PATCH" | "DELETE", body: Record<string, unknown>, failureLabel: string) => {
+    setError("");
+    let response: Response;
+    try {
+      response = await fetch(`/api/notes/${noteId}/comments`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch {
+      setError(dialogMutationErrorMessage({ networkError: true, fallback: failureLabel }));
+      return;
+    }
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setError(dialogMutationErrorMessage({ serverMessage: data?.error, fallback: failureLabel }));
+      return;
+    }
+    // reload 内部已把失败归入 loadError（带重试入口），这里只吞掉 rethrow，不重复报错
+    await reload().catch(() => undefined);
   };
 
   const editComment = (commentId: string, currentBody: string) => {
     void showPrompt({ title: "编辑评论", defaultValue: currentBody }).then((raw) => {
       const nextBody = raw?.trim();
-      if (nextBody && nextBody !== currentBody) void mutate("PATCH", { commentId, body: nextBody });
+      if (nextBody && nextBody !== currentBody) void mutate("PATCH", { commentId, body: nextBody }, "编辑评论失败");
     });
   };
 
@@ -230,8 +244,8 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
         {!loading && !loadError && threads.length === 0 && <div className="editor-dialog-empty">还没有评论</div>}
         {threads.map((thread) => (
           <section key={thread.id} className={thread.resolved_at ? "is-resolved" : ""}>
-            <div className="comment-thread-head"><span>{thread.resolved_at ? "已解决" : "讨论中"}</span><button type="button" onClick={() => mutate("PATCH", { threadId: thread.id, resolved: !thread.resolved_at })}>{thread.resolved_at ? "重新打开" : "解决"}</button><button type="button" onClick={() => mutate("DELETE", { threadId: thread.id })}><Trash2 className="h-3.5 w-3.5" /></button></div>
-            {(thread.comments || []).map((comment) => <article key={comment.id}><p>{comment.body}</p><div><time>{new Date(comment.created_at).toLocaleString("zh-CN")}</time><button type="button" onClick={() => setReplyTo(thread.id)}><Reply className="h-3 w-3" />回复</button><button type="button" onClick={() => editComment(comment.id, comment.body)}>编辑</button><button type="button" onClick={() => mutate("DELETE", { commentId: comment.id })}>删除</button></div></article>)}
+            <div className="comment-thread-head"><span>{thread.resolved_at ? "已解决" : "讨论中"}</span><button type="button" onClick={() => mutate("PATCH", { threadId: thread.id, resolved: !thread.resolved_at }, thread.resolved_at ? "重新打开评论失败" : "解决评论失败")}>{thread.resolved_at ? "重新打开" : "解决"}</button><button type="button" onClick={() => mutate("DELETE", { threadId: thread.id }, "删除评论线程失败")}><Trash2 className="h-3.5 w-3.5" /></button></div>
+            {(thread.comments || []).map((comment) => <article key={comment.id}><p>{comment.body}</p><div><time>{new Date(comment.created_at).toLocaleString("zh-CN")}</time><button type="button" onClick={() => setReplyTo(thread.id)}><Reply className="h-3 w-3" />回复</button><button type="button" onClick={() => editComment(comment.id, comment.body)}>编辑</button><button type="button" onClick={() => mutate("DELETE", { commentId: comment.id }, "删除评论失败")}>删除</button></div></article>)}
           </section>
         ))}
       </div>
@@ -291,8 +305,23 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
       }
       editor.chain().focus().insertContentAt({ from: located.pos, to: located.pos + current.nodeSize }, suggestion.proposed_block as JSONContent).run();
     }
-    const response = await fetch(`/api/notes/${noteId}/suggestions`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: suggestion.id, status }) });
-    if (response.ok) await reload();
+    const fallback = status === "accepted"
+      ? "建议内容已写入编辑器，但标记为已接受失败，请重试或手动撤销"
+      : "拒绝建议失败";
+    let response: Response;
+    try {
+      response = await fetch(`/api/notes/${noteId}/suggestions`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: suggestion.id, status }) });
+    } catch {
+      setError(dialogMutationErrorMessage({ networkError: true, fallback }));
+      return;
+    }
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setError(dialogMutationErrorMessage({ serverMessage: data?.error, fallback }));
+      return;
+    }
+    // reload 保持静默加载语义，这里只吞掉潜在 rejection，不新增报错
+    await reload().catch(() => undefined);
   };
 
   return (
