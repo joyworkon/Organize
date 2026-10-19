@@ -4,6 +4,12 @@ import type { Editor } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
 import { toast } from "@/hooks/use-toast";
 import { showPrompt } from "@/components/ui/prompt-dialog";
+import {
+  LINKED_DATABASES_EMPTY_MESSAGE,
+  resolveLinkedDatabasesLoad,
+  type LinkedDatabaseListItem,
+  type LinkedDatabasesLoadOutcome,
+} from "@/lib/databases/linked-list-load";
 
 /**
  * 在当前笔记 pos 处插入「行内数据库」块：
@@ -121,16 +127,26 @@ export async function insertPageDatabase(editor: Editor, noteId: string | null |
  * 3) 插入 databaseBlock（同一 databaseId，新 viewId）
  */
 export async function insertLinkedDatabase(editor: Editor, pos?: number): Promise<void> {
-  let databases: { id: string; title: string }[] = [];
+  let outcome: LinkedDatabasesLoadOutcome<LinkedDatabaseListItem>;
   try {
     const res = await fetch("/api/databases");
-    if (res.ok) databases = await res.json();
-  } catch { /* ignore */ }
+    const loadedDatabases: LinkedDatabaseListItem[] | null = res.ok ? await res.json() : null;
+    outcome = resolveLinkedDatabasesLoad({ ok: res.ok, databases: loadedDatabases });
+  } catch {
+    outcome = resolveLinkedDatabasesLoad({ ok: false });
+  }
 
-  if (!databases.length) {
-    toast({ title: "还没有可链接的数据库，请先创建一个数据库" });
+  if (outcome.kind === "error") {
+    toast({ title: outcome.message, variant: "destructive" });
     return;
   }
+
+  if (outcome.kind === "empty") {
+    toast({ title: LINKED_DATABASES_EMPTY_MESSAGE });
+    return;
+  }
+
+  const { databases } = outcome;
 
   // 构建选择列表
   const list = databases.map((db, i) => `${i + 1}. ${db.title || "未命名数据库"}`).join("　");
