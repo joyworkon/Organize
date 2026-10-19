@@ -304,6 +304,65 @@ describe("mock api shim", () => {
     expect(removed.body).toEqual({ ok: true });
     const afterDelete = await call(`/api/synced-blocks?ids=${blockId}`);
     expect(afterDelete.body).toHaveLength(0);
+
+    // 与真实 route 一致：再删一次（0 行）→ 404
+    const removedAgain = await call(`/api/synced-blocks/${blockId}`, { method: "DELETE" });
+    expect(removedAgain.status).toBe(404);
+    expect(removedAgain.body.error).toBe("同步区块不存在或已删除");
+  });
+
+  it("同步块：POST 重复 id → 409 数据已存在（与真实 route serverError 23505 形状一致）", async () => {
+    const first = await call("/api/synced-blocks", {
+      method: "POST",
+      body: JSON.stringify({ id: "sb-dup", content: [] }),
+    });
+    expect(first.status).toBe(201);
+
+    const dup = await call("/api/synced-blocks", {
+      method: "POST",
+      body: JSON.stringify({ id: "sb-dup", content: [] }),
+    });
+    expect(dup.status).toBe(409);
+    expect(dup.body).toMatchObject({ error: "数据已存在", code: "DUPLICATE" });
+  });
+
+  it("同步块：POST content 缺失/非数组、id 非法 → 400，不创建空区块", async () => {
+    for (const payload of [{}, { content: "text" }, { content: null }, { content: { type: "doc" } }]) {
+      const res = await call("/api/synced-blocks", { method: "POST", body: JSON.stringify(payload) });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("同步区块内容格式错误");
+    }
+
+    for (const payload of [{ content: [], id: 123 }, { content: [], id: "" }]) {
+      const res = await call("/api/synced-blocks", { method: "POST", body: JSON.stringify(payload) });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("同步区块 id 格式错误");
+    }
+
+    const listed = await call("/api/synced-blocks");
+    expect(listed.body).toHaveLength(0);
+  });
+
+  it("同步块：PATCH content 非数组 → 400，内容不被覆盖、revision 不递增", async () => {
+    const created = await call("/api/synced-blocks", {
+      method: "POST",
+      body: JSON.stringify({ content: [{ type: "paragraph", content: [{ type: "text", text: "v1" }] }] }),
+    });
+    expect(created.status).toBe(201);
+    const blockId = created.body.id as string;
+
+    for (const payload of [{}, { content: "text" }]) {
+      const res = await call(`/api/synced-blocks/${blockId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("同步区块内容格式错误");
+    }
+
+    const listed = await call(`/api/synced-blocks?ids=${blockId}`);
+    expect(listed.body[0].revision).toBe(1);
+    expect(JSON.stringify(listed.body[0].content)).toContain("v1");
   });
 
   it("未覆盖的 /api 接口返回 501，非 API 请求透传原始 fetch", async () => {

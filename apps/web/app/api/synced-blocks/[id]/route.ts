@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import { deleteBlockResult, parseJsonBody, validatePatchBody } from "@/lib/synced-block/api-mutation";
 
 /**
  * PATCH /api/synced-blocks/[id] — 原子乐观锁更新（R05，语义见 073 迁移 synced_block_patch）。
@@ -7,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
  *   过期返回 409 + current（服务端当前 revision/content，默认不覆盖远端）。
  * - 不带 expected_revision（旧客户端兜底）：覆盖并递增。
  * - 重试同一请求若服务端已写入过：409，由客户端按 current.content 与本地一致判幂等命中。
+ * - content 缺失或不是数组：400，不调 RPC、不覆盖内容（不再静默清空）。
  */
 export async function PATCH(
   request: NextRequest,
@@ -21,21 +24,23 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const content = Array.isArray(body.content) ? body.content : [];
-  const expectedRevision =
-    typeof body.expected_revision === "number" && Number.isInteger(body.expected_revision)
-      ? body.expected_revision
-      : null;
+  const parsed = await parseJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.rejection.error }, { status: parsed.rejection.status });
+  }
+  const input = validatePatchBody(parsed.body);
+  if (!input.ok) {
+    return NextResponse.json({ error: input.rejection.error }, { status: input.rejection.status });
+  }
 
   const { data, error } = await supabase.rpc("synced_block_patch", {
     p_id: id,
-    p_content: content,
-    p_expected_revision: expectedRevision,
+    p_content: input.content,
+    p_expected_revision: input.expectedRevision,
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
   const result = data as {
     status?: string;
@@ -69,7 +74,7 @@ export async function PATCH(
   return NextResponse.json({ error: "同步区块不存在" }, { status: 404 });
 }
 
-// DELETE /api/synced-blocks/[id] — 删除同步区块
+// DELETE /api/synced-blocks/[id] — 删除同步区块；0 行（不存在/已删/不属于本人）→ 404
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -83,14 +88,19 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("synced_blocks")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id");
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
+  }
+  const result = deleteBlockResult(Array.isArray(data) ? data.length : 0);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.rejection.error }, { status: result.rejection.status });
   }
   return NextResponse.json({ ok: true });
 }

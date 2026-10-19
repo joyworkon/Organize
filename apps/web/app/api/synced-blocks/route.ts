@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/api/error";
+import { parseJsonBody, validateCreateBody } from "@/lib/synced-block/api-mutation";
 
 interface SyncedBlockRow {
   id: string;
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
   return NextResponse.json(data as SyncedBlockRow[]);
 }
@@ -49,23 +51,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const content = Array.isArray(body.content) ? body.content : [];
-  // 允许指定 id（便于与编辑器内 syncedId 对齐），不指定则自动生成
-  const id = typeof body.id === "string" && body.id.length ? body.id : undefined;
+  // 非法 JSON / content 非数组 / id 非法 → 400，绝不静默创建空区块
+  const parsed = await parseJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.rejection.error }, { status: parsed.rejection.status });
+  }
+  const input = validateCreateBody(parsed.body);
+  if (!input.ok) {
+    return NextResponse.json({ error: input.rejection.error }, { status: input.rejection.status });
+  }
 
+  // 允许指定 id（便于与编辑器内 syncedId 对齐），不指定则自动生成
   const { data, error } = await supabase
     .from("synced_blocks")
     .insert({
-      ...(id ? { id } : {}),
+      ...(input.id ? { id: input.id } : {}),
       user_id: user.id,
-      content,
+      content: input.content,
     })
     .select("id, content, revision, created_at, updated_at")
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // serverError：23505 主键冲突 → 409「数据已存在」；其它 → 500 通用文案（不泄露细节）
+    return serverError(error);
   }
   return NextResponse.json(data as SyncedBlockRow, { status: 201 });
 }

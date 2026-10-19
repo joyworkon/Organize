@@ -10,6 +10,7 @@ import { createCollectionRoutes } from "@/lib/mock/api-shim-collections";
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
 import { decodeLibraryCursor, encodeLibraryCursor } from "@/lib/library/cursor";
+import { deleteBlockResult, validateCreateBody, validatePatchBody } from "@/lib/synced-block/api-mutation";
 
 type MockHandlerResult = { status?: number; body: unknown; headers?: Record<string, string> };
 type MockHandler = (ctx: {
@@ -811,15 +812,21 @@ const listSyncedBlocks: MockHandler = ({ url }) => {
 };
 
 const createSyncedBlock: MockHandler = ({ body }) => {
-  const id = typeof body?.id === "string" && body.id.length ? body.id : genId("synced_blocks");
-  // 与真实 route 一致：主键冲突返回 500（insert .single() 报错）
+  // 与真实 route 一致：body 非对象 → 400「请求格式错误」；content 非数组 / id 非法 → 400
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: 400, body: { error: "请求格式错误" } };
+  }
+  const input = validateCreateBody(body);
+  if (!input.ok) return { status: input.rejection.status, body: { error: input.rejection.error } };
+  const id = input.id ?? genId("synced_blocks");
+  // 与真实 route 一致：主键冲突走 serverError 23505 → 409「数据已存在」
   if (mockDb.synced_blocks.some((r) => r.id === id)) {
-    return { status: 500, body: { error: `duplicate key value violates unique constraint "synced_blocks_pkey"` } };
+    return { status: 409, body: { error: "数据已存在", code: "DUPLICATE" } };
   }
   const row = {
     id,
     user_id: MOCK_USER.id,
-    content: Array.isArray(body?.content) ? body.content : [],
+    content: input.content,
     revision: 1,
     created_at: nowIso(),
     updated_at: nowIso(),
@@ -829,15 +836,18 @@ const createSyncedBlock: MockHandler = ({ body }) => {
 };
 
 const patchSyncedBlock: MockHandler = ({ body, params }) => {
+  // 与真实 route 一致：先校验请求体（400 优先于 404），content 非数组不调不覆盖
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: 400, body: { error: "请求格式错误" } };
+  }
+  const input = validatePatchBody(body);
+  if (!input.ok) return { status: input.rejection.status, body: { error: input.rejection.error } };
   const row = mockDb.synced_blocks.find(
     (r) => r.id === params.id && r.user_id === MOCK_USER.id
   );
   if (!row) return { status: 404, body: { error: "同步区块不存在" } };
-  const content = Array.isArray(body?.content) ? body.content : [];
-  const expected =
-    typeof body?.expected_revision === "number" && Number.isInteger(body.expected_revision)
-      ? body.expected_revision
-      : null;
+  const content = input.content;
+  const expected = input.expectedRevision;
   if (expected !== null && row.revision !== expected) {
     // 与真实 409 形状一致：current 带服务端当前 revision/content
     return {
@@ -855,9 +865,13 @@ const patchSyncedBlock: MockHandler = ({ body, params }) => {
 };
 
 const deleteSyncedBlock: MockHandler = ({ params }) => {
+  const before = mockDb.synced_blocks.length;
   mockDb.synced_blocks = mockDb.synced_blocks.filter(
     (r) => !(r.id === params.id && r.user_id === MOCK_USER.id)
   );
+  // 与真实 route 一致：0 行删除（不存在/已删/不属于本人）→ 404
+  const result = deleteBlockResult(before - mockDb.synced_blocks.length);
+  if (!result.ok) return { status: result.rejection.status, body: { error: result.rejection.error } };
   return { body: { ok: true } };
 };
 
