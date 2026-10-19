@@ -41,7 +41,8 @@ import { TagBadge } from "@/components/tags/tag-badge";
 import { useAllTags, useResourceTags } from "@/components/tags/use-tags";
 import { RESOURCE_TAGS_LOAD_ERROR_HINT } from "@/lib/tags/resource-tags-load";
 import { ResourceShareDialog } from "@/components/share/resource-share-dialog";
-import { isCollabRole, type CollabRole } from "@/lib/collab/roles";
+import { type CollabRole } from "@/lib/collab/roles";
+import { resolveResourceRole } from "@/lib/share/resource-role-load";
 import { prepareReadingContent } from "@/lib/reading-images";
 import type { HighlightReferenceState } from "@/lib/reading/highlight-references";
 import { findAndWrapHighlightText, focusHighlight } from "@/lib/reading/highlight-locate";
@@ -170,8 +171,11 @@ export default function ReadingDetailPage() {
   const [focusMode, setFocusMode] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   // 协作角色（069 移交属主）：属主无需 RPC（行的 user_id 即事实）；
-  // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理
+  // 协作者调 063 的唯一判定入口 resource_role，拿不到有效结论时按 viewer 处理（安全兜底），
+  // 同时标 readingRoleUnverified 让分享对话框诚实提示「权限未加载」并可重试，不伪装「仅查看」
   const [readingRole, setReadingRole] = useState<CollabRole | null>(null);
+  const [readingRoleUnverified, setReadingRoleUnverified] = useState(false);
+  const [roleLoadAttempt, setRoleLoadAttempt] = useState(0);
   const [fullWidth, setFullWidth] = useState(false);
 
   const readingMinutes = item?.content ? estimateReadingTime(item.content) : null;
@@ -322,19 +326,36 @@ export default function ReadingDetailPage() {
       } = await supabase.auth.getUser();
       if (!user) return;
       if (item.user_id === user.id) {
-        if (active) setReadingRole("owner");
+        if (active) {
+          setReadingRole("owner");
+          setReadingRoleUnverified(false);
+        }
         return;
       }
-      const { data: role } = await supabase.rpc("resource_role", {
-        p_resource_type: "reading_item",
-        p_resource_id: itemId,
-      });
-      if (active) setReadingRole(isCollabRole(role) ? role : "viewer");
+      // resource_role 失败（error 或抛错）不能静默伪装成「仅查看」：读 error + try/catch，
+      // 统一经 resolveResourceRole 收敛——兜底 viewer 保留，但 unverified 必须透传给 UI
+      let outcome: { data: unknown; error: unknown };
+      try {
+        outcome = await supabase.rpc("resource_role", {
+          p_resource_type: "reading_item",
+          p_resource_id: itemId,
+        });
+      } catch (e) {
+        outcome = { data: null, error: e };
+      }
+      if (!active) return;
+      const result = resolveResourceRole(outcome);
+      setReadingRole(result.role);
+      setReadingRoleUnverified(result.unverified);
     })();
     return () => {
       active = false;
     };
-  }, [item, itemId, supabase]);
+  }, [item, itemId, supabase, roleLoadAttempt]);
+
+  const retryLoadReadingRole = useCallback(() => {
+    setRoleLoadAttempt((attempt) => attempt + 1);
+  }, []);
 
   const retryLoadHighlights = useCallback(() => {
     setHighlightsLoadError(null);
@@ -1631,6 +1652,8 @@ export default function ReadingDetailPage() {
         myRole={readingRole ?? "owner"}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
+        roleUnverified={readingRoleUnverified}
+        onRetryRole={retryLoadReadingRole}
       />
     </div>
   );

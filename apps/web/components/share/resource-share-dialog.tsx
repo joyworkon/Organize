@@ -31,6 +31,7 @@ import {
 } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { collabRoleLabel, type CollabRole } from "@/lib/collab/roles";
+import { RESOURCE_ROLE_LOAD_ERROR_MESSAGE } from "@/lib/share/resource-role-load";
 import {
   nextInviteWorkspacesAfterLoad,
   type InviteWorkspaceRow,
@@ -65,6 +66,10 @@ interface ResourceShareDialogProps {
   myRole: CollabRole;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** resource_role 未成功取到有效角色时为真：myRole 只是安全兜底 viewer，必须诚实提示而不是伪装「仅查看」 */
+  roleUnverified?: boolean;
+  /** 提供时提示行带「重试」按钮，点击重新加载角色 */
+  onRetryRole?: () => void;
 }
 
 interface WorkspaceRow {
@@ -142,6 +147,8 @@ export function ResourceShareDialog({
   myRole,
   open,
   onOpenChange,
+  roleUnverified = false,
+  onRetryRole,
 }: ResourceShareDialogProps) {
   const isOwner = myRole === "owner";
   const copy = COPY[resourceType];
@@ -153,6 +160,21 @@ export function ResourceShareDialog({
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{isOwner ? copy.ownerDesc : copy.collaboratorDesc}</DialogDescription>
         </DialogHeader>
+
+        {roleUnverified && (
+          <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+            {RESOURCE_ROLE_LOAD_ERROR_MESSAGE}
+            {onRetryRole && (
+              <button
+                type="button"
+                onClick={onRetryRole}
+                className="text-primary hover:underline"
+              >
+                重试
+              </button>
+            )}
+          </p>
+        )}
 
         {isOwner ? (
           <OwnerShareSections resourceType={resourceType} resourceId={resourceId} />
