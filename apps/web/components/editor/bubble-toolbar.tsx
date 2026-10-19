@@ -50,6 +50,7 @@ import {
   Columns4,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { BLOCK_COMMANDS } from "./block-commands";
 import { TableGridPicker } from "./table-controls";
@@ -184,14 +185,18 @@ function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
   return (
     <div className="grid w-64 grid-cols-8 gap-0.5 p-1.5">
       {EMOJIS.map((emoji) => (
-        <button
+        <Button
           key={emoji}
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => onSelect(emoji)}
-          className="rounded p-1 text-lg transition-colors hover:bg-accent"
+          title={emoji}
+          aria-label={emoji}
+          className="h-8 min-h-8 min-w-0 p-1 text-lg"
         >
           {emoji}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -225,14 +230,16 @@ const BUBBLE_BACKGROUNDS = [
 
 function ColorMenuRow({ label, swatch, onClick }: { label: string; swatch: React.ReactNode; onClick: () => void }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent"
+      className="w-full justify-start gap-2.5 font-normal"
     >
       {swatch}
       <span className="flex-1 text-left">{label}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -349,18 +356,21 @@ function MenuItem({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-accent",
+        "w-full justify-start gap-2.5 font-normal",
         active && "bg-accent/60"
       )}
     >
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="flex-1 text-left">{label}</span>
       {active && <Check className="h-3.5 w-3.5 text-primary" />}
-    </button>
+    </Button>
   );
 }
 
@@ -378,17 +388,21 @@ function BubbleButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={!!isActive}
       className={cn(
-        "rounded p-1.5 transition-colors hover:bg-accent",
+        "shrink-0",
         isActive ? "bg-accent text-primary" : "text-muted-foreground hover:text-foreground"
       )}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -449,17 +463,21 @@ export function BubbleToolbar({
       {/* 块类型选择器（二级菜单） */}
       <Dropdown
         trigger={(open) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={activeBlock.label}
+            aria-expanded={open}
             className={cn(
-              "flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium transition-colors hover:bg-accent",
+              "gap-1 px-2 text-xs",
               open ? "bg-accent text-foreground" : "text-muted-foreground"
             )}
           >
             <ActiveBlockIcon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">{activeBlock.label}</span>
             <ChevronDown className="h-3 w-3" />
-          </button>
+          </Button>
         )}
       >
         {(close) => (
@@ -536,18 +554,22 @@ export function BubbleToolbar({
       {/* 颜色：文字颜色 / 文字背景 / 块背景 */}
       <Dropdown
         trigger={(open) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             title="颜色"
+            aria-label="颜色"
+            aria-expanded={open}
             className={cn(
-              "rounded p-1.5 transition-colors hover:bg-accent",
+              "shrink-0",
               open || editor.isActive("highlight") || editor.getAttributes("textStyle").color
                 ? "bg-accent text-primary"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Palette className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       >
         {(close) => <BubbleColorMenu editor={editor} close={close} />}
@@ -558,16 +580,20 @@ export function BubbleToolbar({
       {/* 表情选择器 */}
       <Dropdown
         trigger={(open) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             title="插入表情"
+            aria-label="插入表情"
+            aria-expanded={open}
             className={cn(
-              "rounded p-1.5 transition-colors hover:bg-accent",
+              "shrink-0",
               open ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Smile className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       >
         {(close) => (
@@ -584,16 +610,20 @@ export function BubbleToolbar({
       <Dropdown
         align="end"
         trigger={(open) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             title="插入"
+            aria-label="插入"
+            aria-expanded={open}
             className={cn(
-              "rounded p-1.5 transition-colors hover:bg-accent",
+              "shrink-0",
               open ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Plus className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       >
         {(close) => (
@@ -626,16 +656,20 @@ export function BubbleToolbar({
       <Dropdown
         align="end"
         trigger={(open) => (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             title="更多"
+            aria-label="更多"
+            aria-expanded={open}
             className={cn(
-              "rounded p-1.5 transition-colors hover:bg-accent",
+              "shrink-0",
               open ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <MoreHorizontal className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       >
         {(close) => (
@@ -696,14 +730,16 @@ function InsertMenu({
   if (view === "table") {
     return (
       <div className="table-grid-submenu">
-        <button
+        <Button
           type="button"
-          className="table-grid-back"
+          variant="ghost"
+          size="sm"
+          className="table-grid-back mb-1 w-full justify-start gap-2.5 px-2 text-xs font-normal text-muted-foreground"
           onClick={() => setView("main")}
         >
           <ChevronDown className="h-4 w-4 rotate-90" />
           <span>返回插入菜单</span>
-        </button>
+        </Button>
         <TableGridPicker onSelect={onAddTable} />
       </div>
     );
@@ -713,15 +749,17 @@ function InsertMenu({
       <MenuItem icon={Upload} label="上传图片" onClick={onUploadImage} />
       <MenuItem icon={ImageIcon} label="图片 URL" onClick={onAddImageUrl} />
       <MenuItem icon={Paperclip} label="上传附件" onClick={onUploadAttachment} />
-      <button
+      <Button
         type="button"
-        className="table-insert-menu-item"
+        variant="ghost"
+        size="sm"
+        className="table-insert-menu-item w-full justify-start gap-2.5 font-normal"
         onClick={() => setView("table")}
       >
         <TableIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span>表格</span>
+        <span className="flex-1 text-left">表格</span>
         <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
-      </button>
+      </Button>
       <MenuItem icon={Bookmark} label="引用阅读条目" onClick={onAddReference} />
     </>
   );
