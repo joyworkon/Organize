@@ -6560,17 +6560,6 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   white-space: nowrap;
 }
 
-/* 列表页 */
-.canvas-list-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 64px 16px;
-  text-align: center;
-  border: 1px dashed hsl(var(--border));
-  border-radius: var(--radius-xl);
-}
 .canvas-list-card {
   overflow: hidden;
   background: hsl(var(--card));
