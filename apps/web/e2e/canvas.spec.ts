@@ -140,15 +140,18 @@ test.describe("构思画布", () => {
       await page.getByRole("button", { name: "放大" }).click();
     }
     await expect(page.locator(".canvas-zoom-value")).toHaveText(/\d{3}%/);
+    // 中心缩放同时改变 pan；使用实际矩阵和未取整的比例验证双击落点。
+    const viewport = await page.locator(".canvas-world").evaluate((el) => {
+      const matrix = new DOMMatrix(getComputedStyle(el).transform);
+      return { x: matrix.e, y: matrix.f, zoom: matrix.a };
+    });
     await dblClickViewport(page, 400, 300);
     const board = page.locator("[data-board-id]").first();
     await expect(board).toBeVisible();
-    const zoomText = await page.locator(".canvas-zoom-value").textContent();
-    const zoom = Number(zoomText!.replace("%", "")) / 100;
     const { left, top } = await boardStyle(page);
     // 世界坐标 = (屏幕坐标 - pan) / zoom
-    expect(left).toBeCloseTo((400 - PAN_X) / zoom, 0);
-    expect(top).toBeCloseTo((300 - PAN_Y) / zoom, 0);
+    expect(left).toBeCloseTo((400 - viewport.x) / viewport.zoom, 0);
+    expect(top).toBeCloseTo((300 - viewport.y) / viewport.zoom, 0);
   });
 
   test("撤销（⌘Z）：连续结构编辑后原子回退（A09）", async ({ page }) => {
