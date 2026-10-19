@@ -8,6 +8,7 @@ import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
 import { createCollectionRoutes } from "@/lib/mock/api-shim-collections";
 import { validateCanvasContent } from "@/lib/canvas/validation";
+import { validateCanvasPatchBody } from "@/lib/canvas/api-mutation";
 import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
 import { decodeLibraryCursor, encodeLibraryCursor } from "@/lib/library/cursor";
 import { deleteBlockResult, validateCreateBody, validatePatchBody } from "@/lib/synced-block/api-mutation";
@@ -948,21 +949,19 @@ const getCanvasShim: MockHandler = ({ params }) => {
 };
 
 const patchCanvasShim: MockHandler = ({ body, params }) => {
+  // 与真实路由共用同一组校验：非对象/非法 title/空 PATCH → 400，不改动数据
+  const input = validateCanvasPatchBody(body, { allowMockImages: true });
+  if (!input.ok) {
+    return {
+      status: input.rejection.status,
+      body: input.rejection.errors
+        ? { error: input.rejection.error, errors: input.rejection.errors }
+        : { error: input.rejection.error },
+    };
+  }
   const row = findCanvasRow(params.id);
   if (!row) return { status: 404, body: { error: "文档不存在" } };
-  let nextContent: unknown;
-  if (body?.content !== undefined) {
-    const validation = validateCanvasContent(body.content, { allowMockImages: true });
-    if (!validation.ok) {
-      return { status: 400, body: { error: "画布内容校验失败", errors: validation.errors } };
-    }
-    nextContent = validation.doc;
-  }
-  const expected =
-    typeof body?.expected_revision === "number" && Number.isFinite(body.expected_revision)
-      ? Math.trunc(body.expected_revision)
-      : null;
-  if (expected !== null && row.revision !== expected) {
+  if (input.expectedRevision !== null && row.revision !== input.expectedRevision) {
     // 与真实 409 形状一致：current 带服务端当前 revision
     return {
       status: 409,
@@ -972,8 +971,9 @@ const patchCanvasShim: MockHandler = ({ body, params }) => {
       },
     };
   }
-  row.title = typeof body?.title === "string" ? body.title.slice(0, 200) : row.title;
-  if (body?.content !== undefined) row.content = nextContent;
+  // title 缺省保留原标题（与真实路由一致）；CAS 命中时 row.revision === expected
+  if (input.title !== undefined) row.title = input.title;
+  if (input.content !== undefined) row.content = input.content;
   row.revision = row.revision + 1;
   row.updated_at = nowIso();
   return {

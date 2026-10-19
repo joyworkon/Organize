@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
-import { validateCanvasContent } from "@/lib/canvas/validation";
-import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
+import { parseJsonBody, validateCanvasPatchBody } from "@/lib/canvas/api-mutation";
+import type { CanvasDoc } from "@/lib/canvas/model";
 
 /**
  * GET    /api/canvases/[id] — 读取单个画布文档（含 content 与 revision）。
@@ -58,46 +58,54 @@ export async function PATCH(
     return NextResponse.json({ error: "文档不存在" }, { status: 404 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const title = typeof body.title === "string" ? body.title.slice(0, 200) : "";
-  let content = body.content as CanvasDoc | undefined;
-  if (content !== undefined) {
-    const validation = validateCanvasContent(content);
-    if (!validation.ok) {
-      return NextResponse.json(
-        { error: "画布内容校验失败", errors: validation.errors },
-        { status: 400 },
-      );
-    }
-    // B1：v1 输入迁移后的 v2 落库（validation.doc 恒为 v2）
-    content = validation.doc ?? content;
+  const parsed = await parseJsonBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.rejection.error },
+      { status: parsed.rejection.status },
+    );
   }
-  if (content === undefined) {
-    // 仅改名：也走 CAS，避免与内容保存互相覆盖
+  const input = validateCanvasPatchBody(parsed.body);
+  if (!input.ok) {
+    return NextResponse.json(
+      {
+        error: input.rejection.error,
+        ...(input.rejection.errors ? { errors: input.rejection.errors } : {}),
+      },
+      { status: input.rejection.status },
+    );
+  }
+
+  let title = input.title;
+  let content: CanvasDoc | undefined = input.content;
+  if (title === undefined || content === undefined) {
+    // 缺省的一侧用当前行补齐：title 缺省保留原标题；content 缺省为「仅改名」。
+    // CAS 仍在 RPC 内原子生效，这里只是读取展示侧缺省值。
     const current = await supabase
       .from("canvas_documents")
-      .select("content")
+      .select("title, content")
       .eq("id", id)
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .maybeSingle();
     if (current.error) return serverError(current.error);
     if (!current.data) return NextResponse.json({ error: "文档不存在" }, { status: 404 });
-    body.content = current.data.content;
+    if (title === undefined) title = current.data.title as string;
+    if (content === undefined) content = current.data.content as CanvasDoc;
   }
-  const expectedRevision =
-    typeof body.expected_revision === "number" && Number.isFinite(body.expected_revision)
-      ? Math.trunc(body.expected_revision)
-      : null;
 
   const { data, error } = await supabase.rpc("canvas_document_patch", {
     p_id: id,
     p_title: title,
-    p_content: body.content,
-    p_expected_revision: expectedRevision,
+    p_content: content,
+    p_expected_revision: input.expectedRevision,
   });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // RPC 入参不合法（22023，如标题超长）属客户端错误 → 400；其余不泄露细节
+    if ((error as { code?: string }).code === "22023") {
+      return NextResponse.json({ error: "请求格式错误" }, { status: 400 });
+    }
+    return serverError(error);
   }
   const result = data as {
     status?: string;
@@ -147,7 +155,7 @@ export async function DELETE(
     p_ids: [id],
   });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error);
   }
   const affected = typeof data === "number" ? data : 0;
   if (affected === 0) {
