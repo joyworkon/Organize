@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Share2, Copy, Check, Trash2, Loader2, ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import {
+  nextSharePublicLinkAfterLoad,
+  type SharePublicLinkInfo,
+} from "@/lib/share/public-link-load";
 import type { ShareResourceType } from "@organize/shared";
 
 interface ShareDialogProps {
@@ -26,12 +30,6 @@ interface ShareDialogProps {
   /** 受控打开状态（可选）。不传则内部自管理 */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-}
-
-interface ShareInfo {
-  token: string;
-  url: string;
-  is_public: boolean;
 }
 
 export function ShareDialog({
@@ -50,36 +48,41 @@ export function ShareDialog({
     setInternalOpen(v);
     onOpenChange?.(v);
   };
-  const [share, setShare] = useState<ShareInfo | null>(null);
+  const [share, setShare] = useState<SharePublicLinkInfo | null>(null);
+  const shareRef = useRef<SharePublicLinkInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const loadShare = useCallback(async () => {
+    setLoading(true);
+    setActionError(null);
+    let next;
+    try {
+      const res = await fetch(`/api/share?resource_type=${resourceType}&resource_id=${resourceId}`, {
+        cache: "no-store",
+      });
+      const data = res.ok ? await res.json() : undefined;
+      next = nextSharePublicLinkAfterLoad({ previous: shareRef.current, ok: res.ok, data });
+    } catch {
+      next = nextSharePublicLinkAfterLoad({ previous: shareRef.current, ok: false });
+    }
+    shareRef.current = next.share;
+    setShare(next.share);
+    setLoadError(next.loadError);
+    setLoading(false);
+  }, [resourceType, resourceId]);
 
   // 打开时拉取当前分享状态
   useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setError(null);
-    fetch(`/api/share?resource_type=${resourceType}&resource_id=${resourceId}`, {
-      cache: "no-store",
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error("加载失败");
-        const data = await res.json();
-        if (data) {
-          setShare({ token: data.token, url: data.url, is_public: data.is_public });
-        } else {
-          setShare(null);
-        }
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [open, resourceType, resourceId]);
+    if (open) void loadShare();
+  }, [open, loadShare]);
 
   const createShare = async () => {
     setCreating(true);
-    setError(null);
+    setActionError(null);
     try {
       const res = await fetch("/api/share", {
         method: "POST",
@@ -91,9 +94,16 @@ export function ShareDialog({
         throw new Error(data.error || "创建失败");
       }
       const data = await res.json();
-      setShare({ token: data.token, url: data.url, is_public: data.is_public });
+      const nextShare: SharePublicLinkInfo = {
+        token: data.token,
+        url: data.url,
+        is_public: data.is_public,
+      };
+      shareRef.current = nextShare;
+      setShare(nextShare);
+      setLoadError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "创建失败");
+      setActionError(e instanceof Error ? e.message : "创建失败");
     } finally {
       setCreating(false);
     }
@@ -102,6 +112,7 @@ export function ShareDialog({
   const revokeShare = async () => {
     if (!share) return;
     if (!confirm("确定撤销这个分享链接？撤销后链接将立即失效。")) return;
+    setActionError(null);
     try {
       const res = await fetch("/api/share", {
         method: "DELETE",
@@ -109,9 +120,11 @@ export function ShareDialog({
         body: JSON.stringify({ resource_type: resourceType, resource_id: resourceId }),
       });
       if (!res.ok) throw new Error("撤销失败");
+      shareRef.current = null;
       setShare(null);
+      setLoadError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "撤销失败");
+      setActionError(e instanceof Error ? e.message : "撤销失败");
     }
   };
 
@@ -162,6 +175,17 @@ export function ShareDialog({
           </div>
         ) : share ? (
           <div className="space-y-4">
+            {loadError && (
+              <div className="flex items-center justify-between gap-3">
+                <p role="alert" className="text-sm text-destructive">
+                  {loadError}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => void loadShare()}>
+                  重试
+                </Button>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Input readOnly value={fullUrl} className="font-mono text-xs" />
               <Button variant="outline" size="icon" onClick={copyLink} title="复制链接">
@@ -189,6 +213,15 @@ export function ShareDialog({
               <p className="text-xs text-muted-foreground">该分享已关闭公开访问</p>
             )}
           </div>
+        ) : loadError ? (
+          <div className="space-y-3">
+            <p role="alert" className="text-sm text-destructive">
+              {loadError}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void loadShare()}>
+              重试
+            </Button>
+          </div>
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
@@ -201,7 +234,7 @@ export function ShareDialog({
           </div>
         )}
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {actionError && <p className="text-sm text-destructive">{actionError}</p>}
       </DialogContent>
     </Dialog>
   );
