@@ -51,12 +51,24 @@ export default function SharedNotesPage() {
         }
       />
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-4">
+        {!loading && error && notes.length > 0 && (
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <p className="text-sm text-destructive">{error}</p>
+            <button
+              type="button"
+              className="shrink-0 text-sm text-primary hover:underline"
+              onClick={() => void refresh()}
+            >
+              重试
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
-        ) : error ? (
+        ) : error && notes.length === 0 ? (
           <div className="space-y-2 text-center py-10">
             <p className="text-sm text-destructive">{error}</p>
             <button className="text-sm text-primary hover:underline" onClick={() => void refresh()}>
