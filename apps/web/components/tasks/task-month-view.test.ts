@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthColFromClientX, monthRescheduleTargetDate, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, TimeGridView } from "./task-month-view";
+import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthColFromClientX, monthRescheduleTargetDate, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, timeGridRangeFromOffsets, TimeGridView } from "./task-month-view";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -379,5 +379,20 @@ describe("TimeGridView（日 / 周共用网格）", () => {
     }
     expect(renderGrid([new Date(2026, 7, 27)])).not.toContain("此刻");
     expect(renderGrid(weekDaysOf(new Date(2026, 8, 2)))).not.toContain("此刻");
+  });
+});
+
+
+describe("timeGridRangeFromOffsets", () => {
+  const px = (minutes: number) => minutes / 60 * 56;
+  it.each([
+    [540, 630, 540, 630], [630, 540, 540, 630],
+    [542, 616, 540, 615], [540, 540, 540, 555],
+    [541, 543, 540, 555], [-60, 45, 0, 45],
+    [1500, 1380, 1380, 1440], [-100, 1500, 0, 1440],
+    [-100, -20, 0, 15], [1500, 1600, 1425, 1440],
+    [1440, 1440, 1425, 1440],
+  ])("%i → %i 分钟选为 [%i, %i)", (a, b, startMin, endMin) => {
+    expect(timeGridRangeFromOffsets(px(a), px(b))).toEqual({ startMin, endMin });
   });
 });
