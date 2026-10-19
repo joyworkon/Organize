@@ -1,0 +1,8 @@
+# 执行进度：任务关联内容加载诚实处理（fix/task-linked-content-load-honesty）
+
+- 2026-10-18 约 20:07 EDT：规划方（五狗）写好 TASK.md / PROMPT.md。基线 master `9e2035e`（#425 reading-note-lookup-load-honesty 已由 Kimi K3Max 合并）。本任务派给 **Kimi K3Max**（`kimi-code/k3` + thinking.effort=max）。
+- 2026-10-18：Kimi K3Max 已核对背景 1–7：`loadLinks` 的 RPC / reading / note / highlight 四路结果均未读取 `error`，失败会落入 `missing` 并显示「引用已失效」；当前无 `loadError` / 重试，刷新会覆盖旧快照。对照纯函数为 `lib/reading/highlight-references-load.ts`；合法 active / deleted / missing 行为和无关联时 `return null` 需保持不变；两个父调用点均仅传 `task`，无需改 props。确认本任务只需修改指定组件并新增纯函数与测试，不改 RPC、ReferenceState、globals.css、e2e 或其它子面板。
+- 2026-10-18：已临时 stash 其它任务的已跟踪 PROGRESS 改动，`master` 经 `pull --ff-only` 确认与远程一致，HEAD 为基线 `9e2035e`；已创建 `fix/task-linked-content-load-honesty` 并恢复其它改动为未暂存状态。本任务目录仍未跟踪，后续只显式 add 指定业务文件与本 PROGRESS.md。
+- 2026-10-18：已新增 `apps/web/lib/tasks/linked-content-load.ts`：导出指定常量、reading/note 成对快照类型与 `nextLinkedContentAfterLoad`；成功直接采用 current 并清错，失败以同引用保留 previous，错误消息 trim，空白/缺省回退「关联内容加载失败」。新增 6 个纯函数单测；定向 Vitest 退出码 0，`1` 个文件、`6` 个测试全部通过。
+- 2026-10-18：已完成 `task-linked-content.tsx` 接线：RPC / reading / note / highlight 任一返回 error（以及 Promise 异常）都走失败分支，不再组装 missing；ref 保留最近成功快照，`loadAttempt` 触发重试且不清快照，task/id 关联变化时重置快照与错误。失败 UI 提供行内 `role="alert"` 和「重试」，无快照时不显示加载文案，失败期间不显示「引用已失效」；有 active/deleted 快照时保留原链接/徽章。无关联 return null 与成功三态文案/链接逻辑未改。首次 `tsc --noEmit` 退出码 0。
+- 2026-10-18：最终本地验证完成：`corepack pnpm -C apps/web exec tsc --noEmit` 退出码 0；`corepack pnpm -C apps/web lint` 退出码 0（无 ESLint 警告/错误）；`corepack pnpm -C apps/web exec vitest run` 退出码 0，`290 passed | 1 skipped` 个测试文件，`2179 passed | 2 skipped`（总计 2181，较基线 +6）。输出仅有既有 jsdom `window.focus` 未实现与 SW 测试版本提示，不影响通过。按约束未运行本地 e2e。
