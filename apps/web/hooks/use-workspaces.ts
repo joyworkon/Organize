@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { buildWorkspaceRows, type WorkspaceView } from "@/lib/collab/workspace";
 import {
+  nextMemberProfilesAfterLoad,
+  type MemberProfileRow,
+} from "@/lib/collab/member-names-load";
+import {
   nextSidebarPresenceAfterLoad,
   SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT,
   type PresenceLoadOutcome,
@@ -23,10 +27,12 @@ import {
  */
 export function useWorkspaces() {
   const supabase = useMemo(() => createClient(), []);
+  const lastProfilesRef = useRef<MemberProfileRow[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [namesLoadError, setNamesLoadError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -36,8 +42,10 @@ export function useWorkspaces() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
+        lastProfilesRef.current = [];
         setWorkspaces([]);
         setMyUserId(null);
+        setNamesLoadError(null);
         return;
       }
       setMyUserId(user.id);
@@ -56,7 +64,9 @@ export function useWorkspaces() {
         created_at: string;
       }>;
       if (rows.length === 0) {
+        lastProfilesRef.current = [];
         setWorkspaces([]);
+        setNamesLoadError(null);
         return;
       }
 
@@ -70,15 +80,22 @@ export function useWorkspaces() {
       const memberIds = [
         ...new Set((memberRows || []).map((row) => row.user_id)),
       ];
-      const { data: profileRows } = memberIds.length
+      const { data: profileRows, error: profileErr } = memberIds.length
         ? await supabase
             .from("user_profiles")
             .select("id, display_name, avatar_url")
             .in("id", memberIds)
-        : { data: [] };
+        : { data: [], error: null };
+      const plan = nextMemberProfilesAfterLoad({
+        previousProfiles: lastProfilesRef.current,
+        data: profileRows,
+        error: profileErr,
+      });
+      if (!plan.loadError) lastProfilesRef.current = plan.profiles;
+      setNamesLoadError(plan.loadError);
 
       setWorkspaces(
-        buildWorkspaceRows(rows, memberRows || [], profileRows || [], user.id)
+        buildWorkspaceRows(rows, memberRows || [], plan.profiles, user.id)
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载协作空间失败");
@@ -91,7 +108,7 @@ export function useWorkspaces() {
     void refresh();
   }, [refresh]);
 
-  return { workspaces, myUserId, loading, error, refresh };
+  return { workspaces, myUserId, loading, error, namesLoadError, refresh };
 }
 
 /**
