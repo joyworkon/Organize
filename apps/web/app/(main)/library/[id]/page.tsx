@@ -1649,7 +1649,7 @@ export default function ReadingDetailPage() {
       <ResourceShareDialog
         resourceType="reading_item"
         resourceId={itemId}
-        myRole={readingRole ?? "owner"}
+        myRole={readingRole}
         open={shareDialogOpen}
         onOpenChange={setShareDialogOpen}
         roleUnverified={readingRoleUnverified}
