@@ -467,3 +467,107 @@ describe("mock api shim：/api/plugins 开关写路径", () => {
     expect(body).toEqual({ error: "插件不存在或无权限" });
   });
 });
+
+describe("mock api shim：/api/canvases/[id] PATCH 诚实性", () => {
+  const CANVAS_ID = "11111111-1111-4111-8111-111111111111";
+  const EMPTY_DOC = { schemaVersion: 2, boards: [], freeItems: [] };
+
+  const createCanvas = async () => {
+    const created = await call("/api/canvases", {
+      method: "POST",
+      body: JSON.stringify({ id: CANVAS_ID, title: "原始标题", content: EMPTY_DOC }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.revision).toBe(1);
+  };
+
+  it("过期 expected_revision → 409 且 current.revision 为服务端当前值，内容不被覆盖", async () => {
+    await createCanvas();
+    const conflict = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: EMPTY_DOC, expected_revision: 999 }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body).toMatchObject({
+      error: "画布已被其他标签页或设备修改",
+      current: { revision: 1 },
+    });
+    const after = await call(`/api/canvases/${CANVAS_ID}`);
+    expect(after.body.revision).toBe(1);
+  });
+
+  it("CAS 命中：revision 按 expected+1 递增，下一次旧 revision 即冲突", async () => {
+    await createCanvas();
+    const ok = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: EMPTY_DOC, expected_revision: 1 }),
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.revision).toBe(2);
+    const stale = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: EMPTY_DOC, expected_revision: 1 }),
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.current.revision).toBe(2);
+  });
+
+  it("不带 title 的内容 PATCH：标题保留不清空（与真实路由一致）", async () => {
+    await createCanvas();
+    const patched = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: EMPTY_DOC, expected_revision: 1 }),
+    });
+    expect(patched.status).toBe(200);
+    const after = await call(`/api/canvases/${CANVAS_ID}`);
+    expect(after.body.title).toBe("原始标题");
+    expect(after.body.revision).toBe(2);
+  });
+
+  it("空 PATCH（title/content 都缺）→ 400，不改数据", async () => {
+    await createCanvas();
+    const res = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ expected_revision: 1 }),
+    });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "没有可更新的内容" });
+    const after = await call(`/api/canvases/${CANVAS_ID}`);
+    expect(after.body.revision).toBe(1);
+  });
+
+  it("非字符串 title / 非对象 body → 400，不调写", async () => {
+    await createCanvas();
+    const badTitle = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: 123 }),
+    });
+    expect(badTitle.status).toBe(400);
+    expect(badTitle.body).toEqual({ error: "画布标题格式错误" });
+    const nonObject = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify([1, 2]),
+    });
+    expect(nonObject.status).toBe(400);
+    expect(nonObject.body).toEqual({ error: "请求格式错误" });
+    const after = await call(`/api/canvases/${CANVAS_ID}`);
+    expect(after.body.title).toBe("原始标题");
+    expect(after.body.revision).toBe(1);
+  });
+
+  it("内容非法 → 400 带 errors；不存在的 id → 404", async () => {
+    await createCanvas();
+    const invalid = await call(`/api/canvases/${CANVAS_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ content: { schemaVersion: 2 }, expected_revision: 1 }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toBe("画布内容校验失败");
+    expect(Array.isArray(invalid.body.errors)).toBe(true);
+    const missing = await call("/api/canvases/22222222-2222-4222-8222-222222222222", {
+      method: "PATCH",
+      body: JSON.stringify({ title: "t", expected_revision: 1 }),
+    });
+    expect(missing.status).toBe(404);
+  });
+});

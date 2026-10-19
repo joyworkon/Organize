@@ -105,9 +105,16 @@ export async function patchCanvas(
   id: string,
   payload: { title?: string; content?: CanvasDoc; expectedRevision: number },
 ): Promise<PatchOutcome> {
+  // 服务端契约是下划线键名（expected_revision）；缺省的字段不发送，
+  // 由服务端保留原值（title 缺省不再被清空）。
+  const requestBody: { title?: string; content?: CanvasDoc; expected_revision: number } = {
+    expected_revision: payload.expectedRevision,
+  };
+  if (payload.title !== undefined) requestBody.title = payload.title;
+  if (payload.content !== undefined) requestBody.content = payload.content;
   const res = await requestJson<{ revision: number; updated_at: string } | { error: string; current?: { revision: number }; errors?: string[] }>(
     `/api/canvases/${id}`,
-    { method: "PATCH", body: JSON.stringify(payload) },
+    { method: "PATCH", body: JSON.stringify(requestBody) },
   );
   if (res.ok) {
     const data = res.data as { revision: number; updated_at: string };
