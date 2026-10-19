@@ -1,7 +1,9 @@
-// TaskMonthView 纯逻辑测试（不依赖 React DOM 渲染）
-import { describe, it, expect } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents } from "./task-month-view";
-import type { TaskWithTags } from "@organize/shared";
+// 纯逻辑 + 轻量静态网格渲染，不需要浏览器或整页 mock。
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, TimeGridView } from "./task-month-view";
+import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
   return {
@@ -267,5 +269,86 @@ describe("layoutDayTimedEvents（周视图单日时间事件布局）", () => {
   it("零时长任务默认占 60 分钟（避免卡片薄到不可见）", () => {
     const events = layoutDayTimedEvents([T("a", 10, 0, 10, 0)], day);
     expect(events[0].endMin - events[0].startMin).toBe(60);
+  });
+});
+
+describe("minutesSinceMidnight（此刻位置）", () => {
+  it.each([[0, 0, 0], [12, 0, 720], [23, 59, 1439]])(
+    "%i:%i 对应 %i 分钟",
+    (hour, minute, expected) => {
+      expect(minutesSinceMidnight(new Date(2026, 7, 26, hour, minute, 59))).toBe(expected);
+    }
+  );
+});
+
+describe("timeGridSlotMinutes（空白槽位创建）", () => {
+  it("从完整日期列的坐标吸附，包含已滚动到的下午时刻", () => {
+    expect(timeGridSlotMinutes(14.5 * 56)).toBe(14 * 60 + 30);
+    expect(timeGridSlotMinutes(10.2 * 56)).toBe(10 * 60);
+    expect(timeGridSlotMinutes(10.3 * 56)).toBe(10 * 60 + 30);
+  });
+
+  it("顶部/底部夹在当天，不产生次日零点", () => {
+    expect(timeGridSlotMinutes(-10)).toBe(0);
+    expect(timeGridSlotMinutes(24 * 56 - 1)).toBe(23 * 60 + 30);
+  });
+});
+
+describe("TimeGridView（日 / 周共用网格）", () => {
+  const day = new Date(2026, 7, 26); // 周三，避免单列错误标成周一
+  const countdown = (id: string, target_date: string, repeat_annually = false): CountdownDay => ({
+    id, user_id: "u1", title: id, target_date, repeat_annually,
+    deleted_at: null, created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z",
+  });
+  const countdowns = [
+    countdown("当天倒数日", "2026-08-26"),
+    countdown("每年纪念日", "2020-08-26", true),
+    countdown("次日倒数日", "2026-08-27"),
+  ];
+  const renderGrid = (days: Date[], tasks: TaskWithTags[] = []) =>
+    renderToStaticMarkup(createElement(TimeGridView, { days, tasks, countdowns }));
+
+  afterEach(() => vi.useRealTimers());
+
+  it("单列按当天范围展示倒数日、全天/跨天条和定时事件", () => {
+    const tasks: TaskWithTags[] = [
+      { ...mkTask("timed", new Date(2026, 7, 26, 10).toISOString()), all_day: false },
+      { ...mkTask("all-day", day.toISOString()), all_day: true },
+      { ...mkTask("cross-day", new Date(2026, 7, 25).toISOString()), schedule_end_at: new Date(2026, 7, 27).toISOString() },
+      mkTask("outside", new Date(2026, 7, 27, 10).toISOString()),
+    ];
+    const html = renderGrid([day], tasks);
+    expect(html).toContain("grid-cols-1");
+    expect(html).not.toContain("grid-cols-7");
+    expect(html).toContain("周三");
+    expect(html).not.toContain("周一");
+    expect(html).toContain("当天倒数日");
+    expect(html).toContain("每年纪念日");
+    expect(html).not.toContain("次日倒数日");
+    expect(html).toContain("task-timed");
+    expect(html).toContain("task-all-day");
+    expect(html).toContain("task-cross-day");
+    expect(html).not.toContain("task-outside");
+    expect(html).toContain("10:00");
+  });
+
+  it("周网格保持七列并覆盖整周倒数日", () => {
+    const html = renderGrid(weekDaysOf(day));
+    expect(html).toContain("grid-cols-7");
+    expect(html).toContain("周一");
+    expect(html).toContain("周日");
+    expect(html).toContain("次日倒数日");
+  });
+
+  it("今天的日/周网格只有一条此刻线，其他日期不显示", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 26, 12, 30));
+    for (const days of [[day], weekDaysOf(day)]) {
+      const html = renderGrid(days);
+      expect(html.match(/aria-label="此刻 12:30"/g)).toHaveLength(1);
+      expect(html).toContain("top:700px");
+    }
+    expect(renderGrid([new Date(2026, 7, 27)])).not.toContain("此刻");
+    expect(renderGrid(weekDaysOf(new Date(2026, 8, 2)))).not.toContain("此刻");
   });
 });
