@@ -5,22 +5,26 @@
 // 页面只显示掩码；输入新密钥即更换，留空保持不变。
 // base_url 在保存时由服务端做 SSRF 校验（localhost / 内网 / 元数据地址等一律拒绝）。
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invalidateAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { Bot, Loader2 } from "@/components/icons";
+import { nextAiSettingsAfterLoad, type AISettingsView } from "@/lib/ai/settings-load";
 
-interface AISettingsView {
-  configured: boolean;
+type AISettingsForm = {
   base_url: string;
+  api_key: string;
   text_model: string;
   transcription_model: string;
-  api_key_masked: string;
-  has_key: boolean;
-}
+};
+
+type AISettingsSnapshot = {
+  view: AISettingsView;
+  form: AISettingsForm;
+};
 
 const EMPTY_VIEW: AISettingsView = {
   configured: false,
@@ -31,35 +35,72 @@ const EMPTY_VIEW: AISettingsView = {
   has_key: false,
 };
 
+const EMPTY_FORM: AISettingsForm = {
+  base_url: "",
+  api_key: "",
+  text_model: "",
+  transcription_model: "",
+};
+
+function formFromView(view: AISettingsView): AISettingsForm {
+  return {
+    base_url: view.base_url || "",
+    api_key: "",
+    text_model: view.text_model || "",
+    transcription_model: view.transcription_model || "",
+  };
+}
+
 export function AISettingsSection() {
-  const [view, setView] = useState<AISettingsView>(EMPTY_VIEW);
-  const [form, setForm] = useState({ base_url: "", api_key: "", text_model: "", transcription_model: "" });
+  const [view, setView] = useState<AISettingsView | null>(null);
+  const [form, setForm] = useState<AISettingsForm>(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const lastSuccessRef = useRef<AISettingsSnapshot | null>(null);
+  const requestIdRef = useRef(0);
+
+  const loadSettings = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/settings", { cache: "no-store" });
+      if (!res.ok) throw new Error("加载失败");
+      const data = (await res.json()) as AISettingsView;
+      if (requestId !== requestIdRef.current) return;
+      const nextView = { ...EMPTY_VIEW, ...data };
+      const next = nextAiSettingsAfterLoad({
+        previous: lastSuccessRef.current?.view ?? null,
+        outcome: { ok: true, view: nextView },
+      });
+      if (next.view) {
+        const nextForm = formFromView(next.view);
+        lastSuccessRef.current = { view: next.view, form: nextForm };
+        setView(next.view);
+        setForm(nextForm);
+      }
+      setLoadError(next.loadError);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      const previous = lastSuccessRef.current;
+      const next = nextAiSettingsAfterLoad({
+        previous: previous?.view ?? null,
+        outcome: { ok: false },
+      });
+      setView(next.view);
+      if (previous) setForm({ ...previous.form });
+      setLoadError(next.loadError);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/ai/settings", { cache: "no-store" });
-        if (!res.ok) throw new Error("加载失败");
-        const data = (await res.json()) as AISettingsView;
-        if (cancelled) return;
-        setView({ ...EMPTY_VIEW, ...data });
-        setForm({
-          base_url: data.base_url || "",
-          api_key: "",
-          text_model: data.text_model || "",
-          transcription_model: data.transcription_model || "",
-        });
-      } catch {
-        if (!cancelled) toast({ title: "AI 设置加载失败", variant: "destructive" });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    void loadSettings();
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [loadSettings]);
 
   const update = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
@@ -69,7 +110,7 @@ export function AISettingsSection() {
       toast({ title: "请填写完整", description: "API 地址为必填项", variant: "destructive" });
       return;
     }
-    if (!view.has_key && !form.api_key.trim()) {
+    if (!view?.has_key && !form.api_key.trim()) {
       toast({ title: "请填写完整", description: "API 密钥为必填项", variant: "destructive" });
       return;
     }
@@ -91,12 +132,7 @@ export function AISettingsSection() {
       toast({ title: "已保存", description: "AI 功能已启用：笔记问 AI / AI 速记 / 标签智能推荐" });
       invalidateAiAvailability();
       // 重新拉取展示态（掩码刷新）
-      const refreshed = await fetch("/api/ai/settings", { cache: "no-store" });
-      if (refreshed.ok) {
-        const next = (await refreshed.json()) as AISettingsView;
-        setView({ ...EMPTY_VIEW, ...next });
-        setForm((prev) => ({ ...prev, api_key: "", base_url: next.base_url || prev.base_url }));
-      }
+      await loadSettings();
     } catch (err) {
       toast({
         title: "保存失败",
@@ -114,8 +150,10 @@ export function AISettingsSection() {
       const res = await fetch("/api/ai/settings", { method: "DELETE" });
       if (!res.ok) throw new Error("清除失败");
       invalidateAiAvailability();
+      lastSuccessRef.current = { view: EMPTY_VIEW, form: EMPTY_FORM };
       setView(EMPTY_VIEW);
-      setForm({ base_url: "", api_key: "", text_model: "", transcription_model: "" });
+      setForm(EMPTY_FORM);
+      setLoadError(null);
       toast({ title: "已清除", description: "已删除 AI 配置" });
     } catch (err) {
       toast({
@@ -156,58 +194,73 @@ export function AISettingsSection() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* organize-field：URL / 密钥 / 模型名本来就不长，字段宽度独立于泳道封顶 */}
-          <div className="organize-field space-y-2">
-            <Label htmlFor="ai-base-url">API 地址</Label>
-            <Input
-              id="ai-base-url"
-              placeholder="https://api.openai.com/v1"
-              value={form.base_url}
-              onChange={update("base_url")}
-            />
-          </div>
-          <div className="organize-field space-y-2">
-            <Label htmlFor="ai-api-key">API 密钥</Label>
-            <Input
-              id="ai-api-key"
-              type="password"
-              placeholder={view.has_key ? `已配置（${view.api_key_masked}），输入新密钥可更换` : "sk-..."}
-              value={form.api_key}
-              onChange={update("api_key")}
-            />
-          </div>
-          <div className="organize-field grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="ai-text-model">文本 / 视觉模型</Label>
-              <Input
-                id="ai-text-model"
-                placeholder="gpt-4o-mini"
-                value={form.text_model}
-                onChange={update("text_model")}
-              />
-              <p className="text-xs text-muted-foreground">图片文字提取需填写支持图片输入的模型；普通文本模型仍可整理文字。</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ai-transcription-model">转写模型（可选）</Label>
-              <Input
-                id="ai-transcription-model"
-                placeholder="whisper-1"
-                value={form.transcription_model}
-                onChange={update("transcription_model")}
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={save} disabled={saving} className="flex items-center gap-2">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-              保存配置
-            </Button>
-            {view.configured && (
-              <Button variant="outline" onClick={clear} disabled={saving}>
-                清除配置
+          {loadError && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3"
+              role="alert"
+            >
+              <p className="text-sm text-destructive">{loadError}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+                重试
               </Button>
-            )}
-          </div>
+            </div>
+          )}
+          {view !== null && (
+            <>
+              {/* organize-field：URL / 密钥 / 模型名本来就不长，字段宽度独立于泳道封顶 */}
+              <div className="organize-field space-y-2">
+                <Label htmlFor="ai-base-url">API 地址</Label>
+                <Input
+                  id="ai-base-url"
+                  placeholder="https://api.openai.com/v1"
+                  value={form.base_url}
+                  onChange={update("base_url")}
+                />
+              </div>
+              <div className="organize-field space-y-2">
+                <Label htmlFor="ai-api-key">API 密钥</Label>
+                <Input
+                  id="ai-api-key"
+                  type="password"
+                  placeholder={view.has_key ? `已配置（${view.api_key_masked}），输入新密钥可更换` : "sk-..."}
+                  value={form.api_key}
+                  onChange={update("api_key")}
+                />
+              </div>
+              <div className="organize-field grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="ai-text-model">文本 / 视觉模型</Label>
+                  <Input
+                    id="ai-text-model"
+                    placeholder="gpt-4o-mini"
+                    value={form.text_model}
+                    onChange={update("text_model")}
+                  />
+                  <p className="text-xs text-muted-foreground">图片文字提取需填写支持图片输入的模型；普通文本模型仍可整理文字。</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ai-transcription-model">转写模型（可选）</Label>
+                  <Input
+                    id="ai-transcription-model"
+                    placeholder="whisper-1"
+                    value={form.transcription_model}
+                    onChange={update("transcription_model")}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={save} disabled={saving} className="flex items-center gap-2">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                  保存配置
+                </Button>
+                {view.configured && (
+                  <Button variant="outline" onClick={clear} disabled={saving}>
+                    清除配置
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
