@@ -97,6 +97,27 @@ export function setMultiSelectedBlocks(editor: Editor, positions: number[]) {
   editor.view.dispatch(editor.state.tr.setMeta(multiSelectKey, new Set(positions)));
 }
 
+export function deleteMultiSelectedBlocks(editor: Editor): boolean {
+  if (!editor.isEditable) return false;
+  const positions = multiSelectKey.getState(editor.state);
+  if (!positions || positions.size === 0) return false;
+  const ranges: { from: number; to: number }[] = [];
+  for (const pos of Array.from(positions)) {
+    const node = editor.state.doc.nodeAt(pos);
+    if (node) ranges.push({ from: pos, to: pos + node.nodeSize });
+  }
+  if (!ranges.length) return false;
+  const tr = editor.state.tr;
+  // 从下往上删：前面的删除不影响后面（更小位置）的范围
+  ranges.sort((a, b) => b.from - a.from);
+  for (const range of ranges) tr.delete(range.from, range.to);
+  if (tr.doc.childCount === 0) tr.insert(0, editor.schema.nodes.paragraph.create());
+  tr.setMeta(multiSelectKey, new Set<number>());
+  editor.view.dispatch(tr.scrollIntoView());
+  editor.commands.focus();
+  return true;
+}
+
 export const BlockMultiSelect = Extension.create({
   name: "organizeBlockMultiSelect",
   // 高于 ListBackspaceFix：多选存在时 Backspace 必须删选中块而不是处理块首退格
@@ -140,25 +161,6 @@ export const BlockMultiSelect = Extension.create({
   },
 
   addKeyboardShortcuts() {
-    const deleteSelected = (editor: Editor): boolean => {
-      const positions = multiSelectKey.getState(editor.state);
-      if (!positions || positions.size === 0) return false;
-      const ranges: { from: number; to: number }[] = [];
-      for (const pos of Array.from(positions)) {
-        const node = editor.state.doc.nodeAt(pos);
-        if (node) ranges.push({ from: pos, to: pos + node.nodeSize });
-      }
-      if (!ranges.length) return false;
-      const tr = editor.state.tr;
-      // 从下往上删：前面的删除不影响后面（更小位置）的范围
-      ranges.sort((a, b) => b.from - a.from);
-      for (const range of ranges) tr.delete(range.from, range.to);
-      if (tr.doc.childCount === 0) tr.insert(0, editor.schema.nodes.paragraph.create());
-      tr.setMeta(multiSelectKey, new Set<number>());
-      editor.view.dispatch(tr.scrollIntoView());
-      editor.commands.focus();
-      return true;
-    };
     return {
       Escape: ({ editor }) => {
         const positions = multiSelectKey.getState(editor.state);
@@ -166,8 +168,8 @@ export const BlockMultiSelect = Extension.create({
         editor.view.dispatch(editor.state.tr.setMeta(multiSelectKey, new Set<number>()));
         return true;
       },
-      Backspace: ({ editor }) => deleteSelected(editor),
-      Delete: ({ editor }) => deleteSelected(editor),
+      Backspace: ({ editor }) => deleteMultiSelectedBlocks(editor),
+      Delete: ({ editor }) => deleteMultiSelectedBlocks(editor),
     };
   },
 });

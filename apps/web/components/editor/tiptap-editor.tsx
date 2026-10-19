@@ -278,6 +278,7 @@ function SectionHeadingLabels({
 
 
 // B04（R09 续）：气泡工具栏与块交互纯函数层拆出（纯移动；keydown 提为可单测工厂）
+import { BlockMultiSelectBar } from "./block-multi-select-bar";
 import { BubbleToolbar } from "./bubble-toolbar";
 import {
   activeTableReferenceRect,
@@ -338,6 +339,9 @@ export function TipTapEditor({
   const [presentationStart, setPresentationStart] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [blockSelectCount, setBlockSelectCount] = useState(0);
+  const keyboardEditorRef = useRef<Editor | null>(null);
+  const keyboardMenuOpenRef = useRef(false);
+  keyboardMenuOpenRef.current = Boolean(commandMenu || actionMenu || tablePicker || dialog || presentationStart);
   const [selectRect, setSelectRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const selectDragRef = useRef<{
     startX: number;
@@ -390,9 +394,11 @@ export function TipTapEditor({
         // 下方 setEditable effect 内的 syncEditorAriaReadonly 保证任意时刻一致
         ...editorTextboxAria(editable && !collabSeedBlocked),
       },
-      // B04：键盘分派提为可单测工厂（IME 守卫/标题行尾回车/⌘/ 块菜单/⌘F 搜索），
-      // 行为逐行保持——菜单/搜索的打开仍落到组件 state
+      // B04：键盘分派共用菜单的块动作，实时读取编辑器与弹层状态，不重建 editor。
       handleKeyDown: createBlockKeydownHandlers({
+        noteId,
+        getEditor: () => keyboardEditorRef.current,
+        isMenuOpen: () => keyboardMenuOpenRef.current,
         onOpenCommandMenu: (pos, point) => {
           setActionMenu(null);
           setCommandMenu({ pos, point });
@@ -448,6 +454,7 @@ export function TipTapEditor({
     },
     // 协作会话建立/销毁时重建编辑器（扩展集合随 provider 变化）；勾选守卫开关同理
   }, [collab?.provider, collab?.user, disableTaskItemToggle]);
+  keyboardEditorRef.current = editor;
 
   useEffect(() => {
     if (!editor) return;
@@ -1240,7 +1247,7 @@ export function TipTapEditor({
     if (!(target instanceof HTMLElement)) return;
     if (target.closest(
       ".organize-block-handle, .organize-column-resizer, .editor-popover, "
-      + ".table-direct-controls, "
+      + ".table-direct-controls, .block-multi-select-bar, "
       + "button, input, textarea, select, a, [contenteditable='false']"
     )) return;
     const editorDom = editor.view.dom;
@@ -1423,6 +1430,7 @@ export function TipTapEditor({
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
       data-table-fullscreen={tableFullscreen ? "true" : "false"}
     >
+      {blockSelectCount > 0 && <BlockMultiSelectBar editor={editor} count={blockSelectCount} />}
       <SectionHeadingLabels
         editor={editor}
         rootRef={rootRef}

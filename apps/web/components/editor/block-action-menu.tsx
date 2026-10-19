@@ -3,7 +3,6 @@
 import type { Editor } from "@tiptap/core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { showPrompt } from "@/components/ui/prompt-dialog";
 import { TextSelection } from "@tiptap/pm/state";
 import {
   ArrowDown,
@@ -26,7 +25,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
-import { stripBlockIds } from "./block-utils";
+import { copyBlockDeepLink, duplicateBlockAtPosition } from "./block-shortcuts";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
 import {
   findListParent,
@@ -118,13 +117,6 @@ function dispatchDialog(editor: Editor, type: string, target: EditorBlockTarget)
   editor.view.dom.dispatchEvent(
     new CustomEvent("organize-editor-action", { bubbles: true, detail: { type, target } })
   );
-}
-
-function duplicateBlock(editor: Editor, target: EditorBlockTarget) {
-  const node = editor.state.doc.nodeAt(target.pos);
-  if (!node) return;
-  const json = stripBlockIds(node.toJSON());
-  editor.chain().focus().insertContentAt(target.pos + node.nodeSize, json).run();
 }
 
 function deleteBlock(editor: Editor, target: EditorBlockTarget) {
@@ -411,16 +403,6 @@ export function BlockActionMenu({
       )
     : null;
 
-  const copyLink = async () => {
-    const href = `${window.location.origin}/notes/${noteId}#block-${target.id}`;
-    try {
-      // 非安全上下文里 navigator.clipboard 可能为 undefined 或 reject
-      await navigator.clipboard.writeText(href);
-    } catch {
-      // 剪贴板不可用：弹出对话框让用户手动复制
-      void showPrompt({ title: "复制链接", defaultValue: href });
-    }
-  };
 
   return (
     <EditorPopover point={point} onClose={onClose} className="block-action-popover" ignoreOutsideSelector=".block-action-flyout">
@@ -442,8 +424,8 @@ export function BlockActionMenu({
           />
         )}
         <div className="editor-menu-separator" />
-        <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onMouseEnter={closeSubView} onClick={() => finish(copyLink)} query={query} />
-        <Action icon={Copy} label="创建副本" shortcut="⌘D" onMouseEnter={closeSubView} onClick={() => finish(() => duplicateBlock(editor, target))} query={query} />
+        <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onMouseEnter={closeSubView} onClick={() => finish(() => { void copyBlockDeepLink(noteId, target.id); })} query={query} />
+        <Action icon={Copy} label="创建副本" shortcut="⌘D" onMouseEnter={closeSubView} onClick={() => finish(() => { duplicateBlockAtPosition(editor, target.pos); })} query={query} />
         <Action icon={ArrowUp} label="上移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />
         <Action icon={ArrowDown} label="下移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />
         <Action icon={FileInput} label="移动到" onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />
