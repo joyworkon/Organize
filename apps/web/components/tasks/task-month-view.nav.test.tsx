@@ -79,17 +79,33 @@ describe("日历顶栏、键盘导航与年视图钻取", () => {
     const todayButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "今天")!;
     expect(month.getAttribute("aria-pressed")).toBe("true");
     expect(day.getAttribute("aria-pressed")).toBe("false");
-    expect(month.textContent).toContain("月");
-    expect(month.textContent).toContain("议程");
-    expect(day.textContent).toContain("日");
-    expect(container.querySelector('button[title="周视图（w）"]')!.textContent).toContain("周");
-    expect(container.querySelector('button[title="年视图（y）"]')!.textContent).toContain("年");
+    // 手机与桌面共用同一组按钮和同一文案：月视图在手机上不再叫「议程」。
+    expect(month.textContent).toBe("月");
+    expect(container.querySelectorAll('button[title="月视图（m）"]')).toHaveLength(1);
+    expect(day.textContent).toBe("日");
+    expect(container.querySelector('button[title="周视图（w）"]')!.textContent).toBe("周");
+    expect(container.querySelector('button[title="年视图（y）"]')!.textContent).toBe("年");
     expect(prev.title).toBe("上一页（←）");
     expect(next.title).toBe("下一页（→）");
     expect(todayButton.title).toBe("今天（t）");
     for (const button of [month, prev, todayButton]) {
       expect(button.className).toContain("focus-visible:ring-2");
     }
+    // 模式分段与导航组都是 header 的直接子元素：手机上分段靠 order-last + basis-full 落到第二行，桌面顺序不变。
+    const header = container.querySelector("header")!;
+    const segment = month.parentElement!;
+    const nav = prev.parentElement!;
+    expect(segment.parentElement).toBe(header);
+    expect(nav.parentElement).toBe(header);
+    expect(segment.className).toContain("order-last");
+    expect(segment.className).toContain("basis-full");
+    expect(segment.className).toContain("md:order-none");
+    expect(segment.className).toContain("md:ml-auto");
+    expect(nav.className).toContain("ml-auto");
+    expect(nav.className).toContain("md:ml-0");
+    expect(month.className).toContain("flex-1");
+    expect(month.className).toContain("md:flex-none");
+    expect(Array.from(header.children).indexOf(segment)).toBeLessThan(Array.from(header.children).indexOf(nav));
     expect(heading()).toBe("2026年10月");
   });
 

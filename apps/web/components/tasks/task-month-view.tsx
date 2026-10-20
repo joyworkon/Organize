@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus, Repeat2 } from "@/components/icons";
+import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
@@ -11,6 +11,17 @@ import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { CountdownChip, CountdownProvider, useCountdownInteractions, type CountdownActions } from "./countdown-chip";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
+import {
+  calendarDateOnly as dateOnly,
+  calendarDayDiff as dayDiff,
+  calendarDayKey as keyFor,
+  calendarDayMarkers,
+  getMonthCells,
+  getTaskDate,
+  getTaskEnd as taskEnd,
+  isSameCalendarDay as isSameDay,
+  shiftCalendarDay,
+} from "@/lib/tasks/calendar-agenda";
 import { isRecurringProjection, projectRecurringTasks, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
@@ -20,9 +31,13 @@ import {
   type TimeGridZone,
 } from "@/lib/tasks/allday-timed-convert";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
+import { TaskRepeatIcon, WEEKDAYS, WEEKDAYS_SHORT, recurringPresentation, timeLabel } from "./calendar-shared";
+import { CalendarSwipeSurface } from "./calendar-swipe-surface";
+import { MobileMonthView } from "./calendar-mobile-month";
 
-const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-const WEEKDAYS_SHORT = ["一", "二", "三", "四", "五", "六", "日"];
+// 纯日期函数已迁到 lib/tasks/calendar-agenda；这里保留导出给既有测试与调用方。
+export { getMonthCells, getTaskDate };
+
 const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
 /** 每周最多可见泳道数，超出的折叠为 +N */
 export const MAX_LANES = 3;
@@ -1090,29 +1105,6 @@ export function countdownsInRange(
   return map;
 }
 
-export function getTaskDate(task: { schedule_start_at?: string | null; due_date?: string | null }) {
-  const value = task.schedule_start_at || task.due_date;
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const first = new Date(year, month, 1);
-  const offset = (first.getDay() + 6) % 7;
-  const cells: { date: Date; inMonth: boolean }[] = [];
-  for (let i = offset; i > 0; i -= 1) cells.push({ date: new Date(year, month, 1 - i), inMonth: false });
-  const days = new Date(year, month + 1, 0).getDate();
-  for (let day = 1; day <= days; day += 1) cells.push({ date: new Date(year, month, day), inMonth: true });
-  while (cells.length < 42) {
-    const last = cells[cells.length - 1].date;
-    cells.push({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), inMonth: false });
-  }
-  return cells;
-}
-
 export function groupTasksByDate(tasks: TaskWithTags[]) {
   const grouped = new Map<string, TaskWithTags[]>();
   tasks.forEach((task) => {
@@ -1124,62 +1116,8 @@ export function groupTasksByDate(tasks: TaskWithTags[]) {
   return grouped;
 }
 
-export interface AgendaGroup {
-  date: Date;
-  tasks: TaskWithTags[];
-}
-
-/** 移动端按当前月份生成有任务的日程分组，并按日期、时间、手工顺序稳定排序 */
-export function getMonthAgenda(tasks: TaskWithTags[], cursor: Date): AgendaGroup[] {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const grouped = new Map<string, AgendaGroup>();
-  tasks.forEach((task) => {
-    const date = getTaskDate(task);
-    if (!date || date.getFullYear() !== year || date.getMonth() !== month) return;
-    const key = keyFor(date);
-    const group = grouped.get(key) || { date: dateOnly(date), tasks: [] };
-    group.tasks.push(task);
-    grouped.set(key, group);
-  });
-  return Array.from(grouped.values())
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .map((group) => ({
-      ...group,
-      tasks: [...group.tasks].sort((a, b) => {
-        const time = (getTaskDate(a)?.getTime() || 0) - (getTaskDate(b)?.getTime() || 0);
-        return time || a.sort_order - b.sort_order || a.id.localeCompare(b.id);
-      }),
-    }));
-}
-
 function countdownDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function keyFor(date: Date) {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function dateOnly(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-}
-
-function taskEnd(task: TaskWithTags) {
-  const start = getTaskDate(task);
-  const end = task.schedule_end_at ? new Date(task.schedule_end_at) : start;
-  return end && !Number.isNaN(end.getTime()) ? end : start;
-}
-
-function timeLabel(task: TaskWithTags) {
-  const date = getTaskDate(task);
-  if (!date || task.all_day) return "";
-  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-/** 天差（对 DST 23/25 小时的天做四舍五入） */
-function dayDiff(a: Date, b: Date) {
-  return Math.round((dateOnly(a).getTime() - dateOnly(b).getTime()) / 86400000);
 }
 
 export interface WeekSegment {
@@ -1284,26 +1222,6 @@ export function monthGridRovingDate(cursor: Date, today: Date, preferred: Date |
 /** 格内「+N」：折叠任务数，加上除第一条以外的倒数日。没有折叠任务时，只有多余倒数日也算。 */
 export function monthCellOverflowCount(hiddenTasks: number, countdownCount: number): number {
   return hiddenTasks + Math.max(0, countdownCount - 1);
-}
-
-function shiftCalendarDay(date: Date, days: number): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-}
-
-function recurringPresentation(task: TaskWithTags) {
-  const projected = isRecurringProjection(task);
-  const date = getTaskDate(task);
-  return {
-    "data-recurring-projection": projected ? "true" : undefined,
-    "aria-label": task.recurrence_rule
-      ? `${task.title} · 重复${projected && date ? ` · 预计 ${date.getMonth() + 1}月${date.getDate()}日` : ""}`
-      : undefined,
-    title: projected ? "这是重复任务的后续发生，修改会作用于整个系列" : undefined,
-  };
-}
-
-function TaskRepeatIcon({ task }: { task: TaskWithTags }) {
-  return task.recurrence_rule ? <Repeat2 aria-hidden="true" data-recurring-icon className="mr-1 inline-block h-3 w-3 shrink-0 align-text-bottom" /> : null;
 }
 
 function categoryClass(task: TaskWithTags) {
@@ -1481,7 +1399,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     () => weeks.map((week) => layoutWeekSegments(monthTasks, week)),
     [weeks, monthTasks]
   );
-  const agenda = useMemo(() => getMonthAgenda(monthTasks, cursor), [cursor, monthTasks]);
+  // 手机月视图「今天」/ 再次点同一天时递增，让议程重新滚到目标分组。
+  const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
 
   const monthCountdowns = useMemo(() => {
     const first = cells[0]?.date ?? cursor;
@@ -1491,6 +1410,11 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
   const yearCountdowns = useMemo(
     () => countdownsInRange(countdowns, new Date(cursor.getFullYear(), 0, 1), new Date(cursor.getFullYear(), 11, 31)),
     [countdowns, cursor]
+  );
+  // 手机周日期条圆点：盖住当天的任务（含跨天、重复投影）+ 当天倒数日
+  const weekMarkers = useMemo(
+    () => calendarDayMarkers(monthTasks, countdownsInRange(countdowns, weekDays[0], weekDays[6]), weekDays),
+    [monthTasks, countdowns, weekDays]
   );
 
   const step = (direction: -1 | 1) => {
@@ -1529,6 +1453,19 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     cursorRef.current = nextCursor;
     setSelectedDate(nextSelected);
     setCursor(nextCursor);
+    setAgendaFocusNonce((nonce) => nonce + 1);
+  };
+  /** 手机迷你月历点某天：选中它；点到相邻月的补位日期时同时翻到那个月。 */
+  const selectMobileDate = (date: Date) => {
+    const day = dateOnly(date);
+    selectedRef.current = day;
+    setSelectedDate(day);
+    if (day.getFullYear() !== cursorRef.current.getFullYear() || day.getMonth() !== cursorRef.current.getMonth()) {
+      const nextCursor = new Date(day.getFullYear(), day.getMonth(), 1);
+      cursorRef.current = nextCursor;
+      setCursor(nextCursor);
+    }
+    setAgendaFocusNonce((nonce) => nonce + 1);
   };
   const switchMode = (next: CalendarMode) => {
     if (next === "day") {
@@ -1710,26 +1647,28 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
 
   return (
     <div className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {/* 手机（<md）两行：第一行 标题 + 上一页/今天/下一页，第二行全宽分段模式切换；
+          桌面仍是一行，模式分段靠 md:ml-auto 贴到导航组左侧，间距由 header gap-3 提供（= 原 mr-2 + gap-1） */}
       <header className="task-calendar-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3 md:px-6">
-        <CalendarDays className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-base font-semibold">{title}</h2>
-        <div className="ml-auto flex items-center gap-1">
-          <div className="mr-2 flex rounded-lg bg-muted p-1 text-sm">
-            {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
-              <Button
-                key={item}
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => switchMode(item)}
-                aria-pressed={mode === item}
-                title={CALENDAR_MODE_TITLE[item]}
-                className={cn(mode === item ? "bg-background font-medium" : "text-muted-foreground")}
-              >
-                <span className="hidden md:inline">{item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}</span><span className="md:hidden">{item === "month" ? "议程" : item === "day" ? "日" : item === "week" ? "周" : "年"}</span>
-              </Button>
-            ))}
-          </div>
+        <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <h2 className="min-w-0 text-base font-semibold">{title}</h2>
+        <div role="group" aria-label="日历视图" className="order-last flex basis-full rounded-lg bg-muted p-1 text-sm md:order-none md:ml-auto md:basis-auto">
+          {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
+            <Button
+              key={item}
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => switchMode(item)}
+              aria-pressed={mode === item}
+              title={CALENDAR_MODE_TITLE[item]}
+              className={cn("flex-1 md:flex-none", mode === item ? "bg-background font-medium" : "text-muted-foreground")}
+            >
+              {item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}
+            </Button>
+          ))}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1 md:ml-0">
           <Button type="button" variant="outline" size="icon" aria-label="上一页" title="上一页（←）" onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" /></Button>
           <Button type="button" variant="outline" size="sm" title="今天（t）" onClick={goToday} className="shrink-0">今天</Button>
           <Button type="button" variant="outline" size="icon" aria-label="下一页" title="下一页（→）" onClick={() => step(1)}><ChevronRight className="h-5 w-5" /></Button>
@@ -1739,44 +1678,54 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
       {mode === "week" && (
         <>
           {/* M06：手机上周历七列每列仅 ~44px，降级为「日期条 + 当日议程」；
-              桌面保持七列时间网格（拖拽排期）不变 */}
-          <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-3 py-2 md:hidden">
-            {weekDays.map((day) => {
-              const active = day.toDateString() === selectedDate.toDateString();
-              const dayTaskCount = monthTasks.filter((task) => {
-                const value = task.schedule_start_at || task.due_date;
-                if (!value) return false;
-                const d = new Date(value);
-                return !Number.isNaN(d.getTime()) && d.toDateString() === day.toDateString();
-              }).length;
-              return (
-                <button
-                  key={day.toISOString()}
-                  type="button"
-                  onClick={() => setSelectedDate(day)}
-                  className={cn(
-                    "flex min-w-[44px] flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs",
-                    active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
-                  )}
-                >
-                  <span>{WEEK_DAY_LABELS[(day.getDay() + 6) % 7].replace("周", "")}</span>
-                  <span className={cn("text-sm font-medium", active && "font-semibold")}>{day.getDate()}</span>
-                  {dayTaskCount > 0 && <span className={cn("h-1 w-1 rounded-full", active ? "bg-primary-foreground" : "bg-primary")} />}
-                </button>
-              );
-            })}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
-            <DayView
-              date={selectedDate}
-              tasks={monthTasks}
-              countdowns={countdowns}
-              onTaskClick={onTaskClick}
-              onUpdateTaskSchedule={onUpdateTaskSchedule}
-              onRescheduleTask={onRescheduleTask}
-              onAdd={onDateClick ? () => onDateClick(selectedDate) : undefined}
-            />
-          </div>
+              桌面保持七列时间网格（拖拽排期）不变。日期条与议程一起可左右滑动翻周。 */}
+          <CalendarSwipeSurface onSwipeStep={step} className="flex min-h-0 flex-1 flex-col md:hidden" data-calendar-surface="mobile-week">
+            <div className="grid shrink-0 grid-cols-7 gap-1 border-b px-3 py-2">
+              {weekDays.map((day) => {
+                const active = isSameDay(day, selectedDate);
+                const isToday = isSameDay(day, today);
+                const marker = weekMarkers.get(keyFor(day));
+                const summary = [
+                  marker && marker.tasks > 0 ? `${marker.tasks} 个任务` : "",
+                  marker && marker.countdowns > 0 ? `${marker.countdowns} 个倒数日` : "",
+                ].filter(Boolean).join("，");
+                return (
+                  <button
+                    key={day.toISOString()}
+                    type="button"
+                    onClick={() => setSelectedDate(day)}
+                    aria-pressed={active}
+                    aria-current={isToday ? "date" : undefined}
+                    aria-label={`${day.getMonth() + 1}月${day.getDate()}日 ${WEEK_DAY_LABELS[(day.getDay() + 6) % 7]}${isToday ? "，今天" : ""}${summary ? `，${summary}` : ""}`}
+                    className={cn(
+                      "flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-xs",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+                      isToday && !active && "font-semibold text-foreground ring-1 ring-inset ring-primary"
+                    )}
+                  >
+                    <span>{WEEK_DAY_LABELS[(day.getDay() + 6) % 7].replace("周", "")}</span>
+                    <span className={cn("text-sm font-medium tabular-nums", active && "font-semibold")}>{day.getDate()}</span>
+                    <span className="flex h-1 items-center gap-0.5" aria-hidden="true">
+                      {marker && marker.tasks > 0 && <span data-marker="task" className={cn("h-1 w-1 rounded-full", active ? "bg-primary-foreground" : "bg-primary")} />}
+                      {marker && marker.countdowns > 0 && <span data-marker="countdown" className={cn("h-1 w-1 rounded-full", active ? "bg-primary-foreground" : "bg-muted-foreground")} />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <DayView
+                date={selectedDate}
+                tasks={monthTasks}
+                countdowns={countdowns}
+                onTaskClick={onTaskClick}
+                onUpdateTaskSchedule={onUpdateTaskSchedule}
+                onRescheduleTask={onRescheduleTask}
+                onAdd={onDateClick ? () => onDateClick(selectedDate) : undefined}
+              />
+            </div>
+          </CalendarSwipeSurface>
           <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
             <TimeGridView
               days={weekDays}
@@ -1943,112 +1892,34 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
               );
             })}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
-            {agenda.length === 0 && monthCountdowns.size === 0 ? (
-              <div className="grid min-h-56 place-items-center px-6 text-center text-sm text-muted-foreground">
-                本月还没有已排期任务或倒数日
-              </div>
-            ) : (
-              <div className="divide-y">
-                {agenda.map((group) => (
-                  <section key={keyFor(group.date)} className="px-4 py-4">
-                    <button
-                      type="button"
-                      onClick={onDateClick ? () => onDateClick(group.date) : undefined}
-                      className={cn("mb-2 flex w-full items-baseline gap-2 rounded-md px-1 text-left", onDateClick && "hover:bg-muted/60")}
-                    >
-                      <strong className="text-base">{group.date.getMonth() + 1}月{group.date.getDate()}日</strong>
-                      <span className="text-xs text-muted-foreground">{WEEKDAYS[(group.date.getDay() + 6) % 7]}</span>
-                      {onDateClick && <Plus className="ml-auto h-4 w-4 self-center text-muted-foreground" />}
-                    </button>
-                    <div className="overflow-hidden rounded-xl border bg-background">
-                      {(monthCountdowns.get(keyFor(group.date)) || []).map((item) => (
-                        <div key={item.id} className="flex min-h-12 items-center gap-2 border-b bg-muted/40 px-3 py-2 ">
-                          <CountdownChip item={item} />
-                        </div>
-                      ))}
-                      {group.tasks.map((task) => {
-                        const date = getTaskDate(task);
-                        const schedule: TaskSchedule = {
-                          schedule_start_at: task.schedule_start_at || task.due_date,
-                          schedule_end_at: task.schedule_end_at || null,
-                          all_day: Boolean(task.all_day),
-                          timezone: task.timezone || null,
-                          recurrence_rule: task.recurrence_rule || null,
-                        };
-                        return (
-                          <div key={task.id} className={cn("flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
-                            <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
-                              <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
-                              <div className="mt-0.5 text-xs text-muted-foreground">
-                                {task.all_day ? "全天" : date?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}
-                              </div>
-                            </button>
-                            {!isRecurringProjection(task) && (onUpdateTaskSchedule || onRescheduleTask) && (
-                              <TaskDatePopover
-                                value={schedule}
-                                overdue={task.status !== "done" && task.status !== "cancelled" && isTaskOverdue(task)}
-                                align="end"
-                                className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto"
-                                onChange={async (next) => {
-                                  if (onUpdateTaskSchedule) {
-                                    await onUpdateTaskSchedule(task.id, next);
-                                  } else if (next.schedule_start_at && onRescheduleTask) {
-                                    await onRescheduleTask(task.id, new Date(next.schedule_start_at));
-                                  }
-                                }}
-                                trigger={<button type="button" className="shrink-0 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground">改期</button>}
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-                {/* 没有任务但有倒数日的日期也要在移动端展示 */}
-                {Array.from(monthCountdowns.entries())
-                  .filter(([key]) => !agenda.some((group) => keyFor(group.date) === key))
-                  .map(([key, items]) => {
-                    const [y, m, d] = key.split("-").map(Number);
-                    const date = new Date(y, m, d);
-                    if (date.getMonth() !== cursor.getMonth()) return null;
-                    return (
-                      <section key={key} className="px-4 py-4">
-                        <button
-                          type="button"
-                          onClick={onDateClick ? () => onDateClick(date) : undefined}
-                          className={cn("mb-2 flex w-full items-baseline gap-2 rounded-md px-1 text-left", onDateClick && "hover:bg-muted/60")}
-                        >
-                          <strong className="text-base">{date.getMonth() + 1}月{date.getDate()}日</strong>
-                          <span className="text-xs text-muted-foreground">{WEEKDAYS[(date.getDay() + 6) % 7]}</span>
-                          {onDateClick && <Plus className="ml-auto h-4 w-4 self-center text-muted-foreground" />}
-                        </button>
-                        <div className="overflow-hidden rounded-xl border bg-background">
-                          {items.map((item) => (
-                            <div key={item.id} className="flex min-h-12 items-center gap-2 bg-muted/40 px-3 py-2 ">
-                              <CountdownChip item={item} />
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-                    );
-                  })}
-              </div>
-            )}
-          </div>
+          <MobileMonthView
+            cursor={cursor}
+            today={today}
+            selectedDate={selectedDate}
+            tasks={monthTasks}
+            countdownsByDay={monthCountdowns}
+            focusNonce={agendaFocusNonce}
+            onSelectDate={selectMobileDate}
+            onSwipeStep={step}
+            onTaskClick={onTaskClick}
+            onDateClick={onDateClick}
+            onUpdateTaskSchedule={onUpdateTaskSchedule}
+            onRescheduleTask={onRescheduleTask}
+          />
         </>
       )}
 
       {mode === "day" && (
-        <TimeGridView
-          days={[selectedDate]}
-          tasks={scheduledTasks}
-          countdowns={countdowns}
-          onTaskClick={onTaskClick}
-          onUpdateTaskSchedule={onUpdateTaskSchedule}
-          onDateClick={onDateClick}
-        />
+        <CalendarSwipeSurface onSwipeStep={step} className="flex min-h-0 flex-1 flex-col" data-calendar-surface="day">
+          <TimeGridView
+            days={[selectedDate]}
+            tasks={scheduledTasks}
+            countdowns={countdowns}
+            onTaskClick={onTaskClick}
+            onUpdateTaskSchedule={onUpdateTaskSchedule}
+            onDateClick={onDateClick}
+          />
+        </CalendarSwipeSurface>
       )}
 
       {mode === "year" && (
@@ -2269,8 +2140,4 @@ function YearView({
       </div>
     </div>
   );
-}
-
-function isSameDay(a: Date, b: Date) {
-  return a.toDateString() === b.toDateString();
 }
