@@ -41,7 +41,7 @@ export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: 
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!interactive || spaceHeld || e.button !== 0) return;
     const el = e.target as HTMLElement;
-    if (el.closest("button, input, textarea, a, [contenteditable=true], .canvas-divider, .canvas-board-handle, .canvas-board-resize, .canvas-free-item")) return;
+    if (el.closest("button, input, textarea, a, [contenteditable=true], .canvas-divider, .canvas-board-handle, .canvas-board-resize, .canvas-free-item, .canvas-resize-handle")) return;
     const id = el.closest<HTMLElement>("[data-block-id]")?.dataset.blockId;
     const empty = el.classList.contains("canvas-viewport") || !!el.closest(".canvas-world");
     if (!id && !empty) return;

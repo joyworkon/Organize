@@ -23,9 +23,10 @@ import {
   snapGroupMove,
   type FreeGroupMember,
 } from "@/lib/canvas/free-selection";
+import { resizeFreeItem, type FreeResizeHandle } from "@/lib/canvas/free-resize";
+import { CanvasFreeResizeHandles } from "./canvas-free-resize-handles";
 import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import {
-  MIN_FREE_ITEM_WIDTH,
   snapFreeItem,
   type SnapGuide,
   type SnapRect,
@@ -39,6 +40,7 @@ import { toast } from "@/hooks/use-toast";
 
 /** 模块级拖动标记：工作区 Esc 需感知「拖动中」以免误清选区。 */
 let freeDragActive = false;
+export function setFreeItemDragging(active: boolean): void { freeDragActive = active; }
 export function isFreeItemDragging(): boolean {
   return freeDragActive;
 }
@@ -63,6 +65,8 @@ export interface CanvasFreeItemViewProps {
   grouped: boolean;
   /** 整组拖动的实时位移（世界坐标）。 */
   groupLive: { dx: number; dy: number } | null;
+  groupResizeLive?: FreeGroupMember | null;
+  heightForWidth?: (width: number) => number;
   onGroupLive: (live: { dx: number; dy: number } | null) => void;
   /** 拖动中上报参考线；结束/取消传 null。 */
   onSnapGuides: (guides: SnapGuide[] | null) => void;
@@ -83,11 +87,15 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   getGroupMembers,
   grouped,
   groupLive,
+  groupResizeLive,
+  heightForWidth,
   onGroupLive,
   onSnapGuides,
 }: CanvasFreeItemViewProps) {
   const dragRef = useRef<{
     mode: "move" | "resize";
+    handle: FreeResizeHandle;
+    originHeight: number;
     pointerId: number;
     el: HTMLElement;
     startX: number;
@@ -102,24 +110,12 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
     group: FreeGroupMember[] | null;
     lastGroup: { dx: number; dy: number } | null;
   } | null>(null);
-  const [live, setLive] = useState<{ dx: number; dy: number; w: number } | null>(
+  const [live, setLive] = useState<{ dx: number; dy: number; w: number; h?: number; handle?: FreeResizeHandle } | null>(
     null,
   );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const cancelDrag = useCallback(() => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    if (drag.el.hasPointerCapture(drag.pointerId)) drag.el.releasePointerCapture(drag.pointerId);
-    dragRef.current = null;
-    freeDragActive = false;
-    setLive(null);
-    onGroupLive(null);
-    onSnapGuides(null);
-  }, [onGroupLive, onSnapGuides]);
-
-  // 拖动中 Esc：只取消本次拖动（不清选区——工作区按 isFreeItemDragging 让位）
   const escRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   const detachEsc = useCallback(() => {
     if (escRef.current) {
@@ -127,6 +123,20 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       escRef.current = null;
     }
   }, []);
+
+  const cancelDrag = useCallback(() => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    detachEsc();
+    dragRef.current = null;
+    if (drag.el.hasPointerCapture(drag.pointerId)) drag.el.releasePointerCapture(drag.pointerId);
+    freeDragActive = false;
+    setLive(null);
+    onGroupLive(null);
+    onSnapGuides(null);
+  }, [detachEsc, onGroupLive, onSnapGuides]);
+
+  // 拖动中 Esc：只取消本次拖动（不清选区——工作区按 isFreeItemDragging 让位）
   const attachEsc = useCallback(() => {
     detachEsc();
     const onKey = (e: KeyboardEvent) => {
@@ -154,19 +164,25 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   }, [detachEsc, onGroupLive, onSnapGuides]);
 
   useEffect(() => {
+    if (!interactive || store.getState().readOnly) cancelDrag();
+  }, [cancelDrag, interactive, store]);
+
+  useEffect(() => {
     if (!editing || item.block.type !== "text") return;
     textareaRef.current?.focus({ preventScroll: true });
   }, [editing, item.block.type]);
 
   const beginDrag = useCallback(
-    (e: ReactPointerEvent, mode: "move" | "resize") => {
-      if (!interactive || e.button === 2) return;
+    (e: ReactPointerEvent, mode: "move" | "resize", handle: FreeResizeHandle = "e") => {
+      if (!interactive || store.getState().readOnly || dragRef.current || e.button !== 0) return;
       e.stopPropagation();
       e.preventDefault();
       const el = e.currentTarget as HTMLElement;
       el.setPointerCapture(e.pointerId);
       dragRef.current = {
         mode,
+        handle,
+        originHeight: height,
         pointerId: e.pointerId,
         el,
         startX: e.clientX,
@@ -182,13 +198,13 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       freeDragActive = true;
       attachEsc();
     },
-    [attachEsc, getGroupMembers, interactive, item.width, item.x, item.y],
+    [attachEsc, getGroupMembers, height, interactive, item.width, item.x, item.y, store],
   );
 
   const onDragMove = useCallback(
     (e: ReactPointerEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.pointerId) return;
       e.stopPropagation();
       const dx = (e.clientX - drag.startX) / zoom;
       const dy = (e.clientY - drag.startY) / zoom;
@@ -206,40 +222,33 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         onSnapGuides(snapped.guides.length > 0 ? snapped.guides : null);
         return;
       }
-      if (!drag.moved) {
-        setLive({
-          dx: drag.mode === "move" ? dx : 0,
-          dy: drag.mode === "move" ? dy : 0,
-          w: drag.mode === "resize" ? Math.max(MIN_FREE_ITEM_WIDTH, drag.originWidth + dx) : item.width,
-        });
-        return;
-      }
-      const moving: SnapRect =
-        drag.mode === "move"
-          ? { x: drag.originX + dx, y: drag.originY + dy, width: item.width, height }
-          : { x: drag.originX, y: drag.originY, width: Math.max(MIN_FREE_ITEM_WIDTH, drag.originWidth + dx), height };
-      // 按住 ⌥ 临时关闭吸附
-      const snapped = e.altKey
-        ? { x: moving.x, y: moving.y, width: moving.width, guides: [] as SnapGuide[] }
-        : snapFreeItem(moving, snapTargets, 6 / zoom, drag.mode);
+      if (!drag.moved) return;
+      const origin = { x: drag.originX, y: drag.originY, width: drag.originWidth, height: drag.originHeight };
+      const snapped = drag.mode === "resize"
+        ? resizeFreeItem(origin, drag.handle, dx, dy, {
+            center: e.shiftKey, snapEnabled: !e.altKey, targets: snapTargets, threshold: 6 / zoom, heightForWidth,
+          })
+        : e.altKey
+          ? { ...origin, x: origin.x + dx, y: origin.y + dy, guides: [] as SnapGuide[] }
+          : snapFreeItem({ ...origin, x: origin.x + dx, y: origin.y + dy }, snapTargets, 6 / zoom, "move");
       drag.last = { x: snapped.x, y: snapped.y, width: snapped.width };
       setLive({
-        dx: snapped.x - drag.originX,
-        dy: snapped.y - drag.originY,
-        w: snapped.width,
+        dx: snapped.x - drag.originX, dy: snapped.y - drag.originY, w: snapped.width,
+        h: drag.mode === "resize" ? heightForWidth?.(snapped.width) ?? drag.originHeight : drag.originHeight,
+        handle: drag.mode === "resize" ? drag.handle : undefined,
       });
       onSnapGuides(snapped.guides.length > 0 ? snapped.guides : null);
     },
-    [height, item.width, onGroupLive, onSnapGuides, snapTargets, snapTargetsFor, zoom],
+    [heightForWidth, onGroupLive, onSnapGuides, snapTargets, snapTargetsFor, zoom],
   );
 
   const endDrag = useCallback(
     (e: ReactPointerEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.pointerId) return;
       e.stopPropagation();
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
       dragRef.current = null;
+      if (drag.el.hasPointerCapture(e.pointerId)) drag.el.releasePointerCapture(e.pointerId);
       freeDragActive = false;
       detachEsc();
       setLive(null);
@@ -247,7 +256,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       if (drag.group && drag.group.length > 1) {
         const delta = drag.lastGroup;
         onGroupLive(null);
-        if (drag.moved && delta && (delta.dx !== 0 || delta.dy !== 0)) {
+        if (interactive && !store.getState().readOnly && drag.moved && delta && (delta.dx !== 0 || delta.dy !== 0)) {
           applyMoveFreeItems(store, drag.group.map((member) => ({
             itemId: member.id,
             x: member.x + delta.dx,
@@ -257,7 +266,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         return;
       }
       onGroupLive(null);
-      if (!drag.moved) return;
+      if (!interactive || store.getState().readOnly || !drag.moved) return;
       const { last } = drag;
       if (drag.mode === "move") {
         store.getState().apply("移动自由容器", (d) =>
@@ -265,16 +274,18 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         );
       } else {
         store.getState().apply("调整自由容器宽度", (d) =>
-          updateFreeItem(d, { itemId: item.id, width: Math.max(MIN_FREE_ITEM_WIDTH, last.width) }),
+          updateFreeItem(d, { itemId: item.id, x: last.x, y: last.y, width: last.width }),
         );
       }
     },
-    [detachEsc, item.id, onGroupLive, onSnapGuides, store],
+    [detachEsc, interactive, item.id, onGroupLive, onSnapGuides, store],
   );
 
-  const x = item.x + (live?.dx ?? 0) + (groupLive?.dx ?? 0);
-  const y = item.y + (live?.dy ?? 0) + (groupLive?.dy ?? 0);
-  const width = live?.w ?? item.width;
+  const x = (groupResizeLive?.x ?? item.x) + (live?.dx ?? 0) + (groupLive?.dx ?? 0);
+  const y = (groupResizeLive?.y ?? item.y) + (live?.dy ?? 0) + (groupLive?.dy ?? 0);
+  const width = live?.w ?? groupResizeLive?.width ?? item.width;
+  const displayHeight = live?.h ?? (groupResizeLive ? heightForWidth?.(width) ?? height : height);
+  const canResize = interactive && !store.getState().readOnly;
 
   // 局部窄化：三元分支内 TS 无法凭 isText 收窄 item.block
   const block = item.block;
@@ -344,7 +355,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   return (
     <div
       className={`canvas-free-item ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
-      style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px`, zIndex: item.zIndex,
+      style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${displayHeight}px`, zIndex: item.zIndex,
         background: block.style?.background ? `var(--cv-bg-${block.style.background})` : undefined,
         borderRadius: block.style?.radius != null ? `${block.style.radius}px` : undefined }}
       data-free-item-id={item.id}
@@ -383,7 +394,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         interactive && isText && !editing ? () => store.getState().startEdit(item.id) : undefined
       }
     >
-      {selected && interactive && !grouped && (
+      {selected && canResize && !grouped && (
         <span className="canvas-free-badge" aria-label="自由定位元素">
           自由定位
         </span>
@@ -464,7 +475,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         </button>
       )}
 
-      {selected && interactive && !grouped && (
+      {selected && canResize && !grouped && (
         <>
           {/* 移动手柄（方向键微调由工作区统一处理：1px / ⇧10px） */}
           <div
@@ -477,21 +488,23 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
             onPointerMove={onDragMove}
             onPointerUp={endDrag}
           />
-          {/* 宽度手柄 */}
-          <div
-            className="canvas-free-resize"
-            title="拖动调整宽度"
-            aria-label="拖动调整自由容器宽度"
-            onKeyDown={(e) => {
+          <CanvasFreeResizeHandles
+            zoom={zoom}
+            active={live?.handle}
+            size={item.block.type === "image" ? `${Math.round(width)} × ${Math.round(displayHeight)}` : `${Math.round(width)} px`}
+            onBegin={(e, handle) => beginDrag(e, "resize", handle)}
+            onMove={onDragMove}
+            onEnd={endDrag}
+            onCancel={() => { cancelDrag(); detachEsc(); }}
+            onKeyDown={(e, handle) => {
               if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
               e.preventDefault();
-              store.getState().apply("调整自由容器宽度", (d) => updateFreeItem(d, { itemId: item.id, width: Math.max(MIN_FREE_ITEM_WIDTH, item.width + (e.key === "ArrowLeft" ? -10 : 10)) }));
+              e.stopPropagation();
+              if (!canResize || store.getState().readOnly) return;
+              const next = resizeFreeItem({ x: item.x, y: item.y, width: item.width, height }, handle,
+                e.key === "ArrowLeft" ? -10 : 10, 0, { center: e.shiftKey, snapEnabled: false, heightForWidth });
+              store.getState().apply("调整自由容器宽度", (d) => updateFreeItem(d, { itemId: item.id, x: next.x, y: next.y, width: next.width }));
             }}
-            role="button"
-            tabIndex={0}
-            onPointerDown={(e) => beginDrag(e, "resize")}
-            onPointerMove={onDragMove}
-            onPointerUp={endDrag}
           />
           <div className="canvas-free-actions">
             <button

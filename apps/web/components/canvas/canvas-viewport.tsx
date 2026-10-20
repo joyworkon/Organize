@@ -21,9 +21,9 @@ import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { shouldPasteInternalClipboard } from "@/lib/canvas/clipboard";
 import type { SelectionBounds } from "@/lib/canvas/selection-bounds";
-import { sceneBounds, type Scene } from "@/lib/canvas/layout";
+import { freeItemHeight, sceneBounds, type Scene } from "@/lib/canvas/layout";
 import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
-import { groupBounds } from "@/lib/canvas/free-selection";
+import { groupBounds, type FreeGroupMember } from "@/lib/canvas/free-selection";
 import { snapTargetsForItem, type SnapGuide, type SnapRect } from "@/lib/canvas/snap";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
 import { hasOpenDialog } from "@/lib/hooks/use-hotkey";
@@ -35,6 +35,9 @@ import type { SourceStatusMap } from "./use-source-status";
 import { CanvasBoardView } from "./canvas-board";
 import { useCanvasPointer } from "./use-canvas-pointer";
 import { useCanvasTouch } from "./use-canvas-touch";
+import type { CanvasTextMeasurer } from "./text-measurer";
+import { createCanvasMeasure } from "./use-canvas-scene";
+import { CanvasFreeGroupResize } from "./canvas-free-group-resize";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
@@ -54,6 +57,7 @@ export function worldToScreen(wx: number, wy: number, vp: { x: number; y: number
 
 export interface CanvasViewportProps {
   store: CanvasStore;
+  measurer?: CanvasTextMeasurer;
   doc: CanvasDoc;
   scene: Scene;
   userId: string;
@@ -87,6 +91,7 @@ export interface CanvasViewportProps {
 
 export function CanvasViewportView({
   store,
+  measurer,
   doc,
   scene,
   userId,
@@ -118,6 +123,9 @@ export function CanvasViewportView({
   /** 多选自由元素拖动时的共用位移。 */
   const [groupLive, setGroupLive] = useState<{ dx: number; dy: number } | null>(null);
   const onGroupLive = useCallback((live: { dx: number; dy: number } | null) => setGroupLive(live), []);
+  const [groupResizeLive, setGroupResizeLive] = useState<FreeGroupMember[] | null>(null);
+  const onGroupResizeLive = useCallback((members: FreeGroupMember[] | null) => setGroupResizeLive(members), []);
+  const measure = useMemo(() => measurer ? createCanvasMeasure(measurer) : null, [measurer]);
   const selectedFreeIds = selection?.kind === "free" ? [selection.itemId]
     : selection?.kind === "frees" ? selection.itemIds : [];
   const snapTargetsFor = useCallback(
@@ -468,6 +476,8 @@ export function CanvasViewportView({
               snapTargetsFor={snapTargetsFor}
               getGroupMembers={getGroupMembers}
               groupLive={grouped ? groupLive : null}
+              groupResizeLive={grouped ? groupResizeLive?.find((member) => member.id === item.id) : null}
+              heightForWidth={measure || item.block.type === "image" ? (width) => freeItemHeight({ ...item, width }, measure ?? (() => box.height)) : undefined}
               onGroupLive={onGroupLive}
               onSnapGuides={onSnapGuides}
             />
@@ -475,21 +485,29 @@ export function CanvasViewportView({
         })}
         {(() => {
           if (selectedFreeIds.length < 2) return null;
-          const rects = scene.freeItems.filter((box) => selectedFreeIds.includes(box.itemId)).map((box) => ({
-            x: box.x + (groupLive?.dx ?? 0),
-            y: box.y + (groupLive?.dy ?? 0),
-            width: box.width,
-            height: box.height,
-          }));
+          const members = getGroupMembers();
+          const rects = scene.freeItems.filter((box) => selectedFreeIds.includes(box.itemId)).map((box) => {
+            const live = groupResizeLive?.find((m) => m.id === box.itemId);
+            const item = doc.freeItems.find((item) => item.id === box.itemId)!;
+            return {
+              x: (live?.x ?? box.x) + (groupLive?.dx ?? 0),
+              y: (live?.y ?? box.y) + (groupLive?.dy ?? 0),
+              width: live?.width ?? box.width,
+              height: live && (measure || item.block.type === "image") ? freeItemHeight({ ...item, width: live.width }, measure ?? (() => box.height)) : box.height,
+            };
+          });
           const frame = rects.length > 1 ? groupBounds(rects) : null;
           if (!frame) return null;
           return (
             <div
               className="canvas-selection-marquee canvas-free-group"
               style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
-              aria-hidden="true"
             >
               <span className="canvas-free-badge" aria-label="自由定位元素">自由定位</span>
+              {interactive && !store.getState().readOnly && members && members.length === selectedFreeIds.length && (
+                <CanvasFreeGroupResize store={store} members={members} zoom={vp.zoom}
+                  targets={snapTargetsFor(selectedFreeIds)} onLive={onGroupResizeLive} onGuides={onSnapGuides} />
+              )}
             </div>
           );
         })()}

@@ -327,7 +327,7 @@ function layoutRegion(
 }
 
 /** 自由容器高度：文本按测量；图片按容器比例（ratio≠auto）或宽度/自然比例（auto）。 */
-function freeItemHeight(
+export function freeItemHeight(
   item: CanvasDoc["freeItems"][number],
   measure: CanvasMeasure,
 ): number {
