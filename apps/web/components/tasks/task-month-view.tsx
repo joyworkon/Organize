@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
-import { useHotkey } from "@/lib/hooks/use-hotkey";
+import { Button } from "@/components/ui/button";
+import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
+import { dateForDayView, type CalendarNavAction } from "@/lib/tasks/calendar-keyboard";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
@@ -22,6 +24,13 @@ const LANE_HEIGHT_PX = 22;
 const COUNTDOWN_STRIP_PX = 20;
 
 export type CalendarMode = "day" | "week" | "month" | "year";
+
+const CALENDAR_MODE_TITLE: Record<CalendarMode, string> = {
+  day: "日视图（d）",
+  week: "周视图（w）",
+  month: "月视图（m）",
+  year: "年视图（y）",
+};
 
 /** 指针横坐标相对当前周行映射为 0–6，越过左右边缘时夹紧。 */
 export function monthColFromClientX(clientX: number, rowLeft: number, rowWidth: number): number {
@@ -1207,7 +1216,7 @@ interface TaskMonthViewProps {
   onTaskClick?: (task: TaskWithTags) => void;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
-  /** 点击日期空白处（月视图单元格 / 年视图小日历 / 日视图添加按钮） */
+  /** 点击日期空白处（月视图单元格 / 日视图与手机周议程的添加按钮）打开添加。年视图改走钻取，不再经这里。 */
   onDateClick?: (date: Date, end?: Date) => void;
 }
 
@@ -1231,6 +1240,13 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   const [mode, setMode] = useState<CalendarMode>("month");
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+  // 键盘连发发生在下一次渲染之前，翻页必须读到刚写入的日期。
+  const modeRef = useRef(mode);
+  const cursorRef = useRef(cursor);
+  const selectedRef = useRef(selectedDate);
+  modeRef.current = mode;
+  cursorRef.current = cursor;
+  selectedRef.current = selectedDate;
   const monthGridRef = useRef<HTMLDivElement>(null);
   const monthRowsRef = useRef<Array<HTMLDivElement | null>>([]);
   // ref 同步保存最终落点，避免 pointermove/up 紧邻时读到上一帧的 React state。
@@ -1263,28 +1279,68 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
   );
 
   const step = (direction: -1 | 1) => {
-    if (mode === "day") {
-      const next = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + direction);
+    const currentMode = modeRef.current;
+    const currentCursor = cursorRef.current;
+    const currentSelected = selectedRef.current;
+    if (currentMode === "day") {
+      const next = new Date(currentSelected.getFullYear(), currentSelected.getMonth(), currentSelected.getDate() + direction);
+      const nextCursor = new Date(next.getFullYear(), next.getMonth(), 1);
+      selectedRef.current = next;
+      cursorRef.current = nextCursor;
       setSelectedDate(next);
-      setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
-    } else if (mode === "week") {
-      setCursor(new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + direction * 7));
+      setCursor(nextCursor);
+    } else if (currentMode === "week") {
+      const nextCursor = new Date(currentCursor.getFullYear(), currentCursor.getMonth(), currentCursor.getDate() + direction * 7);
       // M06：手机周视图的议程页跟随翻页周（selectedDate 始终落在可见周内）
-      setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + direction * 7));
-    } else if (mode === "month") {
-      setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + direction, 1));
+      const nextSelected = new Date(currentSelected.getFullYear(), currentSelected.getMonth(), currentSelected.getDate() + direction * 7);
+      cursorRef.current = nextCursor;
+      selectedRef.current = nextSelected;
+      setCursor(nextCursor);
+      setSelectedDate(nextSelected);
+    } else if (currentMode === "month") {
+      const nextCursor = new Date(currentCursor.getFullYear(), currentCursor.getMonth() + direction, 1);
+      cursorRef.current = nextCursor;
+      setCursor(nextCursor);
     } else {
-      setCursor(new Date(cursor.getFullYear() + direction, cursor.getMonth(), 1));
+      const nextCursor = new Date(currentCursor.getFullYear() + direction, currentCursor.getMonth(), 1);
+      cursorRef.current = nextCursor;
+      setCursor(nextCursor);
     }
   };
   const goToday = () => {
-    setSelectedDate(new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-    setCursor(new Date(today.getFullYear(), today.getMonth(), mode === "week" ? today.getDate() : 1));
+    const nextSelected = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const nextCursor = new Date(today.getFullYear(), today.getMonth(), modeRef.current === "week" ? today.getDate() : 1);
+    selectedRef.current = nextSelected;
+    cursorRef.current = nextCursor;
+    setSelectedDate(nextSelected);
+    setCursor(nextCursor);
   };
   const switchMode = (next: CalendarMode) => {
+    if (next === "day") {
+      const aligned = dateForDayView(modeRef.current, cursorRef.current, selectedRef.current);
+      selectedRef.current = aligned;
+      setSelectedDate(aligned);
+    }
+    modeRef.current = next;
     setMode(next);
-    if (next === "day") setSelectedDate(new Date(cursor.getFullYear(), cursor.getMonth(), Math.min(selectedDate.getDate(), 28)));
   };
+  const runCalendarNav = (event: KeyboardEvent, action: CalendarNavAction) => {
+    if (hasOpenDialog()) return;
+    event.preventDefault();
+    if (action === "prev") step(-1);
+    else if (action === "next") step(1);
+    else if (action === "today") goToday();
+    else switchMode(action);
+  };
+  useHotkey([
+    { key: "arrowleft", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "prev") },
+    { key: "arrowright", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "next") },
+    { key: "t", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "today") },
+    { key: "d", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "day") },
+    { key: "w", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "week") },
+    { key: "m", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "month") },
+    { key: "y", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "year") },
+  ]);
 
   const title =
     mode === "year" ? `${cursor.getFullYear()}年`
@@ -1376,20 +1432,23 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
         <div className="ml-auto flex items-center gap-1">
           <div className="mr-2 flex rounded-lg bg-muted p-1 text-sm">
             {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
-              <button
+              <Button
                 key={item}
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => switchMode(item)}
                 aria-pressed={mode === item}
-                className={cn("min-h-8 rounded-md px-3 py-1.5", mode === item ? "bg-background font-medium" : "text-muted-foreground")}
+                title={CALENDAR_MODE_TITLE[item]}
+                className={cn(mode === item ? "bg-background font-medium" : "text-muted-foreground")}
               >
                 <span className="hidden md:inline">{item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}</span><span className="md:hidden">{item === "month" ? "议程" : item === "day" ? "日" : item === "week" ? "周" : "年"}</span>
-              </button>
+              </Button>
             ))}
           </div>
-          <button type="button" aria-label="上一页" onClick={() => step(-1)} className="rounded-lg border p-2 hover:bg-muted"><ChevronLeft className="h-5 w-5" /></button>
-          <button type="button" onClick={goToday} className="shrink-0 whitespace-nowrap rounded-lg border px-3 py-2 text-sm hover:bg-muted md:px-4">今天</button>
-          <button type="button" aria-label="下一页" onClick={() => step(1)} className="rounded-lg border p-2 hover:bg-muted"><ChevronRight className="h-5 w-5" /></button>
+          <Button type="button" variant="outline" size="icon" aria-label="上一页" title="上一页（←）" onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" /></Button>
+          <Button type="button" variant="outline" size="sm" title="今天（t）" onClick={goToday} className="shrink-0">今天</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="下一页" title="下一页（→）" onClick={() => step(1)}><ChevronRight className="h-5 w-5" /></Button>
         </div>
       </header>
 
@@ -1654,7 +1713,23 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
           year={cursor.getFullYear()}
           tasks={monthTasks}
           yearCountdowns={yearCountdowns}
-          onDateClick={onDateClick}
+          onOpenMonth={(month) => {
+            const next = new Date(cursor.getFullYear(), month, 1);
+            cursorRef.current = next;
+            modeRef.current = "month";
+            setCursor(next);
+            setMode("month");
+          }}
+          onOpenDay={(date) => {
+            const selected = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const nextCursor = new Date(selected.getFullYear(), selected.getMonth(), 1);
+            selectedRef.current = selected;
+            cursorRef.current = nextCursor;
+            modeRef.current = "day";
+            setSelectedDate(selected);
+            setCursor(nextCursor);
+            setMode("day");
+          }}
         />
       )}
     </div>
@@ -1772,12 +1847,14 @@ function YearView({
   year,
   tasks,
   yearCountdowns,
-  onDateClick,
+  onOpenMonth,
+  onOpenDay,
 }: {
   year: number;
   tasks: TaskWithTags[];
   yearCountdowns: Map<string, CountdownDay[]>;
-  onDateClick?: (date: Date) => void;
+  onOpenMonth: (month: number) => void;
+  onOpenDay: (date: Date) => void;
 }) {
   const taskDays = useMemo(() => {
     const set = new Set<string>();
@@ -1799,7 +1876,14 @@ function YearView({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {MONTH_NAMES.map((name, month) => (
           <div key={name} className="rounded-xl border p-3">
-            <div className="mb-2 text-center text-sm font-medium">{name}</div>
+            <button
+              type="button"
+              aria-label={`查看 ${month + 1} 月`}
+              onClick={() => onOpenMonth(month)}
+              className="mb-2 w-full rounded-md text-center text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {name}
+            </button>
             <div className="grid grid-cols-7 text-center text-[10px] text-muted-foreground">
               {WEEKDAYS_SHORT.map((day) => <span key={day}>{day}</span>)}
             </div>
@@ -1821,8 +1905,8 @@ function YearView({
                           <button
                             key={key}
                             type="button"
-                            onClick={onDateClick ? () => onDateClick(date) : undefined}
-                            title={onDateClick ? "点击添加任务或倒数日" : undefined}
+                            onClick={() => onOpenDay(date)}
+                            title="查看这一天"
                             className={cn(
                               "relative mx-auto grid h-6 w-6 place-items-center rounded-full text-[11px] hover:bg-muted",
                               isToday && "bg-primary font-semibold text-primary-foreground hover:bg-primary"

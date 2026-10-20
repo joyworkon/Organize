@@ -32,12 +32,13 @@ export function hasOpenDialog(): boolean {
 export interface HotkeyHandler {
   /** 按下的键（小写），如 "g"、"l"、"/"、"?" */
   key: string;
-  /** 是否需要修饰键 */
+  /** 是否需要修饰键。设为 false 表示该修饰键按下时不触发。 */
   ctrlKey?: boolean;
   metaKey?: boolean;
+  altKey?: boolean;
   shiftKey?: boolean;
-  /** 触发的回调 */
-  handler: () => void;
+  /** 触发的回调。收到原始事件，便于弹层打开时跳过 preventDefault。 */
+  handler: (event: KeyboardEvent) => void;
   /**
    * 是否允许在输入框中触发。默认 false（输入时屏蔽）
    */
@@ -73,12 +74,13 @@ export function useHotkey(handlers: HotkeyHandler[]) {
         if (!keyMatches) continue;
         if (h.ctrlKey !== undefined && h.ctrlKey !== e.ctrlKey) continue;
         if (h.metaKey !== undefined && h.metaKey !== e.metaKey) continue;
+        if (h.altKey !== undefined && h.altKey !== e.altKey) continue;
         if (h.shiftKey !== undefined && h.shiftKey !== e.shiftKey) continue;
 
         if (isTypingTarget(e) && !h.allowInInput) return;
 
         if (h.preventDefault !== false) e.preventDefault();
-        h.handler();
+        h.handler(e);
         return;
       }
     };
