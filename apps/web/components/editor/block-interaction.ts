@@ -1,12 +1,14 @@
 /**
- * B04（R09 续）：块交互纯函数层——从 tiptap-editor.tsx 原样拆出（纯移动，无逻辑改动），
- * 另将 editorProps.handleKeyDown 提为可单测的工厂（行为逐行保持：IME 守卫 /
- * 标题行尾回车 / ⌘/ 块命令菜单 / ⌘F 页内搜索）。
+ * B04（R09 续）：从 tiptap-editor.tsx 提出的块交互函数与可单测键盘分派工厂。
+ * 键盘覆盖 IME/弹层守卫、标题行尾回车、块菜单、搜索、复制块与块深链。
  *
  * 范围边界：块拖拽与框选的**状态机**（pointer 事件序列、React state）仍留在
  * tiptap-editor 组件内——它与 setState 紧耦合，拆出只增加透传不降低审查成本；
  * 这里只收留无状态的可测部分（几何/命中测试/菜单定位/键盘分派）。
  */
+import { hasOpenDialog } from "@/lib/hooks/use-hotkey";
+import { copyBlockDeepLink, duplicateBlockAtPosition, duplicateBlocksAtPositions, matchNoteEditorShortcut } from "./block-shortcuts";
+import { getMultiSelectedBlocks } from "./extensions/block-multi-select";
 import type { Editor } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
@@ -250,19 +252,44 @@ export function shouldShowTextToolbar({
  * - 标题行尾回车：插入后续段落（TipTap 默认会续建同级标题）；
  * - ⌘/ 或 Ctrl+/：仅顶层块打开块命令菜单（嵌套块直接忽略——replaceBlock
  *   会把整个顶层容器替换掉、吞掉其余内容）；
+ * - ⌘D / Ctrl+D 复制顶层块或多选块；⌘⌥L / Ctrl+Alt+L 拷贝当前块深链；
  * - ⌘F / Ctrl+F：编辑器聚焦时打开页面内块搜索（覆盖浏览器查找）。
  * 其余按键一律放行（返回 false）。
  */
 export function createBlockKeydownHandlers(options: {
+  noteId?: string;
+  getEditor?: () => Editor | null;
+  isMenuOpen?: () => boolean;
   onOpenCommandMenu: (pos: number, point: EditorMenuPoint) => void;
   onOpenSearchDialog: () => void;
 }) {
   return (view: EditorView, event: KeyboardEvent): boolean => {
     // IME 组合态（如中文输入法选词）期间的按键不交给编辑器处理
-    if (event.isComposing || event.keyCode === 229) return false;
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return false;
+    if (options.isMenuOpen?.() || hasOpenDialog()) return false;
     const { $from, empty } = view.state.selection;
+    const shortcut = matchNoteEditorShortcut(event);
+    if (shortcut === "duplicate") {
+      const editor = options.getEditor?.();
+      if (!view.editable || !editor?.isEditable) return false;
+      const selected = getMultiSelectedBlocks(editor);
+      if (!selected.length && $from.depth !== 1) return false;
+      event.preventDefault();
+      return selected.length
+        ? duplicateBlocksAtPositions(editor, selected)
+        : duplicateBlockAtPosition(editor, $from.before(1));
+    }
+    if (shortcut === "copy-link") {
+      if ($from.depth !== 1 || !options.noteId) return false;
+      const id = view.state.doc.nodeAt($from.before(1))?.attrs.id;
+      if (!id) return false;
+      event.preventDefault();
+      void copyBlockDeepLink(options.noteId, id);
+      return true;
+    }
     if (
-      event.key === "Enter"
+      view.editable
+      && event.key === "Enter"
       && empty
       && $from.parent.type.name === "heading"
       && $from.parentOffset === $from.parent.content.size
@@ -277,7 +304,7 @@ export function createBlockKeydownHandlers(options: {
       view.dispatch(transaction.scrollIntoView());
       return true;
     }
-    if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+    if (view.editable && (event.metaKey || event.ctrlKey) && event.key === "/") {
       event.preventDefault();
       // 仅顶层块打开块命令菜单；嵌套块（列表项/callout/引用内）直接忽略，
       // 否则 replaceBlock 会把整个顶层容器替换掉，吞掉其余内容

@@ -60,6 +60,7 @@ function makeView(opts: {
   const stateTr = makeTr();
   (stateTr as { insert: unknown }).insert = () => makeTr();
   const view = {
+    editable: true,
     state: {
       selection: { $from: from, empty: true, from: 42, to: 42 },
       tr: stateTr,
@@ -153,4 +154,26 @@ describe("createBlockKeydownHandlers（B04 自 tiptap-editor 提出时的行为�
     expect(calls.commandMenu).toHaveLength(0);
     expect(calls.search).toBe(0);
   });
+  it("defaultPrevented and open overlays yield without consuming editor keys", () => {
+    const { view, handlers, calls } = makeView();
+    expect(handlers(view, keyEvent({ key: "f", metaKey: true, defaultPrevented: true }))).toBe(false);
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    document.body.appendChild(overlay);
+    try {
+      expect(handlers(view, keyEvent({ key: "f", metaKey: true }))).toBe(false);
+      expect(calls.search).toBe(0);
+    } finally { overlay.remove(); }
+  });
+
+  it("readonly views ignore editing keys but still open search", () => {
+    const { view, handlers, calls } = makeView({ parentType: "heading", parentOffset: 10, contentSize: 10 });
+    Object.defineProperty(view, "editable", { value: false });
+    expect(handlers(view, keyEvent())).toBe(false);
+    expect(handlers(view, keyEvent({ key: "/", metaKey: true }))).toBe(false);
+    expect(handlers(view, keyEvent({ key: "d", metaKey: true }))).toBe(false);
+    expect(handlers(view, keyEvent({ key: "f", metaKey: true }))).toBe(true);
+    expect(calls.dispatched).toBe(0);
+  });
+
 });

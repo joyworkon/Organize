@@ -70,7 +70,16 @@ export const PAGE_SHORTCUTS = [
   },
   {
     page: "笔记详情",
-    items: [{ keys: "⌘S / Ctrl+S", desc: "立即保存" }],
+    items: [
+      { keys: "⌘S / Ctrl+S", desc: "立即保存" },
+      { keys: "⌘/ / Ctrl+/", desc: "打开块命令菜单" },
+      { keys: "⌘F / Ctrl+F", desc: "页内搜索块" },
+      { keys: "⌘D / Ctrl+D", desc: "创建当前块（或多选块）副本" },
+      { keys: "⌘⌥L / Ctrl+Alt+L", desc: "拷贝区块链接" },
+      { keys: "/", desc: "斜杠插入块" },
+      { keys: "Esc", desc: "清空块多选" },
+      { keys: "Del / Backspace", desc: "删除多选块" },
+    ],
   },
   {
     page: "资料库",

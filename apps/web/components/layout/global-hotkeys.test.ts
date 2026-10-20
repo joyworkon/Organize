@@ -79,3 +79,14 @@ describe("全局键位清单一致性", () => {
     expect(bySeq("g l")).toMatchObject({ path: "/library", label: "资料库" });
   });
 });
+
+
+describe("笔记详情帮助", () => {
+  it("covers the editor shortcuts without assigning Cmd+A to block selection", () => {
+    const items = PAGE_SHORTCUTS.find((page) => page.page === "笔记详情")!.items;
+    expect(items.map((item) => item.keys)).toEqual([
+      "⌘S / Ctrl+S", "⌘/ / Ctrl+/", "⌘F / Ctrl+F", "⌘D / Ctrl+D",
+      "⌘⌥L / Ctrl+Alt+L", "/", "Esc", "Del / Backspace",
+    ]);
+  });
+});
