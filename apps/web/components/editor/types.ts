@@ -50,5 +50,4 @@ export type EditorDialog =
   | { type: "move"; target: EditorBlockTarget }
   | { type: "comment"; target: EditorBlockTarget }
   | { type: "suggestion"; target: EditorBlockTarget }
-  | { type: "search" }
   | null;

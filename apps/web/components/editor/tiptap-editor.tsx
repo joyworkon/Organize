@@ -82,6 +82,7 @@ import { BLOCK_ID_TYPES, findBlockById, isSameNodeSnapshot, moveBlockTransaction
 import { BlockCommandMenu } from "./block-command-menu";
 import { BlockActionMenu, type EditorSkillAction } from "./block-action-menu";
 import { EditorDialogs } from "./editor-dialogs";
+import { NoteFindBar } from "./note-search-dialog";
 import { EditorPopover } from "./editor-popover";
 import { PresentationMode } from "./presentation-mode";
 import { TableGridPicker, TableToolbar } from "./table-controls";
@@ -336,6 +337,8 @@ export function TipTapEditor({
   const [tablePicker, setTablePicker] = useState<OpenTablePickerState | null>(null);
   const [tableFullscreen, setTableFullscreen] = useState(false);
   const [dialog, setDialog] = useState<EditorDialog>(null);
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findFocusNonce, setFindFocusNonce] = useState(0);
   const [presentationStart, setPresentationStart] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [blockSelectCount, setBlockSelectCount] = useState(0);
@@ -403,7 +406,11 @@ export function TipTapEditor({
           setActionMenu(null);
           setCommandMenu({ pos, point });
         },
-        onOpenSearchDialog: () => setDialog({ type: "search" }),
+        onOpenSearchDialog: () => {
+          setDialog(null);
+          setFindBarOpen(true);
+          setFindFocusNonce((nonce) => nonce + 1);
+        },
       }),
       handleClickOn: (_view, _pos, _node, _nodePos, event) => {
         const anchor = (event.target as HTMLElement)?.closest("a");
@@ -1420,6 +1427,11 @@ export function TipTapEditor({
     editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false));
   }, [editor, pageTemplate]);
 
+  // 评论 / 建议等弹层与查找条互斥：弹层打开时关掉查找条并清高亮
+  useEffect(() => {
+    if (dialog) setFindBarOpen(false);
+  }, [dialog]);
+
   if (!editor) return null;
 
   return (
@@ -1430,6 +1442,13 @@ export function TipTapEditor({
       data-block-selecting={blockSelectCount > 0 ? "true" : "false"}
       data-table-fullscreen={tableFullscreen ? "true" : "false"}
     >
+      {findBarOpen && (
+        <NoteFindBar
+          editor={editor}
+          focusNonce={findFocusNonce}
+          onClose={() => setFindBarOpen(false)}
+        />
+      )}
       {blockSelectCount > 0 && <BlockMultiSelectBar editor={editor} count={blockSelectCount} />}
       <SectionHeadingLabels
         editor={editor}

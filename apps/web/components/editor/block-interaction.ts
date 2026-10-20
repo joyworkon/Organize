@@ -253,7 +253,7 @@ export function shouldShowTextToolbar({
  * - ⌘/ 或 Ctrl+/：仅顶层块打开块命令菜单（嵌套块直接忽略——replaceBlock
  *   会把整个顶层容器替换掉、吞掉其余内容）；
  * - ⌘D / Ctrl+D 复制顶层块或多选块；⌘⌥L / Ctrl+Alt+L 拷贝当前块深链；
- * - ⌘F / Ctrl+F：编辑器聚焦时打开页面内块搜索（覆盖浏览器查找）。
+ * - ⌘F / Ctrl+F：编辑器聚焦时打开页面内查找条（覆盖浏览器查找）。
  * 其余按键一律放行（返回 false）。
  */
 export function createBlockKeydownHandlers(options: {
@@ -315,7 +315,7 @@ export function createBlockKeydownHandlers(options: {
       options.onOpenCommandMenu(pos, { left: Math.max(12, coords.left), top: coords.bottom + 8, anchorTop: coords.top });
       return true;
     }
-    // ⌘F / Ctrl+F：编辑器聚焦时打开页面内块搜索（覆盖浏览器查找）
+    // ⌘F / Ctrl+F：编辑器聚焦时打开页面内查找条（覆盖浏览器查找）
     if ((event.metaKey || event.ctrlKey) && (event.key === "f" || event.key === "F")) {
       event.preventDefault();
       options.onOpenSearchDialog();
