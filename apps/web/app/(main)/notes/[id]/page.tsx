@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo, useLayoutEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, useRef, useCallback, useMemo, useLayoutEffect } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Editor } from "@tiptap/react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,13 @@ import { useNoteCollab, colorFromUserId } from "@/hooks/use-note-collab";
 import { NotePresenceBar } from "@/components/notes/note-presence-bar";
 import { NoteHistoryPanel, type NoteVersionMeta } from "@/components/notes/note-history-panel";
 import { NoteHistoryPreview } from "@/components/notes/note-history-preview";
+import {
+  countVersionChanges,
+  emphasizeChangedBlock,
+  nextChangedCursor,
+  versionChangeLabel,
+} from "@/lib/notes/note-history-diff";
+import { isCurrentPreviewRequest, nextUrlWithoutHistoryPanel } from "@/lib/notes/note-history-nav";
 import { clearLocalNoteDraftForNote } from "@/lib/notes/local-draft";
 import { flushDraftBeforeHistoryRestore } from "@/lib/notes/history-restore";
 import { downloadNoteExport } from "@/lib/export/note-export";
@@ -116,6 +123,31 @@ function isTaskNoteLinkEnabled(): boolean {
 type NoteDraft = NoteDraftSnapshot;
 // 冲突类型由保存会话提供（含 066 last_edit_by 归因）
 type SaveConflict = NoteSaveConflict;
+
+/** `?panel=history` 打开版本历史后立刻从地址栏去掉，避免刷新反复打开。 */
+function HistoryPanelDeepLink({ onOpen }: { onOpen: () => void }) {
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const panel = searchParams.get("panel");
+  const consumedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const raw = searchParams.toString();
+    const next = nextUrlWithoutHistoryPanel(pathname, raw);
+    if (!next) {
+      consumedRef.current = null;
+      return;
+    }
+    const token = `${pathname}?${raw}`;
+    if (consumedRef.current === token) return;
+    consumedRef.current = token;
+    onOpen();
+    router.replace(next, { scroll: false });
+  }, [panel, pathname, router, onOpen, searchParams]);
+
+  return null;
+}
 
 export default function NoteEditorPage() {
   const params = useParams();
@@ -194,6 +226,10 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   const [previewVersion, setPreviewVersion] = useState<
     (NoteVersionMeta & { content: Record<string, unknown> | null }) | null
   >(null);
+  const previewSeqRef = useRef(0);
+  const historyViewRef = useRef<HTMLDivElement>(null);
+  const diffFlashRef = useRef<number | null>(null);
+  const [diffCursor, setDiffCursor] = useState<{ id: string; index: number } | null>(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
@@ -1115,14 +1151,20 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     });
   }, [noteId]);
 
+  const openHistoryFromQuery = useCallback(() => {
+    openPanelExclusive("history");
+  }, [openPanelExclusive]);
+
   // ---- 版本历史：预览 / 恢复 ----
   const selectPreviewVersion = useCallback(
     async (version: NoteVersionMeta) => {
+      const requestId = ++previewSeqRef.current;
       const { data, error } = await supabase
         .from("note_versions")
         .select("content")
         .eq("id", version.id)
         .single();
+      if (!isCurrentPreviewRequest(requestId, previewSeqRef.current)) return;
       if (error || !data) {
         showToast("加载版本失败");
         return;
@@ -1135,7 +1177,16 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     [supabase, showToast]
   );
 
-  const exitPreview = useCallback(() => setPreviewVersion(null), []);
+  const exitPreview = useCallback(() => {
+    previewSeqRef.current += 1;
+    setPreviewVersion(null);
+  }, []);
+
+  const closeHistory = useCallback(() => {
+    previewSeqRef.current += 1;
+    setHistoryOpen(false);
+    setPreviewVersion(null);
+  }, []);
 
   const restorePreviewVersion = useCallback(async () => {
     if (!previewVersion) return;
@@ -1150,7 +1201,12 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       showToast("当前内容尚未保存，已取消恢复；请先保存或处理冲突后重试");
       return;
     }
-    if (!window.confirm("恢复这个版本？当前内容会先自动保存为一个新版本（恢复可撤销）。")) return;
+    const confirmed = await showConfirm({
+      title: "恢复这个版本？",
+      description: "当前内容会先自动保存为一个新版本（恢复可撤销）。",
+      confirmText: "恢复",
+    });
+    if (!confirmed) return;
     const res = await fetch(`/api/notes/${noteId}/versions/${previewVersion.id}`, {
       method: "POST",
     });
@@ -1294,7 +1350,12 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
   /** 删除当前页（移入垃圾箱，可恢复） */
   const deleteNote = useCallback(async () => {
-    if (!window.confirm("将这篇笔记移入垃圾箱？")) return;
+    const confirmed = await showConfirm({
+      title: "将这篇笔记移入垃圾箱？",
+      confirmText: "移入垃圾箱",
+      destructive: true,
+    });
+    if (!confirmed) return;
     // 掐灭滞留的自动保存：防抖/重试定时器与 dirty 一并清除，
     // 删除瞬间之后的草稿不再发往已进垃圾箱的笔记（服务端 RPC 有软删校验兜底）。
     const suppressAutosave = () => saveSession?.suppressAutosave();
@@ -1470,6 +1531,33 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     walk(content);
     return { wordCount: textLen, blockCount: blocks };
   }, [content]);
+
+  const historyChangeCount = previewVersion
+    ? countVersionChanges(previewVersion.content, content)
+    : 0;
+
+  const jumpToChange = useCallback((delta: -1 | 1) => {
+    if (!previewVersion || historyChangeCount <= 0) return;
+    const root = historyViewRef.current;
+    if (!root) return;
+    const current = diffCursor?.id === previewVersion.id ? diffCursor.index : -1;
+    const next = nextChangedCursor(current, delta, historyChangeCount);
+    const el = emphasizeChangedBlock(root, next);
+    if (!el) return;
+    setDiffCursor({ id: previewVersion.id, index: next });
+    const reduce = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView?.({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    if (diffFlashRef.current != null) window.clearTimeout(diffFlashRef.current);
+    diffFlashRef.current = window.setTimeout(() => {
+      el.classList.remove("nv-changed-focus");
+      diffFlashRef.current = null;
+    }, 1400);
+  }, [previewVersion, historyChangeCount, diffCursor]);
+
+  useEffect(() => () => {
+    if (diffFlashRef.current != null) window.clearTimeout(diffFlashRef.current);
+  }, []);
 
   if (loading) {
     return (
@@ -1801,19 +1889,42 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
         {/* 编辑器 / 历史版本预览 */}
         {previewVersion ? (
-          <div className="note-history-view">
+          <div className="note-history-view" ref={historyViewRef}>
             <div className="note-history-banner">
               <span className="note-history-banner-text">
-                正在查看{" "}
-                {new Date(previewVersion.created_at).toLocaleString("zh-CN", {
-                  month: "numeric",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}{" "}
-                的版本{previewVersion.message ? ` · ${previewVersion.message}` : ""}
+                <span>
+                  正在查看{" "}
+                  {new Date(previewVersion.created_at).toLocaleString("zh-CN", {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  的版本{previewVersion.message ? ` · ${previewVersion.message}` : ""}
+                </span>
+                <span className="note-history-diff-label" aria-live="polite">
+                  {versionChangeLabel(historyChangeCount)}
+                </span>
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={historyChangeCount === 0}
+                  onClick={() => jumpToChange(-1)}
+                >
+                  上一处
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={historyChangeCount === 0}
+                  onClick={() => jumpToChange(1)}
+                >
+                  下一处
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => void restorePreviewVersion()}>
                   恢复此版本
                 </Button>
@@ -1908,14 +2019,16 @@ function NoteEditorContent({ noteId, invalidateRef }: {
         onRetry={() => void loadNoteTree()}
       />
 
+      <Suspense fallback={null}>
+        <HistoryPanelDeepLink onOpen={openHistoryFromQuery} />
+      </Suspense>
       <NoteHistoryPanel
         noteId={noteId}
         open={historyOpen}
         activeVersionId={previewVersion?.id ?? null}
-        onClose={() => {
-          setHistoryOpen(false);
-          setPreviewVersion(null);
-        }}
+        canEdit={capabilities.canEdit}
+        onClose={closeHistory}
+        onExitPreview={exitPreview}
         onSelect={(version) => void selectPreviewVersion(version)}
       />
     </div>

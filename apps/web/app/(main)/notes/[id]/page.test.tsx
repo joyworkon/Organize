@@ -9,7 +9,12 @@ const state = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const tocSpy = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", () => ({ useParams: () => ({ id: state.noteId }), useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: state.noteId }),
+  usePathname: () => `/notes/${state.noteId}`,
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
 vi.mock("@/lib/supabase/client", () => {
   const query = () => {
     const result = { data: [], error: null };

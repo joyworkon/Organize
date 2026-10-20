@@ -21,11 +21,14 @@ export function isTypingTarget(e: KeyboardEvent): boolean {
  * DropdownMenu/ContextMenu 渲染 role="menu"，Select 列表渲染 role="listbox"。
  * 页面级快捷键（如 n 新建、v 分组、Esc 关闭详情）应在这些弹层打开时让位，
  * 否则 Select 展开时焦点不在输入框上，按 Esc/v/m 会同时误触发页面动作。
+ * 版本历史侧栏的 listbox 是常驻列表，不是弹层，用 .note-history-listbox 排除。
  */
 export function hasOpenDialog(): boolean {
   if (typeof document === "undefined") return false;
   return Boolean(
-    document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')
+    document.querySelector(
+      '[role="dialog"], [role="menu"], [role="listbox"]:not(.note-history-listbox)'
+    )
   );
 }
 

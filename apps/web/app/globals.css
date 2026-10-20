@@ -547,30 +547,10 @@
   align-items: center;
   gap: 4px;
 }
-.note-history-named-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-.note-history-named-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
+/* 头部操作改用共享 Button。类名留给选择器；尺寸和焦点环交给 Button。 */
+.note-history-named-btn,
 .note-history-close {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
   color: hsl(var(--muted-foreground));
-}
-.note-history-close:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
 }
 .note-history-list {
   flex: 1;
@@ -593,9 +573,30 @@
   gap: 8px;
   width: 100%;
   padding: 6px 8px;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
+  color: inherit;
   text-align: left;
   font-size: 13px;
+  cursor: pointer;
+}
+.note-history-delete {
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.note-history-delete:hover {
+  color: hsl(var(--destructive));
+}
+@media (hover: hover) and (pointer: fine) {
+  .note-history-delete {
+    opacity: 0;
+  }
+  .note-history-item:hover .note-history-delete,
+  .note-history-item:focus-within .note-history-delete,
+  .note-history-item.active .note-history-delete {
+    opacity: 1;
+  }
 }
 .note-history-item:hover {
   background: hsl(var(--accent));
@@ -663,11 +664,30 @@
 }
 .note-history-banner-text {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.note-history-diff-label {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
 }
 .organize-history-preview .nv-changed {
   border-radius: 4px;
   box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.55);
   background: hsl(var(--primary) / 0.05);
+  scroll-margin-top: 7rem;
+  scroll-margin-bottom: 2rem;
+}
+.organize-history-preview .nv-changed.nv-changed-focus {
+  background: hsl(var(--primary) / 0.14);
+  box-shadow: inset 3px 0 0 hsl(var(--primary));
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .organize-history-preview .nv-changed.nv-changed-focus {
+    transition: none;
+  }
 }
 
 .note-hierarchy-bar {

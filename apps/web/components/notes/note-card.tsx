@@ -29,8 +29,8 @@ import {
 } from "@/components/icons";
 import { ShareDialog } from "@/components/share/share-dialog";
 import { exportNoteToMarkdown } from "@/components/share/export-button";
-import { NoteHistoryDialog } from "@/components/notes/note-history-dialog";
 import { AutoTagDialog } from "@/components/tags/auto-tag-dialog";
+import { noteHistoryHref } from "@/lib/notes/note-history-nav";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { nodeText } from "@/components/editor/block-utils";
 import { createClient } from "@/lib/supabase/client";
@@ -41,7 +41,7 @@ import { favoriteToggleFailureTitle } from "@/lib/notes/favorites-state";
 
 export type NoteViewMode = "card" | "list";
 
-type DialogKind = "export" | "autotag" | "history" | "share" | null;
+type DialogKind = "export" | "autotag" | "share" | null;
 
 /**
  * N04：批量收藏上下文——列表页一次 in(id) 查询全部收藏状态，卡片经 Context 共享，
@@ -266,13 +266,6 @@ export function NoteCard({
         onOpenChange={(o) => setDialog(o ? "autotag" : null)}
       />
 
-      <NoteHistoryDialog
-        noteId={note.id}
-        triggerSize="sm"
-        open={dialog === "history"}
-        onOpenChange={(o) => setDialog(o ? "history" : null)}
-      />
-
       <ShareDialog
         resourceType="note"
         resourceId={note.id}
@@ -343,7 +336,7 @@ export function NoteCard({
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
-            setDialog("history");
+            router.push(noteHistoryHref(note.id));
           }}
         >
           <History className="h-3.5 w-3.5 mr-2" />

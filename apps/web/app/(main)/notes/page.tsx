@@ -470,7 +470,13 @@ export default function NotesPage() {
   ]);
 
   const deleteNote = async (id: string) => {
-    if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
+    const ok = await showConfirm({
+      title: "将这篇笔记移入垃圾箱？",
+      description: "之后可以恢复。",
+      confirmText: "移入垃圾箱",
+      destructive: true,
+    });
+    if (!ok) return;
     // X1：在线 mutate_trash / 离线入队回放（含丢弃未同步草稿）收敛于 moveNoteToTrash，
     // 侧栏笔记树的删除走同一入口
     try {
@@ -511,8 +517,14 @@ export default function NotesPage() {
 
   const batchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`将选中的 ${selectedIds.size} 篇笔记移入垃圾箱？`)) return;
     const ids = Array.from(selectedIds);
+    const idSet = new Set(ids);
+    const ok = await showConfirm({
+      title: `将选中的 ${ids.length} 篇笔记移入垃圾箱？`,
+      confirmText: "移入垃圾箱",
+      destructive: true,
+    });
+    if (!ok) return;
     // 离线队列里尚未落库的条目只在本地存在：不进服务端垃圾桶 RPC，
     // 单独按"丢弃离线草稿"如实计数
     const offlineIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
@@ -523,7 +535,7 @@ export default function NotesPage() {
       if (offlineCount > 0) ids.forEach((id) => removeNoteCreate(localStorage, id));
       serverIds.forEach((id) => enqueueNoteDelete(localStorage, id));
       refreshPendingOps();
-      setNotes((prev) => removeNotes(prev, selectedIds));
+      setNotes((prev) => removeNotes(prev, idSet));
       exitSelection();
       toast({
         title:
@@ -546,7 +558,7 @@ export default function NotesPage() {
         ids.forEach((id) => removeNoteCreate(localStorage, id));
         refreshPendingOps();
       }
-      setNotes((prev) => removeNotes(prev, selectedIds));
+      setNotes((prev) => removeNotes(prev, idSet));
       exitSelection();
       toast({
         title:
