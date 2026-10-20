@@ -160,7 +160,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
 
   const beginDrag = useCallback(
     (e: ReactPointerEvent, mode: "move" | "resize") => {
-      if (!interactive) return;
+      if (!interactive || e.button === 2) return;
       e.stopPropagation();
       e.preventDefault();
       const el = e.currentTarget as HTMLElement;

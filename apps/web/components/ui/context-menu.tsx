@@ -265,4 +265,5 @@ export {
   ContextMenuSeparator,
   ContextMenuIcon,
   ContextMenuShortcut,
+  useContextMenu,
 };

@@ -18,12 +18,16 @@ import {
 } from "react";
 import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
+import { shouldPasteInternalClipboard } from "@/lib/canvas/clipboard";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
 import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
 import { groupBounds } from "@/lib/canvas/free-selection";
 import { snapTargetsForItem, type SnapGuide, type SnapRect } from "@/lib/canvas/snap";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
+import { hasOpenDialog } from "@/lib/hooks/use-hotkey";
 import { hitTestInsertPosition } from "./canvas-hit-test";
+import { commitCanvasPaste } from "./canvas-clipboard-actions";
+import { isNativeEditTarget, resolveCanvasContextTarget, selectionForContextTarget, type CanvasContextMenuPoint } from "./canvas-context-menu";
 import type { CanvasStore } from "./canvas-store";
 import type { SourceStatusMap } from "./use-source-status";
 import { CanvasBoardView } from "./canvas-board";
@@ -74,6 +78,8 @@ export interface CanvasViewportProps {
     explicit: ExplicitInsertPosition | null,
     at: { x: number; y: number },
   ) => void;
+  /** 右键模块、自由元素、区块、版面或画布空白。文本编辑目标不调用。 */
+  onOpenContextMenu?: (point: CanvasContextMenuPoint) => void;
 }
 
 export function CanvasViewportView({
@@ -91,6 +97,7 @@ export function CanvasViewportView({
   onCreateLanding,
   onReplaceImage,
   onInsertFiles,
+  onOpenContextMenu,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -99,6 +106,8 @@ export function CanvasViewportView({
   const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
   const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 指针是否还在视口内。离开后键盘粘贴改走原位偏移，图片粘贴仍用上次坐标。 */
+  const pointerInsideRef = useRef(false);
   /** 自由元素拖动中的对齐参考线（世界坐标）。 */
   const [snapGuides, setSnapGuides] = useState<SnapGuide[] | null>(null);
   const onSnapGuides = useCallback((guides: SnapGuide[] | null) => setSnapGuides(guides), []);
@@ -275,26 +284,60 @@ export function CanvasViewportView({
     [interactive, onInsertFiles, pointerWorld, doc, scene],
   );
 
-  const onPaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      if (!interactive || !onInsertFiles) return;
-      // 输入控件内粘贴交给控件本身（工作区 isTypingTarget 同规则）
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
-      ) {
+  const rememberPointer = useCallback((clientX: number, clientY: number) => {
+    const at = pointerWorld(clientX, clientY);
+    if (!at) return null;
+    lastPointerWorldRef.current = at;
+    pointerInsideRef.current = true;
+    return at;
+  }, [pointerWorld]);
+
+  // 挂在 window 上：e2e 把 paste 派发到视口且会冒泡。不要再同时绑 React onPaste，否则图片会插入两次。
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (!interactive || hasOpenDialog() || isNativeEditTarget(e.target)) return;
+      const files = Array.from(e.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      if (files.length > 0) {
+        if (!onInsertFiles) return;
+        e.preventDefault();
+        const at = lastPointerWorldRef.current;
+        onInsertFiles(files, hitTestInsertPosition(doc, scene, at.x, at.y), at);
         return;
       }
-      const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
-      if (files.length === 0) return;
+      let text = "";
+      try {
+        text = e.clipboardData?.getData("text/plain") ?? "";
+      } catch {
+        text = "";
+      }
+      if (!shouldPasteInternalClipboard(text) && !text.trim()) return;
       e.preventDefault();
-      const at = lastPointerWorldRef.current;
-      const explicit = hitTestInsertPosition(doc, scene, at.x, at.y);
-      onInsertFiles(files, explicit, at);
-    },
-    [interactive, onInsertFiles, doc, scene],
-  );
+      const pointer = pointerInsideRef.current ? lastPointerWorldRef.current : null;
+      commitCanvasPaste(store, {
+        pointer,
+        explicit: pointer ? hitTestInsertPosition(doc, scene, pointer.x, pointer.y) : null,
+        systemText: text,
+      });
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [doc, interactive, onInsertFiles, scene, store]);
+
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    const hit = resolveCanvasContextTarget(e.target);
+    if (hit.kind === "native") return;
+    e.preventDefault();
+    const at = rememberPointer(e.clientX, e.clientY) ?? lastPointerWorldRef.current;
+    if (hit.kind !== "canvas") {
+      store.getState().select(selectionForContextTarget(store.getState().selection, hit));
+    }
+    onOpenContextMenu?.({
+      x: e.clientX,
+      y: e.clientY,
+      world: at,
+      scope: hit.kind === "canvas" ? "canvas" : "element",
+    });
+  }, [onOpenContextMenu, rememberPointer, store]);
 
   const onPointerDownBackground = useCallback(
     (e: ReactPointerEvent) => {
@@ -325,10 +368,10 @@ export function CanvasViewportView({
         beginPan(e);
         onPointerDownBackground(e);
       }}
+      onPointerEnter={(e) => { rememberPointer(e.clientX, e.clientY); }}
+      onPointerLeave={() => { pointerInsideRef.current = false; }}
       onPointerMove={(e) => {
-        // 记录指针世界坐标（粘贴落点）；命中测试交给拖入事件本身
-        const at = pointerWorld(e.clientX, e.clientY);
-        if (at) lastPointerWorldRef.current = at;
+        rememberPointer(e.clientX, e.clientY);
         onPanMove(e);
       }}
       onPointerUp={(e) => { pointer.finish(e); endPan(e); }}
@@ -337,7 +380,7 @@ export function CanvasViewportView({
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onPaste={onPaste}
+      onContextMenu={onContextMenu}
     >
       <div
         className="canvas-world"

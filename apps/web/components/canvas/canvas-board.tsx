@@ -145,7 +145,7 @@ export const CanvasBoardView = memo(function CanvasBoardView({
 
   const beginBoardDrag = useCallback(
     (e: ReactPointerEvent, kind: "move" | "resize") => {
-      if (!interactive) return;
+      if (!interactive || e.button === 2) return;
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -410,6 +410,7 @@ function beginColDragFor(store: CanvasStore) {
   return {
     colDragRef,
     onColDragStart(e: ReactPointerEvent, section: CanvasSection, boundaryIndex: number, widths: number[], boardId: string) {
+      if (e.button === 2) return;
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
