@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
+import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus, Repeat2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
@@ -11,6 +11,7 @@ import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { CountdownChip, CountdownProvider, useCountdownInteractions, type CountdownActions } from "./countdown-chip";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
+import { isRecurringProjection, projectRecurringTasks, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
 import {
@@ -241,7 +242,7 @@ interface TimeGridViewProps {
 /** 日 / 周视图共用 1 或 7 列时间网格，沿用同一套拖拽与创建回调。 */
 export function TimeGridView({
   days,
-  tasks,
+  tasks: sourceTasks,
   countdowns,
   onTaskClick,
   onUpdateTaskSchedule,
@@ -257,6 +258,9 @@ export function TimeGridView({
   const includesToday = todayIndex >= 0;
   const firstDayKey = keyFor(days[0]);
   const lastDayKey = keyFor(days[days.length - 1]);
+
+  const tasks = useMemo(() => projectRecurringTasks(sourceTasks, days[0],
+    shiftCalendarDay(days[days.length - 1], 1)), [sourceTasks, days]);
 
   const selectionRef = useRef<TimeGridSelection | null>(null);
   const [selection, setSelection] = useState<TimeGridSelection | null>(null);
@@ -380,7 +384,7 @@ export function TimeGridView({
     dayIdx: number,
     ev: WeekTimedEvent
   ) => {
-    if (!onUpdateTaskSchedule) return;
+    if (!onUpdateTaskSchedule || isRecurringProjection(task)) return;
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     const offsetMin = Math.min(
@@ -409,7 +413,7 @@ export function TimeGridView({
     task: TaskWithTags,
     dayIdx: number
   ) => {
-    if (!onUpdateTaskSchedule) return;
+    if (!onUpdateTaskSchedule || isRecurringProjection(task)) return;
     event.stopPropagation();
     grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0, startClientY: event.clientY };
     movedRef.current = false;
@@ -562,7 +566,7 @@ export function TimeGridView({
     ev: WeekTimedEvent,
     edge: "start" | "end"
   ) => {
-    if (!onUpdateTaskSchedule || event.button !== 0 || !event.isPrimary || resizeRef.current) return;
+    if (isRecurringProjection(task) || !onUpdateTaskSchedule || event.button !== 0 || !event.isPrimary || resizeRef.current) return;
     event.stopPropagation();
     const column = event.currentTarget.closest("[data-time-grid-day]") as HTMLDivElement | null;
     if (!column) return;
@@ -711,7 +715,7 @@ export function TimeGridView({
     day: Date,
     ev: WeekTimedEvent
   ) => {
-    if (!onUpdateTaskSchedule || !event.altKey) return;
+    if (isRecurringProjection(task) || !onUpdateTaskSchedule || !event.altKey) return;
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     const resizeEnd = event.shiftKey;
@@ -809,13 +813,14 @@ export function TimeGridView({
                 return (
                   <button
                     key={task.id}
+                    {...recurringPresentation(task)}
                     type="button"
                     className={cn(
                       "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
                       categoryClass(task),
                       isDragged && "opacity-30"
                     )}
-                    style={{ touchAction: "none" }}
+                    style={{ touchAction: isRecurringProjection(task) ? "auto" : "none" }}
                     onPointerDown={(e) => startChipDrag(e, task, di)}
                     onPointerMove={isDragged ? moveDrag : undefined}
                     onPointerUp={isDragged ? endDrag : undefined}
@@ -825,10 +830,10 @@ export function TimeGridView({
                         movedRef.current = false;
                         return;
                       }
-                      onTaskClick?.(task);
+                      onTaskClick?.(recurringSource(task));
                     }}
                   >
-                    <span className="truncate">{task.title}</span>
+                    <span className="truncate"><TaskRepeatIcon task={task} />{task.title}</span>
                   </button>
                 );
               })}
@@ -925,6 +930,7 @@ export function TimeGridView({
                     return (
                       <button
                         key={ev.task.id}
+                        {...recurringPresentation(ev.task)}
                         type="button"
                         className={cn(
                           "absolute inset-x-0.5 z-10 flex overflow-hidden px-1.5 text-left text-xs font-medium",
@@ -937,10 +943,10 @@ export function TimeGridView({
                           height: blockHeightPx,
                           width: ev.lanes > 1 ? `calc(${100 / ev.lanes}% - 4px)` : undefined,
                           left: ev.lanes > 1 ? `calc(${(ev.lane * 100) / ev.lanes}% + 2px)` : undefined,
-                          touchAction: "none",
+                          touchAction: isRecurringProjection(ev.task) ? "auto" : "none",
                         }}
                         aria-keyshortcuts={
-                          onUpdateTaskSchedule
+                          onUpdateTaskSchedule && !isRecurringProjection(ev.task)
                             ? "Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown"
                             : undefined
                         }
@@ -954,16 +960,16 @@ export function TimeGridView({
                             movedRef.current = false;
                             return;
                           }
-                          onTaskClick?.(ev.task);
+                          onTaskClick?.(recurringSource(ev.task));
                         }}
                       >
                         <span className={cn("truncate opacity-80", ev.endMin - ev.startMin < 30 ? "shrink-0" : "w-full")}>
                           {minutesLabel(ev.startMin)}
                         </span>
-                        <span className={ev.endMin - ev.startMin < 30 ? "truncate" : "line-clamp-3 w-full"}>{ev.task.title}</span>
+                        <span className={ev.endMin - ev.startMin < 30 ? "truncate" : "line-clamp-3 w-full"}><TaskRepeatIcon task={ev.task} />{ev.task.title}</span>
                         {/* 上/下沿 resize 热区（span 非交互元素，可嵌在 button 内；
                             必须排在内容 span 之后，保持 querySelector("span") 仍取到时间标签） */}
-                        {onUpdateTaskSchedule && blockHeightPx >= 20 && (["start", "end"] as const).map((edge) => (
+                        {onUpdateTaskSchedule && !isRecurringProjection(ev.task) && blockHeightPx >= 20 && (["start", "end"] as const).map((edge) => (
                           <span
                             key={edge}
                             aria-hidden
@@ -1284,7 +1290,24 @@ function shiftCalendarDay(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
 
+function recurringPresentation(task: TaskWithTags) {
+  const projected = isRecurringProjection(task);
+  const date = getTaskDate(task);
+  return {
+    "data-recurring-projection": projected ? "true" : undefined,
+    "aria-label": task.recurrence_rule
+      ? `${task.title} · 重复${projected && date ? ` · 预计 ${date.getMonth() + 1}月${date.getDate()}日` : ""}`
+      : undefined,
+    title: projected ? "这是重复任务的后续发生，修改会作用于整个系列" : undefined,
+  };
+}
+
+function TaskRepeatIcon({ task }: { task: TaskWithTags }) {
+  return task.recurrence_rule ? <Repeat2 aria-hidden="true" data-recurring-icon className="mr-1 inline-block h-3 w-3 shrink-0 align-text-bottom" /> : null;
+}
+
 function categoryClass(task: TaskWithTags) {
+  if (isRecurringProjection(task)) return "border border-dashed border-border bg-background text-muted-foreground";
   if (task.status === "done") return "bg-muted text-muted-foreground line-through";
   return "border border-border bg-accent text-foreground";
 }
@@ -1378,15 +1401,16 @@ function MonthDayPopover({
           {tasks.map((task) => (
             <button
               key={task.id}
+              {...recurringPresentation(task)}
               type="button"
               onClick={() => {
                 setOpen(false);
-                onTaskClick?.(task);
+                onTaskClick?.(recurringSource(task));
               }}
               className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs", categoryClass(task))}
             >
-              <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded border border-current/40">{task.status === "done" ? "✓" : ""}</span>
-              <span className="min-w-0 flex-1 truncate">{task.title}</span>
+              {!isRecurringProjection(task) && <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded border border-current/40">{task.status === "done" ? "✓" : ""}</span>}
+              <span className="min-w-0 flex-1 truncate"><TaskRepeatIcon task={task} />{task.title}</span>
               {timeLabel(task) ? <span className="shrink-0 text-[10px] opacity-70">{timeLabel(task)}</span> : null}
             </button>
           ))}
@@ -1441,7 +1465,13 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
   const dragOverDate = monthDrag?.moved && monthDrag.target ? keyFor(monthDrag.target) : null;
   const cells = useMemo(() => getMonthCells(cursor), [cursor]);
   const weekDays = useMemo(() => weekDaysOf(cursor), [cursor]);
-  const monthTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
+  const scheduledTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
+  const monthTasks = useMemo(() => {
+    if (mode === "year") return scheduledTasks;
+    const from = mode === "week" ? weekDays[0] : mode === "day" ? selectedDate : cells[0].date;
+    const last = mode === "week" ? weekDays[6] : mode === "day" ? selectedDate : cells[41].date;
+    return projectRecurringTasks(scheduledTasks, from, shiftCalendarDay(last, 1));
+  }, [scheduledTasks, mode, weekDays, selectedDate, cells]);
   const weeks = useMemo(() => {
     const result: Date[][] = [];
     for (let i = 0; i < 6; i += 1) result.push(cells.slice(i * 7, i * 7 + 7).map((c) => c.date));
@@ -1613,7 +1643,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     : `${selectedDate.getMonth() + 1}月${selectedDate.getDate()}日 ${WEEKDAYS[(selectedDate.getDay() + 6) % 7]}`;
 
   const startMonthDrag = (event: React.PointerEvent<HTMLButtonElement>, task: TaskWithTags, lane: number) => {
-    if (!onRescheduleTask || event.button !== 0 || !event.isPrimary || monthDragRef.current) return;
+    if (isRecurringProjection(task) || !onRescheduleTask || event.button !== 0 || !event.isPrimary || monthDragRef.current) return;
     const originalStart = getTaskDate(task);
     if (!originalStart) return;
     event.stopPropagation();
@@ -1750,7 +1780,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
           <div className="hidden min-h-0 flex-1 md:flex md:flex-col">
             <TimeGridView
               days={weekDays}
-              tasks={monthTasks}
+              tasks={scheduledTasks}
               countdowns={countdowns}
               onTaskClick={onTaskClick}
               onUpdateTaskSchedule={onUpdateTaskSchedule}
@@ -1855,6 +1885,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                     <button
                       type="button"
                       key={`${seg.task.id}-${weekIndex}`}
+                      {...recurringPresentation(seg.task)}
                       onPointerDown={(event) => startMonthDrag(event, seg.task, seg.lane)}
                       onPointerMove={moveMonthDrag}
                       onPointerUp={endMonthDrag}
@@ -1868,28 +1899,28 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                           event.preventDefault();
                           return;
                         }
-                        onTaskClick?.(seg.task);
+                        onTaskClick?.(recurringSource(seg.task));
                       }}
                       className={cn(
                         "absolute z-10 flex items-center gap-1 px-1.5 text-left text-xs transition-colors hover:brightness-95",
-                        onRescheduleTask && "cursor-grab select-none active:cursor-grabbing",
+                        onRescheduleTask && !isRecurringProjection(seg.task) && "cursor-grab select-none active:cursor-grabbing",
                         categoryClass(seg.task),
                         !seg.continuesBefore && "rounded-l",
                         !seg.continuesAfter && "rounded-r",
                         monthDrag?.moved && monthDrag.task.id === seg.task.id && "opacity-40"
                       )}
                       style={{
-                        touchAction: onRescheduleTask ? "none" : undefined,
+                        touchAction: onRescheduleTask && !isRecurringProjection(seg.task) ? "none" : "auto",
                         top: DAY_HEADER_PX + seg.lane * LANE_HEIGHT_PX + 2,
                         height: LANE_HEIGHT_PX - 4,
                         left: `calc(${(seg.startCol / 7) * 100}% + ${seg.continuesBefore ? 0 : 2}px)`,
                         width: `calc(${((seg.endCol - seg.startCol + 1) / 7) * 100}% - ${(seg.continuesBefore ? 0 : 2) + (seg.continuesAfter ? 0 : 2)}px)`,
                       }}
                     >
-                      {!seg.continuesBefore && (
+                      {!seg.continuesBefore && !isRecurringProjection(seg.task) && (
                         <span className="grid h-3.5 w-3.5 shrink-0 place-items-center rounded border border-current/40">{seg.task.status === "done" && "✓"}</span>
                       )}
-                      <span className="min-w-0 flex-1 truncate">{seg.task.title}</span>
+                      <span className="min-w-0 flex-1 truncate"><TaskRepeatIcon task={seg.task} />{seg.task.title}</span>
                       {!seg.continuesAfter && timeLabel(seg.task) && <span className="shrink-0 text-[10px] opacity-70">{timeLabel(seg.task)}</span>}
                     </button>
                   ))}
@@ -1946,14 +1977,14 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                           recurrence_rule: task.recurrence_rule || null,
                         };
                         return (
-                          <div key={task.id} className="flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0">
-                            <button type="button" onClick={() => onTaskClick?.(task)} className="min-w-0 flex-1 text-left">
-                              <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}>{task.title}</div>
+                          <div key={task.id} className={cn("flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
+                            <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
+                              <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
                               <div className="mt-0.5 text-xs text-muted-foreground">
                                 {task.all_day ? "全天" : date?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}
                               </div>
                             </button>
-                            {(onUpdateTaskSchedule || onRescheduleTask) && (
+                            {!isRecurringProjection(task) && (onUpdateTaskSchedule || onRescheduleTask) && (
                               <TaskDatePopover
                                 value={schedule}
                                 overdue={task.status !== "done" && task.status !== "cancelled" && isTaskOverdue(task)}
@@ -2012,7 +2043,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
       {mode === "day" && (
         <TimeGridView
           days={[selectedDate]}
-          tasks={monthTasks}
+          tasks={scheduledTasks}
           countdowns={countdowns}
           onTaskClick={onTaskClick}
           onUpdateTaskSchedule={onUpdateTaskSchedule}
@@ -2112,15 +2143,15 @@ function DayView({
                 recurrence_rule: task.recurrence_rule || null,
               };
               return (
-                <div key={task.id} className="flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0">
-                  <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border text-xs", task.status === "done" ? "bg-muted" : "border-muted-foreground/30")}>{task.status === "done" ? "✓" : ""}</span>
-                  <button type="button" onClick={() => onTaskClick?.(task)} className="min-w-0 flex-1 text-left">
-                    <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}>{task.title}</div>
+                <div key={task.id} className={cn("flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
+                  {!isRecurringProjection(task) && <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border text-xs", task.status === "done" ? "bg-muted" : "border-muted-foreground/30")}>{task.status === "done" ? "✓" : ""}</span>}
+                  <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
+                    <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {task.all_day ? "全天" : start?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}
                     </div>
                   </button>
-                  {(onUpdateTaskSchedule || onRescheduleTask) && (
+                  {!isRecurringProjection(task) && (onUpdateTaskSchedule || onRescheduleTask) && (
                     <TaskDatePopover
                       value={schedule}
                       overdue={task.status !== "done" && task.status !== "cancelled" && isTaskOverdue(task)}
