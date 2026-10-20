@@ -3140,6 +3140,35 @@
   color: hsl(var(--foreground));
   font-size: 14px;
 }
+/* "/" 行内筛选时顶部的只读提示行（焦点留在正文，查询词来自文档） */
+.editor-menu-filter-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin: 8px 10px 0;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: hsl(var(--muted) / .6);
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.3;
+}
+.editor-menu-filter-hint > svg {
+  flex: 0 0 auto;
+}
+.editor-menu-filter-hint strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+/* 菜单项标签里命中查询词的片段 */
+.editor-menu-scroll button strong mark {
+  border-radius: 3px;
+  padding: 0 1px;
+  background: hsl(var(--primary) / .12);
+  color: inherit;
+  font-weight: 650;
+}
 .editor-menu-scroll {
   flex: 1 1 auto;
   min-height: 0;
