@@ -31,6 +31,7 @@ describe("BubbleToolbar", () => {
     run: vi.fn(),
   };
   const callbacks = {
+    onEditLink: vi.fn(),
     onUploadImage: vi.fn(),
     onAddImageUrl: vi.fn(),
     onUploadAttachment: vi.fn(),
@@ -138,24 +139,10 @@ describe("BubbleToolbar", () => {
     expect(button("插入表情").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it.each([null, "", "https://example.com/new"])("preserves link prompt result %s", async (value) => {
-    href = "https://example.com/old";
-    vi.mocked(showPrompt).mockResolvedValueOnce(value);
-    await act(async () => button("链接").click());
-    expect(showPrompt).toHaveBeenCalledWith({
-      title: "编辑链接 URL（留空可取消链接）",
-      defaultValue: href,
-      placeholder: "https://",
-    });
-    if (value === null) {
-      expect(chain.focus).not.toHaveBeenCalled();
-    } else if (value === "") {
-      expect(chain.unsetLink).toHaveBeenCalledOnce();
-      expect(chain.run).toHaveBeenCalledOnce();
-    } else {
-      expect(chain.setLink).toHaveBeenCalledWith({ href: value });
-      expect(chain.run).toHaveBeenCalledOnce();
-    }
+  it("opens the inline link editor instead of a modal prompt", () => {
+    click("链接");
+    expect(callbacks.onEditLink).toHaveBeenCalledExactlyOnceWith();
+    expect(showPrompt).not.toHaveBeenCalled();
   });
 
   it("keeps the inline formula prompt and insertion command", async () => {

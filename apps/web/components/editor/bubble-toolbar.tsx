@@ -419,8 +419,10 @@ export function BubbleToolbar({
   onUploadAttachment,
   onAddTable,
   onAddReference,
+  onEditLink,
 }: {
   editor: Editor;
+  onEditLink: () => void;
   onUploadImage: () => void;
   onAddImageUrl: () => void;
   onUploadAttachment: () => void;
@@ -429,22 +431,6 @@ export function BubbleToolbar({
 }) {
   const activeBlock = getActiveBlock(editor);
   const ActiveBlockIcon = activeBlock.icon;
-
-  const addLink = () => {
-    const previousUrl = editor.getAttributes("link").href as string | undefined;
-    void showPrompt({
-      title: previousUrl ? "编辑链接 URL（留空可取消链接）" : "输入链接 URL",
-      defaultValue: previousUrl || "",
-      placeholder: "https://",
-    }).then((url) => {
-      if (url === null) return;
-      if (url === "") {
-        editor.chain().focus().unsetLink().run();
-      } else {
-        editor.chain().focus().setLink({ href: url }).run();
-      }
-    });
-  };
 
   const addInlineMath = () => {
     void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 a^2 + b^2 = c^2" }).then((latex) => {
@@ -537,7 +523,7 @@ export function BubbleToolbar({
         <Code className="h-4 w-4" />
       </BubbleButton>
       <BubbleButton
-        onClick={addLink}
+        onClick={() => onEditLink()}
         isActive={editor.isActive("link")}
         title="链接"
       >

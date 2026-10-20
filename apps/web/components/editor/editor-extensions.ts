@@ -99,7 +99,7 @@ export function buildEditorExtensions(options: {
     Highlight.configure({ multicolor: true }),
     Underline,
     ResizableImage.configure({ inline: false, allowBase64: true }),
-    Link.configure({ openOnClick: false }),
+    Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true, defaultProtocol: "https" }),
     Placeholder.configure({ placeholder: topLevelBlockPlaceholder }),
     TaskList,
     TaskItemLinked.configure({ nested: true }),

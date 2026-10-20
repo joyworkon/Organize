@@ -90,10 +90,7 @@ import { TableDirectControls } from "./table-direct-controls";
 import type { EditorBlockTarget, EditorDialog, EditorMenuPoint } from "./types";
 import { usePluginStore } from "@/lib/plugin/store";
 import type { AIActionExtension, PluginContext, ToolbarActionExtension } from "@organize/plugin-sdk";
-import {
-  internalLinkKeyFromHref,
-  type InternalLinkStateRow,
-} from "@/lib/note-links";
+import type { InternalLinkStateRow } from "@/lib/note-links";
 import { createClient } from "@/lib/supabase/client";
 
 // internalLinkStates 的默认值必须模块级稳定：作为 effect 依赖，内联 {} 会让
@@ -281,6 +278,7 @@ function SectionHeadingLabels({
 // B04（R09 续）：气泡工具栏与块交互纯函数层拆出（纯移动；keydown 提为可单测工厂）
 import { BlockMultiSelectBar } from "./block-multi-select-bar";
 import { BubbleToolbar } from "./bubble-toolbar";
+import { LinkHoverCard } from "./link-hover-card";
 import {
   activeTableReferenceRect,
   blockElementAtTarget,
@@ -338,6 +336,7 @@ export function TipTapEditor({
   const [tableFullscreen, setTableFullscreen] = useState(false);
   const [dialog, setDialog] = useState<EditorDialog>(null);
   const [findBarOpen, setFindBarOpen] = useState(false);
+  const [linkEditRequest, setLinkEditRequest] = useState(0);
   const [findFocusNonce, setFindFocusNonce] = useState(0);
   const [presentationStart, setPresentationStart] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
@@ -412,34 +411,6 @@ export function TipTapEditor({
           setFindFocusNonce((nonce) => nonce + 1);
         },
       }),
-      handleClickOn: (_view, _pos, _node, _nodePos, event) => {
-        const anchor = (event.target as HTMLElement)?.closest("a");
-        if (!(anchor instanceof HTMLAnchorElement)) return false;
-        const href = anchor.getAttribute("href");
-        if (!href) return false;
-        const linkStateKey = internalLinkKeyFromHref(href);
-        const linkState = linkStateKey ? internalLinkStatesRef.current[linkStateKey] : null;
-        if (linkState && linkState.state !== "active") {
-          event.preventDefault();
-          toast({
-            title: linkState.state === "deleted" ? "链接目标已在垃圾箱中" : "链接目标不存在或无权访问",
-            variant: "destructive",
-          });
-          return true;
-        }
-        if (event.metaKey || event.ctrlKey) {
-          event.preventDefault();
-          window.open(href, "_blank", "noopener,noreferrer");
-          return true;
-        }
-        // 站内链接（如「转换成页面」/ 拖入子页面产生的 /notes/<id>）单击直接跳转
-        if (href.startsWith("/")) {
-          event.preventDefault();
-          router.push(href);
-          return true;
-        }
-        return false;
-      },
       // 从编辑器外拖入文件（图片 / 视频 / 音频 / 附件）
       handleDrop: (view, event, _slice, moved) => {
         if (moved) return false;
@@ -1476,7 +1447,7 @@ export function TipTapEditor({
         shouldShow={shouldShowTextToolbar}
         tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}
       >
-        <BubbleToolbar editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onUploadAttachment={uploadAttachment} onAddTable={addTable} onAddReference={() => addReadingReference()} />
+        <BubbleToolbar onEditLink={() => setLinkEditRequest((value) => value + 1)} editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onUploadAttachment={uploadAttachment} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
       <BubbleMenu
         editor={editor}
@@ -1499,6 +1470,7 @@ export function TipTapEditor({
           onToggleFullscreen={() => setTableFullscreen((value) => !value)}
         />
       </BubbleMenu>
+      <LinkHoverCard editor={editor} editRequest={linkEditRequest} internalLinkStates={internalLinkStates} onNavigate={(path) => router.push(path)} />
       <EditorContent editor={editor} />
       <TableDirectControls editor={editor} />
       <div
