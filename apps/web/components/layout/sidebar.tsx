@@ -33,11 +33,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ThemeToggle } from "./theme-toggle";
-import { buildNoteTree, limitNoteRoots, type NoteTreeNode } from "@/lib/notes/tree";
+import { buildNoteTree, type NoteTreeNode } from "@/lib/notes/tree";
 import {
   nextSidebarNoteTreeAfterLoad,
   type SidebarNoteItem,
 } from "@/lib/layout/sidebar-note-tree-load";
+import {
+  SidebarNoteTree,
+  SIDEBAR_NOTE_TREE_SHOW_ALL_KEY,
+} from "@/components/layout/sidebar-note-tree";
 import {
   SIDEBAR_HAS_SHARED_NOTES_LOAD_ERROR_HINT,
   SIDEBAR_HAS_TEAM_WORKSPACES_LOAD_ERROR_HINT,
@@ -47,9 +51,7 @@ import { UNGROUPED_KEY, moveNotesToGroup, notifyNoteGroupsChanged, shouldShowGro
 import { useOnlineStatus } from "@/lib/offline/network";
 import { NOTE_DRAG_MIME } from "@/components/notes/note-groups-bar";
 
-/** 侧栏笔记列表默认只显示的顶层笔记数 */
-const SIDEBAR_NOTES_LIMIT = 5;
-const NOTES_SHOW_ALL_KEY = "organize-sidebar-notes-show-all";
+/** 侧栏笔记列表的「查看更多」键与树实现见 sidebar-note-tree.tsx */
 import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { toast } from "@/hooks/use-toast";
 import { useOpenTabsStore } from "@/lib/notes/open-tabs-store";
@@ -129,6 +131,8 @@ export function Sidebar() {
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [noteTree, setNoteTree] = useState<NoteTreeNode[]>([]);
+  // 全部未删除笔记的扁平行：侧栏树「移动到…」对话框的候选（跨分组段也能选）
+  const [noteRows, setNoteRows] = useState<SidebarNoteItem[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   // 笔记树查询失败的诚实提示：从未成功时用提示+重试替代「还没有笔记」；曾成功时保留旧树再提示
   const [noteTreeError, setNoteTreeError] = useState<string | null>(null);
@@ -216,6 +220,7 @@ const visibleNavItems = useMemo(() => {
       setNoteTreeError(plan.loadError);
       if (plan.rows && !plan.loadError) {
         lastNoteRowsRef.current = plan.rows;
+        setNoteRows(plan.rows);
         setNoteTree(buildNoteTree(plan.rows));
       }
     } finally {
@@ -713,6 +718,7 @@ const visibleNavItems = useMemo(() => {
                       <>
                         <SidebarGroupedNotes
                           nodes={noteTree}
+                          allNotes={noteRows}
                           pathname={pathname}
                           onNavigate={() => setMobileOpen(false)}
                         />
@@ -839,10 +845,13 @@ const GROUP_COLLAPSED_KEY = "organize-sidebar-note-groups-collapsed";
  */
 function SidebarGroupedNotes({
   nodes,
+  allNotes,
   pathname,
   onNavigate,
 }: {
   nodes: NoteTreeNode[];
+  /** 全部未删除笔记的扁平行，喂给行内「移动到…」对话框 */
+  allNotes: SidebarNoteItem[];
   pathname: string;
   onNavigate: () => void;
 }) {
@@ -881,7 +890,7 @@ function SidebarGroupedNotes({
     return (
       <>
         {groupsLoadErrorLine}
-        <SidebarNoteTree nodes={nodes} pathname={pathname} onNavigate={onNavigate} />
+        <SidebarNoteTree nodes={nodes} allNotes={allNotes} pathname={pathname} onNavigate={onNavigate} />
       </>
     );
   }
@@ -938,9 +947,10 @@ function SidebarGroupedNotes({
             {open && (
               <SidebarNoteTree
                 nodes={section.nodes}
+                allNotes={allNotes}
                 pathname={pathname}
                 onNavigate={onNavigate}
-                showAllKey={`${NOTES_SHOW_ALL_KEY}:${section.key}`}
+                showAllKey={`${SIDEBAR_NOTE_TREE_SHOW_ALL_KEY}:${section.key}`}
                 emptyText="拖笔记到这里"
               />
             )}
@@ -948,132 +958,5 @@ function SidebarGroupedNotes({
         );
       })}
     </div>
-  );
-}
-
-function SidebarNoteTree({
-  nodes,
-  pathname,
-  onNavigate,
-  limit = SIDEBAR_NOTES_LIMIT,
-  showAllKey = NOTES_SHOW_ALL_KEY,
-  emptyText = "还没有笔记",
-}: {
-  nodes: NoteTreeNode[];
-  pathname: string;
-  onNavigate: () => void;
-  /** 顶层最多显示几篇，其余收进「查看更多」 */
-  limit?: number;
-  /** 「查看更多」展开状态的 localStorage 键（每个列表各记各的） */
-  showAllKey?: string;
-  emptyText?: string;
-}) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-  const [showAll, setShowAll] = useState(false);
-  useEffect(() => {
-    try {
-      setShowAll(localStorage.getItem(showAllKey) === "1");
-    } catch {
-      /* 存储不可用时按默认收起 */
-    }
-  }, [showAllKey]);
-  const toggleShowAll = () => {
-    setShowAll((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(showAllKey, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-  const activeId = pathname.startsWith("/notes/") ? pathname.slice("/notes/".length) : null;
-  const { visible, hiddenCount } = limitNoteRoots(nodes, limit, activeId);
-  const roots = showAll ? limitNoteRoots(nodes, Number.MAX_SAFE_INTEGER).visible : visible;
-
-  const toggle = (id: string) => {
-    setCollapsedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const renderNodes = (branch: NoteTreeNode[], depth: number): React.ReactNode => (
-    <div className="flex flex-col gap-1">
-      {branch.map((note) => {
-        const hasChildren = note.children.length > 0;
-        const childrenOpen = !collapsedIds.has(note.id);
-        const active = pathname === `/notes/${note.id}`;
-        return (
-          <div key={note.id}>
-            <div
-              className={cn(
-                "group flex min-w-0 items-center rounded-md text-sm transition-colors",
-                active
-                  ? "bg-accent text-accent-foreground font-medium"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-              style={{ paddingLeft: `${8 + Math.min(depth, 6) * 14}px` }}
-            >
-              {hasChildren ? (
-                <button
-                  type="button"
-                  className="grid h-6 w-6 shrink-0 place-items-center rounded hover:bg-background/50"
-                  onClick={() => toggle(note.id)}
-                  aria-label={childrenOpen ? "收起子页面" : "展开子页面"}
-                  aria-expanded={childrenOpen}
-                >
-                  {childrenOpen ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              ) : (
-                <span className="h-6 w-6 shrink-0" />
-              )}
-              <Link
-                href={`/notes/${note.id}`}
-                onClick={onNavigate}
-                onDragStart={(event) => event.dataTransfer.setData(NOTE_DRAG_MIME, note.id)}
-                className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
-                title={note.title || "无标题笔记"}
-              >
-                <span className="shrink-0">{note.icon || "📄"}</span>
-                <span className="truncate">{note.title || "无标题笔记"}</span>
-              </Link>
-            </div>
-            {hasChildren && childrenOpen && renderNodes(note.children, depth + 1)}
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  if (nodes.length === 0) {
-    return <p className="px-3 py-1.5 text-sm text-muted-foreground">{emptyText}</p>;
-  }
-  return (
-    <>
-      {renderNodes(roots, 0)}
-      {(hiddenCount > 0 || showAll) && nodes.length > limit && (
-        <div className="mt-0.5 flex items-center justify-between gap-2 pl-[30px] pr-2">
-          <button
-            type="button"
-            onClick={toggleShowAll}
-            aria-expanded={showAll}
-            className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {showAll ? "收起" : `查看更多（${hiddenCount}）`}
-          </button>
-          <Link href="/notes" onClick={onNavigate} className="py-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
-            全部笔记
-          </Link>
-        </div>
-      )}
-    </>
   );
 }

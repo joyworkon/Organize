@@ -95,31 +95,6 @@ export function planTagFilter({
   };
 }
 
-/** 最小 supabase 形状：只用到 notes 的读 revision + 更新 */
-export interface NoteMoveClient {
-  from(table: "notes"): {
-    select(columns: "content_revision"): { eq(col: "id", id: string): { single(): PromiseLike<{ data: { content_revision?: number | null } | null }> } };
-    update(patch: { parent_note_id: string | null; content_revision: number }): { eq(col: "id", id: string): PromiseLike<{ error: unknown }> };
-  };
-}
-
-/**
- * 持久化「移动到」：parent_note_id 在编辑器保存快照里，必须同步递增 content_revision，
- * 否则其他标签页的编辑器下次自动保存会把移动静默还原。
- * onPersisted 只在写库成功后调用（用于广播 organize:notes-changed）——提前广播会让
- * 侧栏树/列表在写入前取到旧父级。失败抛出原错误。
- */
-export async function persistNoteMove(
-  client: NoteMoveClient,
-  noteId: string,
-  nextParentId: string | null,
-  onPersisted: () => void,
-): Promise<void> {
-  const { data: current } = await client.from("notes").select("content_revision").eq("id", noteId).single();
-  const { error } = await client
-    .from("notes")
-    .update({ parent_note_id: nextParentId, content_revision: Number(current?.content_revision ?? 0) + 1 })
-    .eq("id", noteId);
-  if (error) throw error;
-  onPersisted();
-}
+/** 最小 supabase 形状：只用到 notes 的读 revision + 更新（实现已挪到 lib/notes/tree-drop.ts，
+ *  侧栏树拖放嵌套与「移动到…」对话框共用同一条保存路径；这里 re-export 保持页面引用不变） */
+export { persistNoteMove, type NoteMoveClient } from "@/lib/notes/tree-drop";
