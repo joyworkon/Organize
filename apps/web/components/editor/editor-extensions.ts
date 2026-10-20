@@ -15,6 +15,7 @@ import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
 import type { InternalLinkStateRow } from "@/lib/note-links";
 import { Callout } from "./extensions/callout";
+import { OrganizeCodeBlock } from "./extensions/code-block";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
 import { ListBackspaceFix } from "./extensions/list-backspace";
@@ -87,8 +88,11 @@ export function buildEditorExtensions(options: {
     // 协作模式下 History 由 Collaboration 的 Yjs UndoManager 接管（TipTap 合同）
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
+      // codeBlock 换成带工具栏 NodeView 的 OrganizeCodeBlock（同一 schema 名，仅多一个可选 wrap 属性）
+      codeBlock: false,
       ...(collab ? { history: false } : {}),
     }),
+    OrganizeCodeBlock,
     ListStyleExtension,
     TextStyle,
     Color,
