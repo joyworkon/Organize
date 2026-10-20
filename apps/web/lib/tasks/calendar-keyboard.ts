@@ -32,6 +32,23 @@ export function matchCalendarNavKey(event: CalendarNavKeyEvent): CalendarNavActi
   return LETTER_ACTIONS[event.key.toLowerCase()] ?? null;
 }
 
+/**
+ * 焦点在桌面月网格的格子内（含日期数字和「+N」）时，←/→ 只移动日期。
+ * 页面级翻页必须让位，否则一次按键会同时翻月和移动焦点。
+ * 任务条在格子外面，不在此列。
+ */
+export function isMonthGridCellEventTarget(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined") return false;
+  const element = target instanceof Element
+    ? target
+    : typeof Node !== "undefined" && target instanceof Node
+      ? target.parentElement
+      : null;
+  if (!element) return false;
+  const cell = element.closest("[role='gridcell']");
+  return Boolean(cell?.closest("[data-calendar-surface='month']"));
+}
+
 export type CalendarSurfaceMode = "day" | "week" | "month" | "year";
 
 /**

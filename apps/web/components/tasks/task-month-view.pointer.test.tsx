@@ -59,7 +59,10 @@ describe("桌面月视图 pointer 改期", () => {
         });
       }
     }
-    return { rows, button: rows[2].querySelector("button")! };
+    // 日期数字和「+N」也是按钮；拖拽目标仍是绝对定位的任务条。
+    const button = rows[2].querySelector<HTMLButtonElement>("button.absolute");
+    expect(button).not.toBeNull();
+    return { rows, button: button! };
   }
 
   function pointer(button: HTMLButtonElement, type: string, x: number, y: number, pointerId = 1) {
