@@ -27,7 +27,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { GripHorizontal, Plus, Trash2 } from "@/components/icons";
+import { Copy, GripHorizontal, Plus, Trash2 } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import { commitBoardDuplicate } from "./canvas-board-actions";
 import {
   COLUMN_MIN_WIDTH,
   type CanvasBoard,
@@ -349,6 +351,13 @@ export const CanvasBoardView = memo(function CanvasBoardView({
           >
             <GripHorizontal style={{ width: ui * 0.8, height: ui * 0.8 }} />
           </div>
+          <Button type="button" variant="ghost" size="icon"
+            className="canvas-board-copy h-6 w-6 border bg-background text-muted-foreground"
+            title="复制页面" aria-label="复制页面"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); commitBoardDuplicate(store, board.id); }}>
+            <Copy style={{ width: ui * 0.7, height: ui * 0.7 }} />
+          </Button>
           <button
             type="button"
             className="canvas-board-delete"

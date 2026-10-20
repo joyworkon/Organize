@@ -33,6 +33,7 @@ export function CanvasShortcutsDialog({ open, onOpenChange, labels }: {
     ["围绕中心缩小", `${mod}-`],
     ["回到 100%", `${mod}0`],
     ["适合全部", `${shift}1`],
+    ["适合选区", `${shift}2`],
     ["打开键盘快捷键", "?"],
   ];
   return (

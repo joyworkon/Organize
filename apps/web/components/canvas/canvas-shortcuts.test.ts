@@ -20,6 +20,8 @@ describe("canvas shortcut matching", () => {
       [{ key: "+", shiftKey: true, metaKey: true }, "zoom-in"],
       [{ key: "!", code: "Digit1", shiftKey: true }, "zoom-fit"],
       [{ key: "1", shiftKey: true }, "zoom-fit"],
+      [{ key: "@", code: "Digit2", shiftKey: true }, "zoom-selection"],
+      [{ key: "2", shiftKey: true }, "zoom-selection"],
       [{ key: "?", shiftKey: true }, "help"],
       [{ key: "/", code: "Slash", shiftKey: true }, "help"],
     ];
@@ -120,9 +122,10 @@ describe("canvas selection commands", () => {
     const region = duplicateCanvasSelection(doc, { kind: "region", boardId: board.id, regionId: board.regions[0].id });
     expect(region.doc.boards[0].regions).toHaveLength(board.regions.length + 1);
     expect(region.focus?.kind).toBe("region");
-    for (const selection of [null, { kind: "board" as const, boardId: board.id }, { kind: "block" as const, blockId: "missing" }]) {
+    for (const selection of [null, { kind: "block" as const, blockId: "missing" }]) {
       expect(duplicateCanvasSelection(doc, selection).doc).toBe(doc);
     }
+    expect(duplicateCanvasSelection(doc, { kind: "board", boardId: board.id }).focus?.kind).toBe("board");
     const source = doc.freeItems[0];
     const free = duplicateCanvasSelection(doc, { kind: "free", itemId: source.id });
     expect(free.doc.freeItems).toHaveLength(doc.freeItems.length + 1);
