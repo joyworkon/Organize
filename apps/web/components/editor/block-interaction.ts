@@ -215,6 +215,9 @@ export function activeTableReferenceRect(editor: Editor) {
     ?? editor.view.dom.getBoundingClientRect();
 }
 
+/** 自带选中态块工具栏的节点：整块 NodeSelection 时不显示文字气泡 */
+const BLOCK_TOOLBAR_NODE_TYPES: ReadonlySet<string> = new Set(["image", "codeBlock"]);
+
 export function shouldShowTextToolbar({
   editor,
   element,
@@ -231,7 +234,8 @@ export function shouldShowTextToolbar({
   to: number;
 }) {
   const { doc, selection } = state;
-  if (selection instanceof CellSelection || (selection instanceof NodeSelection && selection.node.type.name === "image")) return false;
+  // 图片 / 代码块整块选中时由各自的块工具栏接管，不再叠一层文字气泡。
+  if (selection instanceof CellSelection || (selection instanceof NodeSelection && BLOCK_TOOLBAR_NODE_TYPES.has(selection.node.type.name))) return false;
 
   const isEmptyTextBlock = !doc.textBetween(from, to).length
     && selection instanceof TextSelection;

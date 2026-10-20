@@ -1107,6 +1107,23 @@
   padding: 0;
   font-size: inherit;
 }
+/* 代码块 NodeView（OrganizeCodeBlock）：外层 .organize-code-block 只是包装，排版仍由 pre 负责，
+   缺省 white-space: pre + 横向滚动与改前一致；「自动换行」由 NodeView 在 pre 上 inline 写
+   pre-wrap（NodeViewContent 自带 inline white-space，CSS 盖不住），这里只补超长 token 的折行。 */
+.organize-editor pre[data-wrap="true"] {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* 整块选中 / 多选 / 转换中 / 深链高亮的类由 ProseMirror 落在 NodeView 外层（.node-codeBlock），
+   而 pre 自带 muted 背景会把它盖住：高亮时让 pre 透明，外层的高亮色透出来——与改前 pre 直接带类
+   时的观感一致（块背景 inline style 仍然优先，也与改前相同）。 */
+.organize-editor.prose .node-codeBlock:is(.ProseMirror-selectednode, .organize-transformed-block, .organize-block-selected, .is-deep-linked) > .organize-code-block > pre {
+  background-color: transparent;
+}
+.organize-editor.prose .node-codeBlock.is-deep-linked {
+  background: hsl(var(--primary) / 0.08) !important;
+  border-radius: 4px;
+}
 .organize-editor :not(pre) > code {
   background: hsl(var(--muted));
   padding: 0.15em 0.4em;
@@ -6863,3 +6880,19 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .organize-image-open:hover { background: hsl(var(--accent)); }
 .organize-image-open:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
 @media (max-width: 768px), (pointer: coarse) { .organize-image-open { min-width: 44px; min-height: 44px; } }
+
+/* 代码块工具栏：与图片工具栏同密度、同层级（body portal + fixed，定位到块上方）。 */
+.organize-code-block-toolbar {
+  position: fixed; z-index: 100; display: flex; align-items: center; gap: 2px; padding: 4px;
+  max-width: calc(100vw - 16px); overflow-x: auto;
+  border: 1px solid hsl(var(--border)); border-radius: 8px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  box-shadow: var(--shadow-md);
+}
+.organize-code-block-toolbar > button { flex-shrink: 0; min-height: 36px; min-width: 36px; gap: 4px; }
+.organize-code-block-toolbar [aria-pressed="true"] { background: hsl(var(--accent)); font-weight: 600; }
+.organize-code-block-language { display: inline-block; max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organize-code-block-menu { z-index: 110; max-height: min(60vh, 420px); overflow-y: auto; }
+@media (max-width: 768px), (pointer: coarse) {
+  .organize-code-block-toolbar > button { min-height: 44px; min-width: 44px; }
+}
