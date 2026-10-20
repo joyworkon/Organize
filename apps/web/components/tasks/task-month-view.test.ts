@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthCellOverflowCount, monthColFromClientX, monthGridRovingDate, monthRescheduleTargetDate, mondayOf, snapMinutes, tasksOnDay, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, timeGridRangeFromOffsets, TimeGridView } from "./task-month-view";
+import { getTaskDate, getMonthCells, groupTasksByDate, layoutWeekSegments, monthCellOverflowCount, monthColFromClientX, monthGridRovingDate, monthRescheduleTargetDate, mondayOf, snapMinutes, tasksOnDay, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, timeGridRangeFromOffsets, TimeGridView } from "./task-month-view";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -91,25 +91,7 @@ describe("groupTasksByDate", () => {
   });
 });
 
-describe("getMonthAgenda（移动端日程）", () => {
-  it("只保留当前月份，并按日期和时间排序", () => {
-    const tasks = [
-      mkTask("late", "2026-08-15T12:00:00Z"),
-      mkTask("next-month", "2026-09-01T09:00:00Z"),
-      mkTask("early", "2026-08-15T08:00:00Z"),
-      mkTask("first-day", "2026-08-02T08:00:00Z"),
-    ];
-    const groups = getMonthAgenda(tasks, new Date(2026, 7, 1));
-    expect(groups).toHaveLength(2);
-    expect(groups[0].date.getDate()).toBe(2);
-    expect(groups[1].tasks.map((task) => task.id)).toEqual(["early", "late"]);
-  });
-
-  it("无日期或月份无任务时返回空数组", () => {
-    expect(getMonthAgenda([mkTask("none", null)], new Date(2026, 7, 1))).toEqual([]);
-  });
-});
-
+// 手机月议程归组已迁到 lib/tasks/calendar-agenda.test.ts（buildMonthAgenda）。
 
 describe("月视图 pointer 落点", () => {
   it.each([

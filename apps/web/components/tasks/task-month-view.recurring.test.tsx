@@ -118,7 +118,7 @@ describe("日历重复任务只读发生", () => {
   });
   it("手机议程的投影没有改期入口，仍打开源任务", () => {
     renderMonth();
-    const projection = projected(container.querySelector(".overflow-y-auto.md\\:hidden")!);
+    const projection = projected(container.querySelector('[data-calendar-surface="mobile-month"] [data-calendar-agenda]')!);
     expect(projection.parentElement!.textContent).not.toContain("改期");
     click(projection);
     expect(onTaskClick).toHaveBeenCalledExactlyOnceWith(source);

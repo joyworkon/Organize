@@ -6843,9 +6843,9 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .dashboard-capture textarea:focus-visible { outline: none; }
 .dashboard-capture:has(textarea:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
 @media (max-width: 767px) {
-  .task-calendar-header { gap: 8px; padding: 12px 0; }
-  .task-calendar-header > div { width: 100%; margin-left: 0; justify-content: space-between; gap: 2px; }
-  .task-calendar-header button { min-height: 44px; min-width: 40px; padding-inline: 8px; }
+  /* 两行顶栏（标题 + 导航组 / 全宽模式分段）的排布由 task-month-view.tsx 的 flex order 负责；横向留白由外壳 16px 承担 */
+  .task-calendar-header { gap: 8px 12px; padding: 12px 0; }
+  .task-calendar-header button { min-height: 44px; }
 }
 
 /* Formal adoption: chrome dimensions are independent from canvas world geometry. */

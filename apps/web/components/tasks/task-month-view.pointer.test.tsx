@@ -89,7 +89,7 @@ describe("桌面月视图 pointer 改期", () => {
     click(button);
     expect(onReschedule).toHaveBeenCalledExactlyOnceWith("task", new Date(2026, 9, 22, 9, 45));
     expect(button.releasePointerCapture).toHaveBeenCalledWith(1);
-    expect(container.querySelector(".border-dashed")).toBeNull();
+    expect(container.querySelector('[data-calendar-surface="month"] .border-dashed')).toBeNull();
     expect(onTaskClick).not.toHaveBeenCalled();
     expect(onDateClick).not.toHaveBeenCalled();
   });
@@ -126,8 +126,8 @@ describe("桌面月视图 pointer 改期", () => {
     click(button);
     expect(onReschedule).not.toHaveBeenCalled();
     expect(onTaskClick).not.toHaveBeenCalled();
-    expect(container.querySelector(".border-dashed")).toBeNull();
-    expect(container.querySelector(".ring-primary")).toBeNull();
+    expect(container.querySelector('[data-calendar-surface="month"] .border-dashed')).toBeNull();
+    expect(container.querySelector('[data-calendar-surface="month"] .ring-primary')).toBeNull();
     // 取消后仍允许键盘激活，下一次 pointer 手势也能正常点击。
     click(button, 0);
     expect(onTaskClick).toHaveBeenCalledTimes(1);
@@ -141,7 +141,7 @@ describe("桌面月视图 pointer 改期", () => {
     click(button);
     expect(onReschedule).not.toHaveBeenCalled();
     expect(onTaskClick).not.toHaveBeenCalled();
-    expect(container.querySelector(".border-dashed")).toBeNull();
+    expect(container.querySelector('[data-calendar-surface="month"] .border-dashed')).toBeNull();
   });
 
   it("忽略其它 pointer，最终可从右边缘夹紧落在周日", async () => {
