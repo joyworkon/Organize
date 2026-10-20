@@ -3705,12 +3705,13 @@
 .note-search-type { flex-shrink: 0; color: hsl(var(--muted-foreground)); font-size: 11px; }
 .note-search-snippet { min-width: 0; flex: 1; font-size: 13px; color: hsl(var(--foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-search-snippet mark { background: hsl(var(--primary) / .12); color: inherit; border-radius: 3px; padding: 0 1px; }
-/* 跳转命中块的短暂高亮 */
-.organize-editor .organize-search-hit { animation: search-hit-fade 2.4s ease-out; }
-@keyframes search-hit-fade {
-  0%, 55% { background: hsl(var(--primary) / .1); box-shadow: -8px 0 0 0 hsl(var(--primary) / .1), 8px 0 0 0 hsl(var(--primary) / .1); }
-  100% { background: transparent; box-shadow: none; }
+/* 当前查找命中：类在则高亮常驻，查找条关闭或附件跳转超时后摘掉类 */
+.organize-editor .organize-search-hit {
+  background: hsl(var(--primary) / .12);
+  box-shadow: -8px 0 0 0 hsl(var(--primary) / .12), 8px 0 0 0 hsl(var(--primary) / .12);
 }
+.note-find-bar .note-search-results { padding-top: 4px; }
+.note-find-bar .note-search-results ul { max-height: 9rem; }
 
 /* 笔记附件管理面板（note-attachments-panel） */
 .note-topbar .note-attachment-badge {

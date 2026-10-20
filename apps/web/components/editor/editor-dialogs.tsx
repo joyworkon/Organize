@@ -25,7 +25,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { findBlockById, isSameNodeSnapshot, nodeText } from "./block-utils";
-import { SearchInNoteDialog } from "./note-search-dialog";
 import type { EditorBlockTarget, EditorDialog } from "./types";
 
 export function EditorDialogs({
@@ -40,7 +39,6 @@ export function EditorDialogs({
   onClose: () => void;
 }) {
   if (!dialog) return null;
-  if (dialog.type === "search") return <SearchInNoteDialog editor={editor} onClose={onClose} />;
   if (dialog.type === "move") return <MoveDialog editor={editor} noteId={noteId} target={dialog.target} onClose={onClose} />;
   if (dialog.type === "comment") return <CommentDialog noteId={noteId} target={dialog.target} onClose={onClose} />;
   if (dialog.type === "suggestion") return <SuggestionDialog editor={editor} noteId={noteId} target={dialog.target} onClose={onClose} />;
