@@ -37,11 +37,17 @@ export function useEditorUpload(editor: Editor | null) {
   );
 
   const uploadImage = useCallback(
-    (pos?: number, nested?: boolean, range?: { from: number; to: number }) => {
+    (pos?: number, nested?: boolean, range?: { from: number; to: number }, onUploaded?: (src: string) => void) => {
       if (!editor || editor.isDestroyed) return;
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/jpeg,image/png,image/gif,image/webp,image/svg+xml";
+      const deliver = (src: string) => {
+        if (editor.isDestroyed) return;
+        if (onUploaded) {
+          if (editor.isEditable) onUploaded(src);
+        } else insertImage(src, pos, nested, range);
+      };
       input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
@@ -51,10 +57,10 @@ export function useEditorUpload(editor: Editor | null) {
           const response = await fetch("/api/upload", { method: "POST", body: formData });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "上传失败");
-          insertImage(data.url, pos, nested, range);
+          deliver(data.url);
         } catch {
           const reader = new FileReader();
-          reader.onload = () => insertImage(String(reader.result), pos, nested, range);
+          reader.onload = () => deliver(String(reader.result));
           reader.readAsDataURL(file);
         }
       };
