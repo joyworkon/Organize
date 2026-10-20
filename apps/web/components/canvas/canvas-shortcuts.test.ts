@@ -8,7 +8,8 @@ import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, duplica
 describe("canvas shortcut matching", () => {
   for (const mod of ["metaKey", "ctrlKey"]) {
     it.each([
-      ["a", "select-all"], ["A", "select-all"], ["d", "duplicate"],
+      ["a", "select-all"], ["A", "select-all"], ["c", "copy"], ["C", "copy"],
+      ["x", "cut"], ["X", "cut"], ["v", "paste"], ["V", "paste"], ["d", "duplicate"],
       ["=", "zoom-in"], ["+", "zoom-in"], ["-", "zoom-out"], ["0", "zoom-reset"],
     ])(`matches ${mod} + %s`, (key, action) => {
       expect(matchCanvasShortcut(new KeyboardEvent("keydown", { key, [mod]: true }))).toBe(action);
@@ -27,6 +28,8 @@ describe("canvas shortcut matching", () => {
   it("does not match unrelated, altered or already consumed keys", () => {
     for (const init of [
       { key: "a" }, { key: "/" }, { key: "1" }, { key: "d", ctrlKey: true, shiftKey: true },
+      { key: "c", metaKey: true, shiftKey: true }, { key: "x", ctrlKey: true, shiftKey: true },
+      { key: "v", metaKey: true, shiftKey: true }, { key: "c", ctrlKey: true, altKey: true },
       { key: "=", ctrlKey: true, altKey: true }, { key: "?", metaKey: true },
     ]) expect(matchCanvasShortcut(new KeyboardEvent("keydown", init))).toBeNull();
     const event = new KeyboardEvent("keydown", { key: "a", metaKey: true, cancelable: true });
@@ -41,7 +44,7 @@ describe("canvas shortcut matching", () => {
   it.each(["input", "textarea", "select", "div"])("leaves %s editing native", (tag) => {
     const target = document.createElement(tag);
     if (tag === "div") Object.defineProperty(target, "isContentEditable", { value: true });
-    for (const key of ["a", "d", "=", "-", "0", "?"]) {
+    for (const key of ["a", "c", "x", "v", "d", "=", "-", "0", "?"]) {
       const event = new KeyboardEvent("keydown", { key, ctrlKey: key !== "?", bubbles: true });
       target.dispatchEvent(event);
       expect(matchCanvasShortcut(event)).toBeNull();

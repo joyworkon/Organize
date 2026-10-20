@@ -52,13 +52,11 @@ import {
   createBoardSkeleton,
   createFreeImage,
   createFreeText,
-  deleteBlock,
-  deleteBoard,
-  deleteRegion,
   insertBlockAtTarget,
   updateMaterialSnapshot,
   type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
+import { hasCanvasClipboard } from "@/lib/canvas/clipboard";
 import {
   describeInsertTarget,
   resolveInsertTarget,
@@ -91,11 +89,25 @@ import {
 import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { isFreeItemDragging } from "./canvas-free-item";
-import { applyDeleteFreeItems, nudgeFreeItems } from "./free-item-actions";
+import { nudgeFreeItems } from "./free-item-actions";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
 import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
 import { CanvasShortcutsDialog } from "./canvas-shortcuts-dialog";
+import { hitTestInsertPosition } from "./canvas-hit-test";
+import {
+  applyDeleteCanvasSelection,
+  commitCanvasCopy,
+  commitCanvasCut,
+  commitCanvasPasteFromClipboard,
+} from "./canvas-clipboard-actions";
+import {
+  CanvasClipboardMenu,
+  canvasContextMenuModel,
+  type CanvasContextMenuAction,
+  type CanvasContextMenuPoint,
+  type CanvasContextMenuRequest,
+} from "./canvas-context-menu";
 import { useIsNarrowViewport } from "./use-is-narrow-viewport";
 import { displayKey } from "./canvas-block";
 import { useCanvasSelector } from "./use-canvas-selector";
@@ -169,6 +181,9 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [contextMenu, setContextMenu] = useState<CanvasContextMenuRequest | null>(null);
+  const contextMenuRef = useRef<CanvasContextMenuRequest | null>(null);
+  const contextNonce = useRef(0);
   const [shortcutLabels, setShortcutLabels] = useState(() => canvasShortcutLabels());
   useEffect(() => {
     setShortcutLabels(canvasShortcutLabels(navigator.platform));
@@ -441,6 +456,49 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     );
   }, [scene, store, visibleViewportNow]);
 
+  const openContextMenu = useCallback((point: CanvasContextMenuPoint) => {
+    contextNonce.current += 1;
+    const next = { ...point, nonce: contextNonce.current };
+    contextMenuRef.current = next;
+    setContextMenu(next);
+  }, []);
+
+  const onContextAction = useCallback((action: CanvasContextMenuAction) => {
+    if (action === "copy") {
+      commitCanvasCopy(store);
+      return;
+    }
+    if (action === "cut") {
+      commitCanvasCut(store);
+      return;
+    }
+    if (action === "duplicate") {
+      commitCanvasDuplicate(store);
+      return;
+    }
+    if (action === "delete") {
+      applyDeleteCanvasSelection(store);
+      return;
+    }
+    if (action === "select-all") {
+      const blockIds = allCanvasBlockIds(store.getState().doc);
+      if (blockIds.length) store.getState().select({ kind: "blocks", blockIds });
+      return;
+    }
+    if (action === "zoom-fit") {
+      fitAll();
+      return;
+    }
+    const request = contextMenuRef.current;
+    if (!request) return;
+    const explicit = hitTestInsertPosition(store.getState().doc, scene, request.world.x, request.world.y);
+    void commitCanvasPasteFromClipboard(store, {
+      pointer: request.world,
+      explicit,
+      atPointer: request.scope === "canvas",
+    });
+  }, [fitAll, scene, store]);
+
   // ---------------- 键盘 ----------------
 
   useEffect(() => {
@@ -479,8 +537,15 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       if (isTypingTarget(e)) return;
       if (s.editingBlockId) return;
       const action = matchCanvasShortcut(e);
+      // ⌘V 交给 paste 事件，避免按键和系统剪贴板各粘一次。
+      if (action === "paste") return;
       if (action) {
         if (action === "duplicate" && (s.readOnly || s.previewMode)) return;
+        if (action === "cut" && (s.readOnly || s.previewMode)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         e.preventDefault();
         // Capture consumes canvas keys before focused objects and the global ? help.
         e.stopPropagation();
@@ -488,6 +553,14 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           case "select-all": {
             const blockIds = allCanvasBlockIds(s.doc);
             if (blockIds.length) s.select({ kind: "blocks", blockIds });
+            break;
+          }
+          case "copy": {
+            commitCanvasCopy(store);
+            break;
+          }
+          case "cut": {
+            commitCanvasCut(store);
             break;
           }
           case "duplicate": {
@@ -535,19 +608,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       }
       if ((e.key === "Delete" || e.key === "Backspace") && s.selection) {
         e.preventDefault();
-        const sel = s.selection;
-        if (sel.kind === "blocks") {
-          s.apply("删除多个模块", (d) => ({ doc: sel.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, d) }));
-          store.getState().select(null);
-        } else if (sel.kind === "block") {
-          s.apply("删除模块", (d) => deleteBlock(d, { blockId: sel.blockId }));
-        } else if (sel.kind === "free" || sel.kind === "frees") {
-          applyDeleteFreeItems(store, sel.kind === "free" ? [sel.itemId] : sel.itemIds);
-        } else if (sel.kind === "board") {
-          s.apply("删除页面", (d) => deleteBoard(d, { boardId: sel.boardId }));
-        } else if (sel.kind === "region") {
-          s.apply("删除区块", (d) => deleteRegion(d, { boardId: sel.boardId, regionId: sel.regionId }));
-        }
+        applyDeleteCanvasSelection(store);
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -1260,6 +1321,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           onCreateLanding={addLandingBoard}
           onReplaceImage={onReplaceImage}
           onInsertFiles={onInsertFiles}
+          onOpenContextMenu={openContextMenu}
         />
       </div>
 
@@ -1330,6 +1392,19 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         )}
       </div>
       <CanvasShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} labels={shortcutLabels} />
+      {contextMenu && (
+        <CanvasClipboardMenu
+          request={contextMenu}
+          entries={canvasContextMenuModel({
+            scope: contextMenu.scope,
+            selection,
+            readOnly: readOnly || previewMode,
+            hasClipboard: hasCanvasClipboard(),
+            labels: shortcutLabels,
+          })}
+          onSelect={onContextAction}
+        />
+      )}
 
       {/* 云端版本查看 */}
       <Dialog open={showRemoteDialog} onOpenChange={setShowRemoteDialog}>

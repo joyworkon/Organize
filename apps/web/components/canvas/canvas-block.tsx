@@ -175,7 +175,10 @@ export const CanvasTextBlockView = memo(function CanvasTextBlockView({
       }
       onPointerDown={
         interactive && !editing
-          ? () => store.getState().select({ kind: "block", blockId: block.id })
+          ? (e) => {
+              if (e.button === 2) return;
+              store.getState().select({ kind: "block", blockId: block.id });
+            }
           : undefined
       }
       onDoubleClick={interactive && !editing ? () => store.getState().startEdit(block.id) : undefined}
@@ -334,7 +337,12 @@ export const CanvasImageBlockView = memo(function CanvasImageBlockView({
       tabIndex={interactive ? 0 : -1}
       aria-label={asset ? `图片：${asset.name || "未命名"}` : "空图片模块"}
       onPointerDown={
-        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+        interactive
+          ? (e) => {
+              if (e.button === 2) return;
+              store.getState().select({ kind: "block", blockId: block.id });
+            }
+          : undefined
       }
       onKeyDown={
         interactive
@@ -447,7 +455,12 @@ export const CanvasDividerBlockView = memo(function CanvasDividerBlockView({
       aria-label="分隔线"
       tabIndex={interactive ? 0 : -1}
       onPointerDown={
-        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+        interactive
+          ? (e) => {
+              if (e.button === 2) return;
+              store.getState().select({ kind: "block", blockId: block.id });
+            }
+          : undefined
       }
       onKeyDown={
         interactive
@@ -505,6 +518,7 @@ export const CanvasButtonBlockView = memo(function CanvasButtonBlockView({
       onPointerDown={
         interactive
           ? (e) => {
+              if (e.button === 2) return;
               // 编辑态点击 = 选中，不跳转（B2）
               e.preventDefault();
               store.getState().select({ kind: "block", blockId: block.id });
@@ -611,7 +625,12 @@ export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlock
       tabIndex={interactive ? 0 : -1}
       aria-label={`资料卡片：${block.title || "未命名"}`}
       onPointerDown={
-        interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined
+        interactive
+          ? (e) => {
+              if (e.button === 2) return;
+              store.getState().select({ kind: "block", blockId: block.id });
+            }
+          : undefined
       }
       onDoubleClick={
         interactive ? () => store.getState().select({ kind: "block", blockId: block.id }) : undefined

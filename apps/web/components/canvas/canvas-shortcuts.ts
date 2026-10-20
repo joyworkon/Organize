@@ -4,7 +4,7 @@ import { findBlockLocation, findFreeItem, type CanvasCommandResult, type CanvasD
 import type { CanvasSelection, CanvasStore, CanvasViewport } from "./canvas-store";
 import { clampZoom } from "./canvas-viewport";
 
-export type CanvasShortcut = "select-all" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "help";
+export type CanvasShortcut = "select-all" | "copy" | "cut" | "paste" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "help";
 
 /** Only match canvas keys outside native text editing; callers also guard modal/editor state. */
 export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
@@ -16,6 +16,9 @@ export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
     if (key === "-") return "zoom-out";
     if (key === "0") return "zoom-reset";
     if (key === "a") return "select-all";
+    if (key === "c") return "copy";
+    if (key === "x") return "cut";
+    if (key === "v") return "paste";
     if (key === "d") return "duplicate";
     return null;
   }
