@@ -88,6 +88,7 @@ import {
 } from "@/lib/library/material-source";
 import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
+import { CanvasMinimap, CanvasMinimapToggle, useMinimapOpen } from "./canvas-minimap";
 import { isFreeItemDragging } from "./canvas-free-item";
 import { nudgeFreeItems } from "./free-item-actions";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
@@ -190,6 +191,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   }, []);
   const [userId, setUserId] = useState("");
   const narrow = useIsNarrowViewport();
+  const [minimapOpen, toggleMinimap] = useMinimapOpen(narrow);
   /** 左侧面板折叠（窄空间可折叠，默认展开）。 */
   const [panelOpen, setPanelOpen] = useState(true);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1377,6 +1379,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         >
           <Maximize2 className="h-4 w-4" />
         </Button>
+        <CanvasMinimapToggle open={minimapOpen} onToggle={toggleMinimap} />
         {!narrow && (
           <Button
             type="button"
@@ -1391,6 +1394,14 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           </Button>
         )}
       </div>
+      <CanvasMinimap
+        open={minimapOpen}
+        scene={scene}
+        names={Object.fromEntries(doc.boards.map((board) => [board.id, board.name]))}
+        viewport={viewport}
+        shellRef={shellRef}
+        onViewport={(next) => store.getState().setViewport(next)}
+      />
       <CanvasShortcutsDialog open={showShortcuts} onOpenChange={setShowShortcuts} labels={shortcutLabels} />
       {contextMenu && (
         <CanvasClipboardMenu

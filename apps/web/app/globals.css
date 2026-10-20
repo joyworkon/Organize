@@ -6424,6 +6424,51 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-zoom-value { width: 44px; text-align: center; font-size: 12px; color: hsl(var(--muted-foreground)); }
 
+/* 小地图：视口外的覆盖层，和缩放条同一套表面。不进 .canvas-world，避免给编辑器加 transform。 */
+.canvas-minimap {
+  position: absolute;
+  right: 12px;
+  bottom: calc(max(12px, env(safe-area-inset-bottom, 0px)) + 52px);
+  z-index: 39;
+  padding: 8px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  touch-action: none;
+}
+.canvas-minimap.is-empty {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.canvas-minimap.is-empty p { margin: 0; }
+.canvas-minimap-svg { display: block; }
+.canvas-minimap-board {
+  fill: hsl(var(--card));
+  stroke: hsl(var(--border));
+  stroke-width: 1;
+}
+.canvas-minimap-free { fill: hsl(var(--muted)); }
+.canvas-minimap-label {
+  fill: hsl(var(--muted-foreground));
+  font-size: 9px;
+  font-family: inherit;
+  pointer-events: none;
+}
+.canvas-minimap-camera {
+  fill: hsl(var(--primary) / 0.16);
+  stroke: hsl(var(--primary));
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.canvas-minimap-camera:focus { outline: none; }
+.canvas-minimap-camera:focus-visible { stroke-width: 2.5; }
+@media (pointer: coarse) {
+  .canvas-minimap { bottom: calc(max(12px, env(safe-area-inset-bottom, 0px)) + 68px); }
+}
+
 /* 预览提示 / 手机提示 */
 .canvas-preview-hint {
   position: absolute;
@@ -6681,6 +6726,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   .canvas-property-bar,
   .canvas-add-panel,
   .canvas-zoom,
+  .canvas-minimap,
   .canvas-banner,
   .canvas-block,
   .canvas-insert-preview,
@@ -6693,6 +6739,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 
 /* Canvas interaction surfaces own wheel gestures and keep content away from the frame. */
 .canvas-viewport { overscroll-behavior: none; touch-action: none; }
+.canvas-viewport :is(input, textarea, select, [contenteditable="true"]) { touch-action: auto; }
 .canvas-region { background: hsl(var(--muted) / 0.45); }
 .canvas-viewport.is-editable .canvas-block:not(.is-editing) { cursor: grab; }
 .canvas-selection-marquee { position: absolute; pointer-events: none; border: 1px solid hsl(var(--primary)); background: hsl(var(--primary) / 0.12); z-index: 50; }

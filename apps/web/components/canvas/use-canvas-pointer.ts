@@ -117,12 +117,20 @@ export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: 
     }
   };
 
-  const finish = (e: ReactPointerEvent<HTMLDivElement>, cancel = false) => {
+  /** 第二指捏合时丢掉半截框选或模块拖动，松手不再提交。 */
+  const cancel = () => {
+    if (!gesture.current) return;
+    gesture.current = null;
+    suppressClick.current = true;
+    setVisual(null);
+  };
+
+  const finish = (e: ReactPointerEvent<HTMLDivElement>, cancelGesture = false) => {
     const g = gesture.current;
     if (!g) return;
     gesture.current = null;
     suppressClick.current = g.moved;
-    if (!cancel && g.kind === "move" && g.moved && visual) {
+    if (!cancelGesture && g.kind === "move" && g.moved && visual) {
       if (!visual.drop && !visual.canFree) {
         toast({ title: "未移动模块", description: "请拖到目标列，或将文字、图片拖到页面外的空白画布。" });
       } else store.getState().apply("拖动移动模块", (doc) => relocateBlocks(doc, {
@@ -135,7 +143,7 @@ export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: 
     setVisual(null);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
-  return { down, move, finish, visual, clickCapture: (e: React.MouseEvent) => {
+  return { down, move, finish, cancel, visual, clickCapture: (e: React.MouseEvent) => {
     if (suppressClick.current) { e.preventDefault(); e.stopPropagation(); suppressClick.current = false; }
   } };
 }
