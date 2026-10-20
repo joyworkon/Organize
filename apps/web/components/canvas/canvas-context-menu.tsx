@@ -18,6 +18,8 @@ import {
   ContextMenuShortcut,
   useContextMenu,
 } from "@/components/ui/context-menu";
+import { ArrangeIcon, FREE_ARRANGE_CONTROLS } from "./canvas-arrange";
+import { isFreeArrangeAction, type FreeArrangeActionId } from "./free-item-actions";
 import type { CanvasSelection } from "./canvas-store";
 
 export type CanvasContextTarget =
@@ -35,15 +37,30 @@ export type CanvasContextMenuAction =
   | "duplicate"
   | "delete"
   | "select-all"
-  | "zoom-fit";
+  | "zoom-fit"
+  | FreeArrangeActionId;
 
 export interface CanvasContextMenuEntry {
-  id: CanvasContextMenuAction;
+  id: string;
   label: string;
   shortcut: string;
   disabled: boolean;
   destructive?: boolean;
   separatorBefore?: boolean;
+  /** 分组标题，不是可点的菜单项。 */
+  heading?: boolean;
+  title?: string;
+}
+
+function isMenuCommand(id: string): id is CanvasContextMenuAction {
+  return id === "copy"
+    || id === "cut"
+    || id === "paste"
+    || id === "duplicate"
+    || id === "delete"
+    || id === "select-all"
+    || id === "zoom-fit"
+    || isFreeArrangeAction(id);
 }
 
 export interface CanvasContextMenuPoint {
@@ -164,11 +181,17 @@ export function canvasContextMenuModel(input: {
     ];
   }
   const canCopy = canCopySelection(selection);
+  const freeCount = selection?.kind === "free"
+    ? 1
+    : selection?.kind === "frees"
+      ? new Set(selection.itemIds).size
+      : 0;
   return [
     { id: "copy", label: "复制", shortcut: `${labels.mod}C`, disabled: !canCopy },
     { id: "cut", label: "剪切", shortcut: `${labels.mod}X`, disabled: readOnly || !canCopy },
     { id: "paste", label: "粘贴", shortcut: `${labels.mod}V`, disabled: readOnly || !hasClipboard },
     { id: "duplicate", label: "创建副本", shortcut: `${labels.mod}D`, disabled: readOnly || !canCopy },
+    ...freeArrangeMenuEntries(freeCount, readOnly),
     {
       id: "delete",
       label: "删除",
@@ -180,8 +203,41 @@ export function canvasContextMenuModel(input: {
   ];
 }
 
-function MenuIcon({ id }: { id: CanvasContextMenuAction }) {
+function freeArrangeMenuEntries(count: number, readOnly: boolean): CanvasContextMenuEntry[] {
+  if (count < 1) return [];
+  const groups = [
+    { id: "heading-align", group: "align" as const, label: "对齐", min: 2, need: "至少选择 2 个自由元素" },
+    { id: "heading-distribute", group: "distribute" as const, label: "分布", min: 3, need: "至少选择 3 个自由元素" },
+    { id: "heading-layer", group: "layer" as const, label: "图层", min: 1, need: "" },
+  ];
+  const rows: CanvasContextMenuEntry[] = [];
+  for (const group of groups) {
+    rows.push({
+      id: group.id,
+      label: group.label,
+      shortcut: "",
+      disabled: true,
+      separatorBefore: true,
+      heading: true,
+    });
+    for (const control of FREE_ARRANGE_CONTROLS) {
+      if (control.group !== group.group) continue;
+      const blocked = readOnly || count < group.min;
+      rows.push({
+        id: control.id,
+        label: control.label,
+        shortcut: "",
+        disabled: blocked,
+        title: blocked ? (readOnly ? "只读时不能调整自由元素" : group.need) : control.title,
+      });
+    }
+  }
+  return rows;
+}
+
+function MenuIcon({ id }: { id: string }) {
   const className = "h-4 w-4";
+  if (isFreeArrangeAction(id)) return <ArrangeIcon id={id} className={className} />;
   if (id === "copy") return <Copy className={className} />;
   if (id === "cut") return <span aria-hidden="true" className="text-sm leading-none">✂</span>;
   if (id === "paste") return <ClipboardPaste className={className} />;
@@ -215,17 +271,30 @@ export function CanvasClipboardMenu({
         {entries.map((entry) => (
           <Fragment key={entry.id}>
             {entry.separatorBefore ? <ContextMenuSeparator /> : null}
-            <ContextMenuItem
-              disabled={entry.disabled}
-              className={entry.destructive ? "text-destructive focus:text-destructive focus:bg-destructive/10" : undefined}
-              onSelect={() => onSelect(entry.id)}
-            >
-              <ContextMenuIcon className={entry.destructive ? "text-destructive" : undefined}>
-                <MenuIcon id={entry.id} />
-              </ContextMenuIcon>
-              {entry.label}
-              <ContextMenuShortcut>{entry.shortcut}</ContextMenuShortcut>
-            </ContextMenuItem>
+            {entry.heading ? (
+              <div role="presentation" className="px-2 pb-0.5 pt-1.5 text-xs font-medium text-muted-foreground">
+                {entry.label}
+              </div>
+            ) : (
+              <ContextMenuItem
+                disabled={entry.disabled}
+                title={entry.title}
+                className={entry.destructive
+                  ? "text-destructive focus:text-destructive focus:bg-destructive/10"
+                  : entry.disabled && entry.title
+                    ? "data-[disabled]:pointer-events-auto"
+                    : undefined}
+                onSelect={() => {
+                  if (isMenuCommand(entry.id)) onSelect(entry.id);
+                }}
+              >
+                <ContextMenuIcon className={entry.destructive ? "text-destructive" : undefined}>
+                  <MenuIcon id={entry.id} />
+                </ContextMenuIcon>
+                {entry.label}
+                {entry.shortcut ? <ContextMenuShortcut>{entry.shortcut}</ContextMenuShortcut> : null}
+              </ContextMenuItem>
+            )}
           </Fragment>
         ))}
       </ContextMenuContent>

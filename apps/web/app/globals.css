@@ -6415,6 +6415,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   font-size: 13px;
 }
 .canvas-prop-actions { gap: 4px; flex-wrap: wrap; }
+.canvas-prop-icon-row { display: flex; flex-wrap: wrap; gap: 2px; }
 .canvas-swatch-row { display: flex; gap: 4px; flex-wrap: wrap; }
 .canvas-swatch {
   width: 18px;
