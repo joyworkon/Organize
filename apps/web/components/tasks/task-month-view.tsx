@@ -8,6 +8,7 @@ import type { CountdownDay, TaskWithTags } from "@organize/shared";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
+import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -164,6 +165,28 @@ interface TimeGridSelection {
   moved: boolean;
 }
 
+/** 拖定时块上/下沿改开始或结束时间的会话状态（列固定，不跨列）。 */
+interface TimeGridResizeState {
+  pointerId: number;
+  handle: HTMLSpanElement;
+  column: HTMLDivElement;
+  taskId: string;
+  dayIdx: number;
+  edge: "start" | "end";
+  lane: number;
+  lanes: number;
+  origStartMin: number;
+  origEndMin: number;
+  startMin: number;
+  endMin: number;
+  moved: boolean;
+}
+
+/** 指针 clientY → 当天分钟数（未吸附）；列顶随网格滚动实时取值。 */
+function timeGridPointerMinutes(column: HTMLDivElement, clientY: number): number {
+  return ((clientY - column.getBoundingClientRect().top) / HOUR_HEIGHT) * 60;
+}
+
 interface WeekDragState {
   taskId: string;
   allDayChip: boolean;
@@ -211,6 +234,11 @@ export function TimeGridView({
   const [selection, setSelection] = useState<TimeGridSelection | null>(null);
   const suppressCreateClickRef = useRef(false);
 
+  const resizeRef = useRef<TimeGridResizeState | null>(null);
+  const [resize, setResize] = useState<TimeGridResizeState | null>(null);
+  /** move 拖拽的 capture 元素，供 Esc 取消时释放（drag state 不含 DOM 引用）。 */
+  const dragPointerRef = useRef<{ element: HTMLElement; pointerId: number } | null>(null);
+
   const clearSelection = useCallback(() => {
     const current = selectionRef.current;
     selectionRef.current = null;
@@ -226,7 +254,6 @@ export function TimeGridView({
     clearSelection();
   }, [clearSelection]);
 
-  useHotkey(selection ? [{ key: "Escape", handler: cancelSelection, allowInInput: true }] : []);
   useEffect(() => { cancelSelection(); }, [firstDayKey, lastDayKey, cancelSelection]);
 
   const startSelection = (event: React.PointerEvent<HTMLDivElement>, day: Date, dayIdx: number) => {
@@ -334,6 +361,7 @@ export function TimeGridView({
     );
     grabRef.current = { offsetMin, origDayIdx: dayIdx, origSlotMin: ev.startMin };
     movedRef.current = false;
+    dragPointerRef.current = { element: event.currentTarget, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       taskId: task.id,
@@ -356,6 +384,7 @@ export function TimeGridView({
     event.stopPropagation();
     grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0 };
     movedRef.current = false;
+    dragPointerRef.current = { element: event.currentTarget, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       taskId: task.id,
@@ -450,6 +479,7 @@ export function TimeGridView({
 
   const endDrag = () => {
     stopEdgeScroll();
+    dragPointerRef.current = null;
     if (!drag || !dragTask) {
       setDrag(null);
       return;
@@ -478,6 +508,186 @@ export function TimeGridView({
           current.slotMin % 60
         );
     const newEnd = new Date(newStart.getTime() + duration);
+    void onUpdateTaskSchedule(task.id, {
+      schedule_start_at: newStart.toISOString(),
+      schedule_end_at: newEnd.toISOString(),
+      all_day: Boolean(task.all_day),
+      timezone: task.timezone || null,
+      recurrence_rule: task.recurrence_rule || null,
+    });
+  };
+
+  /** 按住热区开始 resize：capture 落在热区 span 上，事件沿 DOM 冒泡仍可触发自身 handler。 */
+  const startResize = (
+    event: React.PointerEvent<HTMLSpanElement>,
+    task: TaskWithTags,
+    dayIdx: number,
+    ev: WeekTimedEvent,
+    edge: "start" | "end"
+  ) => {
+    if (!onUpdateTaskSchedule || event.button !== 0 || !event.isPrimary || resizeRef.current) return;
+    event.stopPropagation();
+    const column = event.currentTarget.closest("[data-time-grid-day]") as HTMLDivElement | null;
+    if (!column) return;
+    // 热区手势（无论是否改动/取消）之后的 click 都不打开详情。
+    movedRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const next: TimeGridResizeState = {
+      pointerId: event.pointerId,
+      handle: event.currentTarget,
+      column,
+      taskId: task.id,
+      dayIdx,
+      edge,
+      lane: ev.lane,
+      lanes: ev.lanes,
+      origStartMin: ev.startMin,
+      origEndMin: ev.endMin,
+      startMin: ev.startMin,
+      endMin: ev.endMin,
+      moved: false,
+    };
+    resizeRef.current = next;
+    setResize(next);
+  };
+
+  const updateResize = (clientY: number) => {
+    const current = resizeRef.current;
+    if (!current) return null;
+    const range = resizeRangeFromPointer({
+      edge: current.edge,
+      startMin: current.origStartMin,
+      endMin: current.origEndMin,
+      pointerMin: timeGridPointerMinutes(current.column, clientY),
+    });
+    const moved =
+      current.moved ||
+      range.startMin !== current.origStartMin ||
+      range.endMin !== current.origEndMin;
+    const next = { ...current, ...range, moved };
+    resizeRef.current = next;
+    setResize(next);
+    return next;
+  };
+
+  /** resize 的边缘自动滚动：与 edgeScroll 同一思路，滚动后按最新指针位置重算范围。 */
+  const resizeEdgeScroll = (clientY: number) => {
+    const grid = gridRef.current;
+    if (!grid || !resizeRef.current) {
+      stopEdgeScroll();
+      return;
+    }
+    const rect = grid.getBoundingClientRect();
+    const EDGE = 48;
+    let delta = 0;
+    if (clientY < rect.top + EDGE) delta = -Math.ceil((rect.top + EDGE - clientY) / 6);
+    else if (clientY > rect.bottom - EDGE) delta = Math.ceil((clientY - (rect.bottom - EDGE)) / 6);
+    if (delta === 0) {
+      stopEdgeScroll();
+      return;
+    }
+    const maxScroll = grid.scrollHeight - grid.clientHeight;
+    if (grid.scrollTop <= 0 && delta < 0) return;
+    if (grid.scrollTop >= maxScroll && delta > 0) return;
+    grid.scrollTop = Math.max(0, Math.min(maxScroll, grid.scrollTop + delta));
+    updateResize(lastPointerRef.current.y);
+    edgeScrollRef.current = requestAnimationFrame(() => resizeEdgeScroll(clientY));
+  };
+
+  const moveResize = (event: React.PointerEvent) => {
+    const current = resizeRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    updateResize(event.clientY);
+    resizeEdgeScroll(event.clientY);
+  };
+
+  const clearResize = () => {
+    const current = resizeRef.current;
+    resizeRef.current = null;
+    setResize(null);
+    if (current && current.handle.hasPointerCapture(current.pointerId)) {
+      current.handle.releasePointerCapture(current.pointerId);
+    }
+  };
+
+  const endResize = (event: React.PointerEvent) => {
+    const current = resizeRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    stopEdgeScroll();
+    const finalResize = updateResize(event.clientY) ?? current;
+    clearResize();
+    const changed =
+      finalResize.startMin !== finalResize.origStartMin ||
+      finalResize.endMin !== finalResize.origEndMin;
+    if (!changed || !onUpdateTaskSchedule) return;
+    const task = tasks.find((t) => t.id === finalResize.taskId);
+    if (!task) return;
+    const day = days[finalResize.dayIdx];
+    const newStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, finalResize.startMin);
+    const newEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, finalResize.endMin);
+    void onUpdateTaskSchedule(task.id, {
+      schedule_start_at: newStart.toISOString(),
+      schedule_end_at: newEnd.toISOString(),
+      all_day: Boolean(task.all_day),
+      timezone: task.timezone || null,
+      recurrence_rule: task.recurrence_rule || null,
+    });
+  };
+
+  const cancelResize = () => {
+    if (!resizeRef.current) return;
+    stopEdgeScroll();
+    clearResize();
+  };
+
+  const cancelResizeForEvent = (event: React.PointerEvent) => {
+    if (resizeRef.current?.pointerId === event.pointerId) cancelResize();
+  };
+
+  /** Esc 取消 move 拖拽：释放 capture、停滚动、清状态、拦住随后的 click。 */
+  const cancelDrag = () => {
+    stopEdgeScroll();
+    const cap = dragPointerRef.current;
+    if (cap && cap.element.hasPointerCapture(cap.pointerId)) {
+      cap.element.releasePointerCapture(cap.pointerId);
+    }
+    dragPointerRef.current = null;
+    movedRef.current = true;
+    setDrag(null);
+  };
+
+  const cancelActiveGesture = () => {
+    if (resizeRef.current) cancelResize();
+    else if (drag) cancelDrag();
+    else cancelSelection();
+  };
+
+  useHotkey(selection || drag || resize
+    ? [{ key: "Escape", handler: cancelActiveGesture, allowInInput: true }]
+    : []);
+
+  /** 聚焦定时块时的键盘微调：⌥↑/⌥↓ 平移 ±30 分钟，⌥⇧↑/⌥⇧↓ 缩短/延长 15 分钟。 */
+  const handleTimedKeyDown = (
+    event: React.KeyboardEvent,
+    task: TaskWithTags,
+    day: Date,
+    ev: WeekTimedEvent
+  ) => {
+    if (!onUpdateTaskSchedule || !event.altKey) return;
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const resizeEnd = event.shiftKey;
+    const deltaMin = event.key === "ArrowDown" ? (resizeEnd ? 15 : 30) : (resizeEnd ? -15 : -30);
+    const next = nudgeRange({
+      startMin: ev.startMin,
+      endMin: ev.endMin,
+      deltaMin,
+      mode: resizeEnd ? "resize-end" : "move",
+    });
+    if (next.startMin === ev.startMin && next.endMin === ev.endMin) return;
+    const newStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, next.startMin);
+    const newEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, next.endMin);
     void onUpdateTaskSchedule(task.id, {
       schedule_start_at: newStart.toISOString(),
       schedule_end_at: newEnd.toISOString(),
@@ -663,6 +873,11 @@ export function TimeGridView({
                   {dayEvents[di].map((ev) => {
                     const isDragged =
                       drag?.taskId === ev.task.id && !drag.allDayChip;
+                    const isResizing = resize?.taskId === ev.task.id;
+                    const blockHeightPx = Math.max(
+                      ((ev.endMin - ev.startMin) / 60) * HOUR_HEIGHT - 2,
+                      12
+                    );
                     return (
                       <button
                         key={ev.task.id}
@@ -671,21 +886,24 @@ export function TimeGridView({
                           "absolute inset-x-0.5 z-10 flex overflow-hidden px-1.5 text-left text-xs font-medium",
                           ev.endMin - ev.startMin < 30 ? "items-center gap-1 leading-none" : "flex-col items-start gap-0.5 py-1",
                           categoryClass(ev.task),
-                          isDragged && "opacity-30"
+                          (isDragged || isResizing) && "opacity-30"
                         )}
                         style={{
                           top: (ev.startMin / 60) * HOUR_HEIGHT + 1,
-                          height: Math.max(
-                            ((ev.endMin - ev.startMin) / 60) * HOUR_HEIGHT - 2,
-                            12
-                          ),
+                          height: blockHeightPx,
                           width: ev.lanes > 1 ? `calc(${100 / ev.lanes}% - 4px)` : undefined,
                           left: ev.lanes > 1 ? `calc(${(ev.lane * 100) / ev.lanes}% + 2px)` : undefined,
                           touchAction: "none",
                         }}
+                        aria-keyshortcuts={
+                          onUpdateTaskSchedule
+                            ? "Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown"
+                            : undefined
+                        }
                         onPointerDown={(e) => startTimedDrag(e, ev.task, di, ev)}
                         onPointerMove={isDragged ? moveDrag : undefined}
                         onPointerUp={isDragged ? endDrag : undefined}
+                        onKeyDown={(e) => handleTimedKeyDown(e, ev.task, day, ev)}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (movedRef.current) {
@@ -699,6 +917,25 @@ export function TimeGridView({
                           {minutesLabel(ev.startMin)}
                         </span>
                         <span className={ev.endMin - ev.startMin < 30 ? "truncate" : "line-clamp-3 w-full"}>{ev.task.title}</span>
+                        {/* 上/下沿 resize 热区（span 非交互元素，可嵌在 button 内；
+                            必须排在内容 span 之后，保持 querySelector("span") 仍取到时间标签） */}
+                        {onUpdateTaskSchedule && blockHeightPx >= 20 && (["start", "end"] as const).map((edge) => (
+                          <span
+                            key={edge}
+                            aria-hidden
+                            data-resize-edge={edge}
+                            className={cn(
+                              "absolute inset-x-0 h-1.5 cursor-ns-resize",
+                              edge === "start" ? "top-0" : "bottom-0"
+                            )}
+                            style={{ touchAction: "none" }}
+                            onPointerDown={(e) => startResize(e, ev.task, di, ev, edge)}
+                            onPointerMove={moveResize}
+                            onPointerUp={endResize}
+                            onPointerCancel={cancelResizeForEvent}
+                            onLostPointerCapture={cancelResizeForEvent}
+                          />
+                        ))}
                       </button>
                     );
                   })}
@@ -713,6 +950,23 @@ export function TimeGridView({
                     >
                       <span className="whitespace-nowrap rounded-sm bg-background px-0.5">
                         {minutesLabel(selection.startMin)} – {minutesLabel(selection.endMin)}
+                      </span>
+                    </div>
+                  )}
+                  {/* resize 预览：虚线框 + 实时「HH:MM – HH:MM」，与原块同 lane 定位 */}
+                  {resize && resize.dayIdx === di && (
+                    <div
+                      role="status"
+                      className="pointer-events-none absolute inset-x-0.5 z-30 rounded-md border border-dashed border-primary/40 bg-primary/10 px-1 text-xs font-medium tabular-nums"
+                      style={{
+                        top: (resize.startMin / 60) * HOUR_HEIGHT,
+                        height: ((resize.endMin - resize.startMin) / 60) * HOUR_HEIGHT,
+                        width: resize.lanes > 1 ? `calc(${100 / resize.lanes}% - 4px)` : undefined,
+                        left: resize.lanes > 1 ? `calc(${(resize.lane * 100) / resize.lanes}% + 2px)` : undefined,
+                      }}
+                    >
+                      <span className="whitespace-nowrap rounded-sm bg-background px-0.5">
+                        {minutesLabel(resize.startMin)} – {minutesLabel(resize.endMin)}
                       </span>
                     </div>
                   )}
@@ -749,7 +1003,7 @@ export function TimeGridView({
                         )}
                       >
                         <span className="truncate text-sm font-semibold">
-                          {WEEK_DAY_LABELS[(days[drag.dayIdx].getDay() + 6) % 7]} {minutesLabel(drag.slotMin)}
+                          {WEEK_DAY_LABELS[(days[drag.dayIdx].getDay() + 6) % 7]} {minutesLabel(drag.slotMin)} – {minutesLabel(Math.min(1440, drag.slotMin + ghostDurationMin))}
                         </span>
                       </div>
                     </div>
