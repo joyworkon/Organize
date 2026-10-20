@@ -643,3 +643,19 @@ describe("mock api shim：/api/canvases/[id] PATCH 诚实性", () => {
     expect(missing.status).toBe(404);
   });
 });
+
+describe("mock canvas list summary parity", () => {
+  it("响应使用紧凑 DTO，排除其他用户/已删除记录，删除后可恢复", async () => {
+    const { mockDb, MOCK_USER } = await import("@/lib/supabase/mock-data");
+    const { emptyDoc } = await import("@/lib/canvas/model");
+    const { canvasListDto } = await import("@/lib/canvas/list-summary");
+    const row = { id: "55555555-5555-4555-8555-555555555555", title: "摘要测试", user_id: MOCK_USER.id, content: emptyDoc(), revision: 1, deleted_at: null, created_at: "2026-10-20", updated_at: "2026-10-20" };
+    mockDb.canvas_documents = [row, { ...row, id: "other", user_id: "other" }, { ...row, id: "deleted", deleted_at: "2026-10-20" }];
+    expect((await call("/api/canvases")).body).toEqual({ canvases: [canvasListDto(row)] });
+    await call(`/api/canvases/${row.id}`, { method: "DELETE" });
+    expect((await call("/api/canvases")).body).toEqual({ canvases: [] });
+    const restored = await call("/api/trash", { method: "POST", body: JSON.stringify({ action: "restore", resource_type: "canvas_document", ids: [row.id] }) });
+    expect(restored.body).toEqual({ success: true, affected: 1 });
+    expect((await call("/api/canvases")).body.canvases[0]).toEqual(canvasListDto(row));
+  });
+});

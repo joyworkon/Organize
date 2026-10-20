@@ -7,6 +7,7 @@
 import { mockDb, MOCK_USER } from "@/lib/supabase/mock-data";
 import { parseMemoTags } from "@/lib/memos/tags";
 import { createCollectionRoutes } from "@/lib/mock/api-shim-collections";
+import { canvasListDto } from "@/lib/canvas/list-summary";
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { validateCanvasPatchBody } from "@/lib/canvas/api-mutation";
 import { CANVAS_SCHEMA_VERSION, ensureCanvasDocV2 } from "@/lib/canvas/model";
@@ -952,12 +953,7 @@ const listCanvasesShim: MockHandler = () => {
     .filter((r: any) => r.user_id === MOCK_USER.id && !r.deleted_at)
     .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, 200)
-    .map((r: any) => ({
-      id: r.id,
-      title: r.title,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }));
+    .map(canvasListDto);
   return { body: { canvases: rows } };
 };
 

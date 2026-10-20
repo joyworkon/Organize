@@ -303,7 +303,8 @@ test.describe("构思画布", () => {
     await page.getByRole("link", { name: "返回画布列表" }).click();
     const card = page.locator(".canvas-list-card").first();
     await expect(card).toBeVisible();
-    await card.getByRole("button", { name: /删除/ }).click();
+    await card.getByRole("button", { name: /画布操作/ }).click();
+    await page.getByRole("menuitem", { name: "移入垃圾箱" }).click();
     await expect(page.getByText("已移入垃圾箱")).toBeVisible();
     // 侧栏 SPA 进垃圾箱
     await page.getByRole("link", { name: "垃圾箱" }).first().click();
