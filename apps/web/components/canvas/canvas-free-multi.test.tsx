@@ -2,7 +2,7 @@
 import { act, createElement, useCallback, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFreeText } from "@/lib/canvas/commands";
+import { createFreeImage, createFreeText } from "@/lib/canvas/commands";
 import { computeScene, type Scene, type SceneBlockBox, type SceneFreeItem } from "@/lib/canvas/layout";
 import { emptyDoc, type CanvasFreeItem } from "@/lib/canvas/model";
 import { CanvasFreeItemView } from "./canvas-free-item";
@@ -320,4 +320,152 @@ describe("自由元素多选交互", () => {
     store.getState().undo();
     expect(store.getState().doc.freeItems).toHaveLength(2);
   });
+  function renderViewport(store: CanvasStore, interactive = true) {
+    const doc = store.getState().doc;
+    render(<CanvasViewportView store={store} doc={doc} scene={computeScene(doc, () => 24)}
+      userId="user" interactive={interactive} spaceHeld={false} selection={store.getState().selection}
+      editingBlockId={null} assetUrls={{}} sourceStatuses={new Map()} />);
+  }
+
+  it("单选六手柄：左边锚右、实时尺寸、一次提交可撤销/重做", () => {
+    const { store, a } = twoItems();
+    store.getState().select({ kind: "free", itemId: a.id });
+    const before = store.getState().doc;
+    renderViewport(store);
+    expect(container.querySelectorAll(".canvas-resize-handle")).toHaveLength(6);
+    expect(container.querySelectorAll(".canvas-free-resize")).toHaveLength(1);
+    const left = container.querySelector("[data-resize-handle='w']")!;
+    dispatchPointer(left, "pointerdown", { clientX: 100, clientY: 100 });
+    dispatchPointer(left, "pointermove", { clientX: 140, clientY: 100, altKey: true });
+    const live = container.querySelector(`[data-free-item-id='${a.id}']`) as HTMLElement;
+    expect(parseFloat(live.style.left) + parseFloat(live.style.width)).toBe(a.x + a.width);
+    expect(live.style.width).toBe(`${a.width - 40}px`);
+    expect(container.querySelector(".canvas-resize-size")?.textContent).toBe(`${a.width - 40} px`);
+    expect(store.getState().doc).toBe(before);
+    dispatchPointer(left, "pointerup", { clientX: 140, clientY: 100 });
+    expect(container.querySelector(".canvas-resize-size")).toBeNull();
+    expect(store.getState().doc.freeItems[0]).toMatchObject({ x: a.x + 40, width: a.width - 40 });
+    const after = store.getState().doc;
+    act(() => store.getState().undo());
+    expect(store.getState().doc).toBe(before);
+    act(() => store.getState().redo());
+    expect(store.getState().doc).toBe(after);
+  });
+
+  it("Shift 左边以中心缩放；Esc/捕获丢失取消，外来指针不提交", () => {
+    const { store, a } = twoItems();
+    store.getState().select({ kind: "free", itemId: a.id });
+    const before = store.getState().doc;
+    renderViewport(store);
+    const left = container.querySelector("[data-resize-handle='w']")!;
+    dispatchPointer(left, "pointerdown", { clientX: 100, clientY: 100 });
+    dispatchPointer(left, "pointermove", { clientX: 80, clientY: 100, shiftKey: true, altKey: true });
+    const box = container.querySelector(`[data-free-item-id='${a.id}']`) as HTMLElement;
+    expect(box.style.left).toBe(`${a.x - 20}px`);
+    expect(box.style.width).toBe(`${a.width + 40}px`);
+    dispatchPointer(left, "pointerup", { pointerId: 2, clientX: 80, clientY: 100 });
+    expect(container.querySelector(".canvas-resize-size")).not.toBeNull();
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(box.style.left).toBe(`${a.x}px`);
+    expect(container.querySelector(".canvas-resize-size")).toBeNull();
+    dispatchPointer(left, "pointerup", { clientX: 80, clientY: 100 });
+    expect(store.getState().doc).toBe(before);
+    dispatchPointer(left, "pointerdown", { clientX: 100, clientY: 100 });
+    dispatchPointer(left, "pointermove", { clientX: 80, clientY: 100 });
+    dispatchPointer(left, "lostpointercapture", {});
+    dispatchPointer(left, "pointerup", {});
+    expect(store.getState().doc).toBe(before);
+  });
+
+  it("左手柄方向键锚右，事件不冒泡为微移", () => {
+    const { store, a } = twoItems();
+    store.getState().select({ kind: "free", itemId: a.id });
+    renderViewport(store);
+    const left = container.querySelector("[data-resize-handle='w']")!;
+    act(() => left.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(store.getState().doc.freeItems[0]).toMatchObject({ x: a.x - 10, width: a.width + 10 });
+  });
+
+  it("组右下角实时缩放所有成员，松手只一步撤销并保留多选", () => {
+    const { store, a, b } = twoItems();
+    store.getState().select({ kind: "frees", itemIds: [a.id, b.id] });
+    const before = store.getState().doc;
+    renderViewport(store);
+    expect(container.querySelectorAll(".canvas-resize-handle")).toHaveLength(6);
+    const frame = container.querySelector(".canvas-free-group") as HTMLElement;
+    const width = parseFloat(frame.style.width);
+    const height = parseFloat(frame.style.height);
+    const corner = frame.querySelector("[data-resize-handle='se']")!;
+    dispatchPointer(corner, "pointerdown", { clientX: 0, clientY: 0 });
+    dispatchPointer(corner, "pointermove", { clientX: width, clientY: height, altKey: true });
+    expect(store.getState().doc).toBe(before);
+    const liveB = container.querySelector(`[data-free-item-id='${b.id}']`) as HTMLElement;
+    expect(liveB.style.width).toBe(`${b.width * 2}px`);
+    expect(liveB.style.left).toBe(`${a.x + (b.x - a.x) * 2}px`);
+    dispatchPointer(corner, "pointerup", { clientX: width, clientY: height });
+    const after = store.getState().doc;
+    expect(after.freeItems[0].width).toBe(a.width * 2);
+    expect(after.freeItems[1].y).toBe(a.y + (b.y - a.y) * 2);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: [a.id, b.id] });
+    act(() => store.getState().undo());
+    expect(store.getState().doc).toBe(before);
+    act(() => store.getState().redo());
+    expect(store.getState().doc).toBe(after);
+  });
+
+  it.each(["Escape", "pointercancel", "lostpointercapture"])("组缩放 %s 取消且没有历史记录", (cancel) => {
+    const { store, a, b } = twoItems();
+    store.getState().select({ kind: "frees", itemIds: [a.id, b.id] });
+    const before = store.getState().doc;
+    renderViewport(store);
+    const right = container.querySelector(".canvas-free-group [data-resize-handle='e']")!;
+    dispatchPointer(right, "pointerdown", { clientX: 0, clientY: 0 });
+    dispatchPointer(right, "pointermove", { clientX: 100, clientY: 0, altKey: true });
+    if (cancel === "Escape") act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: cancel, bubbles: true })));
+    else dispatchPointer(right, cancel, {});
+    dispatchPointer(right, "pointerup", { clientX: 100, clientY: 0 });
+    expect(store.getState().doc).toBe(before);
+    expect(store.getState().history.canUndo).toBe(false);
+    expect(container.querySelector(".canvas-resize-size")).toBeNull();
+  });
+
+  it("只读/预览隐藏单件与组手柄；未选中无手柄", () => {
+    const { store, a, b } = twoItems();
+    renderViewport(store);
+    expect(container.querySelector(".canvas-resize-handle")).toBeNull();
+    store.getState().select({ kind: "free", itemId: a.id });
+    renderViewport(store, false);
+    expect(container.querySelector(".canvas-resize-handle")).toBeNull();
+    store.getState().select({ kind: "frees", itemIds: [a.id, b.id] });
+    renderViewport(store, false);
+    expect(container.querySelector(".canvas-resize-handle")).toBeNull();
+    act(() => store.setState({ readOnly: true }));
+    renderViewport(store);
+    expect(container.querySelector(".canvas-resize-handle")).toBeNull();
+  });
+
+  it("图片顶角按实际比例和 chrome 重算高度，预览/提交底边一致", () => {
+    const doc = createFreeImage(emptyDoc(), { x: 100, y: 100, width: 320 }).doc;
+    const image = doc.freeItems[0];
+    if (image.block.type !== "image") throw new Error("expected image");
+    image.block.ratio = "16:9";
+    const store = createCanvasStore({ doc });
+    store.getState().setViewport({ x: 0, y: 0, zoom: 1 });
+    store.getState().select({ kind: "free", itemId: image.id });
+    renderViewport(store);
+    const oldHeight = computeScene(doc, () => 24).freeItems[0].height;
+    const corner = container.querySelector("[data-resize-handle='ne']")!;
+    dispatchPointer(corner, "pointerdown", { clientX: 0, clientY: 0 });
+    dispatchPointer(corner, "pointermove", { clientX: 100, clientY: -oldHeight * 100 / 320, altKey: true });
+    const box = container.querySelector(".canvas-free-item") as HTMLElement;
+    expect(parseFloat(box.style.width)).toBeCloseTo(420);
+    expect(parseFloat(box.style.top) + parseFloat(box.style.height)).toBeCloseTo(100 + oldHeight);
+    expect(container.querySelector(".canvas-resize-size")?.textContent).toContain("420 ×");
+    const previewHeight = parseFloat(box.style.height);
+    dispatchPointer(corner, "pointerup", {});
+    renderViewport(store);
+    expect(parseFloat(box.style.height)).toBeCloseTo(previewHeight);
+    expect(parseFloat(box.style.top) + parseFloat(box.style.height)).toBeCloseTo(100 + oldHeight);
+  });
+
 });

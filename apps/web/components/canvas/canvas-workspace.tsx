@@ -607,7 +607,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
       ) {
         const target = e.target as HTMLElement | null;
-        if (target?.closest(".canvas-free-resize")) return;
+        if (target?.closest(".canvas-resize-handle")) return;
         const step = e.shiftKey ? 10 : 1;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
@@ -1331,6 +1331,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       <div ref={shellRef} className="canvas-shell" data-testid="canvas-shell">
         <CanvasViewportView
           store={store}
+          measurer={measurer}
           doc={doc}
           scene={scene}
           userId={userId}

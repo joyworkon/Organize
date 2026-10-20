@@ -80,7 +80,7 @@ export interface TouchStepResult {
 }
 
 const NATIVE_SELECTOR = "button, input, textarea, select, a, [contenteditable='true']";
-const HANDLE_SELECTOR = ".canvas-board-resize, .canvas-board-handle, .canvas-divider, .canvas-free-move, .canvas-free-resize";
+const HANDLE_SELECTOR = ".canvas-board-resize, .canvas-board-handle, .canvas-divider, .canvas-free-move, .canvas-free-resize, .canvas-resize-handle";
 
 export function createTouchSession(): TouchSession {
   return { pointers: [], mode: { kind: "idle" }, inert: [] };

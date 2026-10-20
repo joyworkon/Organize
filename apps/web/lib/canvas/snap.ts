@@ -88,7 +88,8 @@ function spanGuide(axis: "x" | "y", pos: number, moving: SnapRect, target: SnapR
  *
  * - move：X 轴比较自身 左/中/右 × 目标 左/中/右，Y 轴比较 上/中/下 × 目标 上/中/下，
  *   每轴取距离最小且 ≤ threshold 的一项修正 x/y。
- * - resize（仅右边缘改宽度）：只在 X 轴比较自身右缘与目标 左/中/右；
+ * - resize / resize-left：只在 X 轴比较活动边缘与目标 左/中/右；
+ *   center 时两侧对称调整，默认锚定对侧边。
  *   修正后宽度仍 ≥ MIN_FREE_ITEM_WIDTH（低于下限视为未吸附）。
  * - targets 由调用方预先排除自身；threshold 为世界坐标（屏幕阈值 / zoom）。
  */
@@ -96,25 +97,27 @@ export function snapFreeItem(
   moving: SnapRect,
   targets: SnapRect[],
   threshold: number,
-  mode: "move" | "resize",
+  mode: "move" | "resize" | "resize-left",
+  opts: { center?: boolean; minWidth?: number } = {},
 ): SnapResult {
   const guides: SnapGuide[] = [];
 
-  if (mode === "resize") {
-    const snapX = bestAxisSnap(
-      [moving.x + moving.width, moving.x + moving.width, moving.x + moving.width],
-      targets,
-      (t) => points(t.x, t.width),
-      threshold,
-    );
+  if (mode === "resize" || mode === "resize-left") {
+    const left = mode === "resize-left";
+    const edge = left ? moving.x : moving.x + moving.width;
+    const snapX = bestAxisSnap([edge, edge, edge], targets, (t) => points(t.x, t.width), threshold);
     if (!snapX) return { x: moving.x, y: moving.y, width: moving.width, guides };
-    const width = moving.width + snapX.delta;
-    if (width < MIN_FREE_ITEM_WIDTH) {
-      return { x: moving.x, y: moving.y, width: MIN_FREE_ITEM_WIDTH, guides };
+    const width = moving.width + (left ? -1 : 1) * snapX.delta * (opts.center ? 2 : 1);
+    // Clamp at the minimum without displaying a guide we did not reach.
+    if (width < (opts.minWidth ?? MIN_FREE_ITEM_WIDTH)) {
+      const clamped = opts.minWidth ?? MIN_FREE_ITEM_WIDTH;
+      const x = opts.center ? moving.x + (moving.width - clamped) / 2 : left ? moving.x + moving.width - clamped : moving.x;
+      return { x, y: moving.y, width: clamped, guides };
     }
-    const corrected: SnapRect = { ...moving, width };
+    const x = opts.center ? moving.x + (moving.width - width) / 2 : left ? moving.x + snapX.delta : moving.x;
+    const corrected = { ...moving, x, width };
     guides.push(spanGuide("x", snapX.pos, corrected, snapX.target));
-    return { x: moving.x, y: moving.y, width, guides };
+    return { x, y: moving.y, width, guides };
   }
 
   const snapX = bestAxisSnap(
