@@ -106,6 +106,11 @@ describe("snapTargetsForItem", () => {
     const targets = snapTargetsForItem({ boards: scene.boards, freeItems: [scene.freeItems[0]] }, "a");
     expect(targets).toEqual([{ x: 0, y: 0, width: 800, height: 600 }]);
   });
+
+  it("成组排除多个 id，其余自由元素和页面仍在", () => {
+    const targets = snapTargetsForItem(scene, ["a", "b"]);
+    expect(targets).toEqual([{ x: 0, y: 0, width: 800, height: 600 }]);
+  });
 });
 
 describe("snapFreeItem · resize", () => {

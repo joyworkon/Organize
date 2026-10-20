@@ -1048,6 +1048,30 @@ export function deleteFreeItem(doc: CanvasDoc, args: { itemId: string }): Canvas
   });
 }
 
+/** 复制自由元素的默认偏移，避免副本和原件完全重叠。 */
+export const FREE_ITEM_DUPLICATE_OFFSET = 24;
+
+/** 复制一个自由元素：深拷贝、新 id、偏移放置。整组复制由调用方在一次 apply 里组合。 */
+export function duplicateFreeItem(
+  doc: CanvasDoc,
+  args: { itemId: string; dx?: number; dy?: number },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    if (draft.freeItems.length >= CANVAS_LIMITS.maxFreeItems) return null;
+    const item = findFreeItem(draft, args.itemId);
+    if (!item) return null;
+    const clone = structuredClone(item);
+    clone.id = newId();
+    clone.block.id = newId();
+    clone.x = item.x + (args.dx ?? FREE_ITEM_DUPLICATE_OFFSET);
+    clone.y = item.y + (args.dy ?? FREE_ITEM_DUPLICATE_OFFSET);
+    clone.zIndex = nextZIndex(draft);
+    draft.freeItems.push(clone);
+    return { kind: "free", itemId: clone.id, edit: false };
+  });
+}
+
 /**
  * 自由对象移入区块（B1）：块内容迁入目标区块——给了 sectionId+columnId 则追加到
  * 该列末尾；只给 sectionId 则在该行加一列；都不给则区块末尾新建一行。

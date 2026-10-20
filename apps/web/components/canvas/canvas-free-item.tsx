@@ -16,6 +16,13 @@ import {
 } from "react";
 import { MIN_TEXT_CONTENT_HEIGHT, type CanvasFreeItem } from "@/lib/canvas/model";
 import { deleteFreeItem, updateFreeItem, updateFreeItemBlock } from "@/lib/canvas/commands";
+import {
+  freeIdsFromSelection,
+  nextFreeIdsOnClick,
+  selectionFromFreeIds,
+  snapGroupMove,
+  type FreeGroupMember,
+} from "@/lib/canvas/free-selection";
 import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import {
   MIN_FREE_ITEM_WIDTH,
@@ -23,6 +30,7 @@ import {
   type SnapGuide,
   type SnapRect,
 } from "@/lib/canvas/snap";
+import { applyMoveFreeItems } from "./free-item-actions";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
 import { displayKey } from "./canvas-block";
@@ -33,16 +41,6 @@ import { toast } from "@/hooks/use-toast";
 let freeDragActive = false;
 export function isFreeItemDragging(): boolean {
   return freeDragActive;
-}
-
-/** 方向键微调（选中自由元素 / 移动手柄共用同一步长与事务标签）。 */
-export function nudgeFreeItem(store: CanvasStore, itemId: string, dx: number, dy: number): void {
-  const state = store.getState();
-  const item = state.doc.freeItems.find((f) => f.id === itemId);
-  if (!item) return;
-  state.apply("移动自由容器", (d) =>
-    updateFreeItem(d, { itemId, x: item.x + dx, y: item.y + dy }),
-  );
 }
 
 export interface CanvasFreeItemViewProps {
@@ -57,6 +55,15 @@ export interface CanvasFreeItemViewProps {
   assetUrls: Record<string, string>;
   /** 吸附候选（其他自由元素 + 全部页面，世界坐标，已排除自身）。 */
   snapTargets: SnapRect[];
+  /** 成组拖动时按排除 id 取吸附目标（排除组内全部）。 */
+  snapTargetsFor: (excludeIds: readonly string[]) => SnapRect[];
+  /** 当前选区里可一起移动的自由元素；不足两个时返回 null。 */
+  getGroupMembers: () => FreeGroupMember[] | null;
+  /** 多选：隐藏单件徽标和手柄，由视口画整组外接框。 */
+  grouped: boolean;
+  /** 整组拖动的实时位移（世界坐标）。 */
+  groupLive: { dx: number; dy: number } | null;
+  onGroupLive: (live: { dx: number; dy: number } | null) => void;
   /** 拖动中上报参考线；结束/取消传 null。 */
   onSnapGuides: (guides: SnapGuide[] | null) => void;
 }
@@ -72,6 +79,11 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   userId,
   assetUrls,
   snapTargets,
+  snapTargetsFor,
+  getGroupMembers,
+  grouped,
+  groupLive,
+  onGroupLive,
   onSnapGuides,
 }: CanvasFreeItemViewProps) {
   const dragRef = useRef<{
@@ -86,6 +98,9 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
     moved: boolean;
     /** 最近一次吸附修正后的提交值（endDrag 与 live 一致，松手不跳位）。 */
     last: { x: number; y: number; width: number };
+    /** 按下时的整组成员；null 表示只拖自己。 */
+    group: FreeGroupMember[] | null;
+    lastGroup: { dx: number; dy: number } | null;
   } | null>(null);
   const [live, setLive] = useState<{ dx: number; dy: number; w: number } | null>(
     null,
@@ -100,8 +115,9 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
     dragRef.current = null;
     freeDragActive = false;
     setLive(null);
+    onGroupLive(null);
     onSnapGuides(null);
-  }, [onSnapGuides]);
+  }, [onGroupLive, onSnapGuides]);
 
   // 拖动中 Esc：只取消本次拖动（不清选区——工作区按 isFreeItemDragging 让位）
   const escRef = useRef<((e: KeyboardEvent) => void) | null>(null);
@@ -131,10 +147,11 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       if (dragRef.current) {
         dragRef.current = null;
         freeDragActive = false;
+        onGroupLive(null);
         onSnapGuides(null);
       }
     };
-  }, [detachEsc, onSnapGuides]);
+  }, [detachEsc, onGroupLive, onSnapGuides]);
 
   useEffect(() => {
     if (!editing || item.block.type !== "text") return;
@@ -159,11 +176,13 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         originWidth: item.width,
         moved: false,
         last: { x: item.x, y: item.y, width: item.width },
+        group: mode === "move" ? getGroupMembers() : null,
+        lastGroup: null,
       };
       freeDragActive = true;
       attachEsc();
     },
-    [interactive, item.width, item.x, item.y, attachEsc],
+    [attachEsc, getGroupMembers, interactive, item.width, item.x, item.y],
   );
 
   const onDragMove = useCallback(
@@ -174,6 +193,19 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       const dx = (e.clientX - drag.startX) / zoom;
       const dy = (e.clientY - drag.startY) / zoom;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
+      if (drag.group && drag.group.length > 1) {
+        if (!drag.moved) {
+          onGroupLive({ dx, dy });
+          return;
+        }
+        const snapped = e.altKey
+          ? { dx, dy, guides: [] as SnapGuide[] }
+          : snapGroupMove(drag.group, dx, dy, snapTargetsFor(drag.group.map((member) => member.id)), 6 / zoom, true);
+        drag.lastGroup = { dx: snapped.dx, dy: snapped.dy };
+        onGroupLive({ dx: snapped.dx, dy: snapped.dy });
+        onSnapGuides(snapped.guides.length > 0 ? snapped.guides : null);
+        return;
+      }
       if (!drag.moved) {
         setLive({
           dx: drag.mode === "move" ? dx : 0,
@@ -198,7 +230,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       });
       onSnapGuides(snapped.guides.length > 0 ? snapped.guides : null);
     },
-    [height, item.width, onSnapGuides, snapTargets, zoom],
+    [height, item.width, onGroupLive, onSnapGuides, snapTargets, snapTargetsFor, zoom],
   );
 
   const endDrag = useCallback(
@@ -212,6 +244,19 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       detachEsc();
       setLive(null);
       onSnapGuides(null);
+      if (drag.group && drag.group.length > 1) {
+        const delta = drag.lastGroup;
+        onGroupLive(null);
+        if (drag.moved && delta && (delta.dx !== 0 || delta.dy !== 0)) {
+          applyMoveFreeItems(store, drag.group.map((member) => ({
+            itemId: member.id,
+            x: member.x + delta.dx,
+            y: member.y + delta.dy,
+          })));
+        }
+        return;
+      }
+      onGroupLive(null);
       if (!drag.moved) return;
       const { last } = drag;
       if (drag.mode === "move") {
@@ -224,11 +269,11 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         );
       }
     },
-    [detachEsc, item.id, onSnapGuides, store],
+    [detachEsc, item.id, onGroupLive, onSnapGuides, store],
   );
 
-  const x = item.x + (live?.dx ?? 0);
-  const y = item.y + (live?.dy ?? 0);
+  const x = item.x + (live?.dx ?? 0) + (groupLive?.dx ?? 0);
+  const y = item.y + (live?.dy ?? 0) + (groupLive?.dy ?? 0);
   const width = live?.w ?? item.width;
 
   // 局部窄化：三元分支内 TS 无法凭 isText 收窄 item.block
@@ -314,8 +359,19 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       onPointerDown={
         interactive
           ? (e) => {
-              store.getState().select({ kind: "free", itemId: item.id });
-              if (!editing && !(e.target as HTMLElement).closest("button, input, textarea")) beginDrag(e, "move");
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              if (editing) {
+                store.getState().select({ kind: "free", itemId: item.id });
+                return;
+              }
+              const current = freeIdsFromSelection(store.getState().selection);
+              store.getState().select(selectionFromFreeIds(nextFreeIdsOnClick(current, item.id, e.shiftKey)));
+              if (e.shiftKey) {
+                e.preventDefault();
+                return;
+              }
+              if (!(e.target as HTMLElement).closest("button, input, textarea")) beginDrag(e, "move");
             }
           : undefined
       }
@@ -327,7 +383,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         interactive && isText && !editing ? () => store.getState().startEdit(item.id) : undefined
       }
     >
-      {selected && interactive && (
+      {selected && interactive && !grouped && (
         <span className="canvas-free-badge" aria-label="自由定位元素">
           自由定位
         </span>
@@ -408,7 +464,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         </button>
       )}
 
-      {selected && interactive && (
+      {selected && interactive && !grouped && (
         <>
           {/* 移动手柄（方向键微调由工作区统一处理：1px / ⇧10px） */}
           <div

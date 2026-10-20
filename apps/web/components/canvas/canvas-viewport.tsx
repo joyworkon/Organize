@@ -20,6 +20,7 @@ import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
 import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
+import { groupBounds } from "@/lib/canvas/free-selection";
 import { snapTargetsForItem, type SnapGuide, type SnapRect } from "@/lib/canvas/snap";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
 import { hitTestInsertPosition } from "./canvas-hit-test";
@@ -101,6 +102,26 @@ export function CanvasViewportView({
   /** 自由元素拖动中的对齐参考线（世界坐标）。 */
   const [snapGuides, setSnapGuides] = useState<SnapGuide[] | null>(null);
   const onSnapGuides = useCallback((guides: SnapGuide[] | null) => setSnapGuides(guides), []);
+  /** 多选自由元素拖动时的共用位移。 */
+  const [groupLive, setGroupLive] = useState<{ dx: number; dy: number } | null>(null);
+  const onGroupLive = useCallback((live: { dx: number; dy: number } | null) => setGroupLive(live), []);
+  const selectedFreeIds = selection?.kind === "free" ? [selection.itemId]
+    : selection?.kind === "frees" ? selection.itemIds : [];
+  const snapTargetsFor = useCallback(
+    (excludeIds: readonly string[]) => snapTargetsForItem(scene, excludeIds),
+    [scene],
+  );
+  const getGroupMembers = useCallback(() => {
+    const live = store.getState().selection;
+    const ids = live?.kind === "free" ? [live.itemId] : live?.kind === "frees" ? live.itemIds : [];
+    if (ids.length < 2) return null;
+    const members = ids.flatMap((id) => {
+      const item = doc.freeItems.find((entry) => entry.id === id);
+      const box = scene.freeItems.find((entry) => entry.itemId === id);
+      return item && box ? [{ id, x: item.x, y: item.y, width: item.width, height: box.height }] : [];
+    });
+    return members.length > 1 ? members : null;
+  }, [doc.freeItems, scene.freeItems, store]);
   /** 每个自由元素的吸附候选（其他自由元素 + 全部页面；随场景重算）。 */
   const snapTargetsByItem = useMemo(() => {
     const map = new Map<string, SnapRect[]>();
@@ -354,6 +375,7 @@ export function CanvasViewportView({
         {doc.freeItems.map((item) => {
           const box = scene.freeItems.find((box) => box.itemId === item.id);
           if (!box) return null;
+          const grouped = selectedFreeIds.length > 1 && selectedFreeIds.includes(item.id);
           return (
             <CanvasFreeItemView
               key={item.id}
@@ -362,15 +384,40 @@ export function CanvasViewportView({
               store={store}
               zoom={vp.zoom}
               interactive={interactive}
-              selected={selection?.kind === "free" && selection.itemId === item.id}
+              selected={selectedFreeIds.includes(item.id)}
+              grouped={grouped}
               editing={editingBlockId === item.id}
               userId={userId}
               assetUrls={assetUrls}
               snapTargets={snapTargetsByItem.get(item.id) ?? EMPTY_SNAP_TARGETS}
+              snapTargetsFor={snapTargetsFor}
+              getGroupMembers={getGroupMembers}
+              groupLive={grouped ? groupLive : null}
+              onGroupLive={onGroupLive}
               onSnapGuides={onSnapGuides}
             />
           );
         })}
+        {(() => {
+          if (selectedFreeIds.length < 2) return null;
+          const rects = scene.freeItems.filter((box) => selectedFreeIds.includes(box.itemId)).map((box) => ({
+            x: box.x + (groupLive?.dx ?? 0),
+            y: box.y + (groupLive?.dy ?? 0),
+            width: box.width,
+            height: box.height,
+          }));
+          const frame = rects.length > 1 ? groupBounds(rects) : null;
+          if (!frame) return null;
+          return (
+            <div
+              className="canvas-selection-marquee canvas-free-group"
+              style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
+              aria-hidden="true"
+            >
+              <span className="canvas-free-badge" aria-label="自由定位元素">自由定位</span>
+            </div>
+          );
+        })()}
         {pointer.visual?.marquee && <div className="canvas-selection-marquee" style={{ left: pointer.visual.marquee.x, top: pointer.visual.marquee.y, width: pointer.visual.marquee.width, height: pointer.visual.marquee.height }} />}
         {pointer.visual?.ghosts?.map((box) => <div key={box.blockId} className="canvas-selection-marquee" style={{ left: box.x, top: box.y, width: box.width, height: box.height }} />)}
         {pointer.visual?.drop && <div className="canvas-drop-indicator" style={{ left: pointer.visual.drop.x, top: pointer.visual.drop.y, width: pointer.visual.drop.width }} />}

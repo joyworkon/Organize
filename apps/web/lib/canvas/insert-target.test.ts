@@ -189,6 +189,8 @@ describe("resolveInsertTarget 规则优先级（B2）", () => {
     const lastActive: LastActiveTarget = { boardId: fx.boardId, regionId: fx.regionBId };
     const target = resolveInsertTarget(docWithFree, { kind: "free", itemId: "f1" }, null, lastActive);
     expect(target).toEqual({ kind: "region-end", boardId: fx.boardId, regionId: fx.regionBId });
+    const multi = resolveInsertTarget(docWithFree, { kind: "frees", itemIds: ["f1", "f2"] }, null, lastActive);
+    expect(multi).toEqual({ kind: "region-end", boardId: fx.boardId, regionId: fx.regionBId });
   });
 
   it("规则6→退化：lastActive 失效但文档有页面 → 最后一个页面的最后区块", () => {

@@ -7,6 +7,7 @@ import { CANVAS_LIMITS } from "@/lib/canvas/validation";
 import { toast } from "@/hooks/use-toast";
 import { relocateBlocks } from "@/lib/canvas/commands";
 import { screenToWorld } from "@/lib/canvas/coords";
+import { freeIdsFromSelection, rectsOverlap, resolveMarqueePick, selectionFromFreeIds } from "@/lib/canvas/free-selection";
 import type { CanvasStore } from "./canvas-store";
 
 const boxesIn = (scene: Scene) => scene.boards.flatMap((b) => b.regions)
@@ -24,7 +25,7 @@ function selectIds(store: CanvasStore, ids: string[]) {
 export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: boolean, spaceHeld: boolean) {
   const gesture = useRef<null | {
     kind: "marquee" | "move"; x: number; y: number; clientX: number; clientY: number;
-    ids: string[]; boxes: SceneBlockBox[]; moved: boolean;
+    ids: string[]; freeIds: string[]; boxes: SceneBlockBox[]; moved: boolean;
   }>(null);
   const [visual, setVisual] = useState<null | {
     marquee?: { x: number; y: number; width: number; height: number };
@@ -49,17 +50,30 @@ export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: 
     store.getState().stopEdit();
     suppressClick.current = false;
     const previous = selectedIds(store);
-    const ids = id ? e.shiftKey ? previous.includes(id) ? previous.filter((i) => i !== id) : [...previous, id]
-      : previous.includes(id) ? previous : [id] : e.shiftKey ? previous : [];
-    if (!id && !e.shiftKey) {
+    const previousFrees = freeIdsFromSelection(store.getState().selection);
+    let ids: string[];
+    let freeIds: string[] = [];
+    if (id) {
+      ids = e.shiftKey ? previous.includes(id) ? previous.filter((i) => i !== id) : [...previous, id]
+        : previous.includes(id) ? previous : [id];
+      selectIds(store, ids);
+    } else if (!e.shiftKey) {
+      ids = [];
       const region = el.closest<HTMLElement>("[data-region-id]");
       const board = el.closest<HTMLElement>("[data-board-id]");
       store.getState().select(region && board ? { kind: "region", boardId: board.dataset.boardId!, regionId: region.dataset.regionId! }
         : board ? { kind: "board", boardId: board.dataset.boardId! } : null);
-    } else selectIds(store, ids);
+    } else if (previousFrees.length > 0) {
+      // Shift 框选追加到已有自由元素，不要先改写成空的模块选区。
+      ids = [];
+      freeIds = previousFrees;
+    } else {
+      ids = previous;
+      selectIds(store, ids);
+    }
     const at = world(e);
     gesture.current = { kind: id ? "move" : "marquee", ...at, clientX: e.clientX, clientY: e.clientY,
-      ids, boxes: boxesIn(scene).filter((b) => ids.includes(b.blockId)), moved: false };
+      ids, freeIds, boxes: boxesIn(scene).filter((b) => ids.includes(b.blockId)), moved: false };
     if (id) el.closest<HTMLElement>("[data-block-id]")?.focus({ preventScroll: true });
   };
 
@@ -73,9 +87,11 @@ export function useCanvasPointer(store: CanvasStore, scene: Scene, interactive: 
     const at = world(e);
     if (g.kind === "marquee") {
       const rect = { x: Math.min(g.x, at.x), y: Math.min(g.y, at.y), width: Math.abs(at.x - g.x), height: Math.abs(at.y - g.y) };
-      const ids = boxesIn(scene).filter((b) => b.x < rect.x + rect.width && b.x + b.width > rect.x
-        && b.y < rect.y + rect.height && b.y + b.height > rect.y).map((b) => b.blockId);
-      selectIds(store, [...new Set([...g.ids, ...ids])]);
+      const hitBlockIds = boxesIn(scene).filter((b) => rectsOverlap(b, rect)).map((b) => b.blockId);
+      const hitFreeIds = scene.freeItems.filter((item) => rectsOverlap(item, rect)).map((item) => item.itemId);
+      const pick = resolveMarqueePick({ baseBlockIds: g.ids, baseFreeIds: g.freeIds, hitBlockIds, hitFreeIds });
+      if (pick.kind === "blocks") selectIds(store, pick.ids);
+      else store.getState().select(selectionFromFreeIds(pick.ids));
       setVisual({ marquee: rect });
     } else {
       let drop: NonNullable<typeof visual>["drop"];

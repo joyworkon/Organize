@@ -32,6 +32,7 @@ export type CanvasSelection =
   | { kind: "blocks"; blockIds: string[] }
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
+  | { kind: "frees"; itemIds: string[] }
   | { kind: "board"; boardId: string }
   | { kind: "region"; boardId: string; regionId: string }
   | null;
@@ -161,12 +162,14 @@ export function createCanvasStore(initial?: {
           ? { kind: "block" as const, blockId: result.focus.blockId }
           : result.focus?.kind === "free"
             ? { kind: "free" as const, itemId: result.focus.itemId }
-            : result.focus?.kind === "region"
-              ? { kind: "region" as const, boardId: result.focus.boardId, regionId: result.focus.regionId }
-              : result.focus?.kind === "board"
-                ? { kind: "board" as const, boardId: result.focus.boardId }
-                : state.selection;
-      const validSelection = selectionExists(result.doc, nextSelection) ? nextSelection : null;
+            : result.focus?.kind === "frees"
+              ? { kind: "frees" as const, itemIds: result.focus.itemIds }
+              : result.focus?.kind === "region"
+                ? { kind: "region" as const, boardId: result.focus.boardId, regionId: result.focus.regionId }
+                : result.focus?.kind === "board"
+                  ? { kind: "board" as const, boardId: result.focus.boardId }
+                  : state.selection;
+      const validSelection = resolveSelection(result.doc, nextSelection);
       const activeTarget = activeTargetFromSelection(result.doc, validSelection);
       const nextEditing = result.focus
         ? result.focus.kind === "block" && result.focus.edit
@@ -225,8 +228,11 @@ export function createCanvasStore(initial?: {
 
     select: (selection) =>
       set((state) => {
-        const activeTarget = activeTargetFromSelection(state.doc, selection);
-        return activeTarget ? { selection, lastActiveTarget: activeTarget } : { selection };
+        const next = selection?.kind === "free" || selection?.kind === "frees"
+          ? resolveSelection(state.doc, selection)
+          : selection;
+        const activeTarget = activeTargetFromSelection(state.doc, next);
+        return activeTarget ? { selection: next, lastActiveTarget: activeTarget } : { selection: next };
       }),
 
     clearFocus: () => set({ focus: null }),
@@ -302,20 +308,46 @@ function selectionExists(doc: CanvasDoc, selection: CanvasSelection): boolean {
   if (selection.kind === "blocks") return selection.blockIds.length > 0 && selection.blockIds.every((id) => !!findBlockLocation(doc, id));
   if (selection.kind === "block") return !!findBlockLocation(doc, selection.blockId);
   if (selection.kind === "free") return doc.freeItems.some((item) => item.id === selection.itemId);
+  if (selection.kind === "frees") {
+    return selection.itemIds.length > 1 && selection.itemIds.every((id) => doc.freeItems.some((item) => item.id === id));
+  }
   if (selection.kind === "board") return doc.boards.some((board) => board.id === selection.boardId);
   return doc.boards.some((board) => board.id === selection.boardId && board.regions.some((region) => region.id === selection.regionId));
 }
 
+/** 丢掉已经不在文档里的自由元素 id。空选区清空，只剩一个时退回单个 free。 */
+function resolveSelection(doc: CanvasDoc, selection: CanvasSelection): CanvasSelection {
+  if (!selection) return null;
+  if (selection.kind === "frees" || selection.kind === "free") {
+    const source = selection.kind === "free" ? [selection.itemId] : selection.itemIds;
+    const seen = new Set<string>();
+    const live = new Set(doc.freeItems.map((item) => item.id));
+    const itemIds: string[] = [];
+    for (const id of source) {
+      if (seen.has(id) || !live.has(id)) continue;
+      seen.add(id);
+      itemIds.push(id);
+    }
+    if (itemIds.length === 0) return null;
+    if (itemIds.length === 1) return { kind: "free", itemId: itemIds[0] };
+    if (selection.kind === "frees" && itemIds.length === selection.itemIds.length && itemIds.every((id, index) => id === selection.itemIds[index])) {
+      return selection;
+    }
+    return { kind: "frees", itemIds };
+  }
+  return selectionExists(doc, selection) ? selection : null;
+}
+
 /** 历史保存真实的对象类别、选中与编辑状态，不能把自由文本伪装成版面块。 */
 function currentFocus(state: CanvasEditorState): CanvasFocus {
-  const selection = state.selection;
-  if (!selection || !selectionExists(state.doc, selection)) return null;
+  const selection = resolveSelection(state.doc, state.selection);
+  if (!selection) return null;
   if (selection.kind === "blocks") return null;
-  if (selection.kind !== "block") {
-    return selection.kind === "free"
-      ? { ...selection, edit: state.editingBlockId === selection.itemId }
-      : selection;
+  if (selection.kind === "frees") return { kind: "frees", itemIds: [...selection.itemIds] };
+  if (selection.kind === "free") {
+    return { kind: "free", itemId: selection.itemId, edit: state.editingBlockId === selection.itemId };
   }
+  if (selection.kind !== "block") return selection;
   const loc = findBlockLocation(state.doc, selection.blockId)!;
   return {
     kind: "block", boardId: loc.board.id, regionId: loc.region.id,
@@ -325,15 +357,20 @@ function currentFocus(state: CanvasEditorState): CanvasFocus {
 }
 
 function restoreFocus(doc: CanvasDoc, focus: CanvasFocus) {
-  const selection: CanvasSelection = focus?.kind === "block"
+  const raw: CanvasSelection = focus?.kind === "block"
     ? { kind: "block", blockId: focus.blockId }
-    : focus?.kind === "free" ? { kind: "free", itemId: focus.itemId } : focus;
+    : focus?.kind === "free"
+      ? { kind: "free", itemId: focus.itemId }
+      : focus?.kind === "frees"
+        ? { kind: "frees", itemIds: focus.itemIds }
+        : focus;
+  const selection = resolveSelection(doc, raw);
   const id = focus?.kind === "block" && focus.edit ? focus.blockId
     : focus?.kind === "free" && focus.edit ? focus.itemId : null;
   return {
-    selection: selectionExists(doc, selection) ? selection : null,
+    selection,
     editingBlockId: id && isTextTarget(doc, id) ? id : null,
-    lastActiveTarget: activeTargetFromSelection(doc, selection),
+    lastActiveTarget: activeTargetFromSelection(doc, raw),
   };
 }
 

@@ -54,7 +54,6 @@ import {
   createFreeText,
   deleteBlock,
   deleteBoard,
-  deleteFreeItem,
   deleteRegion,
   insertBlockAtTarget,
   updateMaterialSnapshot,
@@ -91,10 +90,11 @@ import {
 } from "@/lib/library/material-source";
 import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
-import { isFreeItemDragging, nudgeFreeItem } from "./canvas-free-item";
+import { isFreeItemDragging } from "./canvas-free-item";
+import { applyDeleteFreeItems, nudgeFreeItems } from "./free-item-actions";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
-import { allCanvasBlockIds, canvasShortcutLabels, duplicateCanvasSelection, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
+import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
 import { CanvasShortcutsDialog } from "./canvas-shortcuts-dialog";
 import { useIsNarrowViewport } from "./use-is-narrow-viewport";
 import { displayKey } from "./canvas-block";
@@ -491,12 +491,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
             break;
           }
           case "duplicate": {
-            const result = duplicateCanvasSelection(s.doc, s.selection);
-            s.apply(s.selection?.kind === "blocks" ? "复制多个模块" : s.selection?.kind === "region" ? "复制区块" : "复制模块", () => result);
-            if (result.blockIds && result.blockIds.length > 1) {
-              store.getState().clearFocus();
-              store.getState().select({ kind: "blocks", blockIds: result.blockIds });
-            }
+            commitCanvasDuplicate(store);
             break;
           }
           case "zoom-in": changeCanvasZoom(s.viewport.zoom * 1.2); break;
@@ -510,8 +505,10 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       if (s.readOnly || s.previewMode) return;
       // 选中自由元素：方向键微调 1px（⇧ 10px）；宽度手柄聚焦时左右键留给手柄调宽度；
       // 拖动中不响应（拖动有自己的 Esc/吸附逻辑）。
+      const freeNudgeIds = s.selection?.kind === "free" ? [s.selection.itemId]
+        : s.selection?.kind === "frees" ? s.selection.itemIds : null;
       if (
-        s.selection?.kind === "free" &&
+        freeNudgeIds &&
         !isFreeItemDragging() &&
         !e.metaKey && !e.ctrlKey && !e.altKey &&
         (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
@@ -522,7 +519,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
         e.preventDefault();
-        nudgeFreeItem(store, s.selection.itemId, dx, dy);
+        nudgeFreeItems(store, freeNudgeIds, dx, dy);
         return;
       }
       if (e.code === "Space") {
@@ -544,8 +541,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           store.getState().select(null);
         } else if (sel.kind === "block") {
           s.apply("删除模块", (d) => deleteBlock(d, { blockId: sel.blockId }));
-        } else if (sel.kind === "free") {
-          s.apply("删除自由容器", (d) => deleteFreeItem(d, { itemId: sel.itemId }));
+        } else if (sel.kind === "free" || sel.kind === "frees") {
+          applyDeleteFreeItems(store, sel.kind === "free" ? [sel.itemId] : sel.itemIds);
         } else if (sel.kind === "board") {
           s.apply("删除页面", (d) => deleteBoard(d, { boardId: sel.boardId }));
         } else if (sel.kind === "region") {
