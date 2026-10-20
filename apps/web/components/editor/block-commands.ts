@@ -1,4 +1,5 @@
 import type { Editor, JSONContent } from "@tiptap/core";
+import type { Transaction } from "@tiptap/pm/state";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   Bookmark,
@@ -144,13 +145,13 @@ export function blockTextForReplacement(node: ProseMirrorNode): string {
 
 const JOINABLE_LIST_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
 
-export function replaceBlock(editor: Editor, pos: number, content: JSONContent) {
-  const node = editor.state.doc.nodeAt(pos);
+export function replaceBlock(editor: Editor, pos: number, content: JSONContent, transaction?: Transaction) {
+  const node = (transaction?.doc ?? editor.state.doc).nodeAt(pos);
   if (!node) return;
   const replacement = buildBlockReplacement(node, content);
   if (node.attrs.sectionStart) replacement.attrs = { ...replacement.attrs, sectionStart: true };
   const replacementNode = editor.schema.nodeFromJSON(replacement);
-  const tr = editor.state.tr
+  const tr = (transaction ?? editor.state.tr)
     .replaceWith(pos, pos + node.nodeSize, replacementNode)
     .scrollIntoView();
   // 替换出的列表若与前后相邻列表同类型，合并成一个列表，
@@ -170,11 +171,11 @@ export function replaceBlock(editor: Editor, pos: number, content: JSONContent) 
       }
     }
   }
-  editor.view.dispatch(tr);
+  if (!transaction) editor.view.dispatch(tr);
 }
 
-export function replaceBlockWithColumns(editor: Editor, pos: number, columnCount: number) {
-  const node = editor.state.doc.nodeAt(pos);
+export function replaceBlockWithColumns(editor: Editor, pos: number, columnCount: number, transaction?: Transaction) {
+  const node = (transaction?.doc ?? editor.state.doc).nodeAt(pos);
   if (!node) return;
   const cols = normalizeColumnCount(columnCount);
   const blockId = String(node.attrs?.id || "");
@@ -226,11 +227,10 @@ export function replaceBlockWithColumns(editor: Editor, pos: number, columnCount
     content: columnsContent,
   };
   const replacementNode = editor.schema.nodeFromJSON(replacement);
-  editor.view.dispatch(
-    editor.state.tr
-      .replaceWith(pos, pos + node.nodeSize, replacementNode)
-      .scrollIntoView()
-  );
+  const tr = (transaction ?? editor.state.tr)
+    .replaceWith(pos, pos + node.nodeSize, replacementNode)
+    .scrollIntoView();
+  if (!transaction) editor.view.dispatch(tr);
 }
 
 function textBlock(type: "paragraph" | "heading", attrs?: Record<string, unknown>): JSONContent {
@@ -282,7 +282,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["text", "paragraph", "正文", "文本"],
     canTransform: true,
     preview: { sample: "正文文本", caption: "普通正文文本" },
-    run: (editor, pos) => replaceBlock(editor, pos, textBlock("paragraph")),
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, textBlock("paragraph"), transaction),
   },
   ...([1, 2, 3, 4] as const).map((level) => ({
     id: `heading-${level}`,
@@ -296,7 +296,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
       sample: `标题 ${level}`,
       caption: ["大型版块标题", "中型版块标题", "小型版块标题", "迷你版块标题"][level - 1],
     },
-    run: (editor: Editor, pos: number) => replaceBlock(editor, pos, textBlock("heading", { level })),
+    run: (editor: Editor, pos: number, transaction?: Transaction) => replaceBlock(editor, pos, textBlock("heading", { level }), transaction),
   })),
   {
     id: "page",
@@ -317,7 +317,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["bullet", "list", "无序", "列表"],
     canTransform: true,
     preview: { sample: "• 列表项", caption: "无序项目符号列表" },
-    run: (editor, pos) => replaceBlock(editor, pos, listBlock("bulletList")),
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, listBlock("bulletList"), transaction),
   },
   {
     id: "ordered-list",
@@ -327,7 +327,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["ordered", "number", "有序", "编号"],
     canTransform: true,
     preview: { sample: "1. 列表项", caption: "自动编号的有序列表" },
-    run: (editor, pos) => replaceBlock(editor, pos, listBlock("orderedList")),
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, listBlock("orderedList"), transaction),
   },
   {
     id: "task-list",
@@ -337,13 +337,13 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["todo", "task", "check", "待办"],
     canTransform: true,
     preview: { sample: "☑ 待办事项", caption: "可勾选的任务清单" },
-    run: (editor, pos) =>
+    run: (editor, pos, transaction) =>
       replaceBlock(editor, pos, {
         type: "taskList",
         content: [
           { type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] },
         ],
-      }),
+      }, transaction),
   },
   {
     id: "details",
@@ -353,14 +353,14 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["toggle", "details", "折叠"],
     canTransform: true,
     preview: { sample: "▸ 折叠列表", caption: "可展开 / 折叠的列表" },
-    run: (editor, pos) =>
+    run: (editor, pos, transaction) =>
       replaceBlock(editor, pos, {
         type: "details",
         content: [
           { type: "detailsSummary", content: [] },
           { type: "detailsContent", content: [{ type: "paragraph" }] },
         ],
-      }),
+      }, transaction),
   },
   {
     id: "quote",
@@ -370,11 +370,11 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["quote", "blockquote", "引用"],
     canTransform: true,
     preview: { sample: "引用文字", caption: "引用一段文字" },
-    run: (editor, pos) =>
+    run: (editor, pos, transaction) =>
       replaceBlock(editor, pos, {
         type: "blockquote",
         content: [{ type: "paragraph", content: [] }],
-      }),
+      }, transaction),
   },
   {
     id: "code",
@@ -384,7 +384,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["code", "代码"],
     canTransform: true,
     preview: { sample: "const a = 1;", caption: "等宽字体的代码片段" },
-    run: (editor, pos) => replaceBlock(editor, pos, { type: "codeBlock", content: [] }),
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, { type: "codeBlock", content: [] }, transaction),
   },
   {
     id: "callout",
@@ -394,12 +394,12 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["callout", "提示", "标注"],
     canTransform: true,
     preview: { sample: "💡 标注内容", caption: "醒目的标注提示" },
-    run: (editor, pos) =>
+    run: (editor, pos, transaction) =>
       replaceBlock(editor, pos, {
         type: "callout",
         attrs: { emoji: "💡" },
         content: [{ type: "paragraph" }],
-      }),
+      }, transaction),
   },
   ...([1, 2, 3, 4] as const).map((level) => ({
     id: `toggle-heading-${level}`,
@@ -412,14 +412,14 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
       sample: `▸ 折叠标题 ${level}`,
       caption: `可折叠的${["大", "中", "小", "迷你"][level - 1]}型标题`,
     },
-    run: (editor: Editor, pos: number) =>
+    run: (editor: Editor, pos: number, transaction?: Transaction) =>
       replaceBlock(editor, pos, {
         type: "details",
         content: [
           { type: "detailsSummary", attrs: { level }, content: [] },
           { type: "detailsContent", content: [{ type: "paragraph" }] },
         ],
-      }),
+      }, transaction),
   })),
   {
     id: "section-card",
@@ -444,7 +444,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["divider", "line", "分隔线"],
     canTransform: true,
     preview: { sample: "———", caption: "水平分隔线" },
-    run: (editor, pos) => replaceBlock(editor, pos, { type: "horizontalRule" }),
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, { type: "horizontalRule" }, transaction),
   },
   {
     id: "image",
@@ -472,11 +472,11 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["math", "latex", "公式"],
     canTransform: true,
     preview: { sample: "E = mc²", caption: "LaTeX 数学公式区块" },
-    run: (editor, pos) => {
+    run: (editor, pos, transaction) => {
       // 块内文字若为 LaTeX 直接带入公式
-      const source = editor.state.doc.nodeAt(pos);
+      const source = (transaction?.doc ?? editor.state.doc).nodeAt(pos);
       const latex = source ? blockTextForReplacement(source).trim() : "";
-      replaceBlock(editor, pos, { type: "mathBlock", attrs: { latex } });
+      replaceBlock(editor, pos, { type: "mathBlock", attrs: { latex } }, transaction);
     },
   },
   {
@@ -531,14 +531,14 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     // 只给 { type: "tabs" } 时 nodeFromJSON 会造出没有子节点的非法 tabs，
     // 页面上是一个没有标签栏、无法交互的空盒子。
     // 原块文字会由 buildBlockReplacement 注入第一个 tab 的段落里。
-    run: (editor, pos) => replaceBlock(editor, pos, {
+    run: (editor, pos, transaction) => replaceBlock(editor, pos, {
       type: "tabs",
       attrs: { activeIndex: 0 },
       content: [
         { type: "tab", attrs: { title: "标签页 1", active: true }, content: [{ type: "paragraph" }] },
         { type: "tab", attrs: { title: "标签页 2", active: false }, content: [{ type: "paragraph" }] },
       ],
-    }),
+    }, transaction),
   },
   {
     id: "mermaid",
@@ -550,10 +550,10 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["mermaid", "diagram", "flowchart", "图表", "流程图"],
     canTransform: true,
     preview: { sample: "graph TD\nA-->B", caption: "Mermaid 代码实时渲染图表" },
-    run: (editor, pos) => {
-      const source = editor.state.doc.nodeAt(pos);
+    run: (editor, pos, transaction) => {
+      const source = (transaction?.doc ?? editor.state.doc).nodeAt(pos);
       const code = source ? blockTextForReplacement(source).trim() : "";
-      replaceBlock(editor, pos, { type: "mermaid", attrs: { code: code || undefined } });
+      replaceBlock(editor, pos, { type: "mermaid", attrs: { code: code || undefined } }, transaction);
     },
   },
   {
@@ -620,7 +620,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     preview: { sample: "▯".repeat(cols), caption: `${["两", "三", "四", "五"][cols - 2]}栏并排布局` },
     // 分栏容器内容模型 column+，不允许嵌套在列表/单元格/另一组分栏内
     supportedContexts: TOP_ONLY_CONTEXTS,
-    run: (editor: Editor, pos: number) => replaceBlockWithColumns(editor, pos, cols),
+    run: (editor: Editor, pos: number, transaction?: Transaction) => replaceBlockWithColumns(editor, pos, cols, transaction),
   })),
 ];
 

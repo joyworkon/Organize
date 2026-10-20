@@ -1,4 +1,5 @@
 import type { DsIconComponent } from "@/components/icons";
+import type { Transaction } from "@tiptap/pm/state";
 import type { Editor, JSONContent } from "@tiptap/core";
 
 export type BlockCommandCategory = "基本区块" | "媒体" | "布局" | "AI" | "插件";
@@ -40,7 +41,7 @@ export interface BlockCommandDefinition {
   supportedContexts?: readonly BlockCommandContext[];
   /** 依赖 AI 服务：未配置时在菜单中置灰并说明原因 */
   requiresAI?: boolean;
-  run: (editor: Editor, pos: number) => void;
+  run: (editor: Editor, pos: number, transaction?: Transaction) => void;
 }
 
 export type EditorDialog =
