@@ -55,7 +55,6 @@ import { isOnline, useOnlineStatus } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import {
   enqueueNoteCreate,
-  findNoteCreate,
   makeNoteCreateOp,
   noteCreatesCount,
   readNoteCreates,
@@ -64,6 +63,7 @@ import {
   writeNoteCreates,
   type NoteCreateWriter,
 } from "@/lib/offline/note-queue";
+import { moveNoteToTrash } from "@/lib/notes/delete-note";
 import {
   enqueueNoteDelete,
   noteDeletesCount,
@@ -471,35 +471,16 @@ export default function NotesPage() {
 
   const deleteNote = async (id: string) => {
     if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
-    // 仍在离线创建队列里的笔记（服务端还没有）：删除即丢弃草稿并刷新计数，
-    // 否则列表会经 pendingCreatesAsNotes 重新显示它，联网回放还会把它插回服务端
-    const discardPendingDraft = () => {
-      removeNoteCreate(localStorage, id);
-      refreshPendingOps();
-    };
-    // X1：离线软删除——乐观移出列表并入删除队列，联网回放 mutate_trash RPC
-    const offlineDelete = () => {
-      if (findNoteCreate(localStorage, id)) discardPendingDraft();
-      else enqueueNoteDelete(localStorage, id);
-      refreshPendingOps();
-      setNotes((prev) => removeNotes(prev, new Set([id])));
-      toast({ title: "已离线删除，联网后自动同步" });
-    };
-    if (!isOnline()) {
-      offlineDelete();
-      return;
-    }
+    // X1：在线 mutate_trash / 离线入队回放（含丢弃未同步草稿）收敛于 moveNoteToTrash，
+    // 侧栏笔记树的删除走同一入口
     try {
-      await mutateTrash("note", [id], "soft_delete");
-      if (findNoteCreate(localStorage, id)) discardPendingDraft();
+      const result = await moveNoteToTrash(id);
+      refreshPendingOps();
       setNotes((prev) => removeNotes(prev, new Set([id])));
-      toast({ title: "笔记已移入垃圾箱" });
+      toast({
+        title: result === "queued" ? "已离线删除，联网后自动同步" : "笔记已移入垃圾箱",
+      });
     } catch (error) {
-      // X1：网络错误按离线删除处理——入队待回放，不回滚乐观移除
-      if (isNetworkSaveError(error)) {
-        offlineDelete();
-        return;
-      }
       toast({
         title: "删除失败",
         description: error instanceof Error ? error.message : undefined,
