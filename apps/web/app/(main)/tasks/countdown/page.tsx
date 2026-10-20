@@ -3,8 +3,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, Loader2, Pencil, Plus, Repeat2, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { CountdownFormFields } from "@/components/tasks/countdown-form-fields";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 import {
   Dialog,
   DialogContent,
@@ -24,22 +24,18 @@ import { mutateTrash } from "@/lib/trash/client";
 import type { CountdownDay } from "@organize/shared";
 import {
   countdownDisplay,
+  countdownFormError,
+  type CountdownFormValue,
   formatCountdownDate,
   nextCountdownDaysAfterLoad,
   sortCountdownDays,
 } from "@/lib/tasks/countdown";
 
-interface CountdownForm {
-  title: string;
-  target_date: string;
-  repeat_annually: boolean;
-}
-
 function localDateInputValue(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-const blankForm = (): CountdownForm => ({
+const blankForm = (): CountdownFormValue => ({
   title: "",
   target_date: localDateInputValue(),
   repeat_annually: false,
@@ -57,7 +53,7 @@ function CountdownPageInner() {
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<CountdownDay | null>(null);
-  const [form, setForm] = useState<CountdownForm>(blankForm);
+  const [form, setForm] = useState<CountdownFormValue>(blankForm);
 
   const loadDays = useCallback(async () => {
     setLoading(true);
@@ -110,7 +106,8 @@ function CountdownPageInner() {
 
   const save = async () => {
     const title = form.title.trim();
-    if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(form.target_date)) {
+    if (saving) return;
+    if (countdownFormError(form)) {
       toast({ title: "请填写标题和有效日期", variant: "destructive" });
       return;
     }
@@ -124,7 +121,7 @@ function CountdownPageInner() {
         : await supabase.from("countdown_days").insert({ ...payload, user_id: user.id });
       if (result.error) throw result.error;
       setDialogOpen(false);
-      await loadDays();
+      window.dispatchEvent(new CustomEvent("organize:countdown-changed"));
       toast({ title: editing ? "倒数日已更新" : "倒数日已添加" });
     } catch (error) {
       toast({ title: "保存失败", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -134,15 +131,15 @@ function CountdownPageInner() {
   };
 
   const remove = async (item: CountdownDay) => {
-    if (!window.confirm(`将「${item.title}」移入垃圾箱？`)) return;
+    if (!await showConfirm({ title: `将「${item.title}」移入垃圾箱？`, description: "可在垃圾箱中恢复。", confirmText: "移入垃圾箱", destructive: true })) return;
     try {
       if (process.env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
         const result = await supabase.from("countdown_days").update({ deleted_at: new Date().toISOString() }).eq("id", item.id);
         if (result.error) throw result.error;
+        window.dispatchEvent(new CustomEvent("organize:countdown-changed"));
       } else {
         await mutateTrash("countdown", [item.id], "soft_delete");
       }
-      await loadDays();
       toast({ title: "倒数日已移入垃圾箱" });
     } catch (error) {
       toast({ title: "删除失败", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
@@ -223,11 +220,7 @@ function CountdownPageInner() {
             <DialogTitle>{editing ? "编辑倒数日" : "添加倒数日"}</DialogTitle>
             <DialogDescription>日期按本地日期保存，不会因为时区转换而偏移。</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <label className="block space-y-2 text-sm font-medium">标题<Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="例如：产品发布会" /></label>
-            <label className="block space-y-2 text-sm font-medium">目标日期<Input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} /></label>
-            <label className="flex items-center gap-2 text-sm font-medium"><Checkbox checked={form.repeat_annually} onCheckedChange={(checked) => setForm((current) => ({ ...current, repeat_annually: checked === true }))} />每年重复</label>
-          </div>
+          <CountdownFormFields value={form} onChange={setForm} disabled={saving} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
             <Button onClick={() => void save()} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}保存</Button>

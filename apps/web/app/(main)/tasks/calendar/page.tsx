@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CountdownFormFields } from "@/components/tasks/countdown-form-fields";
+import { mutateTrash } from "@/lib/trash/client";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
@@ -22,7 +24,7 @@ import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace"
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
 import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
 import { getTaskDependencyView } from "@/lib/tasks/dependencies";
-import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad } from "@/lib/tasks/countdown";
+import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad, countdownFormError, type CountdownFormValue } from "@/lib/tasks/countdown";
 import { isOnline } from "@/lib/offline/network";
 import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
 import type { PendingTaskOp } from "@/lib/offline/task-queue";
@@ -65,7 +67,7 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
   const [endTime, setEndTime] = useState("10:00");
   const [endNextDay, setEndNextDay] = useState(false);
   const [repeat, setRepeat] = useState("none");
-  const [repeatAnnually, setRepeatAnnually] = useState(false);
+  const [countdownForm, setCountdownForm] = useState<CountdownFormValue>({ title: "", target_date: "", repeat_annually: false });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -82,7 +84,7 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
       setEndTime(clock(end));
       setEndNextDay(dateKey(start) !== dateKey(end));
       setRepeat("none");
-      setRepeatAnnually(false);
+      setCountdownForm({ title: "", target_date: dateKey(date), repeat_annually: false });
     }
   }, [date, range]);
 
@@ -99,9 +101,10 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
 
   const save = async () => {
     if (saving || timeError) return;
-    const trimmed = title.trim();
-    if (!trimmed) {
-      toast({ title: "请填写标题", variant: "destructive" });
+    const trimmed = (tab === "task" ? title : countdownForm.title).trim();
+    const formError = tab === "task" ? (!trimmed ? "请填写标题" : null) : countdownFormError(countdownForm);
+    if (formError) {
+      toast({ title: formError, variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -132,8 +135,8 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
         const payload = {
           user_id: user.id,
           title: trimmed,
-          target_date: dateKey(date),
-          repeat_annually: repeatAnnually,
+          target_date: countdownForm.target_date,
+          repeat_annually: countdownForm.repeat_annually,
         };
         const { error } = await supabase.from("countdown_days").insert(payload);
         if (error) throw error;
@@ -158,13 +161,13 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
         </DialogHeader>
         <div className="flex rounded-lg bg-muted p-1 text-sm">
           <Button type="button" variant="ghost" aria-pressed={tab === "task"} onClick={() => setTab("task")} className={`flex-1 ${tab === "task" ? "bg-background hover:bg-background" : "text-muted-foreground"}`}>任务</Button>
-          <Button type="button" variant="ghost" aria-pressed={tab === "countdown"} onClick={() => setTab("countdown")} className={`flex-1 ${tab === "countdown" ? "bg-background hover:bg-background" : "text-muted-foreground"}`}>倒数日</Button>
+          <Button type="button" variant="ghost" aria-pressed={tab === "countdown"} onClick={() => { setTab("countdown"); setCountdownForm((value) => ({ ...value, title: value.title || title })); }} className={`flex-1 ${tab === "countdown" ? "bg-background hover:bg-background" : "text-muted-foreground"}`}>倒数日</Button>
         </div>
         <div className="space-y-4">
-          <label className="block space-y-2 text-sm font-medium">
+          {tab === "task" && <label className="block space-y-2 text-sm font-medium">
             标题
-            <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={tab === "task" ? "例如：整理周报" : "例如：产品发布会"} autoFocus />
-          </label>
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：整理周报" autoFocus />
+          </label>}
           {tab === "task" ? (
             <>
               <div className="flex items-center gap-3 text-sm">
@@ -196,7 +199,7 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
               </div>
             </>
           ) : (
-            <label className="flex items-center gap-2 text-sm"><Checkbox checked={repeatAnnually} onCheckedChange={(checked) => setRepeatAnnually(checked === true)} />每年重复</label>
+            <CountdownFormFields value={countdownForm} onChange={setCountdownForm} disabled={saving} />
           )}
         </div>
         <DialogFooter>
@@ -218,6 +221,8 @@ function CalendarPageInner() {
   });
   const [countdowns, setCountdowns] = useState<CountdownDay[]>([]);
   const countdownsRef = useRef<CountdownDay[]>([]);
+  const countdownLoadVersion = useRef(0);
+  const pendingCountdowns = useRef(new Set<string>());
   const [loadError, setLoadError] = useState<string | null>(null);
   const [addRange, setAddRange] = useState<{ start: Date; end?: Date } | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -271,6 +276,7 @@ function CalendarPageInner() {
   clearTaskVersionsRef.current = clearTaskVersions;
 
   const loadCountdowns = useCallback(async () => {
+    const version = ++countdownLoadVersion.current;
     let data: readonly CountdownDay[] | null | undefined;
     let error: unknown = null;
     try {
@@ -286,6 +292,7 @@ function CalendarPageInner() {
     } catch (caughtError) {
       error = caughtError;
     }
+    if (version !== countdownLoadVersion.current || pendingCountdowns.current.size) return;
     const plan = nextCountdownDaysAfterLoad({ previous: countdownsRef.current, data, error });
     countdownsRef.current = plan.days;
     setCountdowns(plan.days);
@@ -301,6 +308,40 @@ function CalendarPageInner() {
     window.addEventListener("organize:countdown-changed", reload);
     return () => window.removeEventListener("organize:countdown-changed", reload);
   }, [loadCountdowns]);
+
+  const mutateCountdown = useCallback(async (id: string, patch?: CountdownFormValue, optimistic = false): Promise<boolean> => {
+    if (pendingCountdowns.current.has(id)) return false;
+    const previous = countdownsRef.current.find((item) => item.id === id);
+    if (!previous) return false;
+    pendingCountdowns.current.add(id);
+    ++countdownLoadVersion.current;
+    const apply = (next: CountdownDay[]) => { countdownsRef.current = next; setCountdowns(next); };
+    // 拖拽即刻反映；表单编辑/删除等服务端确认后再卸载，失败仍保住锚点与输入。
+    if (patch && optimistic) apply(countdownsRef.current.map((item) => item.id === id ? { ...item, ...patch } : item));
+    try {
+      if (patch || process.env.NEXT_PUBLIC_MOCK_BACKEND === "true") {
+        const result = await supabase.from("countdown_days")
+          .update(patch ?? { deleted_at: new Date().toISOString() }).eq("id", id);
+        if (result.error) throw result.error;
+      } else {
+        const affected = await mutateTrash("countdown", [id], "soft_delete");
+        if (!affected) throw new Error("倒数日未删除，请重试");
+      }
+      if (patch && !optimistic) apply(countdownsRef.current.map((item) => item.id === id ? { ...item, ...patch } : item));
+      if (!patch) apply(countdownsRef.current.filter((item) => item.id !== id));
+      toast({ title: patch ? "倒数日已更新" : "倒数日已移入垃圾箱" });
+      return true;
+    } catch (error) {
+      if (patch && optimistic) apply(countdownsRef.current.map((item) => item.id === id ? previous : item));
+      toast({ title: patch ? "保存失败" : "删除失败", description: (error as { message?: string })?.message, variant: "destructive" });
+      return false;
+    } finally {
+      pendingCountdowns.current.delete(id);
+      ++countdownLoadVersion.current;
+      // 成功/回滚后统一重载；最后一个并发写入完成时查询包含全部最终结果。
+      window.dispatchEvent(new CustomEvent("organize:countdown-changed"));
+    }
+  }, [supabase]);
 
   const rescheduleTask = useCallback(
     async (taskId: string, date: Date) => {
@@ -364,6 +405,8 @@ function CalendarPageInner() {
         <TaskMonthView
           tasks={visibleTasks}
           countdowns={countdowns}
+          onUpdateCountdown={mutateCountdown}
+          onDeleteCountdown={(id) => mutateCountdown(id)}
           onTaskClick={(task) => updateUrl({ task: task.id })}
           onRescheduleTask={rescheduleTask}
           onUpdateTaskSchedule={updateTaskSchedule}

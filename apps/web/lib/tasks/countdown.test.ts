@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { CountdownDay } from "@organize/shared";
 import {
   annualOccurrenceDate,
+  countdownFormError,
+  countdownDropDate,
+  countdownDragMoved,
+  rescheduleCountdownTarget,
   countdownDisplay,
   COUNTDOWN_LOAD_ERROR_MESSAGE,
   nextCountdownDaysAfterLoad,
@@ -81,5 +85,40 @@ describe("nextCountdownDaysAfterLoad", () => {
       expect(plan.days).toEqual([]);
       expect(plan.loadError).toBeNull();
     }
+  });
+});
+
+
+describe("倒数日改期与共享验证", () => {
+  it("一次性事件原样保留本地落点，跨年不作 ISO 转换", () => {
+    expect(rescheduleCountdownTarget(day("2026-10-19"), "2027-01-01")).toBe("2027-01-01");
+  });
+  it.each([
+    ["2020-05-01", "2028-02-29", "2020-02-29"],
+    ["2021-05-01", "2028-02-29", "2021-02-28"],
+    ["2020-02-29", "2027-02-28", "2020-02-28"],
+    ["2020-12-31", "2027-01-01", "2020-01-01"],
+  ])("年重复 %s 拖到 %s 保存 %s", (original, target, expected) => {
+    expect(rescheduleCountdownTarget(day(original, true), target)).toBe(expected);
+  });
+  it.each(["", "2026-2-01", "2026-02-29", "2026-13-01", "2026-04-31", "0000-01-01"])("拒绝无效日期 %s", (date) => {
+    expect(countdownFormError(day(date))).toBeTruthy();
+    expect(() => rescheduleCountdownTarget(day("2026-01-01"), date)).toThrow();
+  });
+  it("标题 trim 后必填，闰日有效", () => {
+    expect(countdownFormError(day("2028-02-29", false, "  "))).toBeTruthy();
+    expect(countdownFormError(day("2028-02-29", false, "生日"))).toBeNull();
+  });
+  const cells = [0, 1, 2, 3].map((i) => ({ date: `2026-10-${19 + i}`, left: (i % 2) * 100, right: (i % 2 + 1) * 100, top: Math.floor(i / 2) * 100, bottom: (Math.floor(i / 2) + 1) * 100 }));
+  it("跨周矩形落点、边缘夹紧、离开网格取消", () => {
+    expect(countdownDropDate(cells, 150, 150, false)).toBe("2026-10-22");
+    expect(countdownDropDate(cells, -20, 150, false)).toBe("2026-10-21");
+    expect(countdownDropDate(cells, 250, 150, false)).toBe("2026-10-22");
+    expect(countdownDropDate(cells, 150, 250, false)).toBeNull();
+    expect(countdownDropDate(cells.slice(0, 2), 150, 250, true)).toBe("2026-10-20");
+  });
+  it("5px 阈值区分点击与拖拽", () => {
+    expect(countdownDragMoved(10, 10, 12, 12)).toBe(false);
+    expect(countdownDragMoved(10, 10, 13, 14)).toBe(true);
   });
 });

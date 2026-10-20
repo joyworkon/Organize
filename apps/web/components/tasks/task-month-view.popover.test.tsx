@@ -100,7 +100,7 @@ describe("月视图当天弹层、日期钻取与格子键盘", () => {
   }
 
   function moreButton() {
-    return container.querySelector<HTMLButtonElement>("[aria-haspopup='dialog']");
+    return container.querySelector<HTMLButtonElement>("[aria-label^='查看 ']");
   }
 
   it("五个任务显示三条和 +2，弹层列出全部并可打开第四条", () => {
@@ -148,9 +148,8 @@ describe("月视图当天弹层、日期钻取与格子键盘", () => {
     act(() => { more.click(); });
     expect(onDateClick).not.toHaveBeenCalled();
     const dialog = document.querySelector("[role='dialog']")!;
-    const links = Array.from(dialog.querySelectorAll("a"));
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/tasks/countdown", "/tasks/countdown"]);
-    expect(links.map((link) => link.textContent)).toEqual(["生日", "纪念日"]);
+    const chips = Array.from(dialog.querySelectorAll("button[aria-label^='倒数日']"));
+    expect(chips.map((chip) => chip.textContent)).toEqual(["生日", "纪念日"]);
 
     const blocked = new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true });
     act(() => { window.dispatchEvent(blocked); });
