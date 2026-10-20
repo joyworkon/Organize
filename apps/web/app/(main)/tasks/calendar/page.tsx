@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,12 +16,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
+import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
+import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
+import { getTaskDependencyView } from "@/lib/tasks/dependencies";
 import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad } from "@/lib/tasks/countdown";
 import { isOnline } from "@/lib/offline/network";
+import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
+import type { PendingTaskOp } from "@/lib/offline/task-queue";
+import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskRecurrenceRule } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
@@ -203,12 +210,17 @@ function CalendarAddDialog({ range, onClose, onCreated, supabase, defaultListId 
 
 function CalendarPageInner() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { tasks, loading, refetch, supabase } = useTaskWorkspaceData();
+  const clearTaskVersionsRef = useRef<() => void>(() => {});
+  const { tasks, lists, dependencies, loading, refetch, setTasks, supabase } = useTaskWorkspaceData({
+    onLoaded: () => clearTaskVersionsRef.current(),
+  });
   const [countdowns, setCountdowns] = useState<CountdownDay[]>([]);
   const countdownsRef = useRef<CountdownDay[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [addRange, setAddRange] = useState<{ start: Date; end?: Date } | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const scope = (searchParams.get("scope") as SidebarSelection["scope"]) || "all";
   const selection = useMemo<SidebarSelection>(
     () => ({ scope, listId: scope === "list" ? searchParams.get("list") : null }),
@@ -218,6 +230,45 @@ function CalendarPageInner() {
     () => filterTasksByScope(tasks, selection).filter((task) => !task.deleted_at),
     [selection, tasks]
   );
+  const selectedTaskId = searchParams.get("task");
+  const selectedTask = selectedTaskId
+    ? tasks.find((task) => task.id === selectedTaskId && !task.deleted_at) ?? null
+    : null;
+  const selectedBlockingPrerequisites = useMemo(() => {
+    if (!selectedTask) return [];
+    return getTaskDependencyView(tasks, dependencies, selectedTask.id).blockingPrerequisites
+      .map((task) => ({ id: task.id, title: task.title }));
+  }, [dependencies, selectedTask, tasks]);
+
+  const updateUrl = useCallback((patch: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    Object.entries(patch).forEach(([key, value]) => value === null ? params.delete(key) : params.set(key, value));
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+  const closeTask = useCallback(() => updateUrl({ task: null }), [updateUrl]);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUserId(session.user.id);
+    });
+  }, [supabase]);
+
+  const pushDeadLetter = useCallback((op: PendingTaskOp, error: unknown) => {
+    if (!userId) return false;
+    return addTaskDeadLetterEntry(localStorage, userId, { op, error }).persisted;
+  }, [userId]);
+
+  const { updateTask, deleteTask, clearTaskVersions } = useTaskMutations({
+    supabase,
+    userId,
+    tasks,
+    setTasks,
+    refreshTasks: refetch,
+    onDeleted: closeTask,
+    pushDeadLetter,
+  });
+  clearTaskVersionsRef.current = clearTaskVersions;
 
   const loadCountdowns = useCallback(async () => {
     let data: readonly CountdownDay[] | null | undefined;
@@ -260,76 +311,93 @@ function CalendarPageInner() {
         schedule_end_at: task?.schedule_end_at ?? null,
         target: date,
       });
-      const { error } = await supabase
-        .from("tasks")
-        .update(patch)
-        .eq("id", taskId);
-      if (error) {
-        toast({ title: "改期失败", variant: "destructive" });
-        return;
-      }
-      await refetch();
-      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      await updateTask(taskId, patch);
     },
-    [refetch, supabase, tasks]
+    [tasks, updateTask]
   );
 
   const updateTaskSchedule = useCallback(
     async (taskId: string, schedule: TaskSchedule) => {
-      const { error } = await supabase
-        .from("tasks")
-        .update({
-          schedule_start_at: schedule.schedule_start_at,
-          schedule_end_at: schedule.schedule_end_at,
-          due_date: schedule.schedule_end_at || schedule.schedule_start_at,
-          all_day: schedule.all_day,
-          timezone: schedule.timezone,
-          recurrence_rule: schedule.recurrence_rule,
-        })
-        .eq("id", taskId);
-      if (error) {
-        toast({ title: "改期失败", variant: "destructive" });
-        return;
-      }
-      await refetch();
-      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      await updateTask(taskId, {
+        schedule_start_at: schedule.schedule_start_at,
+        schedule_end_at: schedule.schedule_end_at,
+        all_day: schedule.all_day,
+        timezone: schedule.timezone,
+        recurrence_rule: schedule.recurrence_rule,
+      });
     },
-    [refetch, supabase]
+    [updateTask]
   );
 
+  useHotkey([
+    {
+      key: "escape",
+      ctrlKey: false,
+      metaKey: false,
+      // 不默认 preventDefault：添加弹层、菜单和拖拽取消都要先收到 Esc。
+      preventDefault: false,
+      handler: (event) => {
+        if (event.defaultPrevented || hasOpenDialog() || !selectedTaskId) return;
+        event.preventDefault();
+        closeTask();
+      },
+    },
+  ]);
+
   return (
-    <div className="organize-task-screen organize-calendar-screen relative flex min-h-0 w-full flex-col overflow-hidden bg-background text-foreground">
-      {/* 刷新时用遮罩而非卸载视图：保住周/月/日视图的内部状态（如当前模式与拖拽） */}
-      {loading && (
-        <div className="absolute inset-0 z-20 grid place-items-center rounded-lg bg-background/60">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
+    <div className="organize-task-screen organize-calendar-screen relative flex min-h-0 w-full overflow-hidden bg-background text-foreground">
+      <div className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", selectedTask && "hidden lg:flex")}>
+        {/* 刷新时用遮罩而非卸载视图：保住周/月/日视图的内部状态（如当前模式与拖拽） */}
+        {loading && (
+          <div className="absolute inset-0 z-20 grid place-items-center rounded-lg bg-background/60">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        )}
+        {loadError && (
+          <div className="mx-2 mt-2 flex shrink-0 items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2" role="alert">
+            <p className="min-w-0 text-xs text-destructive">{COUNTDOWN_LOAD_ERROR_MESSAGE}</p>
+            <Button size="sm" variant="outline" className="shrink-0" onClick={() => void loadCountdowns()}>
+              重试
+            </Button>
+          </div>
+        )}
+        <TaskMonthView
+          tasks={visibleTasks}
+          countdowns={countdowns}
+          onTaskClick={(task) => updateUrl({ task: task.id })}
+          onRescheduleTask={rescheduleTask}
+          onUpdateTaskSchedule={updateTaskSchedule}
+          onDateClick={(start, end) => {
+            // 详情打开时，点日历空白只关闭面板，与 ✕ / Esc 一样回到当前视图。
+            if (selectedTaskId) {
+              closeTask();
+              return;
+            }
+            setAddRange({ start, end });
+          }}
+        />
+        <CalendarAddDialog
+          range={addRange}
+          onClose={() => setAddRange(null)}
+          onCreated={async () => {
+            await Promise.all([refetch(), loadCountdowns()]);
+          }}
+          supabase={supabase}
+          defaultListId={selection.scope === "list" ? selection.listId : null}
+        />
+      </div>
+      {selectedTask && (
+        <TaskInlineDetail
+          task={selectedTask}
+          lists={lists}
+          onUpdate={updateTask}
+          onDelete={deleteTask}
+          onClose={closeTask}
+          onOpenTask={(taskId) => updateUrl({ task: taskId })}
+          onOpenFullPage={(taskId) => router.push(`/tasks/${taskId}`)}
+          blockingPrerequisites={selectedBlockingPrerequisites}
+        />
       )}
-      {loadError && (
-        <div className="mx-2 mt-2 flex shrink-0 items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2" role="alert">
-          <p className="min-w-0 text-xs text-destructive">{COUNTDOWN_LOAD_ERROR_MESSAGE}</p>
-          <Button size="sm" variant="outline" className="shrink-0" onClick={() => void loadCountdowns()}>
-            重试
-          </Button>
-        </div>
-      )}
-      <TaskMonthView
-        tasks={visibleTasks}
-        countdowns={countdowns}
-        onTaskClick={(task) => router.push(`/tasks/${task.id}`)}
-        onRescheduleTask={rescheduleTask}
-        onUpdateTaskSchedule={updateTaskSchedule}
-        onDateClick={(start, end) => setAddRange({ start, end })}
-      />
-      <CalendarAddDialog
-        range={addRange}
-        onClose={() => setAddRange(null)}
-        onCreated={async () => {
-          await Promise.all([refetch(), loadCountdowns()]);
-        }}
-        supabase={supabase}
-        defaultListId={selection.scope === "list" ? selection.listId : null}
-      />
     </div>
   );
 }

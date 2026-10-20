@@ -12,21 +12,96 @@ const mocks = vi.hoisted(() => {
   query.select.mockReturnValue(query);
   query.eq.mockReturnValue(query);
   return {
-    insert, supabase: { from: vi.fn().mockReturnValue(query), auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u" } } }) } },
-    refetch: vi.fn(), params: new URLSearchParams(), tasks: [],
+    insert,
+    supabase: {
+      from: vi.fn().mockReturnValue(query),
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u" } } }),
+        getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "u" } } } }),
+      },
+    },
+    refetch: vi.fn(),
+    setTasks: vi.fn(),
+    params: new URLSearchParams(),
+    tasks: [] as import("@organize/shared").TaskWithTags[],
+    push: vi.fn(),
+    replace: vi.fn(),
+    updateTask: vi.fn().mockResolvedValue(undefined),
+    deleteTask: vi.fn().mockResolvedValue(undefined),
     clickDate: undefined as ((start: Date, end?: Date) => void) | undefined,
+    onTaskClick: undefined as ((task: { id: string }) => void) | undefined,
+    onReschedule: undefined as ((taskId: string, date: Date) => Promise<void>) | undefined,
+    onUpdateSchedule: undefined as ((taskId: string, schedule: unknown) => Promise<void>) | undefined,
   };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSearchParams: () => mocks.params }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  usePathname: () => "/tasks/calendar",
+  useSearchParams: () => mocks.params,
+}));
 vi.mock("@/lib/tasks/workspace", () => ({
-  useTaskWorkspaceData: () => ({ tasks: mocks.tasks, loading: false, refetch: mocks.refetch, supabase: mocks.supabase }),
+  useTaskWorkspaceData: () => ({
+    tasks: mocks.tasks,
+    lists: [],
+    dependencies: [],
+    loading: false,
+    refetch: mocks.refetch,
+    setTasks: mocks.setTasks,
+    supabase: mocks.supabase,
+  }),
   filterTasksByScope: (tasks: unknown[]) => tasks,
 }));
+vi.mock("@/lib/tasks/use-task-mutations", () => ({
+  useTaskMutations: () => ({
+    updateTask: mocks.updateTask,
+    deleteTask: mocks.deleteTask,
+    clearTaskVersions: vi.fn(),
+  }),
+}));
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
+vi.mock("@/components/tasks/task-inline-detail", async () => {
+  const { createElement } = await import("react");
+  return {
+    TaskInlineDetail: ({
+      task,
+      onUpdate,
+      onDelete,
+      onClose,
+      onOpenFullPage,
+    }: {
+      task: { id: string; title: string };
+      onUpdate: (id: string, patch: Record<string, unknown>) => void;
+      onDelete: (id: string) => void;
+      onClose: () => void;
+      onOpenFullPage?: (id: string) => void;
+    }) => createElement(
+      "aside",
+      { className: "organize-task-detail", "aria-label": "任务详情" },
+      createElement("h1", null, task.title),
+      createElement("button", { type: "button", onClick: onClose }, "关闭"),
+      createElement("button", { type: "button", onClick: () => onUpdate(task.id, { title: "新标题" }) }, "改标题"),
+      createElement("button", { type: "button", onClick: () => onDelete(task.id) }, "删除"),
+      onOpenFullPage ? createElement("button", { type: "button", onClick: () => onOpenFullPage(task.id) }, "打开完整页面") : null,
+    ),
+  };
+});
 vi.mock("@/components/tasks/task-month-view", async (original) => ({
   ...await original<typeof import("@/components/tasks/task-month-view")>(),
-  TaskMonthView: ({ onDateClick }: { onDateClick: typeof mocks.clickDate }) => {
+  TaskMonthView: ({
+    onDateClick,
+    onTaskClick,
+    onRescheduleTask,
+    onUpdateTaskSchedule,
+  }: {
+    onDateClick: typeof mocks.clickDate;
+    onTaskClick?: typeof mocks.onTaskClick;
+    onRescheduleTask?: typeof mocks.onReschedule;
+    onUpdateTaskSchedule?: typeof mocks.onUpdateSchedule;
+  }) => {
     mocks.clickDate = onDateClick;
+    mocks.onTaskClick = onTaskClick;
+    mocks.onReschedule = onRescheduleTask;
+    mocks.onUpdateSchedule = onUpdateTaskSchedule;
     return null;
   },
 }));
@@ -38,7 +113,12 @@ describe("日历添加起止表单", () => {
   let root: Root;
   beforeEach(async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    mocks.params = new URLSearchParams();
+    mocks.tasks = [];
     mocks.insert.mockClear();
+    mocks.push.mockClear();
+    mocks.replace.mockClear();
+    mocks.updateTask.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -108,5 +188,152 @@ describe("日历添加起止表单", () => {
     expect(button("任务").getAttribute("aria-pressed")).toBe("false");
     await act(async () => button("添加").click());
     expect(mocks.insert).toHaveBeenCalledWith({ user_id: "u", title: "拖选任务", target_date: "2026-10-19", repeat_annually: false });
+  });
+});
+
+const peekTask = {
+  id: "t1",
+  user_id: "u",
+  title: "周报",
+  description: null,
+  status: "todo",
+  priority: "medium",
+  category: "work",
+  due_date: new Date(2026, 9, 19, 9).toISOString(),
+  estimated_minutes: null,
+  actual_minutes: null,
+  reading_item_id: null,
+  note_id: null,
+  is_pinned: false,
+  sort_order: 0,
+  completed_at: null,
+  created_at: "2026-10-01T00:00:00.000Z",
+  updated_at: "2026-10-01T00:00:00.000Z",
+  sync_version: 3,
+  schedule_start_at: new Date(2026, 9, 19, 9).toISOString(),
+  schedule_end_at: new Date(2026, 9, 19, 10).toISOString(),
+  deleted_at: null,
+  tags: [],
+} as TaskWithTags;
+
+describe("日历任务详情面板", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    mocks.params = new URLSearchParams();
+    mocks.tasks = [];
+    mocks.push.mockClear();
+    mocks.replace.mockClear();
+    mocks.updateTask.mockClear();
+    mocks.deleteTask.mockClear();
+    mocks.supabase.from.mockClear();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  async function renderPage() {
+    await act(async () => { root.render(createElement(CalendarPage)); });
+  }
+
+  function replacedUrl() {
+    return String(mocks.replace.mock.calls.at(-1)?.[0] ?? "");
+  }
+
+  it("点任务写入 ?task= 并打开面板，不跳走", async () => {
+    mocks.tasks = [peekTask];
+    mocks.params = new URLSearchParams("scope=list&list=abc");
+    await renderPage();
+    expect(document.querySelector('[aria-label="任务详情"]')).toBeNull();
+    await act(async () => { mocks.onTaskClick?.(peekTask); });
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(replacedUrl()).toBe("/tasks/calendar?scope=list&list=abc&task=t1");
+    mocks.params = new URLSearchParams("scope=list&list=abc&task=t1");
+    await renderPage();
+    expect(document.querySelector('[aria-label="任务详情"] h1')?.textContent).toBe("周报");
+  });
+
+  it("带 ?task= 刷新直接打开，关闭、空白和 Esc 清掉参数", async () => {
+    mocks.tasks = [peekTask];
+    mocks.params = new URLSearchParams("scope=all&task=t1");
+    await renderPage();
+    expect(document.querySelector('[aria-label="任务详情"]')).not.toBeNull();
+
+    const close = [...document.querySelectorAll("button")].find((button) => button.textContent === "关闭")!;
+    await act(async () => { close.click(); });
+    expect(replacedUrl()).toBe("/tasks/calendar?scope=all");
+
+    mocks.replace.mockClear();
+    await act(async () => { mocks.clickDate?.(new Date(2026, 9, 20)); });
+    expect(replacedUrl()).toBe("/tasks/calendar?scope=all");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    mocks.replace.mockClear();
+    const typed = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+    await act(async () => { window.dispatchEvent(typed); });
+    expect(replacedUrl()).toBe("/tasks/calendar?scope=all");
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    mocks.replace.mockClear();
+    await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    input.remove();
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+    mocks.replace.mockClear();
+    await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    dialog.remove();
+  });
+
+  it("面板里的修改和拖拽改期都走 useTaskMutations", async () => {
+    mocks.tasks = [peekTask];
+    mocks.params = new URLSearchParams("task=t1");
+    await renderPage();
+    const rename = [...document.querySelectorAll("button")].find((button) => button.textContent === "改标题")!;
+    await act(async () => { rename.click(); });
+    expect(mocks.updateTask).toHaveBeenCalledWith("t1", { title: "新标题" });
+
+    await act(async () => { mocks.onReschedule?.("t1", new Date(2026, 9, 21, 9)); });
+    expect(mocks.updateTask).toHaveBeenCalledWith("t1", {
+      schedule_start_at: new Date(2026, 9, 21, 9).toISOString(),
+      schedule_end_at: new Date(2026, 9, 21, 10).toISOString(),
+    });
+    await act(async () => {
+      mocks.onUpdateSchedule?.("t1", {
+        schedule_start_at: "2026-10-22T01:00:00.000Z",
+        schedule_end_at: "2026-10-22T02:00:00.000Z",
+        all_day: false,
+        timezone: "Asia/Shanghai",
+        recurrence_rule: null,
+      });
+    });
+    expect(mocks.updateTask).toHaveBeenCalledWith("t1", {
+      schedule_start_at: "2026-10-22T01:00:00.000Z",
+      schedule_end_at: "2026-10-22T02:00:00.000Z",
+      all_day: false,
+      timezone: "Asia/Shanghai",
+      recurrence_rule: null,
+    });
+    expect(mocks.supabase.from).not.toHaveBeenCalledWith("tasks");
+
+    const openFull = [...document.querySelectorAll("button")].find((button) => button.textContent === "打开完整页面")!;
+    await act(async () => { openFull.click(); });
+    expect(mocks.push).toHaveBeenCalledWith("/tasks/t1");
+
+    const remove = [...document.querySelectorAll("button")].find((button) => button.textContent === "删除")!;
+    await act(async () => { remove.click(); });
+    expect(mocks.deleteTask).toHaveBeenCalledWith("t1");
   });
 });

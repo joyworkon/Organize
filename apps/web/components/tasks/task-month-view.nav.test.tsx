@@ -152,6 +152,22 @@ describe("日历顶栏、键盘导航与年视图钻取", () => {
     expect(heading()).toBe("2026年10月");
   });
 
+  it("详情面板里的输入框聚焦时，日历导航键不切换视图", () => {
+    const aside = document.createElement("aside");
+    aside.className = "organize-task-detail";
+    const input = document.createElement("textarea");
+    aside.appendChild(input);
+    document.body.appendChild(aside);
+    input.focus();
+    for (const key of ["ArrowLeft", "ArrowRight", "t", "d", "w", "m", "y"]) {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      act(() => { input.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(heading()).toBe("2026年10月");
+    aside.remove();
+  });
+
   it("年视图点月份进入该月，点日期进入日视图且不打开添加", () => {
     click('button[title="年视图（y）"]');
     expect(heading()).toBe("2026年");
