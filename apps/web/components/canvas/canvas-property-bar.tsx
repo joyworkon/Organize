@@ -4,7 +4,8 @@
  * 右侧属性栏（docs/idea-canvas-plan.md §5）：按选中对象显示紧凑属性。
  * 文本：角色/字号档/加粗/颜色/对齐/背景/圆角；图片：完整显示 vs 铺满裁切；
  * 版面（页面）：页面名/宽度/背景/圆角；区块在左侧结构面板操作；
- * 自由容器：文本样式/图片显示与容器比例/层级/圆角/移入区块。
+ * 自由容器：文本样式/图片显示与容器比例/图层/圆角/移入区块；
+ * 多选自由元素：对齐、分布、图层、复制、删除。
  * 不含无效占位控件。
  */
 
@@ -30,7 +31,6 @@ import {
   updateBoardPadding,
   updateBoardStyle,
   updateButtonBlock,
-  updateFreeItem,
   updateFreeItemBlock,
   updateImageBlock,
   updateRegionStyle,
@@ -62,8 +62,9 @@ import {
 } from "@/lib/canvas/text-styles";
 import { canSmartRecompute } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
+import { FreeArrangeToolbar } from "./canvas-arrange";
 import { commitCanvasDuplicate } from "./canvas-shortcuts";
-import { applyDeleteFreeItems } from "./free-item-actions";
+import { applyDeleteFreeItems, type FreeArrangeBox } from "./free-item-actions";
 import { useCanvasSelector } from "./use-canvas-selector";
 import type { SourceStatusMap } from "./use-source-status";
 import { statusOf } from "./use-source-status";
@@ -91,6 +92,7 @@ export function CanvasPropertyBar({
   onReplaceImage,
   sourceStatuses,
   onRefreshSource,
+  freeBoxes = [],
 }: {
   store: CanvasStore;
   measurer: MeasurerLike;
@@ -100,6 +102,8 @@ export function CanvasPropertyBar({
   sourceStatuses?: SourceStatusMap;
   /** 「更新快照」（E）：按来源当前内容重建块内副本（一次可撤销事务）。 */
   onRefreshSource?: (blockId: string) => void;
+  /** 场景里已测的自由元素高度。对齐/分布用它，不用固定高。 */
+  freeBoxes?: readonly FreeArrangeBox[];
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
@@ -151,6 +155,13 @@ export function CanvasPropertyBar({
       <div className="canvas-property-bar" aria-label="多个自由元素属性">
         <h3 className="canvas-prop-title">已选 {count} 个自由元素</h3>
         <p className="text-xs text-muted-foreground">拖动任一选中元素可一起移动；Shift 点击可增减选区。样式请单独选中后调整。</p>
+        <FreeArrangeToolbar
+          store={store}
+          doc={doc}
+          itemIds={selection.itemIds}
+          boxes={freeBoxes}
+          showAlign
+        />
         <Button
           type="button"
           variant="outline"
@@ -467,32 +478,13 @@ export function CanvasPropertyBar({
             />
           </>
         )}
-        <div className="canvas-prop-row canvas-prop-actions">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="min-w-0 flex-1 px-1 text-xs"
-            onClick={() =>
-              store.getState().apply("上移一层", (d) => updateFreeItem(d, { itemId: item.id, zIndex: item.zIndex + 1 }))
-            }
-          >
-            上移一层
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="min-w-0 flex-1 px-1 text-xs"
-            onClick={() =>
-              store.getState().apply("下移一层", (d) =>
-                updateFreeItem(d, { itemId: item.id, zIndex: Math.max(0, item.zIndex - 1) }),
-              )
-            }
-          >
-            下移一层
-          </Button>
-        </div>
+        <FreeArrangeToolbar
+          store={store}
+          doc={doc}
+          itemIds={[item.id]}
+          boxes={freeBoxes}
+          showAlign={false}
+        />
         <Button
           type="button"
           variant="outline"

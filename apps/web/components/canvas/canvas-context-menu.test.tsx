@@ -79,6 +79,47 @@ describe("canvas context menu model", () => {
     expect(board.find((entry) => entry.id === "paste")?.disabled).toBe(true);
     expect(board.find((entry) => entry.id === "delete")?.disabled).toBe(false);
   });
+
+  it("shows align, distribute, and layer groups only for free items", () => {
+    const one = canvasContextMenuModel({
+      scope: "element",
+      selection: { kind: "free", itemId: "f" },
+      readOnly: false,
+      hasClipboard: true,
+      labels,
+    });
+    expect(one.filter((entry) => entry.heading).map((entry) => entry.label)).toEqual(["对齐", "分布", "图层"]);
+    expect(one.find((entry) => entry.id === "align-left")).toMatchObject({ disabled: true, title: "至少选择 2 个自由元素" });
+    expect(one.find((entry) => entry.id === "distribute-x")?.disabled).toBe(true);
+    expect(one.find((entry) => entry.id === "layer-front")?.disabled).toBe(false);
+    const two = canvasContextMenuModel({
+      scope: "element",
+      selection: { kind: "frees", itemIds: ["a", "b"] },
+      readOnly: false,
+      hasClipboard: false,
+      labels,
+    });
+    expect(two.find((entry) => entry.id === "align-bottom")?.disabled).toBe(false);
+    expect(two.find((entry) => entry.id === "distribute-y")?.disabled).toBe(true);
+    const three = canvasContextMenuModel({
+      scope: "element",
+      selection: { kind: "frees", itemIds: ["a", "b", "c"] },
+      readOnly: false,
+      hasClipboard: false,
+      labels,
+    });
+    expect(three.find((entry) => entry.id === "distribute-x")?.disabled).toBe(false);
+    const locked = canvasContextMenuModel({
+      scope: "element",
+      selection: { kind: "frees", itemIds: ["a", "b", "c"] },
+      readOnly: true,
+      hasClipboard: true,
+      labels,
+    });
+    expect(locked.find((entry) => entry.id === "copy")?.disabled).toBe(false);
+    expect(locked.find((entry) => entry.id === "layer-back")?.title).toBe("只读时不能调整自由元素");
+    expect(locked.find((entry) => entry.id === "align-left")?.disabled).toBe(true);
+  });
 });
 
 describe("context target resolution", () => {
@@ -210,5 +251,27 @@ describe("canvas context menu", () => {
       document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     });
     expect(document.body.querySelector("[role=menu]")).toBeNull();
+  });
+
+  it("runs an enabled align action and ignores a disabled distribute action", () => {
+    const onSelect = vi.fn();
+    const entries = canvasContextMenuModel({
+      scope: "element",
+      selection: { kind: "frees", itemIds: ["a", "b"] },
+      readOnly: false,
+      hasClipboard: false,
+      labels,
+    });
+    const request: CanvasContextMenuRequest = { x: 12, y: 16, world: { x: 0, y: 0 }, scope: "element", nonce: 8 };
+    act(() => {
+      root.render(createElement(CanvasClipboardMenu, { request, entries, onSelect }) as ReactNode);
+    });
+    expect(item("左对齐")?.getAttribute("aria-disabled")).not.toBe("true");
+    expect(item("水平分布")?.getAttribute("aria-disabled")).toBe("true");
+    expect(item("置于顶层")).toBeTruthy();
+    act(() => { item("水平分布")?.click(); });
+    expect(onSelect).not.toHaveBeenCalled();
+    act(() => { item("左对齐")?.click(); });
+    expect(onSelect).toHaveBeenCalledWith("align-left");
   });
 });

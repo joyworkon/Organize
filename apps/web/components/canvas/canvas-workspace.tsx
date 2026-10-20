@@ -90,7 +90,7 @@ import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
 import { CanvasMinimap, CanvasMinimapToggle, useMinimapOpen } from "./canvas-minimap";
 import { isFreeItemDragging } from "./canvas-free-item";
-import { nudgeFreeItems } from "./free-item-actions";
+import { applyArrangeAction, isFreeArrangeAction, nudgeFreeItems } from "./free-item-actions";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
 import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
@@ -489,6 +489,10 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     }
     if (action === "zoom-fit") {
       fitAll();
+      return;
+    }
+    if (isFreeArrangeAction(action)) {
+      applyArrangeAction(store, action, scene.freeItems);
       return;
     }
     const request = contextMenuRef.current;
@@ -1335,6 +1339,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           onReplaceImage={onReplaceImage}
           sourceStatuses={sourceStatuses}
           onRefreshSource={(blockId) => void refreshMaterialSnapshot(blockId)}
+          freeBoxes={scene.freeItems}
         />
       )}
 

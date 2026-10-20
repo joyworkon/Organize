@@ -30,7 +30,7 @@ import {
   type SnapGuide,
   type SnapRect,
 } from "@/lib/canvas/snap";
-import { applyMoveFreeItems } from "./free-item-actions";
+import { applyArrangeAction, applyMoveFreeItems } from "./free-item-actions";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
 import { displayKey } from "./canvas-block";
@@ -499,11 +499,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
               className="canvas-free-action"
               title="上移一层"
               aria-label="自由容器上移一层"
-              onClick={() =>
-                store.getState().apply("上移自由容器", (d) =>
-                  updateFreeItem(d, { itemId: item.id, zIndex: item.zIndex + 1 }),
-                )
-              }
+              onClick={() => applyArrangeAction(store, "layer-forward", [], [item.id])}
             >
               ↑
             </button>
@@ -512,11 +508,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
               className="canvas-free-action"
               title="下移一层"
               aria-label="自由容器下移一层"
-              onClick={() =>
-                store.getState().apply("下移自由容器", (d) =>
-                  updateFreeItem(d, { itemId: item.id, zIndex: Math.max(0, item.zIndex - 1) }),
-                )
-              }
+              onClick={() => applyArrangeAction(store, "layer-backward", [], [item.id])}
             >
               ↓
             </button>
