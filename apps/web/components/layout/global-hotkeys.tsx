@@ -69,6 +69,14 @@ export const PAGE_SHORTCUTS = [
     ],
   },
   {
+    page: "待办日历",
+    items: [
+      { keys: "← / →", desc: "上一页 / 下一页" },
+      { keys: "t", desc: "回到今天" },
+      { keys: "d / w / m / y", desc: "日 / 周 / 月 / 年视图" },
+    ],
+  },
+  {
     page: "笔记详情",
     items: [
       { keys: "⌘S / Ctrl+S", desc: "立即保存" },

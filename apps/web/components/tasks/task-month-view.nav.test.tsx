@@ -1,0 +1,175 @@
+// @vitest-environment jsdom
+
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TaskWithTags } from "@organize/shared";
+import { TaskMonthView, weekDaysOf } from "./task-month-view";
+
+const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function dayTitle(date: Date) {
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${WEEKDAYS[(date.getDay() + 6) % 7]}`;
+}
+
+function weekTitle(anchor: Date) {
+  const days = weekDaysOf(anchor);
+  const first = days[0];
+  const last = days[6];
+  const head = `${first.getMonth() + 1}月${first.getDate()}日`;
+  const tail = first.getMonth() === last.getMonth() ? `${last.getDate()}日` : `${last.getMonth() + 1}月${last.getDate()}日`;
+  return `${head} - ${tail}`;
+}
+
+describe("日历顶栏、键盘导航与年视图钻取", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const onDateClick = vi.fn();
+  const today = new Date(2026, 9, 19, 12);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(today);
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    onDateClick.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const task: TaskWithTags = {
+      id: "march", user_id: "u1", title: "三月任务", description: null, status: "todo",
+      priority: "medium", category: "work", due_date: null,
+      estimated_minutes: null, actual_minutes: null, reading_item_id: null,
+      note_id: null, is_pinned: false, sort_order: 0, completed_at: null,
+      created_at: "2026-03-15T04:00:00Z", updated_at: "2026-03-15T04:00:00Z",
+      schedule_start_at: new Date(2026, 2, 15, 12).toISOString(),
+    };
+    act(() => {
+      root.render(createElement(TaskMonthView, { tasks: [task], onDateClick }));
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.querySelector('[role="dialog"]')?.remove();
+    vi.useRealTimers();
+  });
+
+  function heading() {
+    return container.querySelector("h2")!.textContent;
+  }
+
+  function press(key: string, init: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init, key });
+    act(() => { window.dispatchEvent(event); });
+    return event;
+  }
+
+  function click(selector: string) {
+    const button = container.querySelector<HTMLButtonElement>(selector);
+    expect(button).not.toBeNull();
+    act(() => { button!.click(); });
+  }
+
+  it("顶栏用共享按钮，保留模式文案、aria-label，并用 title 提示快捷键", () => {
+    const month = container.querySelector<HTMLButtonElement>('button[title="月视图（m）"]')!;
+    const day = container.querySelector<HTMLButtonElement>('button[title="日视图（d）"]')!;
+    const prev = container.querySelector<HTMLButtonElement>('button[aria-label="上一页"]')!;
+    const next = container.querySelector<HTMLButtonElement>('button[aria-label="下一页"]')!;
+    const todayButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "今天")!;
+    expect(month.getAttribute("aria-pressed")).toBe("true");
+    expect(day.getAttribute("aria-pressed")).toBe("false");
+    expect(month.textContent).toContain("月");
+    expect(month.textContent).toContain("议程");
+    expect(day.textContent).toContain("日");
+    expect(container.querySelector('button[title="周视图（w）"]')!.textContent).toContain("周");
+    expect(container.querySelector('button[title="年视图（y）"]')!.textContent).toContain("年");
+    expect(prev.title).toBe("上一页（←）");
+    expect(next.title).toBe("下一页（→）");
+    expect(todayButton.title).toBe("今天（t）");
+    for (const button of [month, prev, todayButton]) {
+      expect(button.className).toContain("focus-visible:ring-2");
+    }
+    expect(heading()).toBe("2026年10月");
+  });
+
+  it("方向键翻页、t 回今天、d/w/m/y 切视图，连发按每次一步", () => {
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", cancelable: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", cancelable: true }));
+    });
+    expect(heading()).toBe("2026年8月");
+    press("t");
+    expect(heading()).toBe("2026年10月");
+    press("ArrowLeft");
+    press("d");
+    expect(heading()).toBe(dayTitle(new Date(2026, 8, 19)));
+    press("ArrowLeft");
+    press("ArrowLeft");
+    expect(heading()).toBe(dayTitle(new Date(2026, 8, 17)));
+    press("t");
+    press("w");
+    expect(heading()).toBe(weekTitle(new Date(2026, 9, 1)));
+    press("y");
+    expect(heading()).toBe("2026年");
+    press("ArrowLeft");
+    expect(heading()).toBe("2025年");
+    press("d");
+    expect(heading()).toBe(dayTitle(new Date(2025, 9, 19)));
+    press("m");
+    expect(heading()).toBe("2025年10月");
+  });
+
+  it("输入框、弹层和修饰键不翻页", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    const typed = new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true });
+    act(() => { input.dispatchEvent(typed); });
+    expect(heading()).toBe("2026年10月");
+    expect(typed.defaultPrevented).toBe(false);
+    input.remove();
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+    const blocked = press("ArrowRight");
+    expect(heading()).toBe("2026年10月");
+    expect(blocked.defaultPrevented).toBe(false);
+    dialog.remove();
+
+    for (const init of [
+      { metaKey: true },
+      { ctrlKey: true },
+      { altKey: true },
+      { shiftKey: true },
+    ]) {
+      const event = press("ArrowLeft", init);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(press("t", { altKey: true }).defaultPrevented).toBe(false);
+    expect(press("?", {}).defaultPrevented).toBe(false);
+    expect(heading()).toBe("2026年10月");
+  });
+
+  it("年视图点月份进入该月，点日期进入日视图且不打开添加", () => {
+    click('button[title="年视图（y）"]');
+    expect(heading()).toBe("2026年");
+    expect(container.textContent).not.toContain("点击添加任务或倒数日");
+    const march = container.querySelector<HTMLButtonElement>('button[aria-label="查看 3 月"]')!;
+    expect(march.textContent).toBe("三月");
+    const day15 = Array.from(march.parentElement!.querySelectorAll("button")).find((button) => button.title === "查看这一天" && button.textContent === "15")!;
+    expect(day15.querySelector(".bg-primary")).not.toBeNull();
+
+    click('button[aria-label="查看 3 月"]');
+    expect(heading()).toBe("2026年3月");
+    expect(onDateClick).not.toHaveBeenCalled();
+
+    click('button[title="年视图（y）"]');
+    const marchAgain = container.querySelector<HTMLButtonElement>('button[aria-label="查看 3 月"]')!;
+    const dayAgain = Array.from(marchAgain.parentElement!.querySelectorAll("button")).find((button) => button.title === "查看这一天" && button.textContent === "15")!;
+    act(() => { dayAgain.click(); });
+    expect(heading()).toBe(dayTitle(new Date(2026, 2, 15)));
+    expect(onDateClick).not.toHaveBeenCalled();
+  });
+});
