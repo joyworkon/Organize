@@ -13,6 +13,7 @@ import {
   Circle,
   Copy,
   Flag,
+  ExternalLink,
   FileText,
   Link2,
   MoreHorizontal,
@@ -67,6 +68,8 @@ interface TaskInlineDetailProps {
   onDelete: (taskId: string) => Promise<void>;
   onClose: () => void;
   onOpenTask: (taskId: string) => void;
+  /** 打开 /tasks/<id> 整页。不传则不显示入口，列表页保持原菜单。 */
+  onOpenFullPage?: (taskId: string) => void;
   /** 未完成的前置依赖（父页已按当前任务算好）：完成时用于二次确认 */
   blockingPrerequisites?: { id: string; title: string }[];
 }
@@ -112,7 +115,7 @@ function DetailSection({
   );
 }
 
-export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask, blockingPrerequisites = [] }: TaskInlineDetailProps) {
+export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onOpenTask, onOpenFullPage, blockingPrerequisites = [] }: TaskInlineDetailProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -445,6 +448,7 @@ export function TaskInlineDetail({ task, lists, onUpdate, onDelete, onClose, onO
               <DropdownMenuItem onClick={() => void saveTemplate()}><Bookmark className="mr-2 h-4 w-4" />保存为模板</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void duplicate()}><Copy className="mr-2 h-4 w-4" />创建副本</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/tasks/${task.id}`).then(() => toast({ title: "任务链接已复制" }))}><Link2 className="mr-2 h-4 w-4" />复制链接</DropdownMenuItem>
+              {onOpenFullPage && <DropdownMenuItem onClick={() => onOpenFullPage(task.id)}><ExternalLink className="mr-2 h-4 w-4" />打开完整页面</DropdownMenuItem>}
               <DropdownMenuItem onClick={() => void openNote()}><FileText className="mr-2 h-4 w-4" />打开便签</DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />打印</DropdownMenuItem>
               <DropdownMenuSeparator />

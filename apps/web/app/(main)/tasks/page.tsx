@@ -20,7 +20,6 @@ import {
 } from "@/components/icons";
 import { createClient } from "@/lib/supabase/client";
 import { isOnline, useOnlineStatus } from "@/lib/offline/network";
-import { appEvents } from "@/lib/plugin/events";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
 import { isImeComposing } from "@/lib/input/submit-guard";
 import {
@@ -44,7 +43,7 @@ import { getWebLocks, TASK_REPLAY_LOCK_NAME, runSingleInstance } from "@/lib/off
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { applyReorderedGroup, computeSortOrderUpdates, moveIdByOffset, reorderIds } from "@/lib/tasks/reorder";
 import { createTaskQueueWriter } from "@/lib/tasks/task-queue-writer";
-import { requestNextRecurringTask } from "@/lib/tasks/recurring";
+import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
@@ -269,9 +268,8 @@ function TasksPageInner() {
   const searchParams = useSearchParams();
   const { permission, requestPermission, scheduleDueDateReminders, notifyOverdueSummary } = useNotifications();
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
-  // T01：顺序化同任务更新时读取最新列表（避免闭包旧状态）
-  const tasksRef = useRef<TaskWithTags[]>([]);
-  tasksRef.current = tasks;
+  // 权威刷新成功后清空 useTaskMutations 的本地版本表
+  const clearTaskVersionsRef = useRef<() => void>(() => {});
   const [lists, setLists] = useState<import("@organize/shared").TaskList[]>([]);
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
@@ -330,7 +328,7 @@ function TasksPageInner() {
       setDependencies(workspace.dependencies);
       setLoadError(null);
       // 服务端状态已是权威版本，清空本地版本跟踪
-      taskVersionRef.current.clear();
+      clearTaskVersionsRef.current();
       // F03：辅助数据失败单独说明（不冒充整个工作台故障）
       if (workspace.warnings.length > 0) {
         toast({
@@ -492,178 +490,18 @@ function TasksPageInner() {
     return persisted;
   }, [userId]);
 
-  // T01：同一任务的更新按序执行（后一次等待前一次完成再读版本），跨任务互不阻塞
-  const taskMutationQueueRef = useRef(new Map<string, Promise<void>>());
-  // T01：本地跟踪 sync_version，快速连续更新不再拿着旧版本自冲突
-  const taskVersionRef = useRef(new Map<string, number | null>());
-
-  const updateTaskInner = useCallback(async (taskId: string, patch: Partial<Task>) => {
-    // T01：回滚只恢复「这一个任务」的更新前状态，不回滚整个数组
-    // （此前整组回滚会把并发期间其他任务已成功的显示一起撤销）
-    const previousTask = tasksRef.current.find((task) => task.id === taskId);
-    const rollbackTask = () => {
-      if (!previousTask) return;
-      setTasks((current) => current.map((task) => (task.id === taskId ? previousTask : task)));
-    };
-    const normalized = { ...patch } as Partial<Task>;
-    if ("schedule_start_at" in normalized || "schedule_end_at" in normalized) normalized.due_date = normalized.schedule_end_at || normalized.schedule_start_at || null;
-    setTasks((current) => current.map((task) => task.id === taskId ? { ...task, ...normalized } : task));
-    const expectedVersion = taskVersionRef.current.has(taskId)
-      ? taskVersionRef.current.get(taskId) ?? null
-      : previousTask?.sync_version ?? null;
-    // X1：离线时直接入队（避免必然失败的请求），乐观状态保留
-    if (!isOnline()) {
-      if (!userId) {
-        rollbackTask();
-        toast({ title: "登录状态未知，离线更改暂未保存", variant: "destructive" });
-        return;
-      }
-      const op = makeTaskUpdateOp(taskId, normalized as Record<string, unknown>, expectedVersion);
-      const { persisted } = enqueueTaskOp(localStorage, userId, op);
-      setPendingOps(taskOpsCount(localStorage, userId));
-      if (!persisted) toast({ title: "本地存储不可用，离线更改可能丢失", variant: "destructive" });
-      else toast({ title: "已离线保存，联网后自动同步" });
-      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-      return;
-    }
-    // 在线更新与离线回放共用原子协议：携带 expected sync_version 与 mutation id
-    const result = await applyTaskUpdate(supabase, taskId, normalized as Record<string, unknown>, expectedVersion, crypto.randomUUID());
-    if (result.status === "applied") {
-      taskVersionRef.current.set(taskId, result.syncVersion);
-      setTasks((current) => current.map((task) => task.id === taskId ? { ...task, sync_version: result.syncVersion } : task));
-      // T02：所有成功的任务变更都通知领域事件（侧栏计数跟随；本列表走静默刷新不闪加载）
-      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-    } else if (result.status === "already_applied") {
-      // nothing to do
-    } else if (result.status === "conflict") {
-      // 双设备冲突：绝不静默覆盖——刷新服务端状态，本次更改进 dead-letter 由用户处理
-      rollbackTask();
-      taskVersionRef.current.delete(taskId);
-      await fetchTasks({ silent: true });
-      const op = makeTaskUpdateOp(taskId, normalized as Record<string, unknown>, expectedVersion);
-      pushDeadLetter(op, { code: "TASK_SYNC_CONFLICT", message: `任务已在其他设备被修改（当前版本 ${result.currentSyncVersion ?? "未知"}）` });
-      toast({ title: "任务已在其他设备被修改，本次更改已存入待处理列表", variant: "destructive" });
-      return;
-    } else if (result.status === "not_found") {
-      rollbackTask();
-      taskVersionRef.current.delete(taskId);
-      await fetchTasks({ silent: true });
-      toast({ title: "任务不存在或已被删除", variant: "destructive" });
-      return;
-    } else if (isNetworkSaveError(result.error)) {
-      // 网络错误按离线处理——入队待回放，不回滚乐观状态
-      if (!userId) {
-        rollbackTask();
-        toast({ title: "网络异常且登录状态未知，请稍后重试", variant: "destructive" });
-        return;
-      }
-      const op = makeTaskUpdateOp(taskId, normalized as Record<string, unknown>, expectedVersion);
-      const { persisted } = enqueueTaskOp(localStorage, userId, op);
-      setPendingOps(taskOpsCount(localStorage, userId));
-      if (!persisted) toast({ title: "网络异常且本地存储不可用，本次更改可能丢失", variant: "destructive" });
-      else toast({ title: "网络异常，已离线保存，联网后自动同步" });
-      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-      return;
-    } else {
-      rollbackTask();
-      toast({ title: "保存失败，已回滚", variant: "destructive" });
-      return;
-    }
-    // 重复任务：标记完成后幂等生成下一次实例（RPC 自检，非重复任务 → none）
-    if (normalized.status === "done") {
-      appEvents.emit("task:completed", {
-        taskId,
-        title: tasksRef.current.find((task) => task.id === taskId)?.title ?? "",
-      });
-      const next = await requestNextRecurringTask(supabase, taskId);
-      if (next.status === "created") {
-        toast({ title: "已生成下一次重复任务" });
-        window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-      } else if (next.status === "error") {
-        // 完成本身已成功，不回滚；但生成失败必须如实告知，不能让用户误以为续上了
-        toast({ title: "任务已完成，但下一次重复任务生成失败", description: next.message, variant: "destructive" });
-      }
-    }
-  }, [supabase, userId, fetchTasks, pushDeadLetter]);
-
-  const updateTask = useCallback((taskId: string, patch: Partial<Task>) => {
-    const previous = taskMutationQueueRef.current.get(taskId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(() => updateTaskInner(taskId, patch))
-      .then(() => {});
-    taskMutationQueueRef.current.set(taskId, next);
-    return next;
-  }, [updateTaskInner]);
-
-  const deleteTask = useCallback(async (taskId: string) => {
-    const now = new Date().toISOString();
-    const expectedVersion = tasks.find((task) => task.id === taskId)?.sync_version ?? null;
-    // X1：离线时软删除走离线队列（本质是 update），乐观从列表移除
-    const offlineDelete = () => {
-      if (!userId) {
-        toast({ title: "登录状态未知，离线更改暂未保存", variant: "destructive" });
-        return;
-      }
-      setTasks((current) => current.map((task) => task.id === taskId ? { ...task, deleted_at: now } : task));
-      const op = makeTaskUpdateOp(taskId, { deleted_at: now }, expectedVersion);
-      const { persisted } = enqueueTaskOp(localStorage, userId, op);
-      setPendingOps(taskOpsCount(localStorage, userId));
-      if (!persisted) toast({ title: "本地存储不可用，离线删除可能丢失", variant: "destructive" });
-      updateUrl({ task: null });
-    };
-    if (!isOnline()) {
-      offlineDelete();
-      toast({ title: "已离线删除，联网后自动同步" });
-      return;
-    }
-    // 软删除必须走 mutate_trash RPC：直写 deleted_at 会被 RLS 拒绝（更新后的行
-    // 必须仍满足 SELECT 可见性），RPC 是 security definer 且自带子树级联
-    const { error } = await supabase.rpc("mutate_trash", {
-      p_action: "soft_delete",
-      p_resource_type: "task",
-      p_ids: [taskId],
-    });
-    if (error) {
-      if (isNetworkSaveError(error)) {
-        offlineDelete();
-        toast({ title: "网络异常，已离线删除，联网后自动同步" });
-        return;
-      }
-      toast({ title: "删除失败", variant: "destructive" });
-      return;
-    }
-    updateUrl({ task: null });
-    await fetchTasks({ silent: true });
-    // T02：删除成功后侧栏计数跟随更新
-    window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-    const createdToast = toast({
-      title: "任务已移入垃圾箱",
-      action: (
-        <button
-          type="button"
-          className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-          onClick={async () => {
-            createdToast.dismiss();
-            const { error: restoreError } = await supabase.rpc("mutate_trash", {
-              p_action: "restore",
-              p_resource_type: "task",
-              p_ids: [taskId],
-            });
-            if (restoreError) {
-              toast({ title: "恢复失败，请在垃圾箱中重试", variant: "destructive" });
-              return;
-            }
-            await fetchTasks({ silent: true });
-            window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-            toast({ title: "已恢复任务" });
-          }}
-        >
-          撤销
-        </button>
-      ),
-    });
-  }, [fetchTasks, supabase, updateUrl, tasks, userId]);
+  const clearSelectedTask = useCallback(() => updateUrl({ task: null }), [updateUrl]);
+  const { updateTask, deleteTask, clearTaskVersions } = useTaskMutations({
+    supabase,
+    userId,
+    tasks,
+    setTasks,
+    refreshTasks: fetchTasks,
+    onDeleted: clearSelectedTask,
+    setPendingOps,
+    pushDeadLetter,
+  });
+  clearTaskVersionsRef.current = clearTaskVersions;
 
   /** 拖拽落点：把被拖任务插到目标行前/后，组内 sort_order 归一后持久化最小更新集 */
   const handleDropRow = useCallback(async (targetId: string, position: "before" | "after") => {

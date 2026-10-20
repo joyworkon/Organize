@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type {
   Tag,
@@ -282,8 +282,10 @@ export async function fetchTaskWorkspace(
   };
 }
 
-export function useTaskWorkspaceData() {
+export function useTaskWorkspaceData(options?: { onLoaded?: () => void }) {
   const supabase = useMemo(() => createClient(), []);
+  const onLoadedRef = useRef(options?.onLoaded);
+  onLoadedRef.current = options?.onLoaded;
   const [data, setData] = useState<TaskWorkspaceData>({
     tasks: [],
     lists: [],
@@ -293,25 +295,37 @@ export function useTaskWorkspaceData() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const refetch = useCallback(async () => {
-    setLoading(true);
+  const refetch = useCallback(async (opts?: { silent?: boolean }) => {
+    // 事件驱动的刷新不盖遮罩，避免日历改期时把视图闪没
+    const loud = !opts?.silent;
+    if (loud) setLoading(true);
     setError(null);
     try {
       setData(await fetchTaskWorkspace(supabase));
+      onLoadedRef.current?.();
+      return true;
     } catch (e) {
       // F03：主查询失败保留旧数据，暴露错误给调用方展示重试
       setError(e instanceof Error ? e.message : "任务数据加载失败");
+      return false;
     } finally {
-      setLoading(false);
+      if (loud) setLoading(false);
     }
   }, [supabase]);
 
+  const setTasks = useCallback((updater: SetStateAction<TaskWithTags[]>) => {
+    setData((current) => ({
+      ...current,
+      tasks: typeof updater === "function" ? updater(current.tasks) : updater,
+    }));
+  }, []);
+
   useEffect(() => {
     void refetch();
-    const reload = () => void refetch();
+    const reload = () => { void refetch({ silent: true }); };
     window.addEventListener("organize:tasks-changed", reload);
     return () => window.removeEventListener("organize:tasks-changed", reload);
   }, [refetch]);
 
-  return { ...data, loading, error, refetch, supabase };
+  return { ...data, loading, error, refetch, setTasks, supabase };
 }
