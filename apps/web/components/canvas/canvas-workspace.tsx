@@ -91,6 +91,7 @@ import {
 } from "@/lib/library/material-source";
 import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
+import { isFreeItemDragging, nudgeFreeItem } from "./canvas-free-item";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
 import { allCanvasBlockIds, canvasShortcutLabels, duplicateCanvasSelection, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
@@ -507,13 +508,31 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         return;
       }
       if (s.readOnly || s.previewMode) return;
+      // 选中自由元素：方向键微调 1px（⇧ 10px）；宽度手柄聚焦时左右键留给手柄调宽度；
+      // 拖动中不响应（拖动有自己的 Esc/吸附逻辑）。
+      if (
+        s.selection?.kind === "free" &&
+        !isFreeItemDragging() &&
+        !e.metaKey && !e.ctrlKey && !e.altKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+      ) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".canvas-free-resize")) return;
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        e.preventDefault();
+        nudgeFreeItem(store, s.selection.itemId, dx, dy);
+        return;
+      }
       if (e.code === "Space") {
         setSpaceHeld(true);
         return;
       }
       if (e.key === "Escape") {
-        // 弹层打开时 Esc 让位给弹层自身关闭（属性栏对话框等）
-        if (hasOpenDialog()) return;
+        // 弹层打开时 Esc 让位给弹层自身关闭（属性栏对话框等）；
+        // 自由元素拖动中的 Esc 只取消拖动（canvas-free-item 自行处理），不清选区。
+        if (hasOpenDialog() || isFreeItemDragging()) return;
         s.select(null);
         return;
       }
