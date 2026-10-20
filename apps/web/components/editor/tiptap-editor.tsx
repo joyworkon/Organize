@@ -673,12 +673,26 @@ export function TipTapEditor({
     if (!editor) return;
     const root = rootRef.current;
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint; nested?: boolean; range?: { from: number; to: number } };
+      const detail = (event as CustomEvent).detail as { type: string; pos?: number; target?: EditorBlockTarget; point?: EditorMenuPoint; nested?: boolean; range?: { from: number; to: number }; query?: string };
+      // 行内斜杠筛选（slash-command 扩展 onUpdate/onExit）：只更新已打开的 "/" 菜单，
+      // 被 Esc / 无匹配 / 滚动关掉之后继续输入不重开（与 Notion 一致：删掉 "/" 重打才再出现）
+      if (detail.type === "slash-menu-update") {
+        setCommandMenu((current) => (
+          current?.slash
+            ? { ...current, query: detail.query ?? "", range: detail.range ?? current.range, point: detail.point ?? current.point }
+            : current
+        ));
+        return;
+      }
+      if (detail.type === "slash-menu-exit") {
+        setCommandMenu((current) => (current?.slash ? null : current));
+        return;
+      }
       if (typeof detail.pos === "number") {
         if (detail.type === "slash-menu" && detail.point) {
           setActionMenu(null);
           setTablePicker(null);
-          setCommandMenu({ pos: detail.pos, point: detail.point, slash: true, nested: detail.nested, range: detail.range });
+          setCommandMenu({ pos: detail.pos, point: detail.point, slash: true, nested: detail.nested, range: detail.range, query: detail.query ?? "" });
         } else if (detail.type === "html") {
           if (detail.nested && detail.range) {
             editor.chain().focus().deleteRange(detail.range).insertContent({ type: "htmlEmbed" }).run();
@@ -1510,7 +1524,7 @@ export function TipTapEditor({
         <div className="organize-block-drop-indicator" style={{ top: dropTarget.top }} aria-hidden="true" />
       )}
       {selectRect && <div className="organize-select-rect" style={selectRect} aria-hidden="true" />}
-      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} nested={commandMenu.nested} range={commandMenu.range} onClose={closeMenus} />}
+      {commandMenu && <BlockCommandMenu editor={editor} pos={commandMenu.pos} point={commandMenu.point} clearTrigger={Boolean(commandMenu.slash)} inline={Boolean(commandMenu.slash)} query={commandMenu.query} nested={commandMenu.nested} range={commandMenu.range} onClose={closeMenus} />}
       {actionMenu && <BlockActionMenu editor={editor} noteId={noteId} target={actionMenu.target} point={actionMenu.point} skills={skills} commentCount={commentCounts[actionMenu.target.id] || 0} onClose={closeMenus} onPresent={(target) => setPresentationStart(target.id)} />}
       {tablePicker && (
         <EditorPopover

@@ -27,8 +27,10 @@ export interface OpenMenuState {
   slash?: boolean;
   /** 嵌套场景（表格/列表内等）：在当前位置插入而非替换顶层块 */
   nested?: boolean;
-  /** 斜杠命令触发时的文本范围，用于删除 "/" 字符 */
+  /** 斜杠命令触发时的文本范围，用于删除 "/" 字符；行内继续输入时随查询词扩展为 "/查询词" 全段 */
   range?: { from: number; to: number };
+  /** 由 "/" 触发时，正文里 "/" 之后输入的查询词（⌘/ 打开时为空，查询词在菜单自己的输入框里） */
+  query?: string;
 }
 
 export interface OpenActionState extends OpenMenuState {
