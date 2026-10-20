@@ -6927,3 +6927,18 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 @media (max-width: 768px), (pointer: coarse) {
   .organize-code-block-toolbar > button { min-height: 44px; min-width: 44px; }
 }
+
+/* Body-portal link tools share EditorPopover geometry and semantic theme tokens. */
+.organize-link-popover { overflow-y: auto; }
+.organize-link-hover-card, .organize-link-form { padding: 12px; }
+.organize-link-hover-card p, .organize-link-form p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.organize-link-address { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: hsl(var(--muted-foreground)); }
+.organize-link-form label { display: block; margin-bottom: 8px; }
+.organize-link-form input { font-size: 16px; }
+.organize-link-form p { margin-top: 8px; }
+.organize-link-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.organize-link-form .organize-link-actions { justify-content: flex-end; margin-top: 12px; }
+.organize-link-actions button { min-height: 32px; }
+@media (max-width: 767px), (pointer: coarse) {
+  .organize-link-actions button { min-height: 44px; }
+}

@@ -87,7 +87,7 @@ export function EditorPopover({
     const mountedAt = Date.now();
     const onScroll = (event: Event) => {
       if (Date.now() - mountedAt < 200) return;
-      if (popover.contains(event.target as Node)) return;
+      if (event.target instanceof Node && popover.contains(event.target)) return;
       if (isIgnoredTarget(event.target)) return;
       onClose();
     };
