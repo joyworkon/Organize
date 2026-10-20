@@ -5,7 +5,8 @@
  *
  * - 坐标换算 world = (client − viewportRect − pan) / zoom，不写死侧栏/页头偏移；
  * - Ctrl/Meta+滚轮围绕指针缩放（10%–400%），滚轮/触控板平移，空格或中键拖拽平移；
- * - 双击空白在指针世界坐标建版面；文本编辑期间不拦截空格/方向键。
+ * - 触屏：空白处单指平移；只读时按在内容上也可平移；双指以中点为锚缩放并跟随平移；
+ * - 双击空白在指针世界坐标建版面；文本编辑期间不拦截空格/方向键，输入框不参与触屏手势。
  */
 
 import {
@@ -32,6 +33,7 @@ import type { CanvasStore } from "./canvas-store";
 import type { SourceStatusMap } from "./use-source-status";
 import { CanvasBoardView } from "./canvas-board";
 import { useCanvasPointer } from "./use-canvas-pointer";
+import { useCanvasTouch } from "./use-canvas-touch";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
@@ -104,6 +106,7 @@ export function CanvasViewportView({
   const [panning, setPanning] = useState(false);
   const vp = useStoreViewport(store);
   const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
+  const touch = useCanvasTouch(store, interactive, () => pointer.cancel());
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
   const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   /** 指针是否还在视口内。离开后键盘粘贴改走原位偏移，图片粘贴仍用上次坐标。 */
@@ -176,6 +179,8 @@ export function CanvasViewportView({
     let lastScale = 1;
     const gesture = (event: Event) => {
       event.preventDefault();
+      // 触屏双指已经按指针捏合处理；这里留给 Safari 触控板 gesture。
+      if (touch.pinchingRef.current) return;
       const e = event as Event & { scale?: number; clientX?: number; clientY?: number };
       if (e.type === "gesturestart") lastScale = 1;
       if (e.type === "gesturechange" && e.scale && e.scale > 0) {
@@ -195,7 +200,7 @@ export function CanvasViewportView({
       for (const name of ["gesturestart", "gesturechange", "gestureend"]) el.removeEventListener(name, gesture);
       document.documentElement.style.overscrollBehaviorX = oldOverscroll;
     };
-  }, [store, zoomAt]);
+  }, [store, touch.pinchingRef, zoomAt]);
 
   const beginPan = useCallback(
     (e: ReactPointerEvent) => {
@@ -355,15 +360,24 @@ export function CanvasViewportView({
   return (
     <div
       ref={viewportRef}
-      className={`canvas-viewport ${interactive ? "is-editable" : ""} ${spaceHeld || panning ? "is-panning" : ""}`}
+      className={`canvas-viewport ${interactive ? "is-editable" : ""} ${spaceHeld || panning || touch.navigating ? "is-panning" : ""}`}
       data-testid="canvas-viewport"
       style={{
         backgroundSize: `${24 * vp.zoom}px ${24 * vp.zoom}px`,
         backgroundPosition: `${vp.x}px ${vp.y}px`,
       }}
-      onPointerDownCapture={pointer.down}
-      onPointerMoveCapture={pointer.move}
-      onClickCapture={pointer.clickCapture}
+      onPointerDownCapture={(e) => {
+        if (touch.onPointerDown(e)) return;
+        pointer.down(e);
+      }}
+      onPointerMoveCapture={(e) => {
+        touch.onPointerMove(e);
+        pointer.move(e);
+      }}
+      onClickCapture={(e) => {
+        pointer.clickCapture(e);
+        touch.onClickCapture(e);
+      }}
       onPointerDown={(e) => {
         beginPan(e);
         onPointerDownBackground(e);
@@ -374,9 +388,26 @@ export function CanvasViewportView({
         rememberPointer(e.clientX, e.clientY);
         onPanMove(e);
       }}
-      onPointerUp={(e) => { pointer.finish(e); endPan(e); }}
-      onPointerCancel={(e) => { pointer.finish(e, true); endPan(e); }}
-      onLostPointerCapture={(e) => { pointer.finish(e, true); endPan(e); }}
+      onPointerUp={(e) => {
+        const owned = touch.owns(e.pointerId);
+        touch.onPointerUp(e);
+        pointer.finish(e);
+        endPan(e);
+        if (owned) touch.release(e);
+      }}
+      onPointerCancel={(e) => {
+        const owned = touch.owns(e.pointerId);
+        touch.onPointerCancel(e);
+        pointer.finish(e, true);
+        endPan(e);
+        if (owned) touch.release(e);
+      }}
+      onLostPointerCapture={(e) => {
+        pointer.finish(e, true);
+        // 子元素放开自己的捕获时事件会冒泡上来，不能据此结束正在进行的捏合。
+        if (e.target === e.currentTarget) touch.onPointerCancel(e);
+        endPan(e);
+      }}
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
       onDrop={onDrop}

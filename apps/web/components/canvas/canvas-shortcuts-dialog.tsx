@@ -27,6 +27,7 @@ export function CanvasShortcutsDialog({ open, onOpenChange, labels }: {
     ["临时关闭对齐吸附（拖动时）", "按住 ⌥/Alt"],
     ["取消拖动（拖动中）", "Esc"],
     ["拖拽平移", "Space + 拖拽"],
+    ["触屏平移与缩放", "单指拖动 · 双指捏合"],
     ["围绕指针缩放", `${mod}滚轮`],
     ["围绕中心放大", `${mod}= / ${mod}+`],
     ["围绕中心缩小", `${mod}-`],
