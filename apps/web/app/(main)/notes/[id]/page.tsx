@@ -1859,7 +1859,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       </div>
 
       {/* 页面目录：正文左侧的刻度导航（与阅读页共用 TocMinimap） */}
-      {tocOpen && !loading && <TocMinimap root={editorInstance && !editorInstance.isDestroyed ? (editorInstance.view.dom as HTMLElement) : null} />}
+      {tocOpen && !loading && <TocMinimap mobileSheet root={editorInstance && !editorInstance.isDestroyed ? (editorInstance.view.dom as HTMLElement) : null} />}
 
       {/* 轻量内联提示 */}
       {toast && (

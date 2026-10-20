@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { List } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -113,7 +114,7 @@ function activeIndexFor(entries: TocMinimapEntry[]): number {
 interface TocMinimapProps {
   /** 正文根节点（阅读页 .reader-content 容器 / 编辑器 view.dom） */
   root: HTMLElement | null;
-  /** 窄屏是否提供底部抽屉目录（阅读页沿用既有行为；笔记页窄屏不显示目录） */
+  /** 窄屏是否提供底部抽屉目录。阅读页与笔记页传入 true。 */
   mobileSheet?: boolean;
   className?: string;
 }
@@ -323,9 +324,9 @@ export function TocMinimap({ root, mobileSheet = false, className }: TocMinimapP
           >
             <div className="sticky top-0 flex items-center justify-between border-b bg-background px-4 py-3">
               <h4 className="text-sm font-semibold">目录</h4>
-              <button type="button" onClick={() => setSheetOpen(false)} className="p-1 text-sm text-muted-foreground hover:text-foreground">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSheetOpen(false)}>
                 关闭
-              </button>
+              </Button>
             </div>
             <ul className="space-y-1 p-4">
               {entries.map((entry, index) => (

@@ -6,6 +6,13 @@ import { nextBlockSuggestionsAfterLoad } from "@/lib/editor/block-suggestions-lo
 import { dialogMutationErrorMessage } from "@/lib/editor/dialog-mutation-error";
 import { nextMoveNotesAfterLoad } from "@/lib/editor/move-notes-load";
 import type { Editor, JSONContent } from "@tiptap/core";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import type { AIBlockResult, CommentThread, EditSuggestion, Note } from "@organize/shared";
 import {
@@ -20,10 +27,10 @@ import {
   Search,
   Send,
   Trash2,
-  X,
 } from "@/components/icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import { findBlockById, isSameNodeSnapshot, nodeText } from "./block-utils";
 import type { EditorBlockTarget, EditorDialog } from "./types";
 
@@ -47,19 +54,22 @@ export function EditorDialogs({
   return null;
 }
 
-function Modal({ title, icon, onClose, children, wide = false }: { title: string; icon: React.ReactNode; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+function Modal({ title, icon, onClose, children, wide = false }: { title: string; icon: ReactNode; onClose: () => void; children: ReactNode; wide?: boolean }) {
   return (
-    <div className="editor-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className={`editor-dialog ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="editor-dialog-title"><div>{icon}{title}</div><button type="button" onClick={onClose} aria-label="关闭"><X className="h-4 w-4" /></button></div>
-        {children}
-      </div>
-    </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        aria-label={title}
+        className={cn(
+          "flex max-h-[min(760px,90vh)] flex-col gap-0 overflow-hidden p-0",
+          wide ? "max-w-[640px]" : "max-w-[480px]",
+        )}
+      >
+        <DialogHeader className="shrink-0 space-y-0 border-b px-4 py-3.5 pr-14 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base">{icon}{title}</DialogTitle>
+        </DialogHeader>
+        <div className="editor-dialog-chrome min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -143,11 +153,11 @@ function MoveDialog({ editor, noteId, target, onClose }: { editor: Editor; noteI
     <Modal title="移动到" icon={<Search className="h-4 w-4" />} onClose={onClose}>
       <div className="editor-dialog-search"><Search className="h-4 w-4" /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记…" /></div>
       {error && <p className="editor-dialog-error">{error}</p>}
-      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadNotes()}>重试</button></div>}
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <Button type="button" variant="outline" size="sm" onClick={() => void loadNotes()}>重试</Button></div>}
       <div className="note-picker">
         {loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}
         {!loading && !loadError && filtered.length === 0 && <div className="editor-dialog-empty">没有可移动到的笔记</div>}
-        {filtered.map((note) => <button type="button" key={note.id} onClick={() => move(note.id)} disabled={Boolean(moving)}><span><strong>{note.title || "无标题"}</strong><small>{new Date(note.updated_at).toLocaleString("zh-CN")}</small></span>{moving === note.id && <Loader2 className="h-4 w-4 animate-spin" />}</button>)}
+        {filtered.map((note) => <Button type="button" variant="ghost" className="h-auto w-full justify-between px-2.5 py-2.5 text-left font-normal" key={note.id} onClick={() => move(note.id)} disabled={Boolean(moving)}><span><strong>{note.title || "无标题"}</strong><small>{new Date(note.updated_at).toLocaleString("zh-CN")}</small></span>{moving === note.id && <Loader2 className="h-4 w-4 animate-spin" />}</Button>)}
       </div>
     </Modal>
   );
@@ -237,18 +247,32 @@ function CommentDialog({ noteId, target, onClose }: { noteId: string; target: Ed
     <Modal title="区块评论" icon={<MessageSquare className="h-4 w-4" />} onClose={onClose} wide>
       <div className="comment-block-preview">{target.text || `［${target.type} 区块］`}</div>
       {error && <p className="editor-dialog-error">{error}</p>}
-      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadThreads()}>重试</button></div>}
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <Button type="button" variant="outline" size="sm" onClick={() => void loadThreads()}>重试</Button></div>}
       <div className="comment-thread-list">
         {loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}
         {!loading && !loadError && threads.length === 0 && <div className="editor-dialog-empty">还没有评论</div>}
         {threads.map((thread) => (
           <section key={thread.id} className={thread.resolved_at ? "is-resolved" : ""}>
-            <div className="comment-thread-head"><span>{thread.resolved_at ? "已解决" : "讨论中"}</span><button type="button" onClick={() => mutate("PATCH", { threadId: thread.id, resolved: !thread.resolved_at }, thread.resolved_at ? "重新打开评论失败" : "解决评论失败")}>{thread.resolved_at ? "重新打开" : "解决"}</button><button type="button" onClick={() => mutate("DELETE", { threadId: thread.id }, "删除评论线程失败")}><Trash2 className="h-3.5 w-3.5" /></button></div>
-            {(thread.comments || []).map((comment) => <article key={comment.id}><p>{comment.body}</p><div><time>{new Date(comment.created_at).toLocaleString("zh-CN")}</time><button type="button" onClick={() => setReplyTo(thread.id)}><Reply className="h-3 w-3" />回复</button><button type="button" onClick={() => editComment(comment.id, comment.body)}>编辑</button><button type="button" onClick={() => mutate("DELETE", { commentId: comment.id }, "删除评论失败")}>删除</button></div></article>)}
+            <div className="comment-thread-head">
+              <span>{thread.resolved_at ? "已解决" : "讨论中"}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => mutate("PATCH", { threadId: thread.id, resolved: !thread.resolved_at }, thread.resolved_at ? "重新打开评论失败" : "解决评论失败")}>{thread.resolved_at ? "重新打开" : "解决"}</Button>
+              <Button type="button" variant="ghost" size="icon" className="text-destructive hover:text-destructive" aria-label="删除评论线程" title="删除评论线程" onClick={() => mutate("DELETE", { threadId: thread.id }, "删除评论线程失败")}><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>
+            {(thread.comments || []).map((comment) => (
+              <article key={comment.id}>
+                <p>{comment.body}</p>
+                <div>
+                  <time>{new Date(comment.created_at).toLocaleString("zh-CN")}</time>
+                  <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={() => setReplyTo(thread.id)}><Reply className="h-3 w-3" />回复</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => editComment(comment.id, comment.body)}>编辑</Button>
+                  <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => mutate("DELETE", { commentId: comment.id }, "删除评论失败")}>删除</Button>
+                </div>
+              </article>
+            ))}
           </section>
         ))}
       </div>
-      <div className="comment-composer">{replyTo && <div className="reply-indicator">正在回复线程 <button type="button" onClick={() => setReplyTo(null)}>取消</button></div>}<textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="写下评论…" maxLength={5000} /><button type="button" onClick={submit} disabled={!text.trim() || submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}发送</button></div>
+      <div className="comment-composer">{replyTo && <div className="reply-indicator">正在回复线程 <Button type="button" variant="ghost" size="sm" onClick={() => setReplyTo(null)}>取消</Button></div>}<textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="写下评论…" maxLength={5000} /><Button type="button" className="gap-1.5" onClick={submit} disabled={!text.trim() || submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}发送</Button></div>
     </Modal>
   );
 }
@@ -348,10 +372,10 @@ function SuggestionDialog({ editor, noteId, target, onClose }: { editor: Editor;
   return (
     <Modal title="编辑建议" icon={<PencilLine className="h-4 w-4" />} onClose={onClose} wide>
       {!supported && <p className="editor-dialog-error">该类型区块暂不支持文本建议。可先转换为文本、标题、引用、代码或标注。</p>}
-      {supported && <><label className="editor-field"><span>原文</span><div className="suggestion-original">{target.text || "（空）"}</div></label><label className="editor-field"><span>建议内容</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} /></label><div className="editor-dialog-actions"><button className="primary" type="button" onClick={create} disabled={busy || !draft.trim() || draft === target.text}>{busy && <Loader2 className="h-4 w-4 animate-spin" />}保存建议</button></div></>}
+      {supported && <><label className="editor-field"><span>原文</span><div className="suggestion-original">{target.text || "（空）"}</div></label><label className="editor-field"><span>建议内容</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} /></label><div className="editor-dialog-toolbar"><Button type="button" className="gap-1.5" onClick={create} disabled={busy || !draft.trim() || draft === target.text}>{busy && <Loader2 className="h-4 w-4 animate-spin" />}保存建议</Button></div></>}
       {error && <p className="editor-dialog-error">{error}</p>}
-      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <button type="button" onClick={() => void loadSuggestions()}>重试</button></div>}
-      <div className="suggestion-list">{loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}{!loading && !loadError && suggestions.length === 0 && <div className="editor-dialog-empty">还没有编辑建议</div>}{suggestions.map((suggestion) => <article key={suggestion.id}><div><strong>{suggestion.status === "pending" ? "待处理" : suggestion.status === "accepted" ? "已接受" : "已拒绝"}</strong><time>{new Date(suggestion.created_at).toLocaleString("zh-CN")}</time></div><p>{nodeText(suggestion.proposed_block as JSONContent)}</p>{suggestion.status === "pending" && <footer><button type="button" onClick={() => decide(suggestion, "rejected")}>拒绝</button><button type="button" className="primary" onClick={() => decide(suggestion, "accepted")}><Check className="h-3.5 w-3.5" />接受</button></footer>}</article>)}</div>
+      {loadError && <div className="editor-dialog-error" role="alert"><span>{loadError}</span> <Button type="button" variant="outline" size="sm" onClick={() => void loadSuggestions()}>重试</Button></div>}
+      <div className="suggestion-list">{loading && <div className="editor-dialog-loading"><Loader2 className="h-4 w-4 animate-spin" />加载中…</div>}{!loading && !loadError && suggestions.length === 0 && <div className="editor-dialog-empty">还没有编辑建议</div>}{suggestions.map((suggestion) => <article key={suggestion.id}><div><strong>{suggestion.status === "pending" ? "待处理" : suggestion.status === "accepted" ? "已接受" : "已拒绝"}</strong><time>{new Date(suggestion.created_at).toLocaleString("zh-CN")}</time></div><p>{nodeText(suggestion.proposed_block as JSONContent)}</p>{suggestion.status === "pending" && <footer><Button type="button" variant="outline" size="sm" onClick={() => decide(suggestion, "rejected")}>拒绝</Button><Button type="button" size="sm" className="gap-1" onClick={() => decide(suggestion, "accepted")}><Check className="h-3.5 w-3.5" />接受</Button></footer>}</article>)}</div>
     </Modal>
   );
 }
@@ -390,7 +414,7 @@ function AskAIDialog({ editor, target, onClose }: { editor: Editor; target: Edit
       <p className="ai-privacy-note">以上内容与指令将发送至你在「设置 › AI 服务」配置的服务商。</p>
       {error && <p className="editor-dialog-error">{error}</p>}
       {result && <label className="editor-field"><span>结果预览</span><textarea value={result} onChange={(event) => setResult(event.target.value)} /></label>}
-      <div className="editor-dialog-actions">{result && <><button type="button" onClick={() => insert(false)}>插入到下方</button><button type="button" className="primary" onClick={() => insert(true)}>替换原区块</button></>} {!result && <button type="button" className="primary" disabled={loading || !instruction.trim()} onClick={run}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}生成</button>}</div>
+      <div className="editor-dialog-toolbar">{result && <><Button type="button" variant="outline" onClick={() => insert(false)}>插入到下方</Button><Button type="button" onClick={() => insert(true)}>替换原区块</Button></>} {!result && <Button type="button" className="gap-1.5" disabled={loading || !instruction.trim()} onClick={run}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}生成</Button>}</div>
     </Modal>
   );
 }
@@ -476,7 +500,7 @@ function AINotesDialog({ editor, pos, onClose }: { editor: Editor; pos: number; 
     <Modal title="AI 速记" icon={<Mic className="h-4 w-4" />} onClose={onClose}>
       <div className={`recording-state ${status}`}><div className="recording-pulse"><Mic className="h-7 w-7" /></div><strong>{status === "recording" ? time : status === "processing" ? "正在转写并整理…" : status === "ready" ? "录音已完成" : "录制会议或灵感"}</strong><p>录音将发送至你在「设置 › AI 服务」配置的服务商，只用于本次转写，处理完成后不会保存音频。</p></div>
       {error && <p className="editor-dialog-error">{error}</p>}
-      <div className="editor-dialog-actions centered">{status === "idle" && <button type="button" className="primary" onClick={start}><Mic className="h-4 w-4" />开始录音</button>}{status === "recording" && <button type="button" className="danger-button" onClick={stop}><CircleStop className="h-4 w-4" />停止录音</button>}{status === "ready" && <><button type="button" onClick={start}>重新录制</button><button type="button" className="primary" onClick={process}><Bot className="h-4 w-4" />生成速记</button></>}{status === "processing" && <button type="button" disabled><Loader2 className="h-4 w-4 animate-spin" />处理中</button>}</div>
+      <div className="editor-dialog-toolbar centered">{status === "idle" && <Button type="button" className="gap-1.5" onClick={start}><Mic className="h-4 w-4" />开始录音</Button>}{status === "recording" && <Button type="button" variant="destructive" className="gap-1.5" onClick={stop}><CircleStop className="h-4 w-4" />停止录音</Button>}{status === "ready" && <><Button type="button" variant="outline" onClick={start}>重新录制</Button><Button type="button" className="gap-1.5" onClick={process}><Bot className="h-4 w-4" />生成速记</Button></>}{status === "processing" && <Button type="button" disabled className="gap-1.5"><Loader2 className="h-4 w-4 animate-spin" />处理中</Button>}</div>
     </Modal>
   );
 }

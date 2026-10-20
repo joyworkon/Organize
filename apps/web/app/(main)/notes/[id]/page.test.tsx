@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   listeners: [] as ((event: string, session: { user: { id: string } } | null) => void)[],
   save: vi.fn(),
 }));
+const tocSpy = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useParams: () => ({ id: state.noteId }), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/supabase/client", () => {
   const query = () => {
@@ -48,7 +49,12 @@ vi.mock('@/components/notes/note-hierarchy-bar', () => ({ NoteHierarchyBar: () =
 vi.mock('@/components/notes/linked-task-banner', () => ({ LinkedTaskBanner: () => null }));
 vi.mock('@/components/notes/note-child-pages', () => ({ NoteChildPages: () => null }));
 vi.mock('@/components/notes/note-move-dialog', () => ({ NoteMoveDialog: () => null }));
-vi.mock('@/components/toc/toc-minimap', () => ({ TocMinimap: () => null }));
+vi.mock('@/components/toc/toc-minimap', () => ({
+  TocMinimap: (props: { mobileSheet?: boolean }) => {
+    tocSpy(props);
+    return null;
+  },
+}));
 vi.mock('@/components/favorite-button', () => ({ FavoriteButton: () => null }));
 vi.mock('@/components/tags/tag-selector', () => ({ TagSelector: () => null }));
 vi.mock('@/components/tags/tag-badge', () => ({ TagBadge: () => null }));
@@ -71,6 +77,7 @@ describe("note page load reliability", () => {
     state.userId = "user-1";
     state.listeners = [];
     state.save.mockClear();
+    tocSpy.mockClear();
     state.getSession.mockReset().mockResolvedValue({ data: { session: { user: { id: state.userId } } } });
     state.readNote.mockReset().mockImplementation(async () => ({ data: note(state.noteId), error: null }));
     localStorage.clear();
@@ -114,5 +121,11 @@ describe("note page load reliability", () => {
     state.getSession.mockResolvedValue({ data: { session: { user: { id: state.userId } } } });
     await act(async () => { state.listeners.forEach((listener) => listener("SIGNED_IN", { user: { id: "user-2" } })); });
     expect(container.querySelector("textarea")).not.toBe(originalTitle);
+  });
+
+  it("passes mobileSheet so a narrow note page can open the contents drawer", async () => {
+    await render();
+    expect(tocSpy).toHaveBeenCalled();
+    expect(tocSpy.mock.calls.at(-1)?.[0]).toMatchObject({ mobileSheet: true });
   });
 });
