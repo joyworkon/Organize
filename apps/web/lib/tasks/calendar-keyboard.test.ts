@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from "vitest";
-import { dateForDayView, matchCalendarNavKey, type CalendarNavKeyEvent } from "./calendar-keyboard";
+import { dateForDayView, isMonthGridCellEventTarget, matchCalendarNavKey, type CalendarNavKeyEvent } from "./calendar-keyboard";
 
 function key(partial: Partial<CalendarNavKeyEvent> & Pick<CalendarNavKeyEvent, "key">): CalendarNavKeyEvent {
   return { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...partial };
@@ -35,6 +37,39 @@ describe("matchCalendarNavKey", () => {
     for (const name of ["n", "?", "Escape", "ArrowUp", "ArrowDown", "arrowleft", "Enter", ""]) {
       expect(matchCalendarNavKey(key({ key: name }))).toBeNull();
     }
+  });
+});
+
+describe("isMonthGridCellEventTarget", () => {
+  it("月网格格子及其内部控件算格内，任务条和别的网格不算", () => {
+    const grid = document.createElement("div");
+    grid.setAttribute("role", "grid");
+    grid.setAttribute("data-calendar-surface", "month");
+    const cell = document.createElement("div");
+    cell.setAttribute("role", "gridcell");
+    const inner = document.createElement("button");
+    cell.append(inner);
+    const taskBar = document.createElement("button");
+    grid.append(cell, taskBar);
+    const other = document.createElement("div");
+    other.setAttribute("role", "grid");
+    const otherCell = document.createElement("div");
+    otherCell.setAttribute("role", "gridcell");
+    other.append(otherCell);
+    document.body.append(grid, other);
+
+    inner.textContent = "19";
+    expect(isMonthGridCellEventTarget(cell)).toBe(true);
+    expect(isMonthGridCellEventTarget(inner)).toBe(true);
+    expect(isMonthGridCellEventTarget(inner.firstChild)).toBe(true);
+    expect(isMonthGridCellEventTarget(taskBar)).toBe(false);
+    expect(isMonthGridCellEventTarget(otherCell)).toBe(false);
+    expect(isMonthGridCellEventTarget(null)).toBe(false);
+    expect(isMonthGridCellEventTarget(document)).toBe(false);
+    expect(isMonthGridCellEventTarget(document.createTextNode("19"))).toBe(false);
+
+    grid.remove();
+    other.remove();
   });
 });
 

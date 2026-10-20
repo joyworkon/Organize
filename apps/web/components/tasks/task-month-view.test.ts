@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthColFromClientX, monthRescheduleTargetDate, mondayOf, snapMinutes, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, timeGridRangeFromOffsets, TimeGridView } from "./task-month-view";
+import { getTaskDate, getMonthAgenda, getMonthCells, groupTasksByDate, layoutWeekSegments, monthCellOverflowCount, monthColFromClientX, monthGridRovingDate, monthRescheduleTargetDate, mondayOf, snapMinutes, tasksOnDay, weekDaysOf, layoutDayTimedEvents, minutesSinceMidnight, timeGridSlotMinutes, timeGridRangeFromOffsets, TimeGridView } from "./task-month-view";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 function mkTask(id: string, dateStr: string | null): TaskWithTags {
@@ -225,6 +225,65 @@ describe("layoutWeekSegments（跨天任务连续条布局）", () => {
       week
     );
     expect(segments).toHaveLength(0);
+  });
+});
+
+describe("tasksOnDay（当天弹层用的覆盖判定）", () => {
+  const week = Array.from({ length: 7 }, (_, i) => new Date(2026, 7, 17 + i));
+  const L = (d: number, h = 10) => new Date(2026, 7, d, h).toISOString();
+  const range = (id: string, start: string, end: string | null, sort = 0): TaskWithTags => ({
+    ...mkTask(id, start),
+    schedule_end_at: end,
+    sort_order: sort,
+  });
+
+  it("首尾日都算，且条数等于该列可见段加折叠数", () => {
+    const tasks = [
+      range("span", L(17), L(19)),
+      range("a", L(18, 9), L(18, 10), 2),
+      range("b", L(18, 8), L(18, 9), 1),
+      range("c", L(18, 11), L(18, 12)),
+      range("d", L(18, 12), L(18, 13)),
+      range("outside", L(20), L(20)),
+      mkTask("none", null),
+    ];
+    const tuesday = week[1];
+    const { segments, hiddenByCol } = layoutWeekSegments(tasks, week);
+    const visible = segments.filter((segment) => segment.startCol <= 1 && segment.endCol >= 1).length;
+    const onTuesday = tasksOnDay(tasks, tuesday);
+    expect(onTuesday.map((task) => task.id)).toEqual(["span", "b", "a", "c", "d"]);
+    expect(onTuesday).toHaveLength(visible + hiddenByCol[1]);
+    expect(tasksOnDay(tasks, week[3]).map((task) => task.id)).toEqual(["outside"]);
+    expect(tasks.map((task) => task.id)).toEqual(["span", "a", "b", "c", "d", "outside", "none"]);
+  });
+
+  it("结束在零点的任务仍盖住那一天，同时刻的任务按 sort_order 再按 id", () => {
+    const tasks = [
+      range("late", L(18, 9), new Date(2026, 7, 20, 0, 0).toISOString(), 2),
+      range("early-b", L(18, 9), L(18, 10), 1),
+      range("early-a", L(18, 9), L(18, 10), 1),
+    ];
+    expect(tasksOnDay(tasks, new Date(2026, 7, 18)).map((task) => task.id)).toEqual(["early-a", "early-b", "late"]);
+    expect(tasksOnDay(tasks, new Date(2026, 7, 20)).map((task) => task.id)).toEqual(["late"]);
+    expect(tasksOnDay(tasks, new Date(2026, 7, 21))).toEqual([]);
+  });
+});
+
+describe("月网格焦点与 +N", () => {
+  it("本月优先已选日，否则今天，再否则 1 日", () => {
+    const october = new Date(2026, 9, 1);
+    const today = new Date(2026, 9, 19, 12);
+    expect(monthGridRovingDate(october, today, new Date(2026, 9, 25, 8))).toEqual(new Date(2026, 9, 25));
+    expect(monthGridRovingDate(october, today, new Date(2026, 10, 2))).toEqual(new Date(2026, 9, 19));
+    expect(monthGridRovingDate(new Date(2026, 10, 1), today, null)).toEqual(new Date(2026, 10, 1));
+    expect(today).toEqual(new Date(2026, 9, 19, 12));
+  });
+
+  it("折叠任务和多余倒数日合成一个入口", () => {
+    expect(monthCellOverflowCount(2, 0)).toBe(2);
+    expect(monthCellOverflowCount(0, 1)).toBe(0);
+    expect(monthCellOverflowCount(0, 2)).toBe(1);
+    expect(monthCellOverflowCount(2, 3)).toBe(4);
   });
 });
 
