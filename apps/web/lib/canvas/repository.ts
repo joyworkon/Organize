@@ -6,6 +6,7 @@
  * 服务端当前 revision 供冲突恢复。
  */
 
+import type { CanvasListSummary } from "./list-summary";
 import type { CanvasDoc } from "./model";
 import { ensureCanvasDocV2 } from "./model";
 
@@ -14,6 +15,7 @@ export interface CanvasListItem {
   title: string;
   created_at: string;
   updated_at: string;
+  summary?: CanvasListSummary | null;
 }
 
 export interface CanvasRow extends CanvasListItem {

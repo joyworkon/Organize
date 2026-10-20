@@ -1,3 +1,4 @@
+import { canvasListDto } from "@/lib/canvas/list-summary";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { serverError } from "@/lib/api/error";
@@ -5,7 +6,7 @@ import { validateCanvasContent } from "@/lib/canvas/validation";
 import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "@/lib/canvas/model";
 
 /**
- * GET  /api/canvases — 画布文档列表（只读元数据，不拉取大 JSON）。
+ * GET  /api/canvases — 画布文档列表（服务端计算紧凑摘要，不向客户端传 content）。
  * POST /api/canvases — 新建（客户端生成 UUID，幂等：同用户同 ID 返回既有行；
  *                      与其他用户撞 ID 时 409，不泄露存在性也不覆盖）。
  */
@@ -22,12 +23,12 @@ export async function GET() {
   }
   const { data, error } = await supabase
     .from("canvas_documents")
-    .select("id, title, created_at, updated_at")
+    .select("id, title, created_at, updated_at, content")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(200);
   if (error) return serverError(error);
-  return NextResponse.json({ canvases: data ?? [] });
+  return NextResponse.json({ canvases: (data ?? []).map(canvasListDto) });
 }
 
 export async function POST(request: NextRequest) {
