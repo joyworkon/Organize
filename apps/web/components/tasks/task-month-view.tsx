@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Hourglass, Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -9,6 +8,7 @@ import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
 import { dateForDayView, isMonthGridCellEventTarget, type CalendarNavAction } from "@/lib/tasks/calendar-keyboard";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
+import { CountdownChip, CountdownProvider, useCountdownInteractions, type CountdownActions } from "./countdown-chip";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
@@ -231,6 +231,7 @@ export function TimeGridView({
   onUpdateTaskSchedule,
   onDateClick,
 }: TimeGridViewProps) {
+  const { dragDate: countdownDragDate } = useCountdownInteractions();
   const gridRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0 });
@@ -746,7 +747,7 @@ export function TimeGridView({
       </div>
 
       {/* 全天 / 跨天 / 倒数日 条 */}
-      <div className="flex shrink-0 border-b bg-muted/20">
+      <div data-countdown-surface="all-day" className="flex shrink-0 border-b bg-muted/20">
         <div className="grid w-12 shrink-0 place-items-center text-[10px] text-muted-foreground">
           全天
         </div>
@@ -756,8 +757,10 @@ export function TimeGridView({
           return (
             <div
               key={di}
+              data-countdown-date={countdownDateKey(day)}
               className={cn(
                 "min-h-[38px] min-w-0 flex-1 space-y-1 border-l p-1",
+                countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
                 isSameDay(day, now) && "bg-accent/60"
               )}
             >
@@ -1114,6 +1117,10 @@ export function getMonthAgenda(tasks: TaskWithTags[], cursor: Date): AgendaGroup
     }));
 }
 
+function countdownDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function keyFor(date: Date) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
@@ -1252,7 +1259,7 @@ function categoryClass(task: TaskWithTags) {
   return "border border-border bg-accent text-foreground";
 }
 
-interface TaskMonthViewProps {
+interface TaskMonthViewProps extends CountdownActions {
   tasks: TaskWithTags[];
   countdowns?: CountdownDay[];
   onTaskClick?: (task: TaskWithTags) => void;
@@ -1260,21 +1267,6 @@ interface TaskMonthViewProps {
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   /** 点击月视图格子空白处、日视图与手机周议程的添加按钮时打开添加。日期数字和年视图改走日视图。 */
   onDateClick?: (date: Date, end?: Date) => void;
-}
-
-function CountdownChip({ item, compact = false }: { item: CountdownDay; compact?: boolean }) {
-  return (
-    <span
-      title={`倒数日 · ${item.title}`}
-      className={cn(
-        "inline-flex min-w-0 items-center gap-0.5 truncate rounded bg-muted px-1 text-[10px] leading-4 text-foreground",
-        compact && "leading-3"
-      )}
-    >
-      <Hourglass className="h-2.5 w-2.5 shrink-0" />
-      <span className="truncate">{item.title}</span>
-    </span>
-  );
 }
 
 const MONTH_CELL_FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] focus-visible:ring-offset-background";
@@ -1369,14 +1361,9 @@ function MonthDayPopover({
             </button>
           ))}
           {countdowns.map((item) => (
-            <Link
-              key={item.id}
-              href="/tasks/countdown"
-              className="flex min-w-0 items-center px-3 py-1.5 hover:bg-accent"
-              onClick={() => setOpen(false)}
-            >
+            <div key={item.id} className="flex min-w-0 items-center px-3 py-1.5 hover:bg-accent">
               <CountdownChip item={item} />
-            </Link>
+            </div>
           ))}
         </div>
         {onAdd && (
@@ -1392,7 +1379,12 @@ function MonthDayPopover({
   );
 }
 
-export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onRescheduleTask, onUpdateTaskSchedule, onDateClick }: TaskMonthViewProps) {
+export function TaskMonthView(props: TaskMonthViewProps) {
+  return <CountdownProvider onUpdateCountdown={props.onUpdateCountdown} onDeleteCountdown={props.onDeleteCountdown}><TaskMonthViewContent {...props} /></CountdownProvider>;
+}
+
+function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onRescheduleTask, onUpdateTaskSchedule, onDateClick }: TaskMonthViewProps) {
+  const { dragDate: countdownDragDate } = useCountdownInteractions();
   const today = new Date();
   const [mode, setMode] = useState<CalendarMode>("month");
   const [cursor, setCursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -1745,6 +1737,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
             ref={monthGridRef}
             role="grid"
             data-calendar-surface="month"
+            data-countdown-surface="month"
             aria-label={`${cursor.getFullYear()}年${cursor.getMonth() + 1}月`}
             className="hidden min-h-0 flex-1 flex-col overflow-y-auto md:flex"
           >
@@ -1770,6 +1763,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                     return (
                       <div
                         key={cellKey}
+                        data-countdown-date={countdownDateKey(date)}
                         role="gridcell"
                         tabIndex={isRoving ? 0 : -1}
                         aria-label={dateLabel}
@@ -1784,7 +1778,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                           onDateClick && "cursor-pointer hover:bg-muted/40",
                           !inMonth && "bg-muted/20 text-muted-foreground",
                           isToday && "bg-accent/70",
-                          dragOverDate === cellKey && "bg-primary/10 ring-2 ring-inset ring-primary",
+                          (dragOverDate === cellKey || countdownDragDate === countdownDateKey(date)) && "bg-primary/10 ring-2 ring-inset ring-primary",
                         )}
                       >
                         <Button
@@ -1808,7 +1802,7 @@ export function TaskMonthView({ tasks, countdowns = [], onTaskClick, onReschedul
                         >
                           {date.getDate()}
                         </Button>
-                        <div className="absolute inset-x-1.5 bottom-1 flex items-center gap-1 overflow-hidden">
+                        <div className="absolute inset-x-1.5 bottom-1 flex items-center gap-1">
                           {dayCountdowns[0] && <CountdownChip item={dayCountdowns[0]} />}
                           {moreCount > 0 && (
                             <MonthDayPopover

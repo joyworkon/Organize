@@ -4,15 +4,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CalendarPage from "./page";
 import { layoutDayTimedEvents } from "@/components/tasks/task-month-view";
-import type { TaskWithTags } from "@organize/shared";
+import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
 const mocks = vi.hoisted(() => {
+  const updateResult = vi.fn().mockResolvedValue({ error: null });
+  const update = vi.fn().mockReturnValue({ eq: updateResult });
   const insert = vi.fn().mockResolvedValue({ error: null });
-  const query = { select: vi.fn(), eq: vi.fn(), is: vi.fn().mockResolvedValue({ data: [], error: null }), insert };
+  const query = { select: vi.fn(), eq: vi.fn(), is: vi.fn().mockResolvedValue({ data: [], error: null }), insert, update };
   query.select.mockReturnValue(query);
   query.eq.mockReturnValue(query);
   return {
-    insert,
+    insert, update, updateResult, query,
+    countdowns: [] as import("@organize/shared").CountdownDay[],
+    onUpdateCountdown: undefined as ((id: string, patch: import("@/lib/tasks/countdown").CountdownFormValue, optimistic?: boolean) => Promise<boolean>) | undefined,
+    onDeleteCountdown: undefined as ((id: string) => Promise<boolean>) | undefined,
     supabase: {
       from: vi.fn().mockReturnValue(query),
       auth: {
@@ -92,12 +97,19 @@ vi.mock("@/components/tasks/task-month-view", async (original) => ({
     onTaskClick,
     onRescheduleTask,
     onUpdateTaskSchedule,
+    countdowns, onUpdateCountdown, onDeleteCountdown,
   }: {
+    countdowns: CountdownDay[];
+    onUpdateCountdown: typeof mocks.onUpdateCountdown;
+    onDeleteCountdown: typeof mocks.onDeleteCountdown;
     onDateClick: typeof mocks.clickDate;
     onTaskClick?: typeof mocks.onTaskClick;
     onRescheduleTask?: typeof mocks.onReschedule;
     onUpdateTaskSchedule?: typeof mocks.onUpdateSchedule;
   }) => {
+    mocks.countdowns = countdowns;
+    mocks.onUpdateCountdown = onUpdateCountdown;
+    mocks.onDeleteCountdown = onDeleteCountdown;
     mocks.clickDate = onDateClick;
     mocks.onTaskClick = onTaskClick;
     mocks.onReschedule = onRescheduleTask;
@@ -335,5 +347,82 @@ describe("日历任务详情面板", () => {
     const remove = [...document.querySelectorAll("button")].find((button) => button.textContent === "删除")!;
     await act(async () => { remove.click(); });
     expect(mocks.deleteTask).toHaveBeenCalledWith("t1");
+  });
+});
+
+
+describe("日历倒数日持久化与乐观回滚", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const original: CountdownDay = { id: "c1", user_id: "u", title: "生日", target_date: "2020-10-19", repeat_annually: true, deleted_at: null, created_at: "", updated_at: "" };
+  beforeEach(async () => {
+    mocks.params = new URLSearchParams();
+    mocks.tasks = [];
+    mocks.query.is.mockResolvedValue({ data: [original], error: null });
+    mocks.updateResult.mockReset().mockResolvedValue({ error: null });
+    mocks.update.mockClear();
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => root.render(createElement(CalendarPage)));
+  });
+  afterEach(() => { act(() => root.unmount()); container.remove(); mocks.query.is.mockResolvedValue({ data: [], error: null }); });
+  it("拖拽立刻改期，失败恢复原日，并广播重载", async () => {
+    let finish!: (result: { error: unknown }) => void;
+    mocks.updateResult.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const changed = vi.fn(); window.addEventListener("organize:countdown-changed", changed);
+    let pending!: Promise<boolean>;
+    act(() => { pending = mocks.onUpdateCountdown!("c1", { ...original, target_date: "2020-10-22" }, true); });
+    expect(mocks.countdowns[0].target_date).toBe("2020-10-22");
+    let duplicate!: boolean;
+    await act(async () => { duplicate = await mocks.onUpdateCountdown!("c1", { ...original, target_date: "2020-10-25" }, true); });
+    expect(duplicate).toBe(false);
+    await act(async () => { finish({ error: { message: "网络故障" } }); expect(await pending).toBe(false); });
+    expect(mocks.countdowns).toEqual([original]);
+    expect(changed).toHaveBeenCalledTimes(1);
+    window.removeEventListener("organize:countdown-changed", changed);
+  });
+  it("旧查询不能盖住正在保存的改期；成功后重载最终数据", async () => {
+    let finish!: (result: { error: unknown }) => void;
+    mocks.updateResult.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const patch = { title: "新生日", target_date: "2020-10-22", repeat_annually: true };
+    let pending!: Promise<boolean>;
+    act(() => { pending = mocks.onUpdateCountdown!("c1", patch, true); });
+    await act(async () => window.dispatchEvent(new CustomEvent("organize:countdown-changed")));
+    expect(mocks.countdowns[0]).toMatchObject(patch);
+    mocks.query.is.mockResolvedValue({ data: [{ ...original, ...patch }], error: null });
+    await act(async () => { finish({ error: null }); expect(await pending).toBe(true); });
+    expect(mocks.countdowns[0]).toMatchObject(patch);
+    expect(mocks.update).toHaveBeenCalledWith(patch);
+  });
+  it("真实删除沿用 trash API；失败不移除，成功标签消失", async () => {
+    vi.stubEnv("NEXT_PUBLIC_MOCK_BACKEND", "false");
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: "拒绝删除" }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, affected: 1 })));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await act(async () => { expect(await mocks.onDeleteCountdown!("c1")).toBe(false); });
+      expect(mocks.countdowns).toEqual([original]);
+      mocks.query.is.mockResolvedValue({ data: [], error: null });
+      await act(async () => { expect(await mocks.onDeleteCountdown!("c1")).toBe(true); });
+      expect(mocks.countdowns).toEqual([]);
+      expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ action: "soft_delete", resource_type: "countdown", ids: ["c1"] });
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  });
+  it("mock 删除更新 deleted_at 并广播，不调用 trash API", async () => {
+    vi.stubEnv("NEXT_PUBLIC_MOCK_BACKEND", "true");
+    mocks.query.is.mockResolvedValue({ data: [], error: null });
+    try {
+      await act(async () => { expect(await mocks.onDeleteCountdown!("c1")).toBe(true); });
+      expect(mocks.update).toHaveBeenCalledWith({ deleted_at: expect.any(String) });
+      expect(mocks.countdowns).toEqual([]);
+    } finally { vi.unstubAllEnvs(); }
+  });
+  it("就地编辑失败前保持原标签，表单可以留在原锚点", async () => {
+    let finish!: (result: { error: unknown }) => void;
+    mocks.updateResult.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    let pending!: Promise<boolean>;
+    act(() => { pending = mocks.onUpdateCountdown!("c1", { ...original, target_date: "2020-10-22" }); });
+    expect(mocks.countdowns).toEqual([original]);
+    await act(async () => { finish({ error: { message: "失败" } }); await pending; });
+    expect(mocks.countdowns).toEqual([original]);
   });
 });

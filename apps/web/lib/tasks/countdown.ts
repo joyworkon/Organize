@@ -113,3 +113,51 @@ export function nextCountdownDaysAfterLoad({
   };
 }
 
+
+export type CountdownFormValue = Pick<CountdownDay, "title" | "target_date" | "repeat_annually">;
+
+export function countdownFormError(value: CountdownFormValue): string | null {
+  if (!value.title.trim() || !isCountdownDate(value.target_date)) return "请填写标题和有效日期";
+  return null;
+}
+
+function isCountdownDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, y, m, d] = match.map(Number);
+  return y >= 1 && m >= 1 && m <= 12 && d >= 1 && d <= daysInMonth(y, m);
+}
+
+/**
+ * 本地日期改期，不经过 UTC。年重复保留原年份，仅换月日；若落点为闰年
+ * 2/29、原年份非闰年，则与 annualOccurrenceDate 一样夹为 2/28。
+ * 非闰年日历没有 2/29 格子，拖到 2/28 就明确改为每年 2/28。
+ */
+export function rescheduleCountdownTarget(
+  countdown: Pick<CountdownDay, "target_date" | "repeat_annually">,
+  target: string
+): string {
+  if (!isCountdownDate(target)) throw new Error("无效的目标日期");
+  return countdown.repeat_annually
+    ? annualOccurrenceDate(target, parseDateOnly(countdown.target_date).year)
+    : target;
+}
+
+export interface CountdownDropCell {
+  date: string;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** capture 后按矩形命中：月视图按周行，全天行只按横坐标；两侧夹紧。 */
+export function countdownDropDate(cells: CountdownDropCell[], x: number, y: number, allDay: boolean): string | null {
+  const row = cells.filter((cell) => cell.right > cell.left && (allDay || (y >= cell.top && y < cell.bottom)));
+  if (!row.length) return null;
+  return (row.find((cell) => x < cell.right) ?? row[row.length - 1]).date;
+}
+
+export function countdownDragMoved(startX: number, startY: number, x: number, y: number): boolean {
+  return Math.hypot(x - startX, y - startY) >= 5;
+}
