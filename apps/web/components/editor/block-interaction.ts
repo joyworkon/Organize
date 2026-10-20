@@ -12,7 +12,7 @@ import { getMultiSelectedBlocks } from "./extensions/block-multi-select";
 import type { Editor } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { CellSelection } from "@tiptap/pm/tables";
 import { getActiveTable } from "./extensions/table-style";
@@ -231,7 +231,7 @@ export function shouldShowTextToolbar({
   to: number;
 }) {
   const { doc, selection } = state;
-  if (selection instanceof CellSelection) return false;
+  if (selection instanceof CellSelection || (selection instanceof NodeSelection && selection.node.type.name === "image")) return false;
 
   const isEmptyTextBlock = !doc.textBetween(from, to).length
     && selection instanceof TextSelection;
