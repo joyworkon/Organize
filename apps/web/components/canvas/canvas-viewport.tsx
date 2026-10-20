@@ -20,6 +20,7 @@ import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
 import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
+import { snapTargetsForItem, type SnapGuide, type SnapRect } from "@/lib/canvas/snap";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
 import { hitTestInsertPosition } from "./canvas-hit-test";
 import type { CanvasStore } from "./canvas-store";
@@ -30,6 +31,9 @@ import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 4;
+
+/** 无吸附候选时共享同一空数组（避免每次渲染新引用击穿 memo）。 */
+const EMPTY_SNAP_TARGETS: SnapRect[] = [];
 
 export function clampZoom(z: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
@@ -94,6 +98,15 @@ export function CanvasViewportView({
   const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
   const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 自由元素拖动中的对齐参考线（世界坐标）。 */
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[] | null>(null);
+  const onSnapGuides = useCallback((guides: SnapGuide[] | null) => setSnapGuides(guides), []);
+  /** 每个自由元素的吸附候选（其他自由元素 + 全部页面；随场景重算）。 */
+  const snapTargetsByItem = useMemo(() => {
+    const map = new Map<string, SnapRect[]>();
+    for (const item of scene.freeItems) map.set(item.itemId, snapTargetsForItem(scene, item.itemId));
+    return map;
+  }, [scene]);
 
   // ---- 缩放与平移 ----
 
@@ -353,12 +366,29 @@ export function CanvasViewportView({
               editing={editingBlockId === item.id}
               userId={userId}
               assetUrls={assetUrls}
+              snapTargets={snapTargetsByItem.get(item.id) ?? EMPTY_SNAP_TARGETS}
+              onSnapGuides={onSnapGuides}
             />
           );
         })}
         {pointer.visual?.marquee && <div className="canvas-selection-marquee" style={{ left: pointer.visual.marquee.x, top: pointer.visual.marquee.y, width: pointer.visual.marquee.width, height: pointer.visual.marquee.height }} />}
         {pointer.visual?.ghosts?.map((box) => <div key={box.blockId} className="canvas-selection-marquee" style={{ left: box.x, top: box.y, width: box.width, height: box.height }} />)}
         {pointer.visual?.drop && <div className="canvas-drop-indicator" style={{ left: pointer.visual.drop.x, top: pointer.visual.drop.y, width: pointer.visual.drop.width }} />}
+        {interactive && snapGuides?.map((guide, index) => (
+          guide.axis === "x" ? (
+            <div
+              key={`snap-x-${index}`}
+              className="canvas-snap-guide"
+              style={{ left: guide.pos, top: guide.from, width: 1 / vp.zoom, height: guide.to - guide.from }}
+            />
+          ) : (
+            <div
+              key={`snap-y-${index}`}
+              className="canvas-snap-guide"
+              style={{ top: guide.pos, left: guide.from, height: 1 / vp.zoom, width: guide.to - guide.from }}
+            />
+          )
+        ))}
       </div>
       {pointer.visual?.hint && <div className="canvas-drag-hint" role="status">{pointer.visual.hint}</div>}
       {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
