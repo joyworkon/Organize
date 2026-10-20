@@ -13,6 +13,11 @@ import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
+import {
+  ALLDAY_TO_TIMED_DEFAULT_MIN,
+  computeTimeGridDrop,
+  type TimeGridZone,
+} from "@/lib/tasks/allday-timed-convert";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -61,6 +66,8 @@ interface MonthDragState {
 const HOUR_HEIGHT = 56; // 1 小时网格高度
 const SNAP_MIN = 30; // 拖拽吸附粒度
 const GUTTER_W = 48; // 左侧小时轴宽度
+/** 跨区（全天行 ↔ 时间网格）需要的最小纵向位移：半个吸附槽位，避免按在芯片底边/块顶边时抖动误转换。 */
+const ZONE_SWITCH_PX = HOUR_HEIGHT / 4;
 const WEEK_DAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 /** 给定任意日期，返回其所在周的周一 */
@@ -200,13 +207,22 @@ function timeGridPointerMinutes(column: HTMLDivElement, clientY: number): number
 
 interface WeekDragState {
   taskId: string;
+  /** 起点：true 表示从全天行芯片拖起（决定哪个原卡片持有 capture 并半透明）。 */
   allDayChip: boolean;
+  /** 当前落点区域；与起点不同即为全天 ↔ 定时转换。 */
+  zone: TimeGridZone;
   grabOffsetMin: number;
   origDayIdx: number;
   origSlotMin: number;
   dayIdx: number;
   slotMin: number;
   moved: boolean;
+}
+
+interface WeekDragTarget {
+  dayIdx: number;
+  slotMin: number;
+  zone: TimeGridZone;
 }
 
 function minutesLabel(minutes: number): string {
@@ -234,7 +250,7 @@ export function TimeGridView({
   const { dragDate: countdownDragDate } = useCountdownInteractions();
   const gridRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
-  const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0 });
+  const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0, startClientY: 0 });
   const [drag, setDrag] = useState<WeekDragState | null>(null);
   const [now, setNow] = useState(() => new Date());
   const todayIndex = days.findIndex((day) => isSameDay(day, now));
@@ -371,13 +387,14 @@ export function TimeGridView({
       ev.endMin - ev.startMin,
       Math.max(0, ((event.clientY - rect.top) / HOUR_HEIGHT) * 60)
     );
-    grabRef.current = { offsetMin, origDayIdx: dayIdx, origSlotMin: ev.startMin };
+    grabRef.current = { offsetMin, origDayIdx: dayIdx, origSlotMin: ev.startMin, startClientY: event.clientY };
     movedRef.current = false;
     dragPointerRef.current = { element: event.currentTarget, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       taskId: task.id,
       allDayChip: false,
+      zone: "timed",
       grabOffsetMin: offsetMin,
       origDayIdx: dayIdx,
       origSlotMin: ev.startMin,
@@ -394,13 +411,14 @@ export function TimeGridView({
   ) => {
     if (!onUpdateTaskSchedule) return;
     event.stopPropagation();
-    grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0 };
+    grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0, startClientY: event.clientY };
     movedRef.current = false;
     dragPointerRef.current = { element: event.currentTarget, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       taskId: task.id,
       allDayChip: true,
+      zone: "all-day",
       grabOffsetMin: 0,
       origDayIdx: dayIdx,
       origSlotMin: 0,
@@ -410,8 +428,11 @@ export function TimeGridView({
     });
   };
 
-  /** 把指针位置换算成拖拽目标（列 + 吸附槽位），供 moveDrag 与边缘自动滚动共用 */
-  const computeDragTarget = (clientX: number, clientY: number) => {
+  /**
+   * 把指针位置换算成拖拽目标（区域 + 列 + 吸附槽位），供 moveDrag 与边缘自动滚动共用。
+   * 网格顶边以上即全天行区域；离开起点区域需先走过 ZONE_SWITCH_PX，回到起点区域不设阈值。
+   */
+  const computeDragTarget = (clientX: number, clientY: number): WeekDragTarget | null => {
     if (!drag || !gridRef.current) return null;
     const rect = gridRef.current.getBoundingClientRect();
     const colWidth = (gridRef.current.clientWidth - GUTTER_W) / days.length;
@@ -419,13 +440,30 @@ export function TimeGridView({
       days.length - 1,
       Math.max(0, Math.floor((clientX - rect.left - GUTTER_W) / colWidth))
     );
+    const origZone: TimeGridZone = drag.allDayChip ? "all-day" : "timed";
+    const pointerZone: TimeGridZone = clientY < rect.top ? "all-day" : "timed";
+    const zone =
+      pointerZone === origZone || Math.abs(clientY - grabRef.current.startClientY) >= ZONE_SWITCH_PX
+        ? pointerZone
+        : origZone;
     const yMin =
       ((clientY - rect.top + gridRef.current.scrollTop) / HOUR_HEIGHT) * 60 -
       drag.grabOffsetMin;
-    const slotMin = drag.allDayChip
+    const slotMin = zone === "all-day"
       ? 0
       : Math.min(1440 - 30, snapMinutes(yMin));
-    return { dayIdx, slotMin };
+    return { dayIdx, slotMin, zone };
+  };
+
+  /** 落点是否与起点不同：跨区、换列，或定时落点换了槽位。 */
+  const isDragTargetChanged = (target: WeekDragTarget) => {
+    if (!drag) return false;
+    const origZone: TimeGridZone = drag.allDayChip ? "all-day" : "timed";
+    return (
+      target.zone !== origZone ||
+      target.dayIdx !== grabRef.current.origDayIdx ||
+      (target.zone === "timed" && target.slotMin !== grabRef.current.origSlotMin)
+    );
   };
 
   // 指针悬在网格上下边缘时持续滚动，让长距离拖拽够得着视口外的时段
@@ -458,12 +496,10 @@ export function TimeGridView({
     grid.scrollTop = Math.max(0, Math.min(maxScroll, grid.scrollTop + delta));
     const target = computeDragTarget(lastPointerRef.current.x, lastPointerRef.current.y);
     if (target) {
-      const moved =
-        target.dayIdx !== grabRef.current.origDayIdx ||
-        (!drag.allDayChip && target.slotMin !== grabRef.current.origSlotMin);
+      const moved = isDragTargetChanged(target);
       if (moved) movedRef.current = true;
       setDrag((cur) =>
-        cur && (cur.dayIdx !== target.dayIdx || cur.slotMin !== target.slotMin || cur.moved !== moved)
+        cur && (cur.dayIdx !== target.dayIdx || cur.slotMin !== target.slotMin || cur.zone !== target.zone || cur.moved !== moved)
           ? { ...cur, ...target, moved }
           : cur
       );
@@ -476,14 +512,12 @@ export function TimeGridView({
     lastPointerRef.current = { x: event.clientX, y: event.clientY };
     const target = computeDragTarget(event.clientX, event.clientY);
     if (!target) return;
-    const moved =
-      target.dayIdx !== grabRef.current.origDayIdx ||
-      (!drag.allDayChip && target.slotMin !== grabRef.current.origSlotMin);
+    const moved = isDragTargetChanged(target);
     if (moved) movedRef.current = true;
-    if (target.dayIdx !== drag.dayIdx || target.slotMin !== drag.slotMin || moved !== drag.moved) {
+    if (target.dayIdx !== drag.dayIdx || target.slotMin !== drag.slotMin || target.zone !== drag.zone || moved !== drag.moved) {
       setDrag({ ...drag, ...target, moved });
     }
-    if (!drag.allDayChip) edgeScroll(event.clientY);
+    if (target.zone === "timed") edgeScroll(event.clientY);
     else stopEdgeScroll();
   };
 
@@ -498,32 +532,23 @@ export function TimeGridView({
     }
     const current = drag;
     setDrag(null);
-    const changed =
-      current.moved &&
-      (current.dayIdx !== current.origDayIdx ||
-        (!current.allDayChip && current.slotMin !== current.origSlotMin));
-    if (!changed || !onUpdateTaskSchedule) return;
+    if (!current.moved || !onUpdateTaskSchedule) return;
     const task = dragTask;
     const start = getTaskDate(task);
     if (!start) return;
     const end = taskEnd(task);
     if (!end) return;
-    const duration = Math.max(0, end.getTime() - start.getTime());
-    const day = days[current.dayIdx];
-    const newStart = current.allDayChip
-      ? new Date(day.getFullYear(), day.getMonth(), day.getDate())
-      : new Date(
-          day.getFullYear(),
-          day.getMonth(),
-          day.getDate(),
-          Math.floor(current.slotMin / 60),
-          current.slotMin % 60
-        );
-    const newEnd = new Date(newStart.getTime() + duration);
+    const next = computeTimeGridDrop({
+      start,
+      end,
+      allDay: Boolean(task.all_day),
+      from: current.allDayChip ? "all-day" : "timed",
+      to: current.zone,
+      day: days[current.dayIdx],
+      slotMin: current.slotMin,
+    });
     void onUpdateTaskSchedule(task.id, {
-      schedule_start_at: newStart.toISOString(),
-      schedule_end_at: newEnd.toISOString(),
-      all_day: Boolean(task.all_day),
+      ...next,
       timezone: task.timezone || null,
       recurrence_rule: task.recurrence_rule || null,
     });
@@ -709,12 +734,13 @@ export function TimeGridView({
     });
   };
 
+  /** 网格内 ghost 高度：从全天行拖进来按默认转换时长，定时块按原时长。 */
   const ghostDurationMin = (() => {
-    if (!drag || !dragTask) return 60;
-    if (drag.allDayChip) return 60;
+    if (!drag || !dragTask) return ALLDAY_TO_TIMED_DEFAULT_MIN;
+    if (drag.allDayChip) return ALLDAY_TO_TIMED_DEFAULT_MIN;
     const start = getTaskDate(dragTask);
     const end = taskEnd(dragTask);
-    if (!start || !end) return 60;
+    if (!start || !end) return ALLDAY_TO_TIMED_DEFAULT_MIN;
     return Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
   })();
 
@@ -754,6 +780,7 @@ export function TimeGridView({
         {days.map((day, di) => {
           const chips = dayAllDay[di];
           const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
+          const allDayTarget = !!drag && drag.zone === "all-day" && drag.moved && drag.dayIdx === di;
           return (
             <div
               key={di}
@@ -761,45 +788,48 @@ export function TimeGridView({
               className={cn(
                 "min-h-[38px] min-w-0 flex-1 space-y-1 border-l p-1",
                 countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
-                isSameDay(day, now) && "bg-accent/60"
+                isSameDay(day, now) && "bg-accent/60",
+                allDayTarget && "bg-primary/5"
               )}
             >
               {chips_countdown.map((item) => (
                 <CountdownChip key={item.id} item={item} compact />
               ))}
+              {/* 落点占位渲染在目标列（全天改日或定时块拖上来都走这里）；原卡片保持挂载以维持 pointer capture */}
+              {allDayTarget && dragTask && (
+                <div
+                  data-drop-placeholder="all-day"
+                  className="flex h-6 items-center overflow-hidden rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-muted-foreground"
+                >
+                  <span className="truncate">{dragTask.title}</span>
+                </div>
+              )}
               {chips.map((task) => {
                 const isDragged = drag?.taskId === task.id && drag.allDayChip;
-                const placeholderHere =
-                  isDragged && drag!.moved && drag!.dayIdx === di;
                 return (
-                  <div key={task.id}>
-                    {/* 占位符渲染在目标列；原卡片保持挂载以维持 pointer capture */}
-                    {placeholderHere && (
-                      <div className="h-6 rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5" />
+                  <button
+                    key={task.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
+                      categoryClass(task),
+                      isDragged && "opacity-30"
                     )}
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
-                        categoryClass(task),
-                        isDragged && "opacity-30"
-                      )}
-                      style={{ touchAction: "none" }}
-                      onPointerDown={(e) => startChipDrag(e, task, di)}
-                      onPointerMove={isDragged ? moveDrag : undefined}
-                      onPointerUp={isDragged ? endDrag : undefined}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (movedRef.current) {
-                          movedRef.current = false;
-                          return;
-                        }
-                        onTaskClick?.(task);
-                      }}
-                    >
-                      <span className="truncate">{task.title}</span>
-                    </button>
-                  </div>
+                    style={{ touchAction: "none" }}
+                    onPointerDown={(e) => startChipDrag(e, task, di)}
+                    onPointerMove={isDragged ? moveDrag : undefined}
+                    onPointerUp={isDragged ? endDrag : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (movedRef.current) {
+                        movedRef.current = false;
+                        return;
+                      }
+                      onTaskClick?.(task);
+                    }}
+                  >
+                    <span className="truncate">{task.title}</span>
+                  </button>
                 );
               })}
             </div>
@@ -984,8 +1014,8 @@ export function TimeGridView({
                       </span>
                     </div>
                   )}
-                  {/* 拖拽中的虚线占位框（仅目标列） */}
-                  {drag && !drag.allDayChip && drag.moved && drag.dayIdx === di && (
+                  {/* 拖拽中的虚线占位框（仅目标列；从全天行拖进来时同样按转换时长画） */}
+                  {drag && drag.zone === "timed" && drag.moved && drag.dayIdx === di && (
                     <div
                       className="pointer-events-none absolute inset-x-0.5 z-20 rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5"
                       style={{
@@ -996,7 +1026,7 @@ export function TimeGridView({
                   )}
                   {/* 拖拽幽灵卡：跟手吸附到 30 分钟槽位，带目标日时间标签 */}
                   {drag &&
-                  !drag.allDayChip &&
+                  drag.zone === "timed" &&
                   drag.moved &&
                   drag.dayIdx === di &&
                   dragTask && (
