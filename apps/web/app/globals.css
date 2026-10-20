@@ -3589,7 +3589,8 @@
   background: hsl(var(--destructive) / .09);
   color: hsl(var(--destructive));
 }
-.editor-dialog textarea {
+.editor-dialog textarea,
+.editor-dialog-chrome textarea {
   width: calc(100% - 32px);
   min-height: 110px;
   margin: 0 16px;
@@ -3603,17 +3604,19 @@
   font: inherit;
   font-size: 13px;
 }
-.editor-dialog textarea:focus { border-color: hsl(var(--ring)); box-shadow: 0 0 0 2px hsl(var(--ring) / .14); }
-.editor-dialog-actions {
+.editor-dialog textarea:focus,
+.editor-dialog-chrome textarea:focus { border-color: hsl(var(--ring)); box-shadow: 0 0 0 2px hsl(var(--ring) / .14); }
+.editor-dialog-actions,
+.editor-dialog-toolbar {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px 16px;
 }
-.editor-dialog-actions.centered { justify-content: center; }
-.editor-dialog-actions button,
-.comment-composer > button,
-.suggestion-list footer button {
+.editor-dialog-actions.centered,
+.editor-dialog-toolbar.centered { justify-content: center; }
+/* 块内旧弹层（Mermaid / 嵌入 / HTML / 按钮）仍用裸 button。评论与建议已改共享 Button，不能再写背景色盖掉 focus ring 和变体。 */
+.editor-dialog-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3627,9 +3630,7 @@
   font-size: 13px;
   cursor: pointer;
 }
-.editor-dialog-actions button.primary,
-.comment-composer > button,
-.suggestion-list footer button.primary {
+.editor-dialog-actions button.primary {
   border-color: hsl(var(--primary));
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
@@ -3674,16 +3675,13 @@
 .comment-thread-list section.is-resolved { opacity: .65; }
 .comment-thread-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: hsl(var(--muted) / .6); font-size: 11px; }
 .comment-thread-head span { flex: 1; font-weight: 650; }
-.comment-thread-head button,
-.comment-thread-list article button,
-.reply-indicator button { border: 0; background: transparent; color: hsl(var(--muted-foreground)); font-size: 11px; }
 .comment-thread-list article { padding: 9px 10px; border-top: 1px solid hsl(var(--border)); }
 .comment-thread-list article p { margin: 0 0 6px; font-size: 13px; white-space: pre-wrap; }
-.comment-thread-list article div { display: flex; align-items: center; gap: 8px; color: hsl(var(--muted-foreground)); font-size: 10px; }
+.comment-thread-list article div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: hsl(var(--muted-foreground)); font-size: 10px; }
 .comment-thread-list article div button { display: inline-flex; align-items: center; gap: 3px; }
-.comment-composer { padding: 14px 16px 16px; }
+.comment-composer { display: flex; flex-direction: column; padding: 14px 16px 16px; }
 .comment-composer textarea { width: 100%; margin: 0 0 8px; min-height: 80px; }
-.comment-composer > button { margin-left: auto; }
+.comment-composer > button { align-self: flex-end; }
 .reply-indicator { margin-bottom: 6px; color: hsl(var(--muted-foreground)); font-size: 11px; }
 .suggestion-list { display: grid; gap: 8px; padding: 0 16px 16px; }
 .suggestion-list article { padding: 11px; border: 1px solid hsl(var(--border)); border-radius: 9px; }
