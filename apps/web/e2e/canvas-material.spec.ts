@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createBoardShape, CANVAS_SCHEMA_VERSION } from "../lib/canvas/model";
 
 /**
  * 资料库 ↔ 画布联动（阶段 E）e2e：mock 后端模式下验证
@@ -29,13 +30,15 @@ test("资料库「添加到画布」→ 新建画布 → 快照卡片可见（�
   await saveMemo(page, "E2E 画布联动标题\n\n这段正文会被引用进画布。");
 
   await page.getByRole("button", { name: /把「E2E 画布联动标题」添加到画布/ }).first().click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "添加到画布", exact: true });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel("选择画布")).toHaveValue("__new__");
+  await expect(dialog.getByLabel("选择画布")).toHaveText("新建画布");
   await dialog.getByRole("button", { name: "添加" }).click();
 
   await expect(page.getByText("已添加到画布").first()).toBeVisible();
-  await page.getByRole("link", { name: "打开画布查看 →" }).click();
+  const link = page.getByRole("link", { name: "打开画布查看 →" });
+  await expect(link).toHaveAttribute("href", /\?focus=/);
+  await link.click();
   await page.waitForURL(/\/canvas\//);
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
 
@@ -45,6 +48,15 @@ test("资料库「添加到画布」→ 新建画布 → 快照卡片可见（�
   await expect(cardBlock.locator(".canvas-material-card-title")).toHaveText("E2E 画布联动标题");
   await expect(cardBlock.getByText(/这段正文会被引用进画布。/)).toBeVisible();
   await expect(cardBlock.getByText("速记", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("卡片标题")).toHaveValue("E2E 画布联动标题");
+  await expect(page).not.toHaveURL(/focus=/);
+  const viewport = await page.getByTestId("canvas-viewport").boundingBox();
+  const card = await cardBlock.boundingBox();
+  expect(viewport).not.toBeNull(); expect(card).not.toBeNull();
+  expect(card!.x).toBeGreaterThanOrEqual(viewport!.x);
+  expect(card!.y).toBeGreaterThanOrEqual(viewport!.y);
+  expect(card!.x + card!.width).toBeLessThanOrEqual(viewport!.x + viewport!.width);
+  expect(card!.y + card!.height).toBeLessThanOrEqual(viewport!.y + viewport!.height);
 });
 
 test("快照独立性：画布改卡片标题，原速记不变（验收 22）", async ({ page }) => {
@@ -52,7 +64,7 @@ test("快照独立性：画布改卡片标题，原速记不变（验收 22）",
   await saveMemo(page, "快照独立性标题\n\n原文内容保持不变。");
 
   await page.getByRole("button", { name: /把「快照独立性标题」添加到画布/ }).first().click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("dialog", { name: "添加到画布", exact: true });
   await dialog.getByRole("button", { name: "添加" }).click();
   await page.getByRole("link", { name: "打开画布查看 →" }).click();
   await page.waitForURL(/\/canvas\//);
@@ -105,4 +117,76 @@ test("画布「资料」面板：搜索 → 引用卡片 / 插入摘录（带来
   await excerptBlock.click();
   await expect(page.getByRole("heading", { name: "来源" })).toBeVisible();
   await expect(page.getByText(/速记 · 面板搜索目标标题/)).toBeVisible();
+});
+
+
+test("添加目标可搜索、记住第二页区块、提示重复，手机宽度不溢出", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openPage(page, "/library");
+  const first = createBoardShape({ x: 80, y: 80 }); first.name = "第一页";
+  const second = createBoardShape({ x: 9000, y: 8000 }); second.name = "第二页"; second.regions[0].name = "证据";
+  const title = "研究项目：连续整理资料时应保留完整标题并在窄屏中正确截断";
+  await page.evaluate(async ({ title, content }) => {
+    for (let i = 0; i < 8; i++) {
+      const response = await fetch("/api/canvases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        id: crypto.randomUUID(), title: i === 7 ? title : `其他项目 ${i}`, content,
+      }) });
+      if (!response.ok) throw new Error("seed canvas failed");
+    }
+  }, { title, content: { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [first, second], freeItems: [] } });
+  await saveMemo(page, "连续整理目标资料\n\n验证记忆、搜索和重复提示。");
+  const trigger = page.getByRole("button", { name: /把「连续整理目标资料」添加到画布/ }).first();
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "添加到画布", exact: true });
+  await dialog.getByLabel("选择画布").click();
+  const search = page.getByLabel("搜索画布");
+  await search.fill("研究项目");
+  await page.getByRole("option", { name: new RegExp(title) }).click();
+  await dialog.getByLabel("选择页面").click();
+  await page.getByRole("option", { name: "第二页", exact: true }).click();
+  await dialog.getByLabel("选择区块").click();
+  await page.getByRole("option", { name: "证据", exact: true }).click();
+  await expect(dialog.getByText(/将添加到：.*第二页 › 证据 末尾/)).toBeVisible();
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await trigger.click();
+  await expect(dialog.getByLabel("选择页面")).toHaveText("第二页");
+  await expect(dialog.getByLabel("选择区块")).toHaveText("证据");
+  await expect(dialog.getByText("此画布已有这条资料的卡片")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeEnabled();
+  await expect(dialog).toHaveCSS("opacity", "1");
+  await expect(page.locator('[role="status"][data-state]')).toHaveCount(0);
+  if (process.env.CANVAS_FLOW_SCREENSHOTS_DIR) await page.screenshot({ path: `${process.env.CANVAS_FLOW_SCREENSHOTS_DIR}/dialog-1440.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(dialog.getByRole("button", { name: "添加", exact: true })).toBeInViewport();
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox();
+    return !!box && box.x >= 0 && box.x + box.width <= 390;
+  }).toBe(true);
+  expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await dialog.getByLabel("选择页面").click();
+  await page.getByRole("option", { name: "第二页", exact: true }).click();
+  await dialog.getByLabel("选择区块").click();
+  await page.getByRole("option", { name: "证据", exact: true }).click();
+  await dialog.getByLabel("选择画布").click();
+  await expect(page.getByLabel("搜索画布")).toBeInViewport();
+  await page.getByLabel("搜索画布").fill("不存在");
+  await expect(page.getByText("没有匹配的画布")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible(); // Escape closes only the top picker.
+  await expect(page.getByLabel("搜索画布")).not.toBeVisible();
+  if (process.env.CANVAS_FLOW_SCREENSHOTS_DIR) await page.screenshot({ path: `${process.env.CANVAS_FLOW_SCREENSHOTS_DIR}/dialog-390.png` });
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await trigger.click();
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const link = page.getByRole("link", { name: "打开画布查看 →" }).first();
+  const blockId = new URL((await link.getAttribute("href"))!, "http://localhost").searchParams.get("focus")!;
+  await link.click();
+  const focusedCard = page.locator(`[data-block-id="${blockId}"]`);
+  await expect(focusedCard).toHaveClass(/is-selected/);
+  await expect(focusedCard).toBeInViewport({ ratio: 1 });
+  await expect(page).not.toHaveURL(/focus=/);
 });

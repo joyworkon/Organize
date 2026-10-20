@@ -17,7 +17,9 @@ import {
 } from "react";
 import Link from "next/link";
 import { Keyboard } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { selectionForFocus, withoutCanvasFocus } from "@/lib/canvas/focus-link";
+import { MATERIAL_ADD_ERROR, MATERIAL_ADD_SUCCESS } from "@/lib/canvas/material-feedback";
 import {
   ArrowLeft,
   Eye,
@@ -179,6 +181,8 @@ function serializeDocForSave(doc: CanvasDoc): CanvasDoc {
 
 export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspaceProps) {
   const router = useRouter();
+  const focusBlockId = useSearchParams().get("focus");
+  const handledFocus = useRef<string | null>(null);
   const [load, setLoad] = useState<LoadState>({ phase: "loading" });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
@@ -211,6 +215,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       }),
     [readOnly],
   );
+  const loadedWorkspace = useRef<{ documentId: string; store: typeof store } | null>(null);
   const fontsReady = useFontsReady();
   const doc = useCanvasSelector(store, useCallback((s) => s.doc, []));
   const measureEpoch = useCanvasSelector(store, useCallback((s) => s.measureEpoch, []));
@@ -286,6 +291,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         readOnly,
         recoveredFromDraft: recovered,
       });
+      loadedWorkspace.current = { documentId, store };
       setLoad({ phase: "ready" });
 
       // 解析本机图片（mock-image: / pending）为可渲染对象 URL
@@ -470,6 +476,25 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       rect ?? { width: 1200, height: 800 },
     );
   }, [scene, store, visibleViewportNow]);
+
+  // A link from the library is a one-shot selection, after document/font geometry is ready.
+  useEffect(() => {
+    if (focusBlockId === null) { handledFocus.current = null; return; }
+    const request = `${documentId}:${focusBlockId}`;
+    if (load.phase !== "ready" || loadedWorkspace.current?.documentId !== documentId
+      || loadedWorkspace.current.store !== store || !fontsReady || handledFocus.current === request) return;
+    const target = selectionForFocus(doc, focusBlockId);
+    if (target) {
+      if (JSON.stringify(selection) !== JSON.stringify(target)) {
+        store.getState().select(target);
+        return; // Let the property panel render before measuring the unobstructed viewport.
+      }
+      if (!boundsForSelection(scene, target, doc)) return;
+      fitSelection(target);
+    }
+    handledFocus.current = request;
+    router.replace(withoutCanvasFocus(window.location.href), { scroll: false });
+  }, [documentId, focusBlockId, load.phase, fontsReady, doc, scene, selection, store, fitSelection, router]);
 
   const openContextMenu = useCallback((point: CanvasContextMenuPoint) => {
     contextNonce.current += 1;
@@ -909,8 +934,13 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   /** 引用整条资料：快照卡片（materialCard）插入统一解析目标。 */
   const insertMaterialCard = useCallback(
     (item: LibraryItem) => {
+      const state = store.getState();
+      if (state.readOnly || state.previewMode) return;
       const target = resolveInsertTargetNow();
-      if ("create" in target) return;
+      if ("create" in target) {
+        toast({ title: MATERIAL_ADD_ERROR, description: "请选择可用的页面或区块", variant: "destructive" });
+        return;
+      }
       const sourceRef = sourceRefFromLibraryItem(item);
       const block = createMaterialCardBlock({
         title: sourceRef.title,
@@ -918,6 +948,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         sourceRef,
       });
       store.getState().apply("引用资料卡片", (d) => insertBlockAtTarget(d, target, block));
+      toast({ title: MATERIAL_ADD_SUCCESS });
       revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
     },
     [store, resolveInsertTargetNow, revealIfNeeded],
