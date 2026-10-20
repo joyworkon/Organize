@@ -18,22 +18,28 @@ import {
   FilePlus,
   Image as ImageIcon,
   LayoutTemplate,
+  Maximize2,
   Pencil,
   Trash2,
   Type as TypeIcon,
 } from "@/components/icons";
 import {
+  renameBoard,
   deleteRegion,
   duplicateRegion,
   moveRegion,
   renameRegion,
   type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
+import { Button } from "@/components/ui/button";
+import { commitBoardDuplicate, confirmBoardDeletion } from "./canvas-board-actions";
 import type { CanvasStore } from "./canvas-store";
 import { useCanvasSelector } from "./use-canvas-selector";
 
 export interface CanvasOutlineTreeProps {
   store: CanvasStore;
+  /** 选中页面并适合该页（不写文档）。 */
+  onFit?: (target: { kind: "board"; boardId: string }) => void;
   /** 选中并平移目标到视口中央（不改缩放）。 */
   onReveal: (target:
     | { kind: "board"; boardId: string }
@@ -48,9 +54,11 @@ const TEMPLATES: Array<{ kind: CanvasTemplateKind; label: string; hint: string; 
 ];
 
 /** 结构分组（B2 抽出：大纲树本体，供添加面板折叠区复用）。 */
-export function CanvasOutlineTree({ store, onReveal }: CanvasOutlineTreeProps) {
+export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeProps) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
+
+  const writable = useCanvasSelector(store, useCallback((s) => !s.readOnly && !s.previewMode, []));
 
   return (
     <div className="canvas-outline-tree">
@@ -59,20 +67,10 @@ export function CanvasOutlineTree({ store, onReveal }: CanvasOutlineTreeProps) {
       )}
       {doc.boards.map((board, bi) => (
         <div key={board.id} className="canvas-outline-board">
-          <button
-            type="button"
-            className={`canvas-outline-row is-board ${
-              selection?.kind === "board" && selection.boardId === board.id ? "is-selected" : ""
-            }`}
-            title={`选中页面「${board.name || `页面 ${bi + 1}`}」并定位`}
-            aria-label={`页面：${board.name || `页面 ${bi + 1}`}`}
-            onClick={() => {
-              store.getState().select({ kind: "board", boardId: board.id });
-              onReveal({ kind: "board", boardId: board.id });
-            }}
-          >
-            <span className="canvas-outline-name">{board.name || `页面 ${bi + 1}`}</span>
-          </button>
+          <BoardRow store={store} boardId={board.id} name={board.name ?? ""}
+            label={board.name || `页面 ${bi + 1}`} writable={writable}
+            selected={selection?.kind === "board" && selection.boardId === board.id}
+            onReveal={onReveal} onFit={onFit} />
           {board.regions.map((region, ri) => (
             <RegionRow
               key={region.id}
@@ -85,10 +83,70 @@ export function CanvasOutlineTree({ store, onReveal }: CanvasOutlineTreeProps) {
               total={board.regions.length}
               selected={selection?.kind === "region" && selection.regionId === region.id}
               onReveal={onReveal}
+              writable={writable}
             />
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+function BoardRow({ store, boardId, name, label, writable, selected, onReveal, onFit }: {
+  store: CanvasStore; boardId: string; name: string; label: string; writable: boolean; selected: boolean;
+  onReveal: CanvasOutlineTreeProps["onReveal"]; onFit: CanvasOutlineTreeProps["onFit"];
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // 防止 Enter/Esc 后卸载 input 的 blur 重复提交。
+  const editingRef = useRef(false);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  const startRename = () => {
+    setDraft(name); editingRef.current = true; setEditing(true);
+  };
+  const commit = () => {
+    if (!editingRef.current) return;
+    editingRef.current = false; setEditing(false);
+    if (draft.trim() !== name) store.getState().apply("重命名页面", (doc) => renameBoard(doc, { boardId, name: draft }));
+  };
+  const fit = () => {
+    store.getState().select({ kind: "board", boardId });
+    onFit?.({ kind: "board", boardId });
+  };
+  return (
+    <div className={`canvas-outline-row is-board ${selected ? "is-selected" : ""}`}
+      onDoubleClick={(e) => { if (!editing && e.target === e.currentTarget) fit(); }}>
+      {editing && writable ? (
+        <input ref={inputRef} className="canvas-region-name-input" style={{ position: "static", flex: 1, minWidth: 0 }}
+          value={draft} aria-label="页面名称" onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+            if (e.key === "Escape") { e.preventDefault(); editingRef.current = false; setEditing(false); }
+          }} />
+      ) : (
+        <button type="button" className="canvas-outline-name" aria-label={`页面：${label}`}
+          title={`选中页面「${label}」并定位（双击适合页面${writable ? "并改名" : ""}）`}
+          onClick={() => { store.getState().select({ kind: "board", boardId }); onReveal({ kind: "board", boardId }); }}
+          onDoubleClick={(e) => { e.stopPropagation(); fit(); if (writable) startRename(); }}>{label}</button>
+      )}
+      <span className="canvas-outline-actions">
+        {onFit && <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+          title="适合此页面" aria-label={`适合页面 ${label}`} onClick={fit}><Maximize2 className="h-3 w-3" /></Button>}
+        {writable && <>
+          <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+            title="重命名页面" aria-label={`重命名页面 ${label}`} onClick={startRename}><Pencil className="h-3 w-3" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+            title="复制页面" aria-label={`复制页面 ${label}`} onClick={() => {
+              const id = commitBoardDuplicate(store, boardId);
+              if (id) onReveal({ kind: "board", boardId: id });
+            }}><Copy className="h-3 w-3" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="canvas-outline-action is-danger"
+            title="删除页面" aria-label={`删除页面 ${label}`} onClick={() => void confirmBoardDeletion(store, boardId)}><Trash2 className="h-3 w-3" /></Button>
+        </>}
+      </span>
     </div>
   );
 }
@@ -124,6 +182,7 @@ function RegionRow({
   total,
   selected,
   onReveal,
+  writable,
 }: {
   store: CanvasStore;
   boardId: string;
@@ -132,6 +191,7 @@ function RegionRow({
   name: string;
   index: number;
   total: number;
+  writable: boolean;
   selected: boolean;
   onReveal: CanvasOutlineTreeProps["onReveal"];
 }) {
@@ -187,14 +247,13 @@ function RegionRow({
             onReveal({ kind: "region", boardId, regionId });
           }}
           onDoubleClick={() => {
-            setDraft(name);
-            setEditing(true);
+            if (writable) { setDraft(name); setEditing(true); }
           }}
         >
           {name}
         </button>
       )}
-      <span className="canvas-outline-actions">
+      {writable && <span className="canvas-outline-actions">
         <button
           type="button"
           className="canvas-outline-action"
@@ -253,7 +312,7 @@ function RegionRow({
         >
           <Trash2 className="h-3 w-3" />
         </button>
-      </span>
+      </span>}
     </div>
   );
 }

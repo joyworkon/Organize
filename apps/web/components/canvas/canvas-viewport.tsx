@@ -20,6 +20,7 @@ import {
 import type { CanvasDoc } from "@/lib/canvas/model";
 import { createBoardSkeleton } from "@/lib/canvas/commands";
 import { shouldPasteInternalClipboard } from "@/lib/canvas/clipboard";
+import type { SelectionBounds } from "@/lib/canvas/selection-bounds";
 import { sceneBounds, type Scene } from "@/lib/canvas/layout";
 import { screenToWorld, worldToScreen as toScreen } from "@/lib/canvas/coords";
 import { groupBounds } from "@/lib/canvas/free-selection";
@@ -579,6 +580,16 @@ export function zoomToFit(
     setViewport({ x: 40, y: 40, zoom: 1 });
     return;
   }
+  zoomToFitBounds(bounds, setViewport, rect);
+}
+
+/** 适合给定选区，空/无效包围盒保持当前视口。与适合全部共用边距与缩放上限。 */
+export function zoomToFitBounds(
+  bounds: SelectionBounds | null,
+  setViewport: (vp: Partial<{ x: number; y: number; zoom: number }>) => void,
+  rect: { width: number; height: number },
+): void {
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
   const zoom = clampZoom(
     Math.min((rect.width - 120) / bounds.width, (rect.height - 120) / bounds.height, 1),
   );

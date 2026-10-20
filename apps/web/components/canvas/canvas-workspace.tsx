@@ -75,8 +75,10 @@ import { deleteDraft, loadDraft, saveDraft } from "@/lib/canvas/draft";
 import { AutosaveController, type AutosaveSnapshot } from "@/lib/canvas/autosave";
 import { isMockBackend, resolveAssetUrl, uploadCanvasImage } from "@/lib/canvas/assets";
 import { validateCanvasContent } from "@/lib/canvas/validation";
-import { createCanvasStore } from "./canvas-store";
-import { useCanvasScene, useFontsReady } from "./use-canvas-scene";
+import { createCanvasStore, type CanvasSelection } from "./canvas-store";
+import { boundsForSelection } from "@/lib/canvas/selection-bounds";
+import { computeScene } from "@/lib/canvas/layout";
+import { createCanvasMeasure, useCanvasScene, useFontsReady } from "./use-canvas-scene";
 import { useSourceStatus } from "./use-source-status";
 import { CanvasMaterialPanel } from "./canvas-material-panel";
 import {
@@ -87,7 +89,7 @@ import {
   sourceRefFromLibraryItem,
 } from "@/lib/library/material-source";
 import type { LibraryItem } from "@organize/shared";
-import { CanvasViewportView, clampZoom, zoomToFit } from "./canvas-viewport";
+import { CanvasViewportView, clampZoom, zoomToFit, zoomToFitBounds } from "./canvas-viewport";
 import { CanvasMinimap, CanvasMinimapToggle, useMinimapOpen } from "./canvas-minimap";
 import { isFreeItemDragging } from "./canvas-free-item";
 import { applyArrangeAction, isFreeArrangeAction, nudgeFreeItems } from "./free-item-actions";
@@ -458,6 +460,17 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     );
   }, [scene, store, visibleViewportNow]);
 
+  const selectionBounds = useMemo(() => boundsForSelection(scene, selection, doc), [scene, selection, doc]);
+  const fitSelection = useCallback((target?: CanvasSelection) => {
+    const state = store.getState();
+    const rect = visibleViewportNow();
+    zoomToFitBounds(
+      boundsForSelection(scene, target === undefined ? state.selection : target, state.doc),
+      (vp) => state.setViewport({ ...vp, x: (vp.x ?? 0) + (rect?.x ?? 0), y: (vp.y ?? 0) + (rect?.y ?? 0) }),
+      rect ?? { width: 1200, height: 800 },
+    );
+  }, [scene, store, visibleViewportNow]);
+
   const openContextMenu = useCallback((point: CanvasContextMenuPoint) => {
     contextNonce.current += 1;
     const next = { ...point, nonce: contextNonce.current };
@@ -577,6 +590,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           case "zoom-out": changeCanvasZoom(s.viewport.zoom / 1.2); break;
           case "zoom-reset": changeCanvasZoom(1); break;
           case "zoom-fit": fitAll(); break;
+          case "zoom-selection": fitSelection(); break;
           case "help": setShowShortcuts(true); break;
         }
         return;
@@ -626,7 +640,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [store, load.phase, changeCanvasZoom, fitAll]);
+  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection]);
 
   const worldCenterNow = useCallback(() => {
     const rect = visibleViewportNow();
@@ -701,7 +715,9 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     (target: { kind: "board"; boardId: string } | { kind: "region"; boardId: string; regionId: string }) => {
       const rect = visibleViewportNow();
       if (!rect) return;
-      const sb = scene.boards.find((b) => b.boardId === target.boardId);
+      // 复制命令后 React 尚未提交新 scene，按最新文档立即计算新页面几何。
+      const liveScene = store.getState().doc === doc ? scene : computeScene(store.getState().doc, createCanvasMeasure(measurer));
+      const sb = liveScene.boards.find((b) => b.boardId === target.boardId);
       if (!sb) return;
       let top: number;
       let height: number;
@@ -721,7 +737,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
         y: rect.y + Math.max(0, (rect.height - height * vp.zoom) / 2) - top * vp.zoom,
       });
     },
-    [scene, store, visibleViewportNow],
+    [doc, measurer, scene, store, visibleViewportNow],
   );
 
   /** 目标在视口内则不跳动；平移远离后新建/插入会把目标带回可视区（B2）。 */
@@ -1270,6 +1286,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
                 />
               }
               onReveal={revealTarget}
+              onFit={fitSelection}
             />
           </div>
         ) : (
@@ -1344,7 +1361,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       )}
 
       {/* 缩放控件 */}
-      <div className="canvas-zoom" role="group" aria-label="缩放">
+      <div className="canvas-zoom max-w-[calc(100%-24px)] flex-wrap justify-center" role="group" aria-label="缩放">
         <Button
           type="button"
           variant="ghost"
@@ -1383,6 +1400,12 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           onClick={fitAll}
         >
           <Maximize2 className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size={narrow ? "icon" : "sm"} className="shrink-0"
+          aria-label="适合选区" disabled={!selectionBounds}
+          title={selectionBounds ? `适合选区（${shortcutLabels.shift}2）` : "请先选择页面、区块、模块或自由元素"}
+          onClick={() => fitSelection()}>
+          {narrow ? <MousePointerClick className="h-4 w-4" /> : "适合选区"}
         </Button>
         <CanvasMinimapToggle open={minimapOpen} onToggle={toggleMinimap} />
         {!narrow && (

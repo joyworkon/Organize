@@ -1,10 +1,11 @@
+import { toast } from "@/hooks/use-toast";
 import { isTypingTarget } from "@/lib/hooks/use-hotkey";
-import { duplicateBlock, duplicateFreeItem, duplicateRegion } from "@/lib/canvas/commands";
+import { duplicateBoard, duplicateBlock, duplicateFreeItem, duplicateRegion } from "@/lib/canvas/commands";
 import { findBlockLocation, findFreeItem, type CanvasCommandResult, type CanvasDoc } from "@/lib/canvas/model";
 import type { CanvasSelection, CanvasStore, CanvasViewport } from "./canvas-store";
 import { clampZoom } from "./canvas-viewport";
 
-export type CanvasShortcut = "select-all" | "copy" | "cut" | "paste" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "help";
+export type CanvasShortcut = "select-all" | "copy" | "cut" | "paste" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "zoom-selection" | "help";
 
 /** Only match canvas keys outside native text editing; callers also guard modal/editor state. */
 export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
@@ -24,6 +25,7 @@ export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
   }
   if (key === "?" || (e.shiftKey && (key === "/" || e.code === "Slash"))) return "help";
   if (e.shiftKey && (e.code === "Digit1" || key === "!" || key === "1")) return "zoom-fit";
+  if (e.shiftKey && (e.code === "Digit2" || key === "@" || key === "2")) return "zoom-selection";
   return null;
 }
 
@@ -54,11 +56,12 @@ export function allCanvasBlockIds(doc: CanvasDoc): string[] {
     .flatMap((s) => s.columns).flatMap((c) => c.blocks).map((b) => b.id);
 }
 
-/** Compose existing commands into one apply/undo transaction. Board selection has no duplicate command. */
+/** Compose existing commands into one apply/undo transaction. Including whole pages. */
 export function duplicateCanvasSelection(
   doc: CanvasDoc,
   selection: CanvasSelection,
-): CanvasCommandResult & { blockIds?: string[]; itemIds?: string[] } {
+): CanvasCommandResult & { blockIds?: string[]; itemIds?: string[]; rejected?: string } {
+  if (selection?.kind === "board") return duplicateBoard(doc, selection);
   if (selection?.kind === "region") return duplicateRegion(doc, selection);
   if (selection?.kind === "free") return duplicateFreeSelection(doc, [selection.itemId]);
   if (selection?.kind === "frees") return duplicateFreeSelection(doc, [...new Set(selection.itemIds)]);
@@ -101,8 +104,13 @@ export function commitCanvasDuplicate(store: CanvasStore): void {
   const state = store.getState();
   if (state.readOnly || state.previewMode) return;
   const result = duplicateCanvasSelection(state.doc, state.selection);
+  if (result.rejected) {
+    toast({ title: "无法复制", description: result.rejected, variant: "destructive" });
+    return;
+  }
   const kind = state.selection?.kind;
   const label = kind === "blocks" ? "复制多个模块"
+    : kind === "board" ? "复制页面"
     : kind === "region" ? "复制区块"
     : kind === "frees" ? "复制多个自由容器"
     : kind === "free" ? "复制自由容器"

@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { commitBoardDuplicate } from "./canvas-board-actions";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Copy, Trash2 } from "@/components/icons";
@@ -269,6 +270,10 @@ export function CanvasPropertyBar({
             }
           />
         </label>
+        <Button type="button" variant="outline" size="sm" className="gap-1 text-xs"
+          aria-label="复制页面" title="复制页面" onClick={() => commitBoardDuplicate(store, board.id)}>
+          <Copy className="h-3.5 w-3.5" /> 复制页面
+        </Button>
         <Button
           type="button"
           variant="outline"

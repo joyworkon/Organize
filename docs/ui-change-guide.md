@@ -38,6 +38,7 @@
 | 导航分组/顺序 | sidebar.tsx `navItems`（:53-61）+ 条件项（:116-127） | **四处入口需同步**：命令面板 NAV_ITEMS（command-palette.tsx:77-90）、移动返回位置 `MOBILE_DESTINATIONS`（lib/navigation/mobile.ts:3-9）、g 前缀快捷键与帮助清单（global-hotkeys.tsx `GOTO_ROUTES` 单源派生，:22-49——g 键位/帮助条目/goto 提示均由它生成，一致性有单测钉住）、图谱/插件非一级入口（收进笔记页工具行/设置页，注释 :50-52） |
 | 手机导航/上下文工具 | lib/navigation/mobile.ts、mobile-navigation.tsx、sidebar.tsx | 顶部菜单 + 共用侧栏抽屉；无全局五入口底栏。`MOBILE_DESTINATIONS` 仅存集合返回位置；mobile-bottom-bar.tsx 为可选局部动作承载。详情保留自己的返回/工具，键盘/safe-area 由现有 VisualViewport 逻辑处理。 |
 | 壳断点 | 767px（mobile.css @media + matchMedia） | **单断点体系**：`md:`（768px）分桌面/移动；新增第二断点需同时动 mobile.css、mobile-navigation.tsx:39、sidebar 的 md: 类 |
+| 构思画布页面与选区视图 | `components/canvas/canvas-outline-panel.tsx`、`canvas-board-actions.ts`、`canvas-board.tsx`、`canvas-property-bar.tsx`、`canvas-workspace.tsx`、`canvas-shortcuts.ts`；`lib/canvas/commands.ts` / `selection-bounds.ts` | 页面复制是一条可撤销事务，保留源引用并重建结构 ID；大纲删除用 showConfirm；Shift+2 与按钮共用选区包围盒和可见视口，Shift+1 保持适合全部。只读/预览隐藏写动作；不改 schema/CAS/保存队列，不增加坐标祖先 transform/contain。 |
 | 快捷键 | global-hotkeys.tsx（g 序列/`?` 帮助）、command-palette.tsx:339-352（⌘K） | `lib/hooks/use-hotkey.ts` 是唯一注册器：isTypingTarget 输入屏蔽、1.5s 序列 buffer、hasOpenDialog 弹层让位——新键位必须走它，不得自行 addEventListener |
 | 新增按钮/对话框 | 一律 `components/ui/button|dialog` | 禁止第二套实现（现状核查：无 `.btn` 类、无原生 dialog；裸 `<button>` 仅限一次性图标按钮，如 theme-toggle.tsx:26-37） |
 | 笔记页设置（全宽/字体/小字号） | note-page-menu.tsx → page.tsx :1266-1279 contentClassName + 根类 | CSS 生效点 globals.css:116-146；持久化 note-save-session.ts:664-667 与 local-draft.ts 成对 |

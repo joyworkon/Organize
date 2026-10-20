@@ -35,6 +35,7 @@ import {
   CanvasTextRole,
   MIN_TEXT_CONTENT_HEIGHT,
   defaultIdGenerator,
+  countNodes,
   createBoardShape,
   createColumn,
   createImageBlock,
@@ -371,6 +372,39 @@ function cloneRegionWithNewIds(region: CanvasRegion, newId: CanvasIdGenerator): 
     });
   }
   return clone;
+}
+
+/** 深克隆页面；所有结构 ID 更新，资产与来源引用保留。 */
+function cloneBoardWithNewIds(board: CanvasBoard, newId: CanvasIdGenerator): CanvasBoard {
+  const clone = structuredClone(board);
+  clone.id = newId();
+  clone.regions = board.regions.map((region) => cloneRegionWithNewIds(region, newId));
+  return clone;
+}
+
+/** 文档内整页副本：向右偏移，重复复制名称继续追加「 副本」（最长100字）。 */
+export function duplicateBoard(
+  doc: CanvasDoc,
+  args: { boardId: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult & { rejected?: string } {
+  const board = findBoard(doc, args.boardId);
+  if (!board) return { doc };
+  if (doc.boards.length >= CANVAS_LIMITS.maxBoards) {
+    return { doc, rejected: `页面已达 ${CANVAS_LIMITS.maxBoards} 个上限，这次没有复制` };
+  }
+  const added = countNodes({ ...doc, boards: [board] }).blocks;
+  if (countNodes(doc).blocks + added > CANVAS_LIMITS.maxBlocks) {
+    return { doc, rejected: `模块已达 ${CANVAS_LIMITS.maxBlocks} 个上限，这次没有复制` };
+  }
+  const x = board.x + board.width + 80;
+  return edit(doc, (draft) => {
+    const clone = cloneBoardWithNewIds(board, newId);
+    clone.x = x;
+    clone.name = board.name ? `${board.name.slice(0, CANVAS_LIMITS.maxNameLength - 3)} 副本` : undefined;
+    draft.boards.push(clone);
+    return { kind: "board", boardId: clone.id };
+  });
 }
 
 /** 复制区块：插在原区块之后，全部子对象换新 ID，内容/样式逐字段保留（B1）。 */

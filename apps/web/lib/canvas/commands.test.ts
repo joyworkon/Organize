@@ -1,3 +1,4 @@
+import { CANVAS_LIMITS, validateCanvasContent } from "./validation";
 import { describe, expect, it } from "vitest";
 import {
   BOARD_DEFAULT_WIDTH,
@@ -19,6 +20,7 @@ import {
   deleteBoard,
   deleteFreeItem,
   deleteRegion,
+  duplicateBoard,
   duplicateBlock,
   duplicateRegion,
   insertBlockAtTarget,
@@ -949,5 +951,60 @@ describe("applyCanvasTemplate（B1 模板）", () => {
     }
     const imageText = current.boards[0].regions[current.boards[0].regions.length - 3];
     expect(imageText.sections[0].columns[1].blocks[0]).toMatchObject({ type: "image", asset: null });
+  });
+});
+
+
+describe("duplicateBoard", () => {
+  it("整页深拷贝换新全部结构 ID，保留内容样式、比例与引用，向右偏移并聚焦副本", () => {
+    const doc = createBoardSkeleton(emptyDoc(), { variant: "landing", at: { x: -200, y: 40 } }, counterIds()).doc;
+    const board = doc.boards[0];
+    board.name = "方案";
+    const title = board.regions[0].sections[0].columns[0].blocks[0];
+    if (title.type === "text") title.sourceRef = { kind: "reading", id: "source-id", title: "来源文章" };
+    board.style = { radius: 24, background: "gray" };
+    const before = structuredClone(doc);
+    const result = duplicateBoard(doc, { boardId: board.id }, counterIds("copy"));
+    const copy = result.doc.boards[1];
+    const ids = (value: unknown): string[] => {
+      if (!value || typeof value !== "object") return [];
+      return Object.entries(value).flatMap(([key, entry]) => key === "sourceRef" ? [] : key === "id" ? [String(entry)] : ids(entry));
+    };
+    const originals = new Set(ids(board));
+    expect(ids(copy).length).toBe(originals.size);
+    expect(new Set(ids(copy)).size).toBe(ids(copy).length);
+    expect(ids(copy).some((id) => originals.has(id))).toBe(false);
+    const withoutIds = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (key, entry) => key === "id" ? undefined : entry));
+    expect(withoutIds(copy)).toEqual(withoutIds({ ...board, x: board.x + board.width + 80, name: "方案 副本" }));
+    expect(result.focus).toEqual({ kind: "board", boardId: copy.id });
+    copy.regions[0].name = "changed";
+    expect(doc).toEqual(before);
+  });
+  it("空名保持空；重复副本继续追加后缀，长名称截断到合法长度", () => {
+    const { doc, board } = docWithBoard();
+    expect(duplicateBoard(doc, { boardId: board.id }, counterIds("copy")).doc.boards[1].name).toBeUndefined();
+    for (const name of ["方案 副本", "长".repeat(100)]) {
+      board.name = name;
+      const result = duplicateBoard(doc, { boardId: board.id }, counterIds("copy"));
+      expect(result.doc.boards[1].name).toBe(`${name.slice(0, 97)} 副本`);
+      expect(validateCanvasContent(result.doc).ok).toBe(true);
+    }
+  });
+  it("页面上限拒绝且保持原文档、缺失页面不产生空事务", () => {
+    const { doc, board } = docWithBoard();
+    doc.boards = Array.from({ length: CANVAS_LIMITS.maxBoards }, () => structuredClone(board));
+    expect(duplicateBoard(doc, { boardId: board.id })).toMatchObject({ doc, rejected: expect.stringContaining("50") });
+    expect(duplicateBoard(doc, { boardId: board.id }).doc).toBe(doc);
+    expect(duplicateBoard(doc, { boardId: "missing" })).toEqual({ doc });
+  });
+  it("总模块数超限原子拒绝，恰好达到上限允许", () => {
+    const { doc, board } = docWithBoard();
+    const column = board.regions[0].sections[0].columns[0];
+    column.blocks = Array.from({ length: 199 }, () => structuredClone(column.blocks[0]));
+    expect(duplicateBoard(doc, { boardId: board.id }).rejected).toBeUndefined();
+    column.blocks.push(structuredClone(column.blocks[0]));
+    const result = duplicateBoard(doc, { boardId: board.id });
+    expect(result.rejected).toContain("400");
+    expect(result.doc).toBe(doc);
   });
 });

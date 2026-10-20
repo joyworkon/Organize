@@ -56,6 +56,7 @@ export interface CanvasAddPanelProps {
   onApplyTemplate: (template: CanvasTemplateKind) => void;
   /** 资料面板（E 阶段接入）：由工作区提供，渲染在「资料」折叠组。 */
   material?: ReactNode;
+  onFit?: (target: { kind: "board"; boardId: string }) => void;
   onReveal: (
     target:
       | { kind: "board"; boardId: string }
@@ -102,6 +103,7 @@ export function CanvasAddPanel({
   onApplyTemplate,
   material,
   onReveal,
+  onFit,
 }: CanvasAddPanelProps) {
   return (
     <div className="canvas-add-panel" role="toolbar" aria-label="画布添加面板" data-testid="canvas-add-panel">
@@ -191,7 +193,7 @@ export function CanvasAddPanel({
       )}
 
       <DetailsGroup title="结构">
-        <CanvasOutlineTree store={store} onReveal={onReveal} />
+        <CanvasOutlineTree store={store} onReveal={onReveal} onFit={onFit} />
       </DetailsGroup>
     </div>
   );
