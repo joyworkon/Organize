@@ -11,7 +11,7 @@
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Trash2 } from "@/components/icons";
+import { Copy, Trash2 } from "@/components/icons";
 import {
   attachFreeItemToRegion,
   deleteBlock,
@@ -62,6 +62,8 @@ import {
 } from "@/lib/canvas/text-styles";
 import { canSmartRecompute } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
+import { commitCanvasDuplicate } from "./canvas-shortcuts";
+import { applyDeleteFreeItems } from "./free-item-actions";
 import { useCanvasSelector } from "./use-canvas-selector";
 import type { SourceStatusMap } from "./use-source-status";
 import { statusOf } from "./use-source-status";
@@ -105,7 +107,7 @@ export function CanvasPropertyBar({
   const [moveTargetOpen, setMoveTargetOpen] = useState(false);
 
   const target = (() => {
-    if (!selection || selection.kind === "blocks") return null;
+    if (!selection || selection.kind === "blocks" || selection.kind === "frees") return null;
     if (selection.kind === "block") {
       const loc = findBlockLocation(doc, selection.blockId);
       return loc ? { kind: "block" as const, ...loc } : null;
@@ -141,6 +143,34 @@ export function CanvasPropertyBar({
         删除选中模块
       </Button>
     </div>;
+  }
+
+  if (selection?.kind === "frees") {
+    const count = selection.itemIds.length;
+    return (
+      <div className="canvas-property-bar" aria-label="多个自由元素属性">
+        <h3 className="canvas-prop-title">已选 {count} 个自由元素</h3>
+        <p className="text-xs text-muted-foreground">拖动任一选中元素可一起移动；Shift 点击可增减选区。样式请单独选中后调整。</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1 text-xs"
+          onClick={() => commitCanvasDuplicate(store)}
+        >
+          <Copy className="h-3.5 w-3.5" /> 复制
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1 border-destructive/40 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => applyDeleteFreeItems(store, selection.itemIds)}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> 删除
+        </Button>
+      </div>
+    );
   }
 
   if (!target) {

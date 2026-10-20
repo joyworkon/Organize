@@ -58,6 +58,7 @@ export type InsertSelection =
   | { kind: "blocks"; blockIds: string[] }
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
+  | { kind: "frees"; itemIds: string[] }
   | { kind: "board"; boardId: string }
   | { kind: "region"; boardId: string; regionId: string }
   | null;

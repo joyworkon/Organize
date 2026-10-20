@@ -1,7 +1,7 @@
 import { isTypingTarget } from "@/lib/hooks/use-hotkey";
-import { duplicateBlock, duplicateRegion } from "@/lib/canvas/commands";
-import { findBlockLocation, type CanvasCommandResult, type CanvasDoc } from "@/lib/canvas/model";
-import type { CanvasSelection, CanvasViewport } from "./canvas-store";
+import { duplicateBlock, duplicateFreeItem, duplicateRegion } from "@/lib/canvas/commands";
+import { findBlockLocation, findFreeItem, type CanvasCommandResult, type CanvasDoc } from "@/lib/canvas/model";
+import type { CanvasSelection, CanvasStore, CanvasViewport } from "./canvas-store";
 import { clampZoom } from "./canvas-viewport";
 
 export type CanvasShortcut = "select-all" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "help";
@@ -51,12 +51,14 @@ export function allCanvasBlockIds(doc: CanvasDoc): string[] {
     .flatMap((s) => s.columns).flatMap((c) => c.blocks).map((b) => b.id);
 }
 
-/** Compose existing commands into one apply/undo transaction; free/board have no duplicate command. */
+/** Compose existing commands into one apply/undo transaction. Board selection has no duplicate command. */
 export function duplicateCanvasSelection(
   doc: CanvasDoc,
   selection: CanvasSelection,
-): CanvasCommandResult & { blockIds?: string[] } {
+): CanvasCommandResult & { blockIds?: string[]; itemIds?: string[] } {
   if (selection?.kind === "region") return duplicateRegion(doc, selection);
+  if (selection?.kind === "free") return duplicateFreeSelection(doc, [selection.itemId]);
+  if (selection?.kind === "frees") return duplicateFreeSelection(doc, [...new Set(selection.itemIds)]);
   const ids = selection?.kind === "block" ? [selection.blockId]
     : selection?.kind === "blocks" ? [...new Set(selection.blockIds)] : [];
   let next = doc;
@@ -72,4 +74,43 @@ export function duplicateCanvasSelection(
     }
   }
   return { doc: next, focus, blockIds };
+}
+
+function duplicateFreeSelection(doc: CanvasDoc, itemIds: string[]): CanvasCommandResult & { itemIds?: string[] } {
+  let next = doc;
+  const created: string[] = [];
+  for (const itemId of itemIds) {
+    if (!findFreeItem(next, itemId)) continue;
+    const result = duplicateFreeItem(next, { itemId });
+    if (result.focus?.kind !== "free") continue;
+    next = result.doc;
+    created.push(result.focus.itemId);
+  }
+  if (created.length === 0) return { doc };
+  if (created.length === 1) {
+    return { doc: next, focus: { kind: "free", itemId: created[0], edit: false }, itemIds: created };
+  }
+  return { doc: next, focus: { kind: "frees", itemIds: created }, itemIds: created };
+}
+
+/** ⌘D：一次撤销复制当前选区，多选后改选新副本。 */
+export function commitCanvasDuplicate(store: CanvasStore): void {
+  const state = store.getState();
+  if (state.readOnly || state.previewMode) return;
+  const result = duplicateCanvasSelection(state.doc, state.selection);
+  const kind = state.selection?.kind;
+  const label = kind === "blocks" ? "复制多个模块"
+    : kind === "region" ? "复制区块"
+    : kind === "frees" ? "复制多个自由容器"
+    : kind === "free" ? "复制自由容器"
+    : "复制模块";
+  state.apply(label, () => result);
+  if (result.blockIds && result.blockIds.length > 1) {
+    store.getState().clearFocus();
+    store.getState().select({ kind: "blocks", blockIds: result.blockIds });
+  }
+  if (result.itemIds && result.itemIds.length > 1) {
+    store.getState().clearFocus();
+    store.getState().select({ kind: "frees", itemIds: result.itemIds });
+  }
 }

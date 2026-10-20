@@ -12,6 +12,7 @@ import {
   deleteBoard,
 } from "@/lib/canvas/commands";
 import { createCanvasStore } from "./canvas-store";
+import { applyDeleteFreeItems, applyMoveFreeItems, nudgeFreeItems } from "./free-item-actions";
 
 function counterIds(prefix = "id") {
   let n = 0;
@@ -218,5 +219,108 @@ describe("lastActiveTarget 最近有效落点（B2 统一插入规则 6）", () 
     const blockId = store.getState().doc.boards[0].regions[0].sections[0].columns[0].blocks[0].id;
     store.getState().select({ kind: "block", blockId });
     expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId });
+  });
+
+  it("多选自由元素不改变最近落点", () => {
+    const store = makeStore();
+    store.getState().apply("新建版面", (d) => createBoard(d, { x: 0, y: 0 }, counterIds()));
+    const boardId = store.getState().doc.boards[0].id;
+    const regionId = store.getState().doc.boards[0].regions[0].id;
+    store.getState().apply("自由文本", (d) => createFreeText(d, { x: 0, y: 0 }, counterIds("a")));
+    store.getState().apply("自由文本", (d) => createFreeText(d, { x: 40, y: 0 }, counterIds("b")));
+    const ids = store.getState().doc.freeItems.map((item) => item.id);
+    store.getState().select({ kind: "frees", itemIds: ids });
+    expect(store.getState().lastActiveTarget).toEqual({ boardId, regionId });
+  });
+});
+
+describe("自由元素多选的撤销与失效清理", () => {
+  function twoFree() {
+    const store = makeStore();
+    store.getState().apply("自由文本", (d) => createFreeText(d, { x: 10, y: 20 }, counterIds("a")));
+    store.getState().apply("自由文本", (d) => createFreeText(d, { x: 300, y: 40 }, counterIds("b")));
+    const ids = store.getState().doc.freeItems.map((item) => item.id);
+    store.getState().select({ kind: "frees", itemIds: ids });
+    return { store, ids };
+  }
+
+  it("过滤已不存在的 id：空则清空，只剩一个退回 free", () => {
+    const { store, ids } = twoFree();
+    const [a, b] = ids;
+    store.getState().select({ kind: "frees", itemIds: [a, "missing", b, a] });
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: [a, b] });
+    store.getState().select({ kind: "frees", itemIds: [b, "missing"] });
+    expect(store.getState().selection).toEqual({ kind: "free", itemId: b });
+    store.getState().select({ kind: "free", itemId: "gone" });
+    expect(store.getState().selection).toBeNull();
+    store.getState().select({ kind: "frees", itemIds: [a, b] });
+    store.getState().apply("删除其中一个", (d) => deleteFreeItem(d, { itemId: a }));
+    expect(store.getState().selection).toEqual({ kind: "free", itemId: b });
+  });
+
+  it("成组移动是一条撤销，撤销后每个元素回到原位并恢复多选", () => {
+    const { store, ids } = twoFree();
+    const before = store.getState().doc;
+    applyMoveFreeItems(store, [
+      { itemId: ids[0], x: 25, y: 27 },
+      { itemId: ids[1], x: 315, y: 47 },
+    ]);
+    expect(store.getState().doc.freeItems.map((item) => [item.x, item.y])).toEqual([[25, 27], [315, 47]]);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: ids });
+    store.getState().undo();
+    expect(store.getState().doc).toBe(before);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: ids });
+    store.getState().undo();
+    expect(store.getState().doc.freeItems).toHaveLength(1);
+  });
+
+  it("成组删除是一条撤销，撤销后元素和多选一起回来", () => {
+    const { store, ids } = twoFree();
+    const before = store.getState().doc;
+    applyDeleteFreeItems(store, ids);
+    expect(store.getState().doc.freeItems).toHaveLength(0);
+    expect(store.getState().selection).toBeNull();
+    store.getState().undo();
+    expect(store.getState().doc).toBe(before);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: ids });
+    store.getState().undo();
+    expect(store.getState().doc.freeItems).toHaveLength(1);
+  });
+
+  it("方向键整组微调：1px 连续按键合并成一条，单个仍是一按一条", () => {
+    const { store, ids } = twoFree();
+    const before = store.getState().doc;
+    nudgeFreeItems(store, ids, 1, 0);
+    nudgeFreeItems(store, ids, 1, 0);
+    nudgeFreeItems(store, ids, 0, 10);
+    expect(store.getState().doc.freeItems.map((item) => [item.x, item.y])).toEqual([[12, 30], [302, 50]]);
+    store.getState().undo();
+    expect(store.getState().doc).toBe(before);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: ids });
+    store.getState().undo();
+    expect(store.getState().doc.freeItems).toHaveLength(1);
+
+    const again = twoFree();
+    nudgeFreeItems(again.store, [again.ids[0]], 1, 0);
+    nudgeFreeItems(again.store, [again.ids[0]], 1, 0);
+    expect(again.store.getState().doc.freeItems[0].x).toBe(12);
+    again.store.getState().undo();
+    expect(again.store.getState().doc.freeItems[0].x).toBe(11);
+    again.store.getState().undo();
+    expect(again.store.getState().doc.freeItems[0].x).toBe(10);
+    again.store.getState().undo();
+    expect(again.store.getState().doc.freeItems).toHaveLength(1);
+  });
+
+  it("只读时成组移动和删除不改文档", () => {
+    const editable = twoFree();
+    const doc = editable.store.getState().doc;
+    const store = createCanvasStore({ doc, readOnly: true });
+    store.getState().select({ kind: "frees", itemIds: editable.ids });
+    applyMoveFreeItems(store, editable.ids.map((itemId) => ({ itemId, x: 1, y: 1 })));
+    applyDeleteFreeItems(store, editable.ids);
+    nudgeFreeItems(store, editable.ids, 10, 0);
+    expect(store.getState().doc).toBe(doc);
+    expect(store.getState().history.canUndo).toBe(false);
   });
 });

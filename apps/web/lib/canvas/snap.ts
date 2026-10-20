@@ -140,11 +140,12 @@ export function snapFreeItem(
   return { x: corrected.x, y: corrected.y, width: corrected.width, guides };
 }
 
-/** 吸附候选目标：其他自由元素 + 全部页面（排除自身）。 */
-export function snapTargetsForItem(scene: Scene, excludeItemId: string): SnapRect[] {
+/** 吸附候选目标：其他自由元素 + 全部页面（排除自身，成组时排除组内全部）。 */
+export function snapTargetsForItem(scene: Scene, excludeItemId: string | readonly string[]): SnapRect[] {
+  const exclude = new Set(typeof excludeItemId === "string" ? [excludeItemId] : excludeItemId);
   const targets: SnapRect[] = [];
   for (const item of scene.freeItems) {
-    if (item.itemId === excludeItemId) continue;
+    if (exclude.has(item.itemId)) continue;
     targets.push({ x: item.x, y: item.y, width: item.width, height: item.height });
   }
   for (const board of scene.boards) {

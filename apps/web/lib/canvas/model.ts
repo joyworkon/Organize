@@ -297,6 +297,8 @@ export type CanvasFocus =
   | { kind: "region"; boardId: string; regionId: string }
   | { kind: "board"; boardId: string }
   | { kind: "free"; itemId: string; edit?: boolean }
+  /** 多个自由元素的 UI 选区焦点。只进撤销历史，不进画布文档 JSON。 */
+  | { kind: "frees"; itemIds: string[] }
   | null;
 
 export interface CanvasCommandResult {

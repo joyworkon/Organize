@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { createBoard, createFreeText, insertBlockBelow } from "@/lib/canvas/commands";
+import { createBoard, createFreeText, FREE_ITEM_DUPLICATE_OFFSET, insertBlockBelow } from "@/lib/canvas/commands";
 import { emptyDoc, findBlockLocation } from "@/lib/canvas/model";
 import { createCanvasStore } from "./canvas-store";
-import { allCanvasBlockIds, canvasShortcutLabels, duplicateCanvasSelection, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
+import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, duplicateCanvasSelection, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
 
 describe("canvas shortcut matching", () => {
   for (const mod of ["metaKey", "ctrlKey"]) {
@@ -117,8 +117,45 @@ describe("canvas selection commands", () => {
     const region = duplicateCanvasSelection(doc, { kind: "region", boardId: board.id, regionId: board.regions[0].id });
     expect(region.doc.boards[0].regions).toHaveLength(board.regions.length + 1);
     expect(region.focus?.kind).toBe("region");
-    for (const selection of [null, { kind: "board" as const, boardId: board.id }, { kind: "free" as const, itemId: doc.freeItems[0].id }, { kind: "block" as const, blockId: "missing" }]) {
+    for (const selection of [null, { kind: "board" as const, boardId: board.id }, { kind: "block" as const, blockId: "missing" }]) {
       expect(duplicateCanvasSelection(doc, selection).doc).toBe(doc);
     }
+    const source = doc.freeItems[0];
+    const free = duplicateCanvasSelection(doc, { kind: "free", itemId: source.id });
+    expect(free.doc.freeItems).toHaveLength(doc.freeItems.length + 1);
+    expect(free.focus).toMatchObject({ kind: "free", edit: false });
+    const copy = free.doc.freeItems.find((item) => item.id === (free.focus?.kind === "free" ? free.focus.itemId : ""));
+    expect(copy).toMatchObject({ x: source.x + FREE_ITEM_DUPLICATE_OFFSET, y: source.y + FREE_ITEM_DUPLICATE_OFFSET });
+    expect(copy?.block.id).not.toBe(source.block.id);
+    expect(copy?.id).not.toBe(source.id);
+  });
+
+  it("duplicates a free-item group as one undo and selects the copies", () => {
+    let doc = createFreeText(emptyDoc(), { x: 10, y: 20 }).doc;
+    doc = createFreeText(doc, { x: 400, y: 80 }).doc;
+    const ids = doc.freeItems.map((item) => item.id);
+    const store = createCanvasStore({ doc });
+    store.getState().select({ kind: "frees", itemIds: ids });
+    const before = store.getState().doc;
+    commitCanvasDuplicate(store);
+    const next = store.getState().doc;
+    expect(next.freeItems).toHaveLength(4);
+    const selection = store.getState().selection;
+    expect(selection?.kind).toBe("frees");
+    if (selection?.kind !== "frees") return;
+    const copies = selection.itemIds.map((id) => next.freeItems.find((item) => item.id === id)!);
+    expect(copies.map((item) => [item.x, item.y])).toEqual([
+      [10 + FREE_ITEM_DUPLICATE_OFFSET, 20 + FREE_ITEM_DUPLICATE_OFFSET],
+      [400 + FREE_ITEM_DUPLICATE_OFFSET, 80 + FREE_ITEM_DUPLICATE_OFFSET],
+    ]);
+    expect(new Set(copies.map((item) => item.block.id)).size).toBe(2);
+    store.getState().undo();
+    expect(store.getState().doc).toBe(before);
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: ids });
+    expect(store.getState().history.canUndo).toBe(false);
+    const locked = createCanvasStore({ doc: before, readOnly: true });
+    locked.getState().select({ kind: "frees", itemIds: ids });
+    commitCanvasDuplicate(locked);
+    expect(locked.getState().doc).toBe(before);
   });
 });
