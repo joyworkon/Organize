@@ -22,7 +22,9 @@ import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
 import UniqueID from "@tiptap/extension-unique-id";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { showConfirm } from "@/components/ui/prompt-dialog";
+vi.mock("@/components/ui/prompt-dialog", () => ({ showConfirm: vi.fn(async () => true) }));
 import { moveBlockTransaction, stripBlockIds } from "./block-utils";
 import { Callout } from "./extensions/callout";
 import { Columns, Column } from "./extensions/columns";
@@ -211,11 +213,14 @@ describe("列布局 × 列表 × 块拖动", () => {
     editor.destroy();
   });
 
-  it("多选含整个列布局批量删除：一次事务删净，撤销整体恢复", () => {
+  it("多选含整个列布局批量删除：一次事务删净，撤销整体恢复", async () => {
     const editor = createEditor(DOC);
     const before = editor.getJSON();
     setMultiSelectedBlocks(editor, topLevelPositions(editor));
     expect(pressKey(editor, "Backspace")).toBe(true);
+    expect(editor.state.doc.childCount).toBe(3); // Wait for the reviewed complex deletion.
+    expect(showConfirm).toHaveBeenCalledWith(expect.objectContaining({ destructive: true }));
+    await Promise.resolve();
 
     expect(editor.state.doc.childCount).toBe(1);
     expect(editor.state.doc.firstChild!.type.name).toBe("paragraph");
@@ -324,11 +329,14 @@ describe("嵌套列表 × 折叠块 × 块拖动", () => {
     editor.destroy();
   });
 
-  it("多选删除「嵌套列表 + 折叠块 + 段落」组合：清空为空段落且可撤销", () => {
+  it("多选删除「嵌套列表 + 折叠块 + 段落」组合：清空为空段落且可撤销", async () => {
     const editor = createEditor(DOC);
     const before = editor.getJSON();
     setMultiSelectedBlocks(editor, topLevelPositions(editor));
     expect(pressKey(editor, "Delete")).toBe(true);
+    expect(editor.state.doc.childCount).toBe(3); // Wait for the reviewed complex deletion.
+    expect(showConfirm).toHaveBeenCalledWith(expect.objectContaining({ destructive: true }));
+    await Promise.resolve();
     expect(editor.state.doc.childCount).toBe(1);
     expect(editor.state.doc.firstChild!.type.name).toBe("paragraph");
 

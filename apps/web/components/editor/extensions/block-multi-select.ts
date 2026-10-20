@@ -1,3 +1,5 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { showConfirm } from "@/components/ui/prompt-dialog";
 import type { Editor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -118,6 +120,48 @@ export function deleteMultiSelectedBlocks(editor: Editor): boolean {
   return true;
 }
 
+export function selectionNeedsDeleteConfirmation(doc: ProseMirrorNode, positions: number[]) {
+  const complex = new Set(["table", "image", "columns", "details", "htmlEmbed", "fileAttachment", "databaseBlock", "syncedBlock", "tabs"]);
+  const blocks = [...new Set(positions)].flatMap((pos) => {
+    if (!Number.isInteger(pos) || pos < 0 || pos >= doc.content.size) return [];
+    const node = doc.nodeAt(pos);
+    return node?.isBlock ? [{ node }] : [];
+  });
+  return blocks.length >= 10 || blocks.reduce((size, { node }) => size + node.content.size, 0) > 500
+    || blocks.some(({ node }) => {
+      if (complex.has(node.type.name)) return true;
+      let found = false;
+      node.descendants((child) => { if (complex.has(child.type.name)) found = true; return !found; });
+      return found;
+    });
+}
+
+export async function deleteSelectedBlocksWithConfirmation(editor: Editor) {
+  if (editor.isDestroyed || !editor.isEditable) return false;
+  const positions = getMultiSelectedBlocks(editor);
+  const doc = editor.state.doc;
+  if (selectionNeedsDeleteConfirmation(doc, positions)) {
+    const confirmed = await showConfirm({
+      title: `删除选中的 ${positions.length} 个块？`,
+      description: "选区含复杂区块或较多内容。删除后可通过撤销恢复。",
+      confirmText: "删除", destructive: true,
+    });
+    if (!confirmed || editor.isDestroyed || !editor.isEditable || editor.state.doc !== doc) return false;
+    // Dialog focus may clear the selection. Restore the reviewed selection only if the doc is unchanged.
+    setMultiSelectedBlocks(editor, positions);
+  }
+  return deleteMultiSelectedBlocks(editor);
+}
+
+function handleDeleteKey(editor: Editor): boolean {
+  if (!editor.isEditable || getMultiSelectedBlocks(editor).length === 0) return false;
+  if (selectionNeedsDeleteConfirmation(editor.state.doc, getMultiSelectedBlocks(editor))) {
+    void deleteSelectedBlocksWithConfirmation(editor);
+    return true;
+  }
+  return deleteMultiSelectedBlocks(editor);
+}
+
 export const BlockMultiSelect = Extension.create({
   name: "organizeBlockMultiSelect",
   // 高于 ListBackspaceFix：多选存在时 Backspace 必须删选中块而不是处理块首退格
@@ -144,14 +188,16 @@ export const BlockMultiSelect = Extension.create({
             const positions = multiSelectKey.getState(state);
             if (!positions || positions.size === 0) return null;
             const decorations: Decoration[] = [];
-            state.doc.forEach((node, pos) => {
+            state.doc.descendants((node, pos) => {
               if (positions.has(pos)) {
                 decorations.push(
                   Decoration.node(pos, pos + node.nodeSize, {
                     class: "organize-block-selected",
                   })
                 );
+                return false;
               }
+              return true;
             });
             return decorations.length ? DecorationSet.create(state.doc, decorations) : null;
           },
@@ -168,8 +214,8 @@ export const BlockMultiSelect = Extension.create({
         editor.view.dispatch(editor.state.tr.setMeta(multiSelectKey, new Set<number>()));
         return true;
       },
-      Backspace: ({ editor }) => deleteMultiSelectedBlocks(editor),
-      Delete: ({ editor }) => deleteMultiSelectedBlocks(editor),
+      Backspace: ({ editor }) => handleDeleteKey(editor),
+      Delete: ({ editor }) => handleDeleteKey(editor),
     };
   },
 });
