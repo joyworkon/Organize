@@ -39,6 +39,7 @@ import { SyncedBlock } from "@/components/editor/extensions/synced-block";
 import { DatabaseBlock } from "@/components/editor/extensions/database-block";
 import { SectionCardDecorations } from "@/components/editor/extensions/section-card-decorations";
 import { BLOCK_ID_TYPES } from "@/components/editor/block-utils";
+import { diffChangedKeys } from "@/lib/notes/note-history-diff";
 
 /**
  * 历史版本静态预览：与主编辑器同一套文档结构，但不含交互类扩展
@@ -88,40 +89,6 @@ const previewExtensions = [
   SectionCardDecorations,
   UniqueID.configure({ types: BLOCK_ID_TYPES }),
 ];
-
-/** 顶层块指纹：key = 块 id（无 id 时退回序号），值 = 去掉 id 后的内容 JSON */
-function fingerprintBlocks(doc: JSONContent | null | undefined): Map<string, string> {
-  const map = new Map<string, string>();
-  (doc?.content ?? []).forEach((block, index) => {
-    const key =
-      typeof block.attrs?.id === "string" && block.attrs.id
-        ? block.attrs.id
-        : `#idx:${index}`;
-    const attrs = { ...(block.attrs ?? {}), id: undefined };
-    map.set(key, JSON.stringify({ ...block, attrs }));
-  });
-  return map;
-}
-
-/** 版本里与当前内容不同的顶层块 key 集合（用于高亮「这一版改了什么」） */
-function diffChangedKeys(
-  versionDoc: JSONContent | null | undefined,
-  currentDoc: JSONContent | null | undefined
-): Set<string> {
-  const current = fingerprintBlocks(currentDoc);
-  const changed = new Set<string>();
-  (versionDoc?.content ?? []).forEach((block, index) => {
-    const key =
-      typeof block.attrs?.id === "string" && block.attrs.id
-        ? block.attrs.id
-        : `#idx:${index}`;
-    const attrs = { ...(block.attrs ?? {}), id: undefined };
-    if (current.get(key) !== JSON.stringify({ ...block, attrs })) {
-      changed.add(key);
-    }
-  });
-  return changed;
-}
 
 /** 版本内容渲染为 HTML，并把与当前内容不同的顶层块标记 .nv-changed */
 function renderVersionHtml(
