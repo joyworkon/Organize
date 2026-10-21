@@ -34,6 +34,7 @@ import {
   type ListStyle,
 } from "./extensions/list-style";
 import { EditorPopover } from "./editor-popover";
+import { CALLOUT_TONES, normalizeCalloutTone } from "@/lib/editor/callout-icons";
 import type { EditorBlockTarget, EditorMenuPoint } from "./types";
 
 export interface EditorSkillAction {
@@ -295,6 +296,35 @@ export function BlockActionMenu({
           )}
           {subView === "color" && (
             <div className="editor-menu-scroll compact color-menu">
+              {target.type === "callout" && (
+                <>
+                  <div className="editor-menu-label">标注色调</div>
+                  {CALLOUT_TONES.map((tone) => (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={ROW_BUTTON_CLASS}
+                      key={tone.value}
+                      type="button"
+                      aria-pressed={normalizeCalloutTone(target.json.attrs?.tone) === tone.value}
+                      onClick={() => finish(() => {
+                        const node = editor.state.doc.nodeAt(target.pos);
+                        if (!node || node.type.name !== "callout") return;
+                        editor.view.dispatch(
+                          editor.state.tr.setNodeMarkup(target.pos, undefined, {
+                            ...node.attrs, tone: tone.value === "default" ? undefined : tone.value,
+                          })
+                        );
+                        editor.commands.focus();
+                      })}
+                    >
+                      <span aria-hidden="true" className={`callout-tone-dot callout-tone-${tone.value}`} />
+                      <span>{tone.label}</span>
+                      {normalizeCalloutTone(target.json.attrs?.tone) === tone.value && <Check className="h-4 w-4" />}
+                    </Button>
+                  ))}
+                </>
+              )}
               <div className="editor-menu-label">文字颜色</div>
               {TEXT_COLORS.map((color) => (
                 <Button variant="ghost" size="sm" className={ROW_BUTTON_CLASS} key={color.label} type="button" onClick={() => finish(() => {

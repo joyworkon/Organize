@@ -7,6 +7,8 @@
  * a 标签的 href 经过转义。绝不写入 on* 事件属性或 <script> 标签。
  */
 
+import { normalizeCalloutTone } from "@/lib/editor/callout-icons";
+
 export interface PMNode {
   type: string;
   attrs?: Record<string, unknown>;
@@ -112,8 +114,12 @@ function renderNode(node: PMNode): string {
     case "blockquote":
       return `<blockquote>${renderChildren(node)}</blockquote>`;
     case "callout": {
-      const emoji = String(node.attrs?.emoji || "\uD83D\uDCA1");
-      return `<blockquote class="callout" data-emoji="${escapeHtml(emoji)}"><p>${emoji}</p>${renderChildren(node)}</blockquote>`;
+      // 旧文档（emoji 非空、无 tone）输出逐字不变；emoji 空串 = 无图标；tone 仅非 default 输出
+      const emoji = typeof node.attrs?.emoji === "string" ? node.attrs.emoji.trim() : "\uD83D\uDCA1";
+      const normalizedTone = normalizeCalloutTone(node.attrs?.tone);
+      const tone = normalizedTone !== "default" ? ` data-tone="${normalizedTone}"` : "";
+      const icon = emoji ? `<p>${escapeHtml(emoji)}</p>` : "";
+      return `<blockquote class="callout" data-emoji="${escapeHtml(emoji)}"${tone}>${icon}${renderChildren(node)}</blockquote>`;
     }
     case "codeBlock": {
       const lang = node.attrs?.language ? ` data-language="${escapeHtml(String(node.attrs.language))}"` : "";

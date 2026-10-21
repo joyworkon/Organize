@@ -2667,7 +2667,7 @@
   position: absolute;
   left: 0;
   top: 0.2rem;
-  width: 1rem;
+  width: 1.25rem;
   height: 1.25rem;
   display: inline-flex;
   align-items: center;
@@ -2683,13 +2683,19 @@
   text-indent: 0;
   overflow: hidden;
   white-space: nowrap;
-  border-radius: 2px;
+  border-radius: 4px;
   opacity: 0.6;
   transition: opacity 120ms ease, background-color 120ms ease;
 }
 .organize-editor.prose div[data-type="details"] > button:hover {
   opacity: 1;
   background: hsl(var(--accent));
+}
+/* 三角按钮可 Tab 聚焦：聚焦环始终可见（DESIGN.md focus 2px + offset） */
+.organize-editor.prose div[data-type="details"] > button:focus-visible {
+  opacity: 1;
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
 }
 .organize-editor.prose div[data-type="details"] > button::before {
   content: "▶";
@@ -2820,16 +2826,39 @@
   position: relative;
 }
 .organize-editor div[data-callout] .callout-emoji {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
   font-size: 1.125rem;
   line-height: 1.6;
   flex-shrink: 0;
-  cursor: pointer;
-  border-radius: 4px;
   padding: 0 2px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 6px;
   transition: background-color 100ms ease;
 }
-.organize-editor div[data-callout] .callout-emoji:hover {
+.organize-editor div[data-callout] .callout-emoji:hover:not(:disabled) {
   background: hsl(var(--accent));
+}
+.organize-editor div[data-callout] .callout-emoji:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+/* 只读/查看者角色：图标按钮禁用，不显示手型也不响应 */
+.organize-editor div[data-callout] .callout-emoji:disabled {
+  cursor: default;
+}
+.organize-editor div[data-callout] .callout-emoji:disabled:hover {
+  background: transparent;
+}
+/* 无图标时的占位：让按钮仍可点开选择器补图标 */
+.organize-editor div[data-callout] .callout-emoji .callout-emoji-add {
+  font-size: 0.875rem;
+  line-height: 1;
+  color: hsl(var(--muted-foreground));
 }
 .organize-editor div[data-callout] .callout-content {
   flex: 1;
@@ -2841,40 +2870,177 @@
 .organize-editor div[data-callout] .callout-content > :last-child {
   margin-bottom: 0;
 }
-.callout-emoji-picker {
-  position: absolute;
-  left: 0;
-  top: 100%;
-  margin-top: 4px;
-  z-index: 50;
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 2px;
-  padding: 6px;
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  box-shadow: 0 8px 24px hsl(222 47% 11% / 0.12);
+/* 语义色调：浅色底 + 3px 左实色边（语义色 token，深浅色自适配；
+ * border-box 下左内边距不变，内容不位移；default 无边即现状 */
+.organize-editor div[data-callout][data-tone="info"] {
+  background: hsl(var(--link) / 0.08);
+  border-left: 3px solid hsl(var(--link));
 }
-.callout-emoji-picker button {
+.organize-editor div[data-callout][data-tone="success"] {
+  background: hsl(var(--success) / 0.1);
+  border-left: 3px solid hsl(var(--success));
+}
+.organize-editor div[data-callout][data-tone="warning"] {
+  background: hsl(var(--warning) / 0.12);
+  border-left: 3px solid hsl(var(--warning));
+}
+.organize-editor div[data-callout][data-tone="danger"] {
+  background: hsl(var(--destructive) / 0.1);
+  border-left: 3px solid hsl(var(--destructive));
+}
+
+/* 图标/色调选择器（Radix Popover，portal 到 body） */
+.callout-icon-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.callout-icon-popover .callout-icon-search {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  color: inherit;
+  outline: none;
+}
+.callout-icon-popover .callout-icon-search:focus-visible {
+  border-color: hsl(var(--ring));
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.callout-icon-grid {
+  display: grid;
+  gap: 2px;
+}
+.callout-icon-grid button {
   display: grid;
   place-items: center;
-  width: 32px;
   height: 32px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   font-size: 18px;
+  line-height: 1;
   cursor: pointer;
   transition: background-color 100ms ease;
 }
-.callout-emoji-picker button:hover {
+.callout-icon-grid button:hover {
   background: hsl(var(--accent));
 }
-.callout-emoji-picker button.active {
+.callout-icon-grid button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -1px;
+}
+.callout-icon-grid button.active {
   background: hsl(var(--primary) / 0.12);
   box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.3);
+}
+.callout-icon-empty {
+  padding: 12px 4px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+.callout-tone-row {
+  display: flex;
+  gap: 4px;
+}
+.callout-tone-row button {
+  flex: 1;
+  height: 28px;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  font-family: inherit;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
+}
+.callout-tone-row button:hover,
+.callout-tone-row button:focus-visible {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.callout-tone-row button.active {
+  font-weight: 600;
+}
+.callout-tone-row button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.callout-tone-row button[data-tone="info"] { border-color: hsl(var(--link) / 0.5); }
+.callout-tone-row button[data-tone="success"] { border-color: hsl(var(--success) / 0.5); }
+.callout-tone-row button[data-tone="warning"] { border-color: hsl(var(--warning) / 0.5); }
+.callout-tone-row button[data-tone="danger"] { border-color: hsl(var(--destructive) / 0.5); }
+.callout-tone-row button[data-tone="info"]:hover,
+.callout-tone-row button[data-tone="info"].active {
+  background: hsl(var(--link) / 0.12);
+  color: hsl(var(--link));
+  border-color: hsl(var(--link));
+}
+.callout-tone-row button[data-tone="success"]:hover,
+.callout-tone-row button[data-tone="success"].active {
+  background: hsl(var(--success) / 0.12);
+  color: hsl(var(--success));
+  border-color: hsl(var(--success));
+}
+.callout-tone-row button[data-tone="warning"]:hover,
+.callout-tone-row button[data-tone="warning"].active {
+  background: hsl(var(--warning) / 0.12);
+  color: hsl(var(--warning));
+  border-color: hsl(var(--warning));
+}
+.callout-tone-row button[data-tone="danger"]:hover,
+.callout-tone-row button[data-tone="danger"].active {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive));
+}
+.callout-icon-remove {
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-family: inherit;
+  color: hsl(var(--muted-foreground));
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+.callout-icon-remove:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.callout-icon-remove:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -1px;
+}
+@media (max-width: 767px), (pointer: coarse) {
+  .callout-icon-popover {
+    width: min(380px, calc(100vw - 16px));
+  }
+  .callout-icon-popover .callout-icon-search {
+    height: 44px;
+    font-size: 16px;
+  }
+  .callout-icon-grid button,
+  .callout-tone-row button,
+  .callout-icon-remove {
+    min-height: 44px;
+  }
+  .organize-editor div[data-callout] .callout-emoji {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 /* ------------------------- 公式（KaTeX） ------------------------- */
@@ -3255,8 +3421,33 @@
   flex: 0 0 auto;
   color: hsl(var(--muted-foreground));
 }
-.editor-menu-scroll button > span:not(.menu-suffix):not(.color-swatch):not(.skill-icon) {
+.editor-menu-scroll button > span:not(.menu-suffix):not(.color-swatch):not(.skill-icon):not(.callout-tone-dot) {
   flex: 1;
+}
+/* 块操作菜单「标注色调」的语义色圆点 */
+.editor-menu-scroll button > .callout-tone-dot {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+}
+.editor-menu-scroll button > .callout-tone-dot.callout-tone-info {
+  background: hsl(var(--link) / 0.15);
+  border-color: hsl(var(--link));
+}
+.editor-menu-scroll button > .callout-tone-dot.callout-tone-success {
+  background: hsl(var(--success) / 0.15);
+  border-color: hsl(var(--success));
+}
+.editor-menu-scroll button > .callout-tone-dot.callout-tone-warning {
+  background: hsl(var(--warning) / 0.15);
+  border-color: hsl(var(--warning));
+}
+.editor-menu-scroll button > .callout-tone-dot.callout-tone-danger {
+  background: hsl(var(--destructive) / 0.15);
+  border-color: hsl(var(--destructive));
 }
 .editor-menu-scroll button > .list-style-preview {
   display: inline-flex;

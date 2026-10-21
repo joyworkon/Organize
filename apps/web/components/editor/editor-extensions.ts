@@ -10,7 +10,6 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
-import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
 import type { InternalLinkStateRow } from "@/lib/note-links";
@@ -40,6 +39,7 @@ import { Embed } from "./extensions/embed";
 import { SyncedBlock } from "./extensions/synced-block";
 import { DatabaseBlock } from "./extensions/database-block";
 import { SlashCommand } from "./extensions/slash-command";
+import { DetailsKeyboard, OrganizeDetails } from "./extensions/details-keyboard";
 import { BlockDeepLink } from "./extensions/deep-link";
 import { InternalLinkStateDecorations } from "./extensions/internal-link-state";
 import { TransformedBlockSelection } from "./extensions/block-selection";
@@ -115,21 +115,12 @@ export function buildEditorExtensions(options: {
     OrganizeTableRow,
     OrganizeTableCell,
     OrganizeTableHeader,
-    // persist: 展开/收起状态写入文档（刷新后保持）；默认展开，
-    // 新建折叠块直接进入可编辑状态，旧文档里没有 open 属性的折叠块也会展开显示。
-    Details.extend({
-      addAttributes() {
-        return {
-          ...this.parent?.(),
-          open: {
-            default: true,
-            parseHTML: (el: HTMLElement) => el.hasAttribute("open"),
-            renderHTML: (attributes: { open?: boolean }) =>
-              attributes.open ? { open: "" } : {},
-          },
-        };
-      },
-    }).configure({ persist: true }),
+    // persist: 展开/收起状态写入文档（刷新后保持）；默认展开，新建折叠块直接进入
+    // 可编辑状态，旧文档里没有 open 属性的折叠块也会展开显示。NodeView 在上游之上
+    // 补三角按钮 aria-expanded（ignoreMutation 只放行内容洞变更），见 details-keyboard.ts
+    OrganizeDetails.configure({ persist: true }),
+    // 折叠块键盘：summary 内 Mod+Enter 切换展开/收起
+    DetailsKeyboard,
     DetailsContent,
     // level>0 的 summary 渲染为折叠标题样式（data-level，CSS 控制字号）
     DetailsSummary.extend({
