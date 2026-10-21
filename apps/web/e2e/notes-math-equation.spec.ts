@@ -36,7 +36,7 @@ for (const width of [390, 1440]) {
     await source.fill("\\frac{"); await expect(dialog).toContainText("公式语法有误");
     await source.fill(""); await expect(dialog).toContainText("输入公式后在此预览");
     await source.fill("a^2+b^2=c^2");
-    await page.screenshot({ path: testInfo.outputPath(`math-dialog-${width}.png`) });
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath(`math-dialog-${width}.png`) });
     await source.press("Escape"); await expect(dialog).toHaveCount(0);
     await expect(page.locator(".math-block")).toHaveAttribute("data-latex", "E=mc^2");
     const toolbar = page.getByRole("group", { name: "公式工具栏" });
@@ -58,12 +58,12 @@ for (const width of [390, 1440]) {
     await toolbar.getByRole("button", { name: "转为公式区块" }).click();
     await expect(page.locator('.math-block[data-latex="x^2"]')).toBeVisible();
     await expect(editor).toContainText("前文"); await expect(editor).toContainText("后文");
-    await page.screenshot({ path: testInfo.outputPath(`math-toolbar-${width}.png`) });
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath(`math-toolbar-${width}.png`) });
     if (width === 1440) {
       await page.evaluate(() => { localStorage.setItem("organize-theme", "dark"); window.dispatchEvent(new CustomEvent("organize:theme-mode-change")); });
       await expect(toolbar).toHaveCSS("color", "rgb(238, 238, 238)");
       await toolbar.getByRole("button", { name: "编辑公式", exact: true }).click();
-      await page.screenshot({ path: testInfo.outputPath("math-dialog-dark.png") }); await source.press("Escape");
+      await page.screenshot({ animations: "disabled", path: testInfo.outputPath("math-dialog-dark.png") }); await source.press("Escape");
     }
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await editor.press("ControlOrMeta+z"); await expect(page.locator('.math-inline[data-latex="x^2"]')).toBeVisible();
