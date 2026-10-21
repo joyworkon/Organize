@@ -111,14 +111,17 @@ test("N, more options and countdown keep their creation paths", async ({ page })
 
 test("crowded month +N transfers to anchored creation without losing title focus", async ({ page }) => {
   await openCalendar(page);
+  const today = await page.evaluate(() => `${new Date().getMonth() + 1}月${new Date().getDate()}日`);
+  const todayCell = page.getByRole("gridcell", { name: today, exact: true });
   for (let i = 0; i < 4; i++) {
     await page.keyboard.press("n");
     await card(page).getByRole("textbox", { name: "标题" }).fill(`填格任务${i}`);
     await card(page).getByRole("textbox", { name: "标题" }).press("Enter");
     await expect(card(page)).toHaveCount(0);
+    // Wait for Radix's close focus restoration before sending the next global hotkey.
+    await expect(todayCell).toBeFocused();
   }
-  const today = await page.evaluate(() => `${new Date().getMonth() + 1}月${new Date().getDate()}日`);
-  const more = page.getByRole("gridcell", { name: today, exact: true }).getByRole("button", { name: /查看.*全部/ });
+  const more = todayCell.getByRole("button", { name: /查看.*全部/ });
   await more.click();
   const dayPopover = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: "在日视图打开" }) });
   await dayPopover.getByRole("button", { name: "添加", exact: true }).click();
@@ -145,3 +148,65 @@ test("15-minute selection keeps the live title visible without enlarging its ran
   await page.keyboard.press("Escape");
   await expect(preview).toHaveCount(0);
 });
+
+
+for (const theme of ["light", "dark"]) {
+  test(`mobile create follows selected date through month/week/day ${theme}`, async ({ page }, info) => {
+    await page.clock.setFixedTime(new Date(2026, 9, 21, 12));
+    await openCalendar(page, 390, theme);
+    const mini = (day: string) => page.locator(`[data-mini-month-day="${day}"]`);
+    const add = page.getByRole("button", { name: "添加待办", exact: true });
+    const schedule = () => card(page).getByRole("button", { name: "修改日期和时间" });
+    const preview = (day: string) => page.locator(`[data-calendar-surface="mobile-month"] [data-agenda-day="${day}"] [role="status"]`);
+    await expect(mini("2026-9-21")).toHaveAttribute("aria-pressed", "true");
+    await add.click();
+    await expect(card(page).getByRole("textbox", { name: "标题" })).toBeFocused();
+    await expect(schedule()).toHaveText("10月21日 全天");
+    await expect(page.locator(".quick-add-dialog")).toHaveCount(0);
+    await card(page).getByRole("textbox", { name: "标题" }).fill("今天添加");
+    await expect(preview("2026-9-21")).toHaveText("今天添加");
+    await page.keyboard.press("Escape");
+    await expect(add).toBeFocused();
+
+    await mini("2026-9-25").click();
+    await add.click();
+    await expect(schedule()).toHaveText("10月25日 全天");
+    await card(page).getByRole("textbox", { name: "标题" }).fill("所选日添加");
+    await expect(preview("2026-9-25")).toHaveText("所选日添加");
+    await page.screenshot({ path: info.outputPath(`calendar-selection-mobile-${theme}.png`) });
+    await card(page).getByRole("textbox", { name: "标题" }).press("Enter");
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.locator('[data-calendar-surface="mobile-month"] [data-agenda-day="2026-9-25"] [data-calendar-created="true"]')).toContainText("所选日添加");
+    await page.keyboard.press("n");
+    await expect(schedule()).toHaveText("10月25日 全天");
+    await page.keyboard.press("Escape");
+
+    await mini("2026-9-31").click();
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(mini("2026-10-30")).toHaveAttribute("aria-pressed", "true");
+    await add.click();
+    await expect(schedule()).toHaveText("11月30日 全天");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "上一页", exact: true }).click();
+    await expect(mini("2026-9-21")).toHaveAttribute("aria-pressed", "true");
+    await page.locator('[data-calendar-surface="mobile-month"] [data-agenda-day="2026-9-21"]').getByRole("button", { name: /^10月21日.*添加/ }).click();
+    await expect(schedule()).toHaveText("10月21日 全天");
+    await page.keyboard.press("Escape");
+
+    await mini("2026-9-27").click();
+    await page.locator('[data-calendar-surface="mobile-month"] [data-agenda-day="2026-9-27"]').getByRole("button", { name: "添加任务", exact: true }).click();
+    await expect(schedule()).toHaveText("10月27日 全天");
+    await page.keyboard.press("Escape");
+    await mini("2026-9-21").click();
+    await page.getByRole("button", { name: "周", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "10月19日 - 25日", exact: true })).toBeVisible();
+    await page.locator('[data-calendar-surface="mobile-week"]').getByRole("button", { name: /^10月23日/ }).click();
+    await add.click();
+    await expect(schedule()).toHaveText("10月23日 全天");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "日", exact: true }).click();
+    await add.click();
+    await expect(schedule()).toHaveText("10月23日 全天");
+    await page.keyboard.press("Escape");
+  });
+}
