@@ -100,9 +100,12 @@ test.describe("构思画布", () => {
     await page.keyboard.type("正文第一段");
     await page.keyboard.press("Enter"); // 正文下再插一个通栏
 
-    // 收起添加面板并适合页面，保持 100% 几何且让右侧加号避开属性栏。
+    // 收起添加面板并居中，让加列控件避开属性栏；小桌面下 fit 可能缩小，
+    // 本用例比较的是 100% 下的边距与宽度，因此显式恢复实际比例。
     await page.getByRole("button", { name: "折叠添加面板" }).click();
     await page.getByRole("button", { name: "适合全部", exact: true }).click();
+    await page.getByRole("button", { name: "重置为 100%", exact: true }).click();
+    await expect(page.locator(".canvas-zoom-value")).toHaveText("100%");
     // 悬停最新通栏的块 → 右侧加号 → 变两列
     const blocks = page.locator("[data-block-type='text']");
     const countBefore = await blocks.count();
