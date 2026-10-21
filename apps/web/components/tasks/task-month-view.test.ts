@@ -410,6 +410,31 @@ describe("TimeGridView（日 / 周共用网格）", () => {
     expect(html).toContain("次日倒数日");
   });
 
+  it("周视图全天行：跨天任务只有一条连续条（不再每列复制）", () => {
+    const tasks: TaskWithTags[] = [
+      // 8/25（二）~ 8/27（四）：在 8/24~8/30 周里占第 1~3 列
+      { ...mkTask("trip", new Date(2026, 7, 25).toISOString()), schedule_end_at: new Date(2026, 7, 27).toISOString(), all_day: true },
+    ];
+    const html = renderGrid(weekDaysOf(day), tasks);
+    expect(html.match(/data-calendar-task-id/g)).toHaveLength(1);
+    expect(html).toContain('data-all-day-span="1-3"');
+    expect(html).toContain("task-trip，8月25日–8月27日");
+  });
+
+  it("日视图：跨天任务是全宽条，延续端开合并带范围 aria-label；倒数日仍按日 chip", () => {
+    const tasks: TaskWithTags[] = [
+      { ...mkTask("cross", new Date(2026, 7, 25).toISOString()), schedule_end_at: new Date(2026, 7, 27).toISOString() },
+    ];
+    const html = renderGrid([day], tasks);
+    expect(html.match(/data-calendar-task-id/g)).toHaveLength(1);
+    expect(html).toContain('data-all-day-span="0-0"');
+    expect(html).toContain("task-cross，8月25日–8月27日");
+    expect(html).toContain("‹");
+    expect(html).toContain("›");
+    // 当天倒数日不受影响
+    expect(html).toContain("当天倒数日");
+  });
+
   it("今天的日/周网格只有一条此刻线，其他日期不显示", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 26, 12, 30));
