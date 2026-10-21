@@ -52,6 +52,8 @@ import { ButtonBlock } from "./extensions/button-node";
 import { Tabs, Tab } from "./extensions/tabs-node";
 import { Mermaid } from "./extensions/mermaid-node";
 import { Embed } from "./extensions/embed";
+import { replaceBlock } from "./block-commands";
+import { isBareHttpUrl, shouldPasteUrlAsEmbed } from "@/lib/editor/paste-url-embed";
 import { SyncedBlock } from "./extensions/synced-block";
 import { createSyncedBlockAt } from "./extensions/synced-block-client";
 import { DatabaseBlock } from "./extensions/database-block";
@@ -441,11 +443,19 @@ export function TipTapEditor({
         return true;
       },
       // 粘贴文件（截图、从文件管理器复制的文件）
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
+        const current = keyboardEditorRef.current;
+        if (!current?.isEditable) return false;
         const files = Array.from(event.clipboardData?.files ?? []);
-        if (!files.length) return false;
+        if (files.length) {
+          event.preventDefault();
+          void insertFilesRef.current(files);
+          return true;
+        }
+        const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
+        if (!shouldPasteUrlAsEmbed({ clipboardText, selection: view.state.selection, storedMarks: view.state.storedMarks, isEditable: current.isEditable })) return false;
         event.preventDefault();
-        void insertFilesRef.current(files);
+        replaceBlock(current, view.state.selection.$from.before(), { type: "embed", attrs: { url: isBareHttpUrl(clipboardText) } });
         return true;
       },
     },

@@ -55,7 +55,7 @@ for (const width of [390, 1440]) {
   });
 }
 
-test("selection paste preserves text; toolbar uses inline editing; bare URL paste/input link automatically; global command K still opens", async ({ page }) => {
+test("selection paste preserves text; toolbar uses inline editing; bare URL paste embeds and typed URLs link automatically; global command K still opens", async ({ page }) => {
   await seed(page);
   const editor = page.locator(".tiptap.organize-editor");
   const text = editor.locator(":scope > p").nth(2);
@@ -88,8 +88,8 @@ test("selection paste preserves text; toolbar uses inline editing; bare URL past
     const data = new DataTransfer(); data.setData("text/plain", "https://bare.example.com");
     element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
   });
-  await expect(last.locator("a")).toHaveAttribute("href", "https://bare.example.com");
-  await page.keyboard.press("End"); await page.keyboard.press("Enter"); await page.keyboard.type("typed.example.com ");
+  await expect(editor.locator('.organize-link-card[href="https://bare.example.com"]')).toContainText("Mock 链接卡片");
+  await editor.press("ControlOrMeta+End"); await page.keyboard.press("Enter"); await page.keyboard.type("typed.example.com ");
   await expect(editor.locator('a[href="https://typed.example.com"]')).toBeVisible();
   // Existing global contract intentionally ignores typing targets; no editor override is added.
   await editor.evaluate((element: HTMLElement) => element.blur());

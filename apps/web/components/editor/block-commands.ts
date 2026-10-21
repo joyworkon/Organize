@@ -39,6 +39,7 @@ import {
 import type { BlockCommandContext, BlockCommandDefinition, BlockCommandRunResult } from "./types";
 import { BLOCK_ID_TYPES } from "./block-utils";
 import { normalizeColumnCount, normalizeColumnWidths } from "./extensions/columns";
+import { isBareHttpUrl } from "@/lib/editor/paste-url-embed";
 
 /**
  * 命令上下文能力（R06）：
@@ -581,7 +582,7 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     keywords: ["embed", "oembed", "link", "iframe", "嵌入", "视频", "链接"],
     run: (editor, pos) => {
       const source = editor.state.doc.nodeAt(pos);
-      const url = source ? blockTextForReplacement(source).trim() : "";
+      const url = source ? isBareHttpUrl(blockTextForReplacement(source)) || "" : "";
       replaceBlock(editor, pos, { type: "embed", attrs: { url } });
     },
   },
