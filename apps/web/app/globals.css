@@ -6760,6 +6760,16 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-free-item.is-selected { border-color: hsl(var(--primary)); }
 .canvas-free-item.is-static { cursor: default; }
+/* Ellipses use round corners even when the shared surface treatment is squircle. */
+.canvas-free-item.is-ellipse { corner-shape: round; }
+.canvas-free-item.is-shape.is-selected::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid hsl(var(--primary));
+  border-radius: 0;
+  pointer-events: none;
+}
 .canvas-free-badge {
   position: absolute;
   top: -20px;
@@ -6804,6 +6814,10 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-resize-w, .canvas-resize-nw, .canvas-resize-sw { left: 0; }
 .canvas-resize-e, .canvas-resize-ne, .canvas-resize-se { left: 100%; }
 .canvas-resize-w, .canvas-resize-e { top: 50%; }
+.canvas-resize-n, .canvas-resize-s { left: 50%; cursor: ns-resize; }
+.canvas-resize-n { top: 0; }
+.canvas-resize-s { top: 100%; }
+.canvas-resize-n::after, .canvas-resize-s::after { left: 5px; top: 9px; width: 14px; height: 6px; }
 .canvas-resize-nw, .canvas-resize-ne { top: 0; }
 .canvas-resize-sw, .canvas-resize-se { top: 100%; }
 .canvas-resize-w::after, .canvas-resize-e::after { left: 9px; top: 5px; width: 6px; height: 14px; }

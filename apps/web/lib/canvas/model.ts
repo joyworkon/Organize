@@ -283,9 +283,21 @@ export interface CanvasBoard {
   regions: CanvasRegion[];
 }
 
-export type CanvasFreeItemBlock = CanvasTextBlock | CanvasImageBlock;
+export const SHAPE_MIN_HEIGHT = 24;
+export const SHAPE_MAX_HEIGHT = 2000;
 
-/** 自由容器：绝对定位，独立于自动版面（规格 §3.5）。高度由内容计算，不持久化。 */
+/** 仅自由定位；height 为世界坐标内容高，不含 BLOCK_CHROME。 */
+export interface CanvasShapeBlock {
+  id: string;
+  type: "shape";
+  kind: "rect" | "ellipse";
+  height: number;
+  style?: CanvasBlockStyle;
+}
+
+export type CanvasFreeItemBlock = CanvasTextBlock | CanvasImageBlock | CanvasShapeBlock;
+
+/** 自由容器：绝对定位，独立于自动版面。文本/图片高度由内容计算，形状保存内容高。 */
 export interface CanvasFreeItem {
   id: string;
   x: number;

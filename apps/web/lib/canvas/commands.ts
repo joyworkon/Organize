@@ -23,7 +23,9 @@ import {
   CanvasEmbedStatus,
   CanvasFocus,
   CanvasFreeItem,
-  CanvasFreeItemBlock,
+  CanvasShapeBlock,
+  SHAPE_MIN_HEIGHT,
+  SHAPE_MAX_HEIGHT,
   CanvasIdGenerator,
   CanvasImageAsset,
   CanvasImageBlock,
@@ -1072,7 +1074,7 @@ export function applySmartWeights(
 // ---------------------------------------------------------------------------
 
 /** 列表继续留在自动排版中，不隐式转换为正文。 */
-export function canDetachBlockToFree(block: CanvasBlock): block is CanvasFreeItemBlock {
+export function canDetachBlockToFree(block: CanvasBlock): block is CanvasTextBlock | CanvasImageBlock {
   return block.type === "image" || (block.type === "text" && block.role !== "list");
 }
 
@@ -1159,6 +1161,29 @@ export function createFreeSticky(
   return result;
 }
 
+/** 几何形状只存在于自由容器；创建选中但不进入文本编辑。 */
+export function createFreeShape(
+  doc: CanvasDoc,
+  args: { x: number; y: number; kind: CanvasShapeBlock["kind"]; width?: number; height?: number; background?: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  if (doc.freeItems.length >= CANVAS_LIMITS.maxFreeItems) return { doc };
+  return edit(doc, (draft) => {
+    const item: CanvasFreeItem = {
+      id: newId(), x: args.x, y: args.y,
+      width: Math.min(2000, Math.max(80, args.width ?? 160)),
+      zIndex: nextZIndex(draft),
+      block: {
+        id: newId(), type: "shape", kind: args.kind,
+        height: Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height ?? 100)),
+        style: { background: args.background ?? "blue", radius: 8 },
+      },
+    };
+    draft.freeItems.push(item);
+    return { kind: "free", itemId: item.id, edit: false };
+  });
+}
+
 export function createFreeImage(
   doc: CanvasDoc,
   args: { x: number; y: number; width?: number; asset?: CanvasImageAsset | null },
@@ -1180,14 +1205,18 @@ export function createFreeImage(
 
 export function updateFreeItem(
   doc: CanvasDoc,
-  args: { itemId: string; x?: number; y?: number; width?: number; zIndex?: number },
+  args: { itemId: string; x?: number; y?: number; width?: number; height?: number; zIndex?: number },
 ): CanvasCommandResult {
   return edit(doc, (draft) => {
     const item = findFreeItem(draft, args.itemId);
     if (item) {
       if (args.x !== undefined) item.x = args.x;
       if (args.y !== undefined) item.y = args.y;
-      if (args.width !== undefined) item.width = Math.max(80, args.width);
+      if (args.width !== undefined) item.width = Math.min(item.block.type === "shape" ? 2000 : Infinity, Math.max(80, args.width));
+      // Geometry callers pass outer height; only shapes persist it (minus chrome).
+      if (args.height !== undefined && item.block.type === "shape") {
+        item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height - BLOCK_CHROME));
+      }
       if (args.zIndex !== undefined) item.zIndex = args.zIndex;
     }
     return { kind: "free", itemId: args.itemId };
@@ -1198,6 +1227,8 @@ export function updateFreeItemBlock(
   doc: CanvasDoc,
   args: {
     itemId: string;
+    kind?: CanvasShapeBlock["kind"];
+    height?: number;
     text?: string;
     asset?: CanvasImageAsset | null;
     fit?: "contain" | "cover";
@@ -1209,6 +1240,10 @@ export function updateFreeItemBlock(
   return edit(doc, (draft) => {
     const item = findFreeItem(draft, args.itemId);
     if (!item) return null;
+    if (item.block.type === "shape") {
+      if (args.kind !== undefined) item.block.kind = args.kind;
+      if (args.height !== undefined) item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height));
+    }
     if (args.text !== undefined && item.block.type === "text") item.block.text = args.text;
     if (args.asset !== undefined && item.block.type === "image") item.block.asset = args.asset;
     if (args.fit !== undefined && item.block.type === "image") item.block.fit = args.fit;
@@ -1280,7 +1315,7 @@ export function attachFreeItemToRegion(
     const item = findFreeItem(draft, args.freeItemId);
     const board = findBoard(draft, args.boardId);
     const region = board?.regions.find((r) => r.id === args.regionId);
-    if (!item || !board || !region) return null;
+    if (!item || item.block.type === "shape" || !board || !region) return null;
     // Validate the complete destination before removing the free source.
     if (args.sectionId) {
       const section = region.sections.find((s) => s.id === args.sectionId);

@@ -12,13 +12,13 @@
  * （查不到 = 无权限或已删除），快照本身不依赖来源存活。
  */
 
-import type { CanvasBlock, CanvasDoc, CanvasSourceRef } from "./model";
+import type { CanvasBlock, CanvasFreeItemBlock, CanvasDoc, CanvasSourceRef } from "./model";
 
 export function sourceRefKey(kind: CanvasSourceRef["kind"], id: string): string {
   return `${kind}:${id}`;
 }
 
-export function blockSourceRef(block: CanvasBlock): CanvasSourceRef | undefined {
+export function blockSourceRef(block: CanvasBlock | CanvasFreeItemBlock): CanvasSourceRef | undefined {
   if (block.type === "materialCard") return block.sourceRef;
   if (block.type === "text" || block.type === "image") return block.sourceRef;
   return undefined;

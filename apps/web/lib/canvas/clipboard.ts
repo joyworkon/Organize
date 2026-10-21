@@ -8,6 +8,7 @@
 import {
   CANVAS_SCHEMA_VERSION,
   type CanvasBlock,
+  type CanvasFreeItemBlock,
   type CanvasConnector,
   type CanvasCommandResult,
   type CanvasDoc,
@@ -363,7 +364,7 @@ function blocksInRegion(region: CanvasRegion): CanvasBlock[] {
   return region.sections.flatMap((section) => section.columns.flatMap((column) => column.blocks));
 }
 
-function plainTextFromBlocks(blocks: readonly CanvasBlock[]): string {
+function plainTextFromBlocks(blocks: readonly (CanvasBlock | CanvasFreeItemBlock)[]): string {
   const parts: string[] = [];
   for (const block of blocks) {
     if (block.type === "text" && block.text.trim()) parts.push(block.text);

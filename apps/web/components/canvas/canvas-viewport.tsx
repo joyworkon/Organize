@@ -461,7 +461,7 @@ export function CanvasViewportView({
           boxes={scene.freeItems.map((box) => {
             const resized = groupResizeLive?.find((member) => member.id === box.itemId);
             const item = doc.freeItems.find((item) => item.id === box.itemId);
-            const base = resized ? { ...resized, height: item && measure ? freeItemHeight({ ...item, width: resized.width }, measure) : resized.height } : box;
+            const base = resized ? { ...resized, height: item?.block.type === "shape" ? resized.height : item && measure ? freeItemHeight({ ...item, width: resized.width }, measure) : resized.height } : box;
             const delta = selectedFreeIds.includes(box.itemId) ? groupLive : null;
             return { ...base, ...singleLive[box.itemId], itemId: box.itemId,
               x: singleLive[box.itemId]?.x ?? base.x + (delta?.dx ?? 0),
@@ -533,7 +533,7 @@ export function CanvasViewportView({
               x: (live?.x ?? box.x) + (groupLive?.dx ?? 0),
               y: (live?.y ?? box.y) + (groupLive?.dy ?? 0),
               width: live?.width ?? box.width,
-              height: live && (measure || item.block.type === "image") ? freeItemHeight({ ...item, width: live.width }, measure ?? (() => box.height)) : box.height,
+              height: live && item.block.type === "shape" ? live.height : live && (measure || item.block.type === "image") ? freeItemHeight({ ...item, width: live.width }, measure ?? (() => box.height)) : box.height,
             };
           });
           const frame = rects.length > 1 ? groupBounds(rects) : null;

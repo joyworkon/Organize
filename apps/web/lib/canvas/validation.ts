@@ -21,6 +21,8 @@ import {
   EMBED_HTML_MAX_LENGTH,
   isSafeButtonHref,
   isSafeEmbedUrl,
+  SHAPE_MIN_HEIGHT,
+  SHAPE_MAX_HEIGHT,
 } from "./model";
 import { CANVAS_COLOR_KEYS } from "./text-styles";
 import { validateSourceRefField } from "./source-ref";
@@ -124,6 +126,7 @@ function validateBlock(
   unknownBlockIds: string[],
   options: CanvasValidationOptions,
   path: string,
+  free = false,
 ): boolean {
   if (typeof block !== "object" || block === null) {
     errors.push(`${path} 必须是对象`);
@@ -133,6 +136,15 @@ function validateBlock(
   if (!isId(b.id)) {
     errors.push(`${path}.id 非法`);
     return false;
+  }
+  if (b.type === "shape") {
+    if (!free) errors.push(`${path} 形状仅允许自由定位`);
+    if (b.kind !== "rect" && b.kind !== "ellipse") errors.push(`${path}.kind 非法`);
+    if (!isFiniteNumber(b.height) || b.height < SHAPE_MIN_HEIGHT || b.height > SHAPE_MAX_HEIGHT) {
+      errors.push(`${path}.height 非法`);
+    }
+    validateStyle(b.style, errors, path);
+    return true;
   }
   if (b.type === "text") {
     if (typeof b.text !== "string" || b.text.length > CANVAS_LIMITS.maxTextLength) {
@@ -466,7 +478,7 @@ export function validateCanvasContent(
     if (!Number.isInteger(item.zIndex) || item.zIndex < 0 || item.zIndex > 10000) {
       errors.push(`${path}.zIndex 非法`);
     }
-    validateBlock(item.block, errors, unknownBlockIds, options, `${path}.block`);
+    validateBlock(item.block, errors, unknownBlockIds, options, `${path}.block`, true);
     if (
       typeof item.block === "object" &&
       item.block !== null &&
