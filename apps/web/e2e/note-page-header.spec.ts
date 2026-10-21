@@ -10,7 +10,18 @@ test("title Enter split and bidirectional start navigation preserve text and IME
   const title = page.locator("textarea.note-title"); const editor = page.locator(".tiptap.organize-editor");
   await title.fill("标题正文"); await title.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(2, 2)); await title.press("Enter");
   await expect(title).toHaveValue("标题"); await expect(editor.locator("p").first()).toHaveText("正文"); await expect(editor).toBeFocused();
-  await page.keyboard.press("ArrowLeft"); await page.keyboard.press("ArrowLeft"); await page.keyboard.press("ArrowUp"); await expect(title).toBeFocused();
+  await expect(page.locator(".note-save-status")).toContainText("已保存");
+  // Establish the exact boundary under test independently of OS-native arrow movement.
+  await editor.locator("p").first().evaluate((block) => {
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await expect.poll(() => page.evaluate(() => ({ offset: window.getSelection()?.anchorOffset, collapsed: window.getSelection()?.isCollapsed }))).toEqual({ offset: 0, collapsed: true });
+  await page.keyboard.press("ArrowUp"); await expect(title).toBeFocused();
   await title.press("ArrowDown"); await expect(editor).toBeFocused(); await page.keyboard.press("Backspace"); await expect(title).toBeFocused();
   await title.dispatchEvent("keydown", { key: "Enter", isComposing: true }); await expect(title).toHaveValue("标题"); await expect(title).toBeFocused();
   await title.fill("很长的标题自动换行以验证最后一行方向键行为".repeat(12));

@@ -25,6 +25,19 @@ describe("标题与首块焦点桥接", () => {
     editor.commands.setContent("<ul><li><p>item</p></li></ul>"); editor.commands.setTextSelection(3); expect(focusTitleFromBody(event, editor, () => { title.focus(); title.setSelectionRange(title.value.length, title.value.length); })).toBe(false);
     editor.commands.setContent("<p>first</p>"); editor.commands.setTextSelection(1); editor.setEditable(false); expect(focusTitleFromBody(event, editor, () => { title.focus(); title.setSelectionRange(title.value.length, title.value.length); })).toBe(false);
   });
+  it.each([{ domOffset: 0, stateOffset: 3, expected: true }, { domOffset: 2, stateOffset: 1, expected: false }])("实时DOM光标优先于滞后状态：$domOffset / $stateOffset", ({ domOffset, stateOffset, expected }) => {
+    const { editor, title, event } = setup();
+    document.body.append(editor.view.dom);
+    editor.commands.setTextSelection(stateOffset);
+    const range = document.createRange();
+    range.setStart(editor.view.dom.querySelector("p")!.firstChild!, domOffset);
+    range.collapse(true);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges(); selection.addRange(range);
+    expect(editor.state.selection.from).toBe(stateOffset);
+    expect(focusTitleFromBody(event, editor, () => title.focus())).toBe(expected);
+    expect(event.preventDefault).toHaveBeenCalledTimes(expected ? 1 : 0);
+  });
   it("输入法、229、组合键不跳标题", () => {
     const { editor, title, event } = setup(); editor.commands.setTextSelection(1);
     for (const extra of [{ isComposing: true }, { keyCode: 229 }, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) expect(focusTitleFromBody({ ...event, ...extra }, editor, () => { title.focus(); title.setSelectionRange(title.value.length, title.value.length); })).toBe(false);
