@@ -23,6 +23,7 @@ import {
   CanvasEmbedStatus,
   CanvasFocus,
   CanvasFreeItem,
+  CanvasFreeItemBlock,
   CanvasIdGenerator,
   CanvasImageAsset,
   CanvasImageBlock,
@@ -55,7 +56,7 @@ import {
   imageNaturalHeight,
   normalizeBoardAfterDeletion,
 } from "./model";
-import { BLOCK_CHROME, canAddColumnAt, computeColumnWidthsForContent, manualWeightsFromDrag, regionGap, regionInnerWidth } from "./layout";
+import { BLOCK_CHROME, canAddColumnAt, computeColumnWidthsForContent, computeScene, manualWeightsFromDrag, regionGap, regionInnerWidth, type Scene } from "./layout";
 import { CANVAS_LIMITS } from "./validation";
 
 /**
@@ -1056,6 +1057,63 @@ export function applySmartWeights(
 // ---------------------------------------------------------------------------
 // 自由容器（规格 §3.5）
 // ---------------------------------------------------------------------------
+
+/** 列表继续留在自动排版中，不隐式转换为正文。 */
+export function canDetachBlockToFree(block: CanvasBlock): block is CanvasFreeItemBlock {
+  return block.type === "image" || (block.type === "text" && block.role !== "list");
+}
+
+/** 单个模块抽出；scene 可由 UI 注入，保留实际测量后的世界坐标。 */
+export function detachBlockToFree(
+  doc: CanvasDoc,
+  args: { blockId: string; scene?: Scene },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult | null {
+  return detachBlocksToFree(doc, { blockIds: [args.blockId], scene: args.scene }, newId);
+}
+
+/** 整批预检、一次克隆和清理；所有落点取自移除之前的同一场景。 */
+export function detachBlocksToFree(
+  doc: CanvasDoc,
+  args: { blockIds: readonly string[]; scene?: Scene },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult | null {
+  const ids = [...new Set(args.blockIds)];
+  if (!ids.length || doc.freeItems.length + ids.length > CANVAS_LIMITS.maxFreeItems) return null;
+  for (const id of ids) {
+    const loc = findBlockLocation(doc, id);
+    if (!loc || !canDetachBlockToFree(loc.block)) return null;
+  }
+  const scene = args.scene ?? computeScene(doc, () => MIN_TEXT_CONTENT_HEIGHT);
+  const boxes = new Map(scene.boards.flatMap((b) => b.regions)
+    .flatMap((r) => r.sections).flatMap((s) => s.columns)
+    .flatMap((c) => c.blocks).map((box) => [box.blockId, box]));
+  return edit(doc, (draft) => {
+    const affectedBoards = new Set<CanvasBoard>();
+    const itemIds: string[] = [];
+    for (const id of ids) {
+      const loc = findBlockLocation(draft, id)!;
+      if (!canDetachBlockToFree(loc.block)) continue; // 已完整预检；仅作类型收窄。
+      const box = boxes.get(id);
+      const item: CanvasFreeItem = {
+        id: newId(),
+        x: box?.x ?? loc.board.x + loc.board.padding,
+        y: box?.y ?? loc.board.y + loc.board.padding,
+        width: Math.max(80, box?.width ?? 240),
+        zIndex: nextZIndex(draft),
+        block: loc.block,
+      };
+      loc.column.blocks.splice(loc.blockIndex, 1);
+      affectedBoards.add(loc.board);
+      draft.freeItems.push(item);
+      itemIds.push(item.id);
+    }
+    for (const board of affectedBoards) normalizeBoardAfterDeletion(board, newId);
+    return itemIds.length === 1
+      ? { kind: "free", itemId: itemIds[0] }
+      : { kind: "frees", itemIds };
+  });
+}
 
 export function createFreeText(
   doc: CanvasDoc,

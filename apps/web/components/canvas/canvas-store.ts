@@ -163,6 +163,8 @@ export function createCanvasStore(initial?: {
           ? { kind: "connector" as const, connectorId: result.focus.connectorId }
           : result.focus?.kind === "block"
           ? { kind: "block" as const, blockId: result.focus.blockId }
+          : result.focus?.kind === "blocks"
+            ? { kind: "blocks" as const, blockIds: result.focus.blockIds }
           : result.focus?.kind === "free"
             ? { kind: "free" as const, itemId: result.focus.itemId }
             : result.focus?.kind === "frees"
@@ -347,7 +349,7 @@ function currentFocus(state: CanvasEditorState): CanvasFocus {
   const selection = resolveSelection(state.doc, state.selection);
   if (!selection) return null;
   if (selection.kind === "connector") return selection;
-  if (selection.kind === "blocks") return null;
+  if (selection.kind === "blocks") return { kind: "blocks", blockIds: [...selection.blockIds] };
   if (selection.kind === "frees") return { kind: "frees", itemIds: [...selection.itemIds] };
   if (selection.kind === "free") {
     return { kind: "free", itemId: selection.itemId, edit: state.editingBlockId === selection.itemId };

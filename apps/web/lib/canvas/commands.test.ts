@@ -4,6 +4,13 @@ import {
   BOARD_DEFAULT_WIDTH,
   BOARD_PADDING,
   createBoardShape,
+  createButtonBlock,
+  createDividerBlock,
+  createEmbedBlock,
+  createImageBlock,
+  createMaterialCardBlock,
+  createTextBlock,
+  findBlockLocation,
   emptyDoc,
 } from "./model";
 import {
@@ -20,6 +27,8 @@ import {
   deleteBoard,
   deleteFreeItem,
   deleteRegion,
+  detachBlockToFree,
+  detachBlocksToFree,
   duplicateBoard,
   duplicateBlock,
   duplicateRegion,
@@ -49,6 +58,7 @@ import {
   updateTextBlock,
   updateTextRole,
 } from "./commands";
+import { computeScene } from "./layout";
 
 function counterIds(prefix = "id") {
   let n = 0;
@@ -60,6 +70,104 @@ function docWithBoard() {
   const res = createBoard(doc, { x: 0, y: 0 }, counterIds());
   return { doc: res.doc, board: res.doc.boards[0], focus: res.focus };
 }
+
+describe("detachBlockToFree", () => {
+  it.each(["title", "body", "image"] as const)("%s 保留 ID、内容、样式和原世界坐标，输入不变", (kind) => {
+    const { doc, board } = docWithBoard();
+    board.x = -330;
+    board.y = 870;
+    const column = board.regions[0].sections[1].columns[0];
+    const block = kind === "image"
+      ? { ...createImageBlock({ url: "https://example.com/one.png", naturalWidth: 640, naturalHeight: 480 }), ratio: "4:3" as const, fit: "cover" as const }
+      : createTextBlock(kind, "完整内容\n第二行");
+    block.style = { background: "yellow", radius: 12 };
+    column.blocks.push(block);
+    doc.freeItems.push({ id: "old-free", block: createTextBlock(), x: 0, y: 0, width: 200, zIndex: 12 });
+    const before = structuredClone(doc);
+    const scene = computeScene(doc, () => 183);
+    const box = scene.boards[0].regions[0].sections[1].columns[0].blocks[1];
+    const result = detachBlockToFree(doc, { blockId: block.id, scene }, counterIds("free"))!;
+    const item = result.doc.freeItems[1];
+    expect(item).toMatchObject({ id: "free-1", x: box.x, y: box.y, width: box.width, zIndex: 13, block });
+    expect(item.block).not.toBe(block);
+    expect(findBlockLocation(result.doc, block.id)).toBeNull();
+    expect(result.focus).toEqual({ kind: "free", itemId: item.id });
+    expect(doc).toEqual(before);
+    expect(validateCanvasContent(result.doc).ok).toBe(true);
+    const attached = attachFreeItemToRegion(result.doc, {
+      freeItemId: item.id, boardId: board.id, regionId: board.regions[0].id,
+      sectionId: board.regions[0].sections[1].id, columnId: column.id,
+    });
+    const again = detachBlockToFree(attached.doc, { blockId: block.id })!;
+    expect(again.doc.freeItems[1].block).toEqual(block);
+  });
+
+  it("复用删除规则清理空列、空行与空区块，并保留页面", () => {
+    const { doc, board } = docWithBoard();
+    const section = board.regions[0].sections[1];
+    section.columns.push({ id: "other-col", blocks: [createTextBlock("body", "留下")] });
+    section.columnWeights = [2, 3];
+    section.widthMode = "manual";
+    const blockId = section.columns[0].blocks[0].id;
+    const result = detachBlockToFree(doc, { blockId })!;
+    expect(result.doc.boards).toEqual(deleteBlock(doc, { blockId }).doc.boards);
+    expect(result.doc.boards[0].regions[0].sections[1]).toMatchObject({ columnWeights: [1], widthMode: "equal" });
+    const allIds = board.regions.flatMap((r) => r.sections).flatMap((s) => s.columns).flatMap((c) => c.blocks).map((b) => b.id);
+    const all = detachBlocksToFree(doc, { blockIds: allIds })!;
+    expect(all.doc.boards).toHaveLength(1);
+    expect(all.doc.boards[0].id).toBe(board.id);
+    expect(all.doc.boards[0].regions).toHaveLength(1);
+    expect(all.doc.boards[0].regions[0].sections[0].columns[0].blocks).toEqual([
+      expect.objectContaining({ type: "text", role: "body", text: "" }),
+    ]);
+    expect(validateCanvasContent(all.doc).ok).toBe(true);
+  });
+
+  it("批量保留原场景中的后续位置，重复 ID 只抽出一次", () => {
+    const { doc, board } = docWithBoard();
+    const column = board.regions[0].sections[1].columns[0];
+    column.blocks.push(createTextBlock("body", "后面的块"));
+    const blockIds = column.blocks.map((b) => b.id);
+    const scene = computeScene(doc, () => 140);
+    const boxes = scene.boards[0].regions[0].sections[1].columns[0].blocks;
+    const result = detachBlocksToFree(doc, { blockIds: [...blockIds, blockIds[0]], scene })!;
+    expect(result.doc.freeItems.map((f) => [f.x, f.y, f.width])).toEqual(boxes.map((b) => [b.x, b.y, b.width]));
+    expect(result.focus).toEqual({ kind: "frees", itemIds: result.doc.freeItems.map((f) => f.id) });
+  });
+
+  it("缺少场景盒子时在页面原点附近兜底", () => {
+    const { doc, board } = docWithBoard();
+    const blockId = board.regions[0].sections[0].columns[0].blocks[0].id;
+    const result = detachBlockToFree(doc, { blockId, scene: { boards: [], freeItems: [] } })!;
+    expect(result.doc.freeItems[0]).toMatchObject({ x: board.x + board.padding, y: board.y + board.padding, width: 240 });
+  });
+
+  it("类型、缺失目标或容量不足均整批失败，不修改输入或分配 ID", () => {
+    const { doc, board } = docWithBoard();
+    const column = board.regions[0].sections[1].columns[0];
+    const supportedId = column.blocks[0].id;
+    const newId = () => { throw new Error("失败不应分配 ID"); };
+    const unsupported = [createTextBlock("list", "列表"), createButtonBlock(), createDividerBlock(), createEmbedBlock("https://example.com"),
+      createMaterialCardBlock({ title: "资料", text: "", sourceRef: { kind: "reading", id: "reading-1", title: "资料" } })];
+    for (const block of unsupported) {
+      column.blocks.push(block);
+      const before = structuredClone(doc);
+      expect(detachBlockToFree(doc, { blockId: block.id }, newId)).toBeNull();
+      expect(detachBlocksToFree(doc, { blockIds: [supportedId, block.id] }, newId)).toBeNull();
+      expect(doc).toEqual(before);
+    }
+    expect(detachBlocksToFree(doc, { blockIds: [] }, newId)).toBeNull();
+    expect(detachBlocksToFree(doc, { blockIds: [supportedId, "missing"] }, newId)).toBeNull();
+    doc.freeItems = Array.from({ length: CANVAS_LIMITS.maxFreeItems - 1 }, (_, i) => ({
+      id: `free-${i}`, block: createTextBlock(), x: 0, y: 0, width: 80, zIndex: i,
+    }));
+    const titleId = board.regions[0].sections[0].columns[0].blocks[0].id;
+    expect(detachBlocksToFree(doc, { blockIds: [supportedId, titleId] }, newId)).toBeNull();
+    const atLimit = detachBlockToFree(doc, { blockId: supportedId })!;
+    expect(atLimit.doc.freeItems).toHaveLength(CANVAS_LIMITS.maxFreeItems);
+    expect(detachBlockToFree(atLimit.doc, { blockId: titleId }, newId)).toBeNull();
+  });
+});
 
 describe("createBoard", () => {
   it("双击建版面：出现在指定世界坐标，标题聚焦（A01 结构层）", () => {

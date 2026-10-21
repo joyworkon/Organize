@@ -340,6 +340,7 @@ interface CanvasDocV1 {
 
 /** 结构操作后的焦点目标；命令纯函数不触碰 DOM。 */
 export type CanvasFocus =
+  | { kind: "blocks"; blockIds: string[] }
   | {
       kind: "block";
       boardId: string;

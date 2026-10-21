@@ -22,6 +22,21 @@ function item(label: string): HTMLElement | undefined {
 }
 
 describe("canvas context menu model", () => {
+  it("只给可抽出的模块选区显示入口，只读和预览时禁用", () => {
+    for (const selection of [
+      { kind: "block" as const, blockId: "b" },
+      { kind: "blocks" as const, blockIds: ["a", "b"] },
+    ]) {
+      for (const readOnly of [false, true]) {
+        const entries = canvasContextMenuModel({ scope: "element", selection, readOnly, hasClipboard: false, labels, canDetach: true });
+        const duplicate = entries.findIndex((entry) => entry.id === "duplicate");
+        expect(entries[duplicate + 1]).toMatchObject({ id: "detach-to-free", label: "转为自由定位", disabled: readOnly });
+        expect(entries[duplicate + 2].id).toBe("delete");
+      }
+      expect(canvasContextMenuModel({ scope: "element", selection, readOnly: false, hasClipboard: false, labels, canDetach: false })
+        .some((entry) => entry.id === "detach-to-free")).toBe(false);
+    }
+  });
   it("shows paste, select-all, and zoom on empty canvas", () => {
     const entries = canvasContextMenuModel({
       scope: "canvas",
@@ -273,5 +288,21 @@ describe("canvas context menu", () => {
     expect(onSelect).not.toHaveBeenCalled();
     act(() => { item("左对齐")?.click(); });
     expect(onSelect).toHaveBeenCalledWith("align-left");
+  });
+
+  it("dispatches detach-to-free and prevents read-only execution", () => {
+    const onSelect = vi.fn();
+    for (const readOnly of [true, false]) {
+      const entries = canvasContextMenuModel({
+        scope: "element", selection: { kind: "block", blockId: "b" }, readOnly,
+        hasClipboard: false, labels, canDetach: true,
+      });
+      act(() => root.render(createElement(CanvasClipboardMenu, {
+        request: { x: 10, y: 20, world: { x: 0, y: 0 }, scope: "element", nonce: readOnly ? 1 : 2 }, entries, onSelect,
+      })));
+      act(() => item("转为自由定位")?.click());
+      if (readOnly) expect(onSelect).not.toHaveBeenCalled();
+      else expect(onSelect).toHaveBeenCalledExactlyOnceWith("detach-to-free");
+    }
   });
 });
