@@ -259,3 +259,72 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(onDateClick).not.toHaveBeenCalled();
   });
 });
+
+describe("手机月视图：就地勾选完成与显示选项列布局", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const onTaskClick = vi.fn();
+  const onToggleTaskDone = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(at(19, 12));
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const proto = HTMLElement.prototype as HTMLElement & {
+      hasPointerCapture?: () => boolean;
+      setPointerCapture?: () => void;
+      releasePointerCapture?: () => void;
+    };
+    proto.hasPointerCapture ??= () => false;
+    proto.setPointerCapture ??= () => {};
+    proto.releasePointerCapture ??= () => {};
+    onTaskClick.mockReset();
+    onToggleTaskDone.mockReset();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root.render(createElement(TaskMonthView, {
+        tasks: [mkTask("m1", "手机议程任务", at(19, 9))],
+        countdowns: [],
+        onTaskClick,
+        onToggleTaskDone,
+      }));
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.body.replaceChildren();
+    vi.useRealTimers();
+  });
+
+  it("议程行方框点击切换完成，不打开任务；键盘 Space 同样切换", () => {
+    const surface = container.querySelector<HTMLElement>('[data-calendar-surface="mobile-month"]')!;
+    const box = surface.querySelector<HTMLElement>('[data-calendar-task-checkbox]')!;
+    expect(box.getAttribute("role")).toBe("checkbox");
+    act(() => box.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+    expect(onToggleTaskDone).toHaveBeenCalledTimes(1);
+    expect(onToggleTaskDone.mock.calls[0][0].id).toBe("m1");
+    expect(onTaskClick).not.toHaveBeenCalled();
+    act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })));
+    expect(onToggleTaskDone).toHaveBeenCalledTimes(2);
+  });
+
+  it("隐藏周末时迷你月历 5 列工作日、表头无六/日", () => {
+    act(() => {
+      root.render(createElement(TaskMonthView, {
+        tasks: [], countdowns: [], onTaskClick, onToggleTaskDone,
+        viewOptions: { showCompleted: true, showCountdowns: true, weekStart: 1, showWeekends: false },
+      }));
+    });
+    const mini = container.querySelector<HTMLElement>('[data-calendar-surface="mini-month"]')!;
+    const headerRow = mini.firstElementChild as HTMLElement;
+    const labels = Array.from(headerRow.querySelectorAll("span")).map((span) => span.textContent);
+    expect(labels).toEqual(["一", "二", "三", "四", "五"]);
+    const firstRow = mini.querySelectorAll("div.grid")[1];
+    expect(firstRow.className).toContain("grid-cols-5");
+    expect(firstRow.querySelectorAll("button")).toHaveLength(5);
+  });
+});
