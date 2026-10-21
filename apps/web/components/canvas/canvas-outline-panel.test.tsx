@@ -113,10 +113,49 @@ it.each(["readOnly", "previewMode"] as const)("%s 隐藏写动作，仍可双击
   expect(container.querySelector('[aria-label^="复制页面"]')).toBeNull();
   expect(container.querySelector('[aria-label^="删除页面"]')).toBeNull();
   expect(container.querySelector('[aria-label^="重命名"]')).toBeNull();
+  expect(container.querySelector('[aria-label^="上移页面"]')).toBeNull();
+  expect(container.querySelector('[aria-label^="下移页面"]')).toBeNull();
   click("页面：方案", "dblclick");
   expect(fit).toHaveBeenCalled(); expect(container.querySelector("input")).toBeNull();
   expect(commitBoardDuplicate(store, store.getState().doc.boards[0].id)).toBeNull();
   expect(store.getState().doc.boards).toHaveLength(1);
+});
+
+it("三页大纲排序选中移动页、保留位置，每次移动独立撤销/重做，首尾禁用并说明", () => {
+  let doc = store.getState().doc;
+  doc = createBoardSkeleton(doc, { variant: "blank", at: { x: 900, y: 300 } }).doc;
+  doc = renameBoard(doc, { boardId: doc.boards[1].id, name: "第二页" }).doc;
+  doc = createBoardSkeleton(doc, { variant: "blank", at: { x: -800, y: -300 } }).doc;
+  doc = renameBoard(doc, { boardId: doc.boards[2].id, name: "第三页" }).doc;
+  store = createCanvasStore({ doc });
+  mountTree();
+  const [a, b, c] = doc.boards;
+  expect(button("上移页面 方案").disabled).toBe(true);
+  expect(button("上移页面 方案").title).toContain("第一个页面");
+  expect(button("下移页面 第三页").disabled).toBe(true);
+  expect(button("下移页面 第三页").title).toContain("最后一个页面");
+  click("页面：方案");
+  click("上移页面 第三页");
+  expect(store.getState().doc.boards).toEqual([a, c, b]);
+  expect(store.getState().selection).toEqual({ kind: "board", boardId: c.id });
+  expect(store.getState().history.peekUndoLabel()).toBe("上移页面");
+  click("上移页面 第三页");
+  expect(store.getState().doc.boards).toEqual([c, a, b]);
+  expect([...container.querySelectorAll('.is-board .canvas-outline-name')].map((el) => el.textContent)).toEqual(["第三页", "方案", "第二页"]);
+  expect(button("上移页面 第三页").disabled).toBe(true);
+  act(() => store.getState().undo());
+  expect(store.getState().doc.boards).toEqual([a, c, b]);
+  act(() => store.getState().undo());
+  expect(store.getState().doc).toEqual(doc);
+  expect(store.getState().selection).toEqual({ kind: "board", boardId: a.id });
+  expect(store.getState().history.canUndo).toBe(false);
+  act(() => store.getState().redo());
+  act(() => store.getState().redo());
+  expect(store.getState().doc.boards).toEqual([c, a, b]);
+  expect(store.getState().selection).toEqual({ kind: "board", boardId: c.id });
+  click("下移页面 第三页");
+  expect(store.getState().doc.boards).toEqual([a, c, b]);
+  expect(store.getState().history.peekUndoLabel()).toBe("下移页面");
 });
 
 it("属性栏与悬停条都有可撤销的整页复制入口", () => {

@@ -7117,11 +7117,14 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .canvas-outline-row:focus-within .canvas-outline-actions {
   opacity: 1;
 }
-.canvas-outline-action {
+/* 页面复用 Button，尺寸仍与区块的紧凑操作一致，给名称保留空间。 */
+.canvas-outline-actions .canvas-outline-action {
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
+  min-width: 0;
+  min-height: 0;
   border-radius: var(--radius-xs);
   color: hsl(var(--muted-foreground));
 }
