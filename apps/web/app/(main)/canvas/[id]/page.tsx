@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 构思画布详情：桌面进编辑器，窄屏（手机）只读预览（规格 §1）。
+ * 构思画布详情：桌面完整编辑；手机保留内容预览，支持点选连接自由元素。
  * 编辑器按页面懒加载，其他导航不承担画布开销（规格 §6.2）。
  */
 
@@ -32,10 +32,10 @@ export default function CanvasDetailPage() {
     <>
       {narrow && (
         <div className="canvas-mobile-notice" role="note">
-          手机端仅支持只读预览，编辑请在桌面端进行。
+          手机端可选择元素并点“连接”，内容编辑请在桌面端进行。
         </div>
       )}
-      <CanvasWorkspace documentId={id} readOnly={narrow} />
+      <CanvasWorkspace documentId={id} connectionsOnly={narrow} />
     </>
   );
 }

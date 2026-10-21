@@ -119,6 +119,8 @@ test.describe("构思画布 B2：统一插入", () => {
     await page.keyboard.type("标题");
     await page.keyboard.press("Enter");
     await page.keyboard.type("正文");
+    // 先将页面放进面板间的可用区域，避免宽屏时固定创建坐标把右侧加号放在属性栏后面。
+    await page.getByRole("button", { name: "适合全部", exact: true }).click();
     // 造两列正文行：悬停正文块 → 右侧加号（骨架 1 列 + 新列 = 2；标题列另计）
     await page.locator("[data-block-type='text']").nth(1).hover();
     await page.locator("button[aria-label='在右侧添加一列']").first().click();

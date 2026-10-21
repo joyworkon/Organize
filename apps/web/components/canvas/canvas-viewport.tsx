@@ -38,6 +38,7 @@ import { useCanvasTouch } from "./use-canvas-touch";
 import type { CanvasTextMeasurer } from "./text-measurer";
 import { createCanvasMeasure } from "./use-canvas-scene";
 import { CanvasFreeGroupResize } from "./canvas-free-group-resize";
+import { CanvasConnectorLayer, CanvasConnectorToolbar, useCanvasConnectors } from "./canvas-connectors";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
@@ -63,6 +64,7 @@ export interface CanvasViewportProps {
   userId: string;
   /** 外层标记：编辑器（可双击建版面）或只读预览。 */
   interactive: boolean;
+  connectorsInteractive?: boolean;
   /** 空格键按住状态（由工作区键盘监听维护）。 */
   spaceHeld: boolean;
   /** 由工作区订阅后传入（保证选中/编辑态变化触发重渲染）。 */
@@ -101,6 +103,7 @@ export function CanvasViewportView({
   scene,
   userId,
   interactive,
+  connectorsInteractive = interactive,
   spaceHeld,
   selection,
   editingBlockId,
@@ -117,6 +120,17 @@ export function CanvasViewportView({
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [panning, setPanning] = useState(false);
   const vp = useStoreViewport(store);
+  const connections = useCanvasConnectors(store, viewportRef, connectorsInteractive && !spaceHeld, !interactive);
+  const [singleLive, setSingleLive] = useState<Record<string, SnapRect>>({});
+  const onLiveGeometry = useCallback((id: string, rect: SnapRect | null) => {
+    setSingleLive((previous) => {
+      if (!rect && !previous[id]) return previous;
+      const next = { ...previous };
+      if (rect) next[id] = rect;
+      else delete next[id];
+      return next;
+    });
+  }, []);
   const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
   const touch = useCanvasTouch(store, interactive, () => pointer.cancel());
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
@@ -383,10 +397,12 @@ export function CanvasViewportView({
         backgroundPosition: `${vp.x}px ${vp.y}px`,
       }}
       onPointerDownCapture={(e) => {
+        if (connections.down(e)) return;
         if (touch.onPointerDown(e)) return;
         pointer.down(e);
       }}
       onPointerMoveCapture={(e) => {
+        if (connections.move(e)) return;
         touch.onPointerMove(e);
         pointer.move(e);
       }}
@@ -394,6 +410,9 @@ export function CanvasViewportView({
         pointer.clickCapture(e);
         touch.onClickCapture(e);
       }}
+      onKeyDownCapture={connections.keyDown}
+      onPointerUpCapture={connections.up}
+      onPointerCancelCapture={connections.cancel}
       onPointerDown={(e) => {
         beginPan(e);
         onPointerDownBackground(e);
@@ -420,6 +439,7 @@ export function CanvasViewportView({
       }}
       onLostPointerCapture={(e) => {
         pointer.finish(e, true);
+        if (e.target === e.currentTarget && connections.draft?.pointerId === e.pointerId) connections.cancel();
         // 子元素放开自己的捕获时事件会冒泡上来，不能据此结束正在进行的捏合。
         if (e.target === e.currentTarget) touch.onPointerCancel(e);
         endPan(e);
@@ -436,6 +456,17 @@ export function CanvasViewportView({
           transformOrigin: "0 0",
         }}
       >
+        <CanvasConnectorLayer store={store} doc={doc} selection={selection} zoom={vp.zoom}
+          interactive={connectorsInteractive} draft={connections.draft} onEditLabel={connections.editLabel}
+          boxes={scene.freeItems.map((box) => {
+            const resized = groupResizeLive?.find((member) => member.id === box.itemId);
+            const item = doc.freeItems.find((item) => item.id === box.itemId);
+            const base = resized ? { ...resized, height: item && measure ? freeItemHeight({ ...item, width: resized.width }, measure) : resized.height } : box;
+            const delta = selectedFreeIds.includes(box.itemId) ? groupLive : null;
+            return { ...base, ...singleLive[box.itemId], itemId: box.itemId,
+              x: singleLive[box.itemId]?.x ?? base.x + (delta?.dx ?? 0),
+              y: singleLive[box.itemId]?.y ?? base.y + (delta?.dy ?? 0) };
+          })} />
         {doc.boards.map((board) => {
           const sceneBoard = scene.boards.find((b) => b.boardId === board.id);
           if (!sceneBoard) return null;
@@ -487,6 +518,8 @@ export function CanvasViewportView({
               heightForWidth={measure || item.block.type === "image" ? (width) => freeItemHeight({ ...item, width }, measure ?? (() => box.height)) : undefined}
               onGroupLive={onGroupLive}
               onSnapGuides={onSnapGuides}
+              onLiveGeometry={onLiveGeometry}
+              onConnect={connectorsInteractive ? (side) => connections.start(item.id, side) : undefined}
             />
           );
         })}
@@ -537,6 +570,9 @@ export function CanvasViewportView({
           )
         ))}
       </div>
+      <CanvasConnectorToolbar store={store} doc={doc} selection={selection} interactive={connectorsInteractive}
+        editingLabel={connections.editingLabel} labelRef={connections.labelRef} />
+      {connections.draft && <div className="canvas-connect-hint" role="status">点选另一个元素建立连接<button type="button" aria-label="取消连接" onClick={connections.cancel}>取消</button></div>}
       {pointer.visual?.hint && <div className="canvas-drag-hint" role="status">{pointer.visual.hint}</div>}
       {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
         <div className="canvas-empty-hint">

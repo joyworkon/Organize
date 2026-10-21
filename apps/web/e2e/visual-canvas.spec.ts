@@ -64,14 +64,16 @@ test("visual: 搭建完整骨架并截图", async ({ page }) => {
   await page.keyboard.press("Escape");
 });
 
-test("visual: 手机只读预览", async ({ page }, testInfo) => {
+test("visual: 手机内容预览与连接提示", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, "/canvas");
   await page.screenshot({ path: "/tmp/canvas-mobile-list.png" });
   await page.getByRole("button", { name: "新建构思画布" }).first().click();
   await page.waitForURL(/\/canvas\//);
   await page.waitForTimeout(1500);
-  await expect(page.getByText("手机端仅支持只读预览")).toBeVisible();
+  await expect(page.getByRole("note")).toContainText("手机端可选择元素并点“连接”");
+  await expect(page.getByRole("textbox", { name: "画布名称", exact: true })).toHaveAttribute("readonly");
+  await expect(page.locator(".canvas-add-panel-wrap, .canvas-resize-handle, .canvas-textarea")).toHaveCount(0);
   await page.screenshot({ path: "/tmp/canvas-mobile-readonly.png" });
 });
 

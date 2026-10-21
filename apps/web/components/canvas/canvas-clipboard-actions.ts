@@ -12,6 +12,7 @@ import {
   shouldPasteInternalClipboard,
   type CanvasClipboardPayload,
 } from "@/lib/canvas/clipboard";
+import { deleteConnector } from "@/lib/canvas/connectors";
 import { deleteBlock, deleteBoard, deleteFreeItem, deleteRegion } from "@/lib/canvas/commands";
 import { matchSingleUrlText } from "@/lib/canvas/embed-insert";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
@@ -123,6 +124,10 @@ export function applyDeleteCanvasSelection(store: CanvasStore, verb: "删除" | 
   if (state.readOnly || state.previewMode) return;
   const sel = state.selection;
   if (!sel) return;
+  if (sel.kind === "connector") {
+    state.apply(`${verb}连接线`, (doc) => deleteConnector(doc, sel.connectorId));
+    return;
+  }
   if (sel.kind === "blocks") {
     state.apply(`${verb}多个模块`, (doc) => ({
       doc: sel.blockIds.reduce((next, blockId) => deleteBlock(next, { blockId }).doc, doc),

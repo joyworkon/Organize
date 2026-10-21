@@ -33,6 +33,7 @@ export type CanvasSelection =
   | { kind: "block"; blockId: string }
   | { kind: "free"; itemId: string }
   | { kind: "frees"; itemIds: string[] }
+  | { kind: "connector"; connectorId: string }
   | { kind: "board"; boardId: string }
   | { kind: "region"; boardId: string; regionId: string }
   | null;
@@ -158,7 +159,9 @@ export function createCanvasStore(initial?: {
         });
       }
       const nextSelection =
-        result.focus?.kind === "block"
+        result.focus?.kind === "connector"
+          ? { kind: "connector" as const, connectorId: result.focus.connectorId }
+          : result.focus?.kind === "block"
           ? { kind: "block" as const, blockId: result.focus.blockId }
           : result.focus?.kind === "free"
             ? { kind: "free" as const, itemId: result.focus.itemId }
@@ -305,6 +308,7 @@ function isTextTarget(doc: CanvasDoc, id: string): boolean {
 
 function selectionExists(doc: CanvasDoc, selection: CanvasSelection): boolean {
   if (!selection) return false;
+  if (selection.kind === "connector") return (doc.connectors ?? []).some((edge) => edge.id === selection.connectorId);
   if (selection.kind === "blocks") return selection.blockIds.length > 0 && selection.blockIds.every((id) => !!findBlockLocation(doc, id));
   if (selection.kind === "block") return !!findBlockLocation(doc, selection.blockId);
   if (selection.kind === "free") return doc.freeItems.some((item) => item.id === selection.itemId);
@@ -342,6 +346,7 @@ function resolveSelection(doc: CanvasDoc, selection: CanvasSelection): CanvasSel
 function currentFocus(state: CanvasEditorState): CanvasFocus {
   const selection = resolveSelection(state.doc, state.selection);
   if (!selection) return null;
+  if (selection.kind === "connector") return selection;
   if (selection.kind === "blocks") return null;
   if (selection.kind === "frees") return { kind: "frees", itemIds: [...selection.itemIds] };
   if (selection.kind === "free") {

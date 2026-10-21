@@ -1,7 +1,8 @@
 import { toast } from "@/hooks/use-toast";
 import { isTypingTarget } from "@/lib/hooks/use-hotkey";
-import { duplicateBoard, duplicateBlock, duplicateFreeItem, duplicateRegion } from "@/lib/canvas/commands";
-import { findBlockLocation, findFreeItem, type CanvasCommandResult, type CanvasDoc } from "@/lib/canvas/model";
+import { duplicateBoard, duplicateBlock, duplicateRegion } from "@/lib/canvas/commands";
+import { findBlockLocation, type CanvasCommandResult, type CanvasDoc } from "@/lib/canvas/model";
+import { copyCanvasSelection, pasteCanvasClipboard } from "@/lib/canvas/clipboard";
 import type { CanvasSelection, CanvasStore, CanvasViewport } from "./canvas-store";
 import { clampZoom } from "./canvas-viewport";
 
@@ -83,20 +84,9 @@ export function duplicateCanvasSelection(
 }
 
 function duplicateFreeSelection(doc: CanvasDoc, itemIds: string[]): CanvasCommandResult & { itemIds?: string[] } {
-  let next = doc;
-  const created: string[] = [];
-  for (const itemId of itemIds) {
-    if (!findFreeItem(next, itemId)) continue;
-    const result = duplicateFreeItem(next, { itemId });
-    if (result.focus?.kind !== "free") continue;
-    next = result.doc;
-    created.push(result.focus.itemId);
-  }
-  if (created.length === 0) return { doc };
-  if (created.length === 1) {
-    return { doc: next, focus: { kind: "free", itemId: created[0], edit: false }, itemIds: created };
-  }
-  return { doc: next, focus: { kind: "frees", itemIds: created }, itemIds: created };
+  const payload = copyCanvasSelection(doc, { kind: "frees", itemIds });
+  if (!payload) return { doc };
+  return pasteCanvasClipboard(doc, payload, { pointer: null, pasteIndex: 0, selection: null, explicit: null });
 }
 
 /** ⌘D：一次撤销复制当前选区，多选后改选新副本。 */

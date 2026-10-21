@@ -115,7 +115,7 @@ export function CanvasPropertyBar({
   const [moveTargetOpen, setMoveTargetOpen] = useState(false);
 
   const target = (() => {
-    if (!selection || selection.kind === "blocks" || selection.kind === "frees") return null;
+    if (!selection || selection.kind === "blocks" || selection.kind === "frees" || selection.kind === "connector") return null;
     if (selection.kind === "block") {
       const loc = findBlockLocation(doc, selection.blockId);
       return loc ? { kind: "block" as const, ...loc } : null;

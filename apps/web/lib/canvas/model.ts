@@ -295,10 +295,26 @@ export interface CanvasFreeItem {
   block: CanvasFreeItemBlock;
 }
 
+export type CanvasConnectorSide = "top" | "right" | "bottom" | "left";
+export interface CanvasConnector {
+  id: string;
+  from: string;
+  to: string;
+  fromSide?: CanvasConnectorSide;
+  toSide?: CanvasConnectorSide;
+  arrow: "none" | "end" | "both";
+  line: "solid" | "dashed";
+  /** Existing canvas text palette key; empty means theme foreground. */
+  color: string;
+  label: string;
+}
+
 export interface CanvasDoc {
   schemaVersion: typeof CANVAS_SCHEMA_VERSION;
   boards: CanvasBoard[];
   freeItems: CanvasFreeItem[];
+  /** Absent in older documents; readers treat it as an empty array. */
+  connectors?: CanvasConnector[];
 }
 
 /** v1 文档（Board → Section 直挂）；仅迁移函数消费。 */
@@ -318,6 +334,8 @@ interface CanvasDocV1 {
   schemaVersion: number;
   boards: CanvasDocV1Board[];
   freeItems: CanvasFreeItem[];
+  /** Absent in older documents; readers treat it as an empty array. */
+  connectors?: CanvasConnector[];
 }
 
 /** 结构操作后的焦点目标；命令纯函数不触碰 DOM。 */
@@ -337,6 +355,7 @@ export type CanvasFocus =
   | { kind: "free"; itemId: string; edit?: boolean }
   /** 多个自由元素的 UI 选区焦点。只进撤销历史，不进画布文档 JSON。 */
   | { kind: "frees"; itemIds: string[] }
+  | { kind: "connector"; connectorId: string }
   | null;
 
 export interface CanvasCommandResult {
@@ -473,7 +492,7 @@ export function createRegion(
 
 /** 全新空文档：无版面；双击画布才创建。 */
 export function emptyDoc(): CanvasDoc {
-  return { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [] };
+  return { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [], connectors: [] };
 }
 
 /**
@@ -528,6 +547,7 @@ export function migrateCanvasDocV1toV2(raw: unknown): CanvasDoc {
     schemaVersion: CANVAS_SCHEMA_VERSION,
     boards,
     freeItems: clone.freeItems ?? [],
+    connectors: clone.connectors ?? [],
   };
 }
 
@@ -539,7 +559,10 @@ export function migrateCanvasDocV1toV2(raw: unknown): CanvasDoc {
 export function ensureCanvasDocV2(raw: unknown): CanvasDoc {
   if (typeof raw !== "object" || raw === null) return raw as CanvasDoc;
   const version = (raw as { schemaVersion?: unknown }).schemaVersion;
-  if (version === CANVAS_SCHEMA_VERSION) return raw as CanvasDoc;
+  if (version === CANVAS_SCHEMA_VERSION) {
+    const doc = raw as CanvasDoc;
+    return doc.connectors === undefined ? { ...doc, connectors: [] } : doc;
+  }
   if (version === CANVAS_SCHEMA_VERSION_V1 || version === undefined) {
     return migrateCanvasDocV1toV2(raw);
   }
@@ -689,6 +712,7 @@ export function collectAllIds(doc: CanvasDoc): string[] {
       }
     }
   }
+  for (const connector of doc.connectors ?? []) ids.push(connector.id);
   for (const item of doc.freeItems) {
     ids.push(item.id);
     ids.push(item.block.id);

@@ -128,8 +128,10 @@ import {
 
 export interface CanvasWorkspaceProps {
   documentId: string;
-  /** 手机只读预览（规格 §1：第一版手机只读，编辑提示在桌面进行）。 */
+  /** Explicit read-only mode disables every mutation, including connections. */
   readOnly?: boolean;
+  /** Mobile keeps content in preview while allowing connector edits. */
+  connectionsOnly?: boolean;
 }
 
 interface LoadState {
@@ -182,7 +184,7 @@ function serializeDocForSave(doc: CanvasDoc): CanvasDoc {
   return clone;
 }
 
-export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspaceProps) {
+export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly = false }: CanvasWorkspaceProps) {
   const router = useRouter();
   const focusBlockId = useSearchParams().get("focus");
   const handledFocus = useRef<string | null>(null);
@@ -586,6 +588,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       // 输入控件内（区块名编辑/属性栏输入框/对话框）不触发画布快捷键
       if (isTypingTarget(e)) return;
       if (s.editingBlockId) return;
+      if (connectionsOnly && s.selection?.kind !== "connector" && e.key !== "Escape" && matchCanvasShortcut(e) !== "zoom-fit") return;
+      if (connectionsOnly && s.selection?.kind === "connector" && ["cut", "duplicate", "select-all", "paste"].includes(matchCanvasShortcut(e) ?? "")) return;
       const action = matchCanvasShortcut(e);
       // ⌘V 交给 paste 事件，避免按键和系统剪贴板各粘一次。
       if (action === "paste") return;
@@ -671,7 +675,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection]);
+  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection, connectionsOnly]);
 
   const worldCenterNow = useCallback(() => {
     const rect = visibleViewportNow();
@@ -1118,7 +1122,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
 
   // ---------------- 渲染 ----------------
 
-  const interactive = !readOnly && !previewMode;
+  const connectorsInteractive = !readOnly && !previewMode;
+  const interactive = connectorsInteractive && !connectionsOnly;
 
   if (load.phase === "loading") {
     return (
@@ -1195,7 +1200,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           value={title}
           placeholder="未命名画布"
           aria-label="画布名称"
-          readOnly={readOnly || previewMode}
+          readOnly={readOnly || previewMode || connectionsOnly}
           onChange={(e) => store.getState().setTitle(e.target.value)}
         />
         <span
@@ -1407,6 +1412,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           scene={scene}
           userId={userId}
           interactive={interactive}
+          connectorsInteractive={connectorsInteractive}
           spaceHeld={spaceHeld}
           selection={selection}
           editingBlockId={editingBlockId}
@@ -1510,7 +1516,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           entries={canvasContextMenuModel({
             scope: contextMenu.scope,
             selection,
-            readOnly: readOnly || previewMode,
+            readOnly: readOnly || previewMode || connectionsOnly,
             hasClipboard: hasCanvasClipboard(),
             labels: shortcutLabels,
           })}
