@@ -28,6 +28,7 @@ import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
 import { Callout } from "./extensions/callout";
 import { MathEditorDialog, showMathEditor } from "./math-editor-dialog";
+import { MermaidEditorDialog } from "./mermaid-editor-dialog";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
 import { BlockStyle } from "./extensions/block-style";
@@ -1518,6 +1519,7 @@ export function TipTapEditor({
       <PageLinkMenu editor={editor} noteId={noteId} onOpenChange={onPageLinkOpenChange} />
       <LinkHoverCard editor={editor} editRequest={linkEditRequest} internalLinkStates={internalLinkStates} onNavigate={(path) => router.push(path)} />
       <MathEditorDialog editor={editor} />
+      <MermaidEditorDialog editor={editor} />
       <EditorContent editor={editor} />
       <TableDirectControls editor={editor} />
       <div

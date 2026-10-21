@@ -3930,7 +3930,7 @@
 }
 .editor-dialog-actions.centered,
 .editor-dialog-toolbar.centered { justify-content: center; }
-/* 块内旧弹层（Mermaid / 嵌入 / HTML / 按钮）仍用裸 button。评论与建议已改共享 Button，不能再写背景色盖掉 focus ring 和变体。 */
+/* 块内旧弹层（嵌入 / HTML / 按钮）仍用裸 button。评论、建议与 Mermaid 已改共享 Button / Dialog，不能再写背景色盖掉 focus ring 和变体。 */
 .editor-dialog-actions button {
   display: inline-flex;
   align-items: center;
@@ -4314,26 +4314,19 @@
   overflow: hidden;
 }
 .organize-mermaid.is-selected { box-shadow: 0 0 0 2px hsl(var(--ring) / .3); }
+/* 块顶部状态条：标签 + 共享 ghost Button（编辑源码 / 复制源码），按钮沿用 32px 桌面 / 44px 触屏合同 */
 .organize-mermaid-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
   background: hsl(var(--muted) / .3);
   color: hsl(var(--muted-foreground));
   font-size: 12px;
   border-bottom: 1px solid hsl(var(--border));
 }
-.organize-mermaid-toolbar button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-}
-.organize-mermaid-toolbar button:hover { color: hsl(var(--foreground)); }
+.organize-mermaid-toolbar-label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.organize-mermaid-toolbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
 .organize-mermaid-preview {
   padding: 16px;
   display: flex;
@@ -4342,6 +4335,8 @@
   min-height: 120px;
   background: hsl(var(--background));
 }
+/* 外层 overflow:hidden 会裁掉外扩的焦点环，向内画 */
+.organize-mermaid-preview:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .organize-mermaid-preview > div { max-width: 100%; overflow: auto; }
 .organize-mermaid-preview svg { max-width: 100%; height: auto; }
 .organize-mermaid-loading { color: hsl(var(--muted-foreground)); margin: 0; }
@@ -4355,8 +4350,40 @@
   white-space: pre-wrap;
   overflow-x: auto;
 }
-.organize-mermaid-warn { color: hsl(var(--destructive)); }
-.mermaid-editor-dialog textarea { min-height: 280px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.organize-mermaid-warn { color: hsl(var(--warning)); }
+/* 实时预览编辑浮层：桌面源码 | 预览双栏，手机上下堆叠；视觉沿用公式浮层的 source / preview 面 */
+.organize-mermaid-dialog { max-width: 960px; max-height: 90dvh; }
+.organize-mermaid-dialog-body { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 768px) {
+  .organize-mermaid-dialog-body { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+}
+.organize-mermaid-source {
+  display: block; margin-top: 8px; width: 100%; min-height: 280px; resize: vertical;
+  padding: 12px; border: 1px solid hsl(var(--input)); border-radius: 8px;
+  background: hsl(var(--background)); color: hsl(var(--foreground));
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2;
+}
+.organize-mermaid-source:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.organize-mermaid-dialog-preview {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 280px; max-height: 60dvh; overflow: auto; margin-top: 8px; padding: 16px;
+  border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--background));
+}
+.organize-mermaid-dialog-preview[data-invalid="true"] { border-color: hsl(var(--destructive)); }
+.organize-mermaid-dialog-preview > div { max-width: 100%; }
+.organize-mermaid-dialog-preview svg { max-width: 100%; height: auto; }
+.organize-mermaid-dialog-fallback {
+  margin: 0; width: 100%; align-self: flex-start;
+  font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; color: hsl(var(--muted-foreground));
+}
+.organize-mermaid-dialog-error-detail {
+  display: block; margin-top: 4px; max-height: 96px; overflow: auto;
+  font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; color: hsl(var(--muted-foreground));
+}
+@media (max-width: 767px), (pointer: coarse) {
+  .organize-mermaid-source { font-size: 16px; }
+  .organize-mermaid-dialog-preview { min-height: 160px; max-height: 40dvh; }
+}
 
 /* ------------------------- 嵌入（Embed / 链接卡片） ------------------------- */
 .organize-editor .organize-embed-wrap {
@@ -7417,13 +7444,16 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .organize-math-anchor { display: inline-block; max-width: 100%; cursor: pointer; }
 .organize-math-anchor:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: 4px; }
-.organize-math-toolbar {
+/* 公式与 Mermaid 图表共用同一套原子块浮动工具栏外观 */
+.organize-math-toolbar,
+.organize-mermaid-selection-toolbar {
   position: fixed; z-index: 45; display: flex; gap: 2px; padding: 4px;
   max-width: calc(100vw - 16px); overflow-x: auto;
   border: 1px solid hsl(var(--border)); border-radius: 8px;
   background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); box-shadow: var(--shadow-md);
 }
-.organize-math-toolbar > button { flex-shrink: 0; min-height: 36px; min-width: 36px; }
+.organize-math-toolbar > button,
+.organize-mermaid-selection-toolbar > button { flex-shrink: 0; min-height: 36px; min-width: 36px; }
 .organize-math-dialog { max-width: 640px; max-height: 90dvh; }
 .organize-math-source {
   display: block; margin-top: 8px; width: 100%; min-height: 128px; resize: vertical;
@@ -7434,6 +7464,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 .organize-math-preview { min-height: 96px; max-height: 240px; overflow: auto; margin-top: 8px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--muted)); }
 .organize-math-preview[data-invalid="true"] { border-color: hsl(var(--destructive)); }
 @media (max-width: 767px), (pointer: coarse) {
-  .organize-math-toolbar > button { min-height: 44px; min-width: 44px; }
+  .organize-math-toolbar > button,
+  .organize-mermaid-selection-toolbar > button { min-height: 44px; min-width: 44px; }
   .organize-math-source { font-size: 16px; }
 }
