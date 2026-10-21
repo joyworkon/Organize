@@ -7,7 +7,7 @@
  *  （图标 + 文字，title 悬停提示，button + aria-label 可 Tab 聚焦，
  *   点击后插入并更新目标提示）；
  * - 「页面」组：新建空白页面 / 宣传落地页骨架（B1 入口保留）；
- * - 「自由放置」次级折叠区：自由文本 / 自由图片，明确标注「自由定位，不随页面排版」
+ * - 「自由放置」次级折叠区：自由文本 / 自由图片 / 便签，明确标注「自由定位，不随页面排版」
  *  （默认添加**不**创建脱离页面的自由内容）；
  * - 「结构」「模板」折叠区：复用 B1 大纲树与四项模板；
  * - 「资料」折叠区（E 阶段）：由工作区注入资料搜索面板（引用卡片/摘录/图片）；
@@ -26,8 +26,10 @@ import {
   Minus,
   MousePointerClick,
   Rows3,
+  StickyNote,
   Type as TypeIcon,
 } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 import type { CanvasTemplateKind } from "@/lib/canvas/commands";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasOutlineTree, CanvasTemplateList } from "./canvas-outline-panel";
@@ -54,6 +56,7 @@ export interface CanvasAddPanelProps {
   onAddBlankBoard: () => void;
   onAddLandingBoard: () => void;
   onAddFreeText: () => void;
+  onAddFreeSticky: () => void;
   onAddFreeImage: () => void;
   onApplyTemplate: (template: CanvasTemplateKind) => void;
   /** 资料面板（E 阶段接入）：由工作区提供，渲染在「资料」折叠组。 */
@@ -101,6 +104,7 @@ export function CanvasAddPanel({
   onAddBlankBoard,
   onAddLandingBoard,
   onAddFreeText,
+  onAddFreeSticky,
   onAddFreeImage,
   onApplyTemplate,
   material,
@@ -181,6 +185,17 @@ export function CanvasAddPanel({
             <ImageIcon className="h-4 w-4 flex-shrink-0" />
             <span>自由图片</span>
           </button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="canvas-add-item"
+            title="新建黄色便签：自由定位，背景可在属性栏更改"
+            aria-label="新建便签"
+            onClick={onAddFreeSticky}
+          >
+            <StickyNote className="h-4 w-4 flex-shrink-0" />
+            <span>便签</span>
+          </Button>
         </div>
       </DetailsGroup>
 

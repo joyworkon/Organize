@@ -23,6 +23,7 @@ import {
   createBoardSkeleton,
   createFreeImage,
   createFreeText,
+  createFreeSticky,
   deleteBlock,
   deleteBoard,
   deleteFreeItem,
@@ -524,6 +525,31 @@ describe("列宽策略", () => {
 });
 
 describe("自由容器（A10 结构层）", () => {
+  it("便签保持自由文本结构，预设黄色圆角、空正文和 free 焦点", () => {
+    const base = createFreeText(emptyDoc(), { x: 0, y: 0 }, counterIds()).doc;
+    const before = structuredClone(base);
+    const result = createFreeSticky(base, { x: 15, y: -20 }, counterIds("sticky"));
+    expect(base).toEqual(before);
+    expect(result.doc.schemaVersion).toBe(base.schemaVersion);
+    expect(result.doc.boards).toEqual(base.boards);
+    expect(result.doc.freeItems[0]).toEqual(base.freeItems[0]);
+    const item = result.doc.freeItems[1];
+    expect(item).toMatchObject({ x: 15, y: -20, width: 220, zIndex: 2,
+      block: { type: "text", role: "body", text: "", style: { background: "yellow", radius: 8 } } });
+    expect(item.id).not.toBe(item.block.id);
+    expect(result.focus).toEqual({ kind: "free", itemId: item.id });
+    expect(validateCanvasContent(result.doc).ok).toBe(true);
+  });
+
+  it("便签允许覆盖背景和宽度，普通自由文本保持原默认值", () => {
+    const sticky = createFreeSticky(emptyDoc(), { x: 0, y: 0, width: 200, background: "green" }).doc.freeItems[0];
+    expect(sticky.width).toBe(200);
+    expect(sticky.block.style).toEqual({ background: "green", radius: 8 });
+    const text = createFreeText(emptyDoc(), { x: 0, y: 0 }).doc.freeItems[0];
+    expect(text.width).toBe(240);
+    expect(text.block.style?.background).toBeFalsy();
+  });
+
   it("创建/移动/改宽/删除；zIndex 递增", () => {
     const newId = counterIds();
     const doc = emptyDoc();
