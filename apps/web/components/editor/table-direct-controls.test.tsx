@@ -210,7 +210,7 @@ describe("TableDirectControls", () => {
             table?.querySelectorAll("colgroup > col") ?? []
           );
           const column = columns.indexOf(this);
-          const columnWidth = measuredTableRect.width
+          const columnWidth = Number.parseFloat(this.style.width) || measuredTableRect.width
             / Math.max(1, columns.length);
           return box(
             measuredTableRect.left + column * columnWidth,
@@ -414,6 +414,117 @@ describe("TableDirectControls", () => {
         (_, row) => table!.child(row).child(0).textContent
       )
     ).toEqual(["1:0", "0:0", "2:0"]);
+  });
+
+  it.each([1, 3])("previews and commits column %i once without starting a reorder", async (column) => {
+    const handle = controlsHost.querySelector<HTMLButtonElement>(`[aria-label="调整第 ${column} 列宽度"]`)!;
+    expect(handle.getAttribute("role")).toBe("separator");
+    expect(handle.getAttribute("aria-orientation")).toBe("vertical");
+    expect(handle.getAttribute("aria-valuemin")).toBe("48");
+    const capture = vi.fn();
+    const release = vi.fn();
+    handle.setPointerCapture = capture;
+    handle.hasPointerCapture = () => true;
+    handle.releasePointerCapture = release;
+    const before = editor.getJSON();
+    const onUpdate = vi.fn(); editor.on("update", onUpdate);
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 61, clientX: 240, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 61, clientX: 275, clientY: 110 }));
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const preview = document.head.querySelector('style[data-organize-column-resize-preview]');
+    expect(preview?.textContent).toContain("width: 135px");
+    expect(preview?.textContent).toContain("width: 335px");
+    expect(controlsHost.querySelector(".table-drag-status")).toBeNull();
+    expect(editor.getJSON()).toEqual(before);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledWith(61);
+    act(() => { window.dispatchEvent(pointerEvent("pointerup", { pointerId: 61, clientX: 275, clientY: 110 })); });
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).toBeNull();
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(61);
+    const table = editor.state.doc.nodeAt(0)!;
+    for (let row = 0; row < 3; row += 1) expect(table.child(row).child(column - 1).attrs.colwidth).toEqual([135]);
+  });
+
+  it.each(["Escape", "pointercancel", "blur", "unmount"])("cancels column preview on %s", (reason) => {
+    const handle = controlsHost.querySelector('[aria-label="调整第 1 列宽度"]')!;
+    const before = editor.getJSON();
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 62, clientX: 240, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 62, clientX: 280, clientY: 110 }));
+    });
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).not.toBeNull();
+    act(() => {
+      if (reason === "Escape") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      if (reason === "pointercancel") window.dispatchEvent(pointerEvent("pointercancel", { pointerId: 62, clientX: 280, clientY: 110 }));
+      if (reason === "blur") window.dispatchEvent(new Event("blur"));
+      if (reason === "unmount") { root?.unmount(); root = null; }
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 62, clientX: 280, clientY: 110 }));
+    });
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).toBeNull();
+    expect(editor.view.dom.querySelector('[class*="organize-column-resize-preview"]')).toBeNull();
+    expect(editor.getJSON()).toEqual(before);
+  });
+
+  it("clamps pointer width and adjusts the focused column with arrow keys", () => {
+    const handle = controlsHost.querySelector<HTMLButtonElement>('[aria-label="调整第 2 列宽度"]')!;
+    act(() => {
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    });
+    expect(editor.state.doc.nodeAt(0)!.child(0).child(1).attrs.colwidth).toEqual([104]);
+    act(() => { handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })); });
+    expect(editor.state.doc.nodeAt(0)!.child(0).child(1).attrs.colwidth).toEqual([100]);
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 63, clientX: 340, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 63, clientX: 20, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 63, clientX: 20, clientY: 110 }));
+    });
+    expect(editor.state.doc.nodeAt(0)!.child(0).child(1).attrs.colwidth).toEqual([48]);
+  });
+
+  it("discards a pending resize when the document changes or editing is revoked", () => {
+    const handle = controlsHost.querySelector('[aria-label="调整第 1 列宽度"]')!;
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 66, clientX: 240, clientY: 110 }));
+      editor.commands.setContent({ type: "doc", content: [{ type: "paragraph" }] });
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 66, clientX: 270, clientY: 110 }));
+    });
+    expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).toBeNull();
+    act(() => { editor.commands.setContent({ type: "doc", content: [matrixTable()] }); editor.commands.setTextSelection(4); });
+    const nextHandle = controlsHost.querySelector('[aria-label="调整第 1 列宽度"]')!;
+    act(() => {
+      nextHandle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 67, clientX: 240, clientY: 110 }));
+      editor.setEditable(false);
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 67, clientX: 270, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 67, clientX: 270, clientY: 110 }));
+    });
+    expect(editor.state.doc.nodeAt(0)!.child(0).child(0).attrs.colwidth).toBeNull();
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).toBeNull();
+  });
+
+  it("resizes merged columns and ignores unrelated pointers and readonly starts", () => {
+    act(() => { editor.commands.setContent({ type: "doc", content: [mergedTable()] }); editor.commands.setTextSelection(4); });
+    const handle = controlsHost.querySelector('[aria-label="调整第 3 列宽度"]')!;
+    act(() => {
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 64, clientX: 440, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 999, clientX: 900, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 999, clientX: 900, clientY: 110 }));
+    });
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(pointerEvent("pointermove", { pointerId: 64, clientX: 470, clientY: 110 }));
+      window.dispatchEvent(pointerEvent("pointerup", { pointerId: 64, clientX: 470, clientY: 110 }));
+    });
+    expect(editor.state.doc.nodeAt(0)!.child(0).child(1).attrs.colwidth).toEqual([100, 130]);
+    act(() => {
+      editor.setEditable(false);
+      handle.dispatchEvent(pointerEvent("pointerdown", { pointerId: 65, clientX: 440, clientY: 110 }));
+    });
+    expect(document.head.querySelector('style[data-organize-column-resize-preview]')).toBeNull();
   });
 
   it("keeps row-resize preview out of the document and fully cancels it", async () => {
