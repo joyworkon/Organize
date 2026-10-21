@@ -64,14 +64,30 @@ test.describe("B03 反链读路径（v2 切读）", () => {
     // Wait for the final collaborative editor, which replaces the initial local instance.
     await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
     const sourceTitle = `行内页面链接-${Date.now()}`;
+    const sourceId = new URL(page.url()).pathname.split("/").pop();
+    // A newly opened note can still be replacing its initial editor/save binding.
+    // Confirm this source title was saved before exercising the inline picker.
+    const titleSaved = page.waitForResponse((response) => {
+      if (!response.url().includes("/rpc/save_note_with_tasks_v2") || !response.ok()) return false;
+      const body = response.request().postDataJSON();
+      return body.p_note_id === sourceId && body.p_title === sourceTitle;
+    });
     await page.getByPlaceholder("无标题笔记").fill(sourceTitle);
+    await titleSaved;
+    await expect(editor).toHaveAttribute("contenteditable", "true");
     await editor.locator("p").first().click();
     await page.keyboard.insertText("[[反链目标");
     const picker = page.locator(".page-link-popover");
     await expect(picker.getByRole("option", { name: /^反链目标笔记/ })).toBeEnabled();
+    const linkSaved = page.waitForResponse((response) => {
+      if (!response.url().includes("/rpc/save_note_with_tasks_v2") || !response.ok()) return false;
+      const body = response.request().postDataJSON();
+      return body.p_note_id === sourceId && JSON.stringify(body.p_content).includes(`/notes/${seed.targetId}`);
+    });
     await page.keyboard.press("Enter");
     const link = editor.locator(`a[href="/notes/${seed.targetId}"]`);
     await expect(link).toHaveText("反链目标笔记");
+    await linkSaved;
     await expect(page.locator(".note-save-status")).toContainText("已保存", { timeout: 30_000 });
     await page.reload();
     await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
