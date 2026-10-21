@@ -169,12 +169,50 @@ export interface CanvasMaterialCardBlock {
 /** 卡片摘录默认上限（超出截断进快照，可编辑）。 */
 export const MATERIAL_CARD_EXCERPT_MAX = 500;
 
+/** 链接解析结果形态：embed = 白名单 provider 的 iframe 片段；link-card = OG 卡片。 */
+export type CanvasEmbedKind = "embed" | "link-card";
+/** 解析状态：loading 持久化进文档，刷新后由视图自愈重解析。 */
+export type CanvasEmbedStatus = "ready" | "loading" | "error";
+
+/**
+ * 链接 / 视频嵌入块：url 为真源，其余字段是 /api/oembed 解析快照
+ * （属性栏可本地改 title/description，不回写远端）。
+ * html 只在 kind==="embed" 时存在；sandbox 渲染时必须再剔除 allow-same-origin
+ * （与 components/editor/extensions/embed.tsx 一致）。
+ */
+export interface CanvasEmbedBlock {
+  id: string;
+  type: "embed";
+  /** 仅 http(s)（校验 + 渲染双重把关）。 */
+  url: string;
+  kind: CanvasEmbedKind;
+  title: string;
+  description?: string;
+  siteName?: string;
+  provider?: string;
+  /** 封面图外链；null/undefined = 无封面。 */
+  cover?: string | null;
+  /** 白名单 iframe 片段（仅 kind==="embed"）。 */
+  html?: string;
+  sandbox?: string;
+  status?: CanvasEmbedStatus;
+  style?: CanvasBlockStyle;
+}
+
+/** 链接卡片固定内容高（标题 2 行 + 描述 2 行 + 站点行；有无封面一致，避免跳动）。 */
+export const EMBED_LINK_CARD_CONTENT_HEIGHT = 104;
+/** 嵌入 iframe 片段长度上限。 */
+export const EMBED_HTML_MAX_LENGTH = 20000;
+/** 链接卡描述长度上限（OG description 截断进快照）。 */
+export const EMBED_DESCRIPTION_MAX_LENGTH = 1000;
+
 export type CanvasBlock =
   | CanvasTextBlock
   | CanvasImageBlock
   | CanvasDividerBlock
   | CanvasButtonBlock
-  | CanvasMaterialCardBlock;
+  | CanvasMaterialCardBlock
+  | CanvasEmbedBlock;
 
 export interface CanvasColumn {
   id: string;
@@ -360,6 +398,55 @@ export function createMaterialCardBlock(
     text: payload.text,
     sourceRef: payload.sourceRef,
   };
+}
+
+/**
+ * 链接 / 视频嵌入块工厂：先落 loading 占位（kind 按白名单预判，占位即最终
+ * 高度），解析完成后由 updateEmbedBlock 原地更新字段。
+ */
+export function createEmbedBlock(
+  url: string,
+  opts: { kind?: CanvasEmbedKind; title?: string } = {},
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasEmbedBlock {
+  return {
+    id: newId(),
+    type: "embed",
+    url,
+    kind: opts.kind ?? "link-card",
+    title: opts.title ?? embedPlaceholderTitle(url),
+    status: "loading",
+  };
+}
+
+/** embed.url / cover 的安全判定：仅 http(s)。校验与插入入口共用。 */
+export function isSafeEmbedUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+/** 占位标题：URL 主机名（无 host 时回退通用文案）。 */
+export function embedPlaceholderTitle(url: string): string {
+  try {
+    return new URL(url).hostname || "正在解析链接…";
+  } catch {
+    return "正在解析链接…";
+  }
+}
+
+/** 渲染用安全 sandbox：强制剔除 allow-same-origin，空值回默认集（与笔记 Embed 一致）。 */
+export const EMBED_DEFAULT_SANDBOX = "allow-scripts allow-popups allow-presentation";
+
+export function stripEmbedSandbox(sandbox: string | undefined): string {
+  const cleaned = (sandbox ?? "").replace(/(^|\s)allow-same-origin(\s|$)/g, " ").trim();
+  return cleaned || EMBED_DEFAULT_SANDBOX;
+}
+
+/** 嵌入块内容自然高（不含块 chrome）：embed 按宽 16:9；link-card 固定高。 */
+export function embedContentHeight(
+  block: Pick<CanvasEmbedBlock, "kind">,
+  innerWidth: number,
+): number {
+  return block.kind === "embed" ? innerWidth * (9 / 16) : EMBED_LINK_CARD_CONTENT_HEIGHT;
 }
 
 export function createColumn(

@@ -11,14 +11,18 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type CSSProperties,
 } from "react";
-import { Image as ImageIcon, Loader2 } from "@/components/icons";
+import { AlertCircle, ExternalLink, Globe, Image as ImageIcon, Loader2 } from "@/components/icons";
 import {
   BLOCK_PADDING,
   isSafeButtonHref,
+  isSafeEmbedUrl,
+  stripEmbedSandbox,
   type CanvasButtonBlock,
   type CanvasDividerBlock,
+  type CanvasEmbedBlock,
   type CanvasImageBlock,
   type CanvasMaterialCardBlock,
   type CanvasSourceRef,
@@ -30,6 +34,7 @@ import {
   splitTextToSection,
   updateTextBlock,
 } from "@/lib/canvas/commands";
+import { isEmbedResolving, resolveEmbedBlock } from "@/lib/canvas/embed-insert";
 import { resolveTextStyle } from "@/lib/canvas/text-styles";
 import { applyCanvasTextStyle } from "./text-measurer";
 import type { CanvasStore } from "./canvas-store";
@@ -662,6 +667,186 @@ export const CanvasMaterialCardBlockView = memo(function CanvasMaterialCardBlock
           <SourceStatusBadge sourceRef={block.sourceRef} status={sourceStatus} />
         </div>
       </div>
+      {children}
+    </div>
+  );
+});
+
+/**
+ * 链接 / 视频嵌入块：
+ * - link-card：封面（失败隐藏）+ 标题 + 两行描述 + 站点行；预览/只读整卡为新标签链接；
+ * - embed：16:9 sandbox iframe（srcDoc；渲染时强制剔除 allow-same-origin，与笔记 Embed 一致），
+ *   编辑态盖透明遮罩（点击=选中，双击打开原链接），预览态可互动；
+ * - loading / error 就地展示（不删块）；挂载自愈：刷新后停在 loading 的块自动补一次解析。
+ */
+export const CanvasEmbedBlockView = memo(function CanvasEmbedBlockView({
+  block,
+  x,
+  y,
+  width,
+  height,
+  selected,
+  store,
+  interactive,
+  children,
+}: CanvasBlockViewProps & { block: CanvasEmbedBlock }) {
+  const status = block.status ?? "ready";
+  const safe = isSafeEmbedUrl(block.url);
+  const [brokenCover, setBrokenCover] = useState<string | null>(null);
+
+  // 自愈只在挂载时触发一次（撤销不会落在 loading 态；在途解析由 isEmbedResolving 去重）
+  useEffect(() => {
+    if (!interactive || block.status !== "loading" || isEmbedResolving(block.id)) return;
+    void resolveEmbedBlock({ store, blockId: block.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openUrl = useCallback(() => {
+    if (safe) window.open(block.url, "_blank", "noopener,noreferrer");
+  }, [block.url, safe]);
+
+  const retry = useCallback(() => {
+    void resolveEmbedBlock({ store, blockId: block.id, force: true });
+  }, [block.id, store]);
+
+  let host = block.url;
+  try {
+    host = new URL(block.url).hostname;
+  } catch {
+    // 非法 URL：按原串显示（校验层已阻止入库，这里只做兜底展示）
+  }
+  const showCover = !!block.cover && brokenCover !== block.cover;
+  const sandbox = stripEmbedSandbox(block.sandbox);
+  const titleText = block.title || block.url;
+
+  const body =
+    block.kind === "embed" ? (
+      <div className="canvas-embed-frame">
+        {status === "error" ? (
+          <div className="canvas-embed-state is-error" role="alert">
+            <AlertCircle className="h-4 w-4" />
+            <span>解析失败，未能生成嵌入</span>
+            {interactive ? (
+              <button type="button" className="canvas-embed-retry" onClick={retry}>
+                重试
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            {block.html ? (
+              <iframe
+                title={titleText}
+                srcDoc={block.html}
+                sandbox={sandbox}
+                referrerPolicy="no-referrer"
+                loading="lazy"
+              />
+            ) : null}
+            {status === "loading" && (
+              <div className="canvas-embed-state is-loading" role="status" aria-label="正在解析嵌入内容">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>正在解析…</span>
+              </div>
+            )}
+            {interactive && <div className="canvas-embed-shield" aria-hidden="true" />}
+          </>
+        )}
+      </div>
+    ) : (
+      <div className="canvas-link-card">
+        {showCover && block.cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            className="canvas-link-card-cover"
+            src={block.cover}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            draggable={false}
+            onError={() => setBrokenCover(block.cover ?? null)}
+          />
+        ) : null}
+        <div className="canvas-link-card-body">
+          <div className="canvas-link-card-title">{titleText}</div>
+          {status === "ready" && block.description ? (
+            <div className="canvas-link-card-desc">{block.description}</div>
+          ) : null}
+          {status === "loading" && (
+            <div className="canvas-link-card-desc" role="status">
+              正在解析链接…
+            </div>
+          )}
+          {status === "error" && (
+            <div className="canvas-link-card-error" role="alert">
+              <span>解析失败</span>
+              {interactive ? (
+                <button type="button" className="canvas-embed-retry" onClick={retry}>
+                  重试
+                </button>
+              ) : null}
+            </div>
+          )}
+          <div className="canvas-link-card-site">
+            <Globe className="h-3 w-3 flex-shrink-0" />
+            <span className="canvas-link-card-host">{block.siteName || host}</span>
+            {safe && <ExternalLink className="h-3 w-3 flex-shrink-0" />}
+          </div>
+        </div>
+      </div>
+    );
+
+  // 预览 / 只读：link-card 整卡可点打开（embed iframe 保留互动，无遮罩）
+  if (!interactive) {
+    return (
+      <div
+        className={`canvas-block canvas-block-embed ${selected ? "is-selected" : ""}`}
+        style={boxStyle(x, y, width, height, block.style)}
+        data-block-id={block.id}
+        data-block-type="embed"
+      >
+        {block.kind === "link-card" && safe ? (
+          <a
+            className="canvas-link-card-link"
+            href={block.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`打开链接：${titleText}`}
+          >
+            {body}
+          </a>
+        ) : (
+          body
+        )}
+        {children}
+      </div>
+    );
+  }
+
+  // 编辑态：单击选中；双击新标签打开（iframe 有透明遮罩，不抢播放器交互）
+  return (
+    <div
+      className={`canvas-block canvas-block-embed group ${selected ? "is-selected" : ""}`}
+      style={boxStyle(x, y, width, height, block.style)}
+      data-block-id={block.id}
+      data-block-type="embed"
+      role="button"
+      tabIndex={0}
+      aria-label={block.kind === "embed" ? `嵌入：${titleText}` : `链接卡片：${titleText}`}
+      onPointerDown={(e) => {
+        if (e.button === 2) return;
+        store.getState().select({ kind: "block", blockId: block.id });
+      }}
+      onDoubleClick={openUrl}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          store.getState().select({ kind: "block", blockId: block.id });
+        }
+      }}
+    >
+      {body}
       {children}
     </div>
   );

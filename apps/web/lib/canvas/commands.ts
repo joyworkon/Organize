@@ -19,6 +19,8 @@ import {
   CanvasButtonVariant,
   CanvasCommandResult,
   CanvasDoc,
+  CanvasEmbedKind,
+  CanvasEmbedStatus,
   CanvasFocus,
   CanvasFreeItem,
   CanvasIdGenerator,
@@ -33,6 +35,8 @@ import {
   CanvasTextAlign,
   CanvasTextBlock,
   CanvasTextRole,
+  EMBED_DESCRIPTION_MAX_LENGTH,
+  EMBED_HTML_MAX_LENGTH,
   MIN_TEXT_CONTENT_HEIGHT,
   defaultIdGenerator,
   countNodes,
@@ -759,6 +763,68 @@ export function updateButtonBlock(
       if (args.align !== undefined) loc.block.align = args.align;
       if (args.variant !== undefined) loc.block.variant = args.variant;
     }
+    return null;
+  });
+}
+
+/**
+ * 链接 / 视频嵌入块字段更新；undefined = 保持原值，null（cover）= 清空。
+ * 解析完成时一次性写入全部快照字段（可撤销）；status 切换由调用方决定是否进历史。
+ * kind 切为 link-card 时自动清掉 html（link-card 不得携带 iframe 片段）。
+ */
+export function updateEmbedBlock(
+  doc: CanvasDoc,
+  args: {
+    blockId: string;
+    url?: string;
+    kind?: CanvasEmbedKind;
+    title?: string;
+    description?: string;
+    siteName?: string;
+    provider?: string;
+    cover?: string | null;
+    html?: string;
+    sandbox?: string;
+    status?: CanvasEmbedStatus;
+  },
+): CanvasCommandResult {
+  return edit(doc, (draft) => {
+    const loc = findBlockLocation(draft, args.blockId);
+    if (!loc || loc.block.type !== "embed") return null;
+    const block = loc.block;
+    if (args.url !== undefined) block.url = args.url.slice(0, CANVAS_LIMITS.maxAssetUrlLength);
+    if (args.kind !== undefined) block.kind = args.kind;
+    if (args.title !== undefined) block.title = args.title.slice(0, CANVAS_LIMITS.maxTitleLength);
+    if (args.description !== undefined) {
+      const text = args.description.slice(0, EMBED_DESCRIPTION_MAX_LENGTH);
+      if (text) block.description = text;
+      else delete block.description;
+    }
+    if (args.siteName !== undefined) {
+      const text = args.siteName.slice(0, CANVAS_LIMITS.maxNameLength);
+      if (text) block.siteName = text;
+      else delete block.siteName;
+    }
+    if (args.provider !== undefined) {
+      const text = args.provider.slice(0, CANVAS_LIMITS.maxNameLength);
+      if (text) block.provider = text;
+      else delete block.provider;
+    }
+    if (args.cover !== undefined) {
+      if (args.cover) block.cover = args.cover.slice(0, CANVAS_LIMITS.maxAssetUrlLength);
+      else delete block.cover;
+    }
+    if (args.html !== undefined) {
+      const text = args.html.slice(0, EMBED_HTML_MAX_LENGTH);
+      if (text) block.html = text;
+      else delete block.html;
+    }
+    if (args.sandbox !== undefined) {
+      if (args.sandbox) block.sandbox = args.sandbox.slice(0, 200);
+      else delete block.sandbox;
+    }
+    if (args.status !== undefined) block.status = args.status;
+    if (block.kind === "link-card") delete block.html;
     return null;
   });
 }

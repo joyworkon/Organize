@@ -13,6 +13,7 @@ import {
   type CanvasClipboardPayload,
 } from "@/lib/canvas/clipboard";
 import { deleteBlock, deleteBoard, deleteFreeItem, deleteRegion } from "@/lib/canvas/commands";
+import { matchSingleUrlText } from "@/lib/canvas/embed-insert";
 import type { ExplicitInsertPosition } from "@/lib/canvas/insert-target";
 import type { CanvasStore } from "./canvas-store";
 
@@ -23,6 +24,11 @@ export interface CanvasPasteRequest {
   atPointer?: boolean;
   /** 来自 paste 事件的纯文本。菜单触发时先读系统剪贴板再传入。 */
   systemText?: string;
+  /**
+   * 单行 http(s) URL 的接管：画布内结构化剪贴板优先；其后若整段文本是一个 URL，
+   * 交给工作区插入链接 / 视频块（不再落成自由文本）。缺省无接管 → 原纯文本路径。
+   */
+  onInsertEmbed?: (url: string, explicit: ExplicitInsertPosition | null) => void;
 }
 
 export function commitCanvasCopy(store: CanvasStore): boolean {
@@ -79,6 +85,15 @@ export function commitCanvasPaste(store: CanvasStore, request: CanvasPasteReques
     return;
   }
   if (!systemText.trim()) return;
+  // 整段文本是单行 URL → 链接 / 视频嵌入块（结构化剪贴板已在上文优先）
+  const pastedUrl = matchSingleUrlText(systemText);
+  if (pastedUrl) {
+    if (request.onInsertEmbed) {
+      request.onInsertEmbed(pastedUrl, request.explicit);
+      return;
+    }
+    // 无接管方（理论上不会出现）：回退原纯文本路径
+  }
   const result = pastePlainTextAsFreeItem(state.doc, systemText, request.pointer, plainTextPasteIndex(systemText));
   if (result.rejected) {
     toast({ title: "无法粘贴", description: result.rejected, variant: "destructive" });

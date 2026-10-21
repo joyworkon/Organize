@@ -17,7 +17,10 @@ import {
   CanvasDoc,
   countNodes,
   ensureCanvasDocV2,
+  EMBED_DESCRIPTION_MAX_LENGTH,
+  EMBED_HTML_MAX_LENGTH,
   isSafeButtonHref,
+  isSafeEmbedUrl,
 } from "./model";
 import { validateSourceRefField } from "./source-ref";
 
@@ -222,6 +225,53 @@ function validateBlock(
       errors.push(`${path}.text 超长或非法`);
     }
     validateSourceRefField(b.sourceRef, errors, path);
+    validateStyle(b.style, errors, path);
+    return true;
+  }
+  if (b.type === "embed") {
+    if (typeof b.url !== "string" || b.url.length === 0 || b.url.length > CANVAS_LIMITS.maxAssetUrlLength) {
+      errors.push(`${path}.url 缺失、超长或非法`);
+    } else if (!isSafeEmbedUrl(b.url)) {
+      errors.push(`${path}.url 仅允许 http(s) 链接`);
+    }
+    if (b.kind !== "embed" && b.kind !== "link-card") {
+      errors.push(`${path}.kind 非法`);
+    }
+    if (typeof b.title !== "string" || b.title.length > CANVAS_LIMITS.maxTitleLength) {
+      errors.push(`${path}.title 超长或非法`);
+    }
+    if (
+      b.description !== undefined &&
+      (typeof b.description !== "string" || b.description.length > EMBED_DESCRIPTION_MAX_LENGTH)
+    ) {
+      errors.push(`${path}.description 超长或非法`);
+    }
+    for (const key of ["siteName", "provider"] as const) {
+      const v = b[key];
+      if (v !== undefined && (typeof v !== "string" || v.length > CANVAS_LIMITS.maxNameLength)) {
+        errors.push(`${path}.${key} 超长或非法`);
+      }
+    }
+    if (b.cover !== undefined && b.cover !== null) {
+      if (typeof b.cover !== "string" || b.cover.length > CANVAS_LIMITS.maxAssetUrlLength) {
+        errors.push(`${path}.cover 超长或非法`);
+      } else if (b.cover !== "" && !isSafeEmbedUrl(b.cover)) {
+        errors.push(`${path}.cover 仅允许 http(s) 链接`);
+      }
+    }
+    if (b.html !== undefined) {
+      if (typeof b.html !== "string" || b.html.length > EMBED_HTML_MAX_LENGTH) {
+        errors.push(`${path}.html 超长或非法`);
+      } else if (b.html !== "" && b.kind === "link-card") {
+        errors.push(`${path}.html 仅 kind=embed 可携带 iframe 片段`);
+      }
+    }
+    if (b.sandbox !== undefined && (typeof b.sandbox !== "string" || b.sandbox.length > 200)) {
+      errors.push(`${path}.sandbox 非法`);
+    }
+    if (b.status !== undefined && !["ready", "loading", "error"].includes(String(b.status))) {
+      errors.push(`${path}.status 非法`);
+    }
     validateStyle(b.style, errors, path);
     return true;
   }

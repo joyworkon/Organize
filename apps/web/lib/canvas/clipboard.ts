@@ -362,6 +362,7 @@ function plainTextFromBlocks(blocks: readonly CanvasBlock[]): string {
       if (block.title.trim()) parts.push(block.title);
       if (block.text.trim()) parts.push(block.text);
     } else if (block.type === "image" && block.alt?.trim()) parts.push(block.alt);
+    else if (block.type === "embed" && block.title.trim()) parts.push(block.title);
   }
   return parts.join("\n");
 }

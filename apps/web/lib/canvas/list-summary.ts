@@ -20,6 +20,7 @@ export const CANVAS_SUMMARY_MAX_SHAPES = 40;
 
 function blockText(block: CanvasBlock): string {
   if (block.type === "text" || block.type === "materialCard") return block.text;
+  if (block.type === "embed") return block.title;
   return "";
 }
 

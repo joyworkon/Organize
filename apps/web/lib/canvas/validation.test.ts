@@ -311,3 +311,57 @@ describe("B2 新块类型校验", () => {
     expect(validateCanvasContent(bad2).errors.some((e) => e.includes(".verticalAlign"))).toBe(true);
   });
 });
+
+describe("validateCanvasContent：链接 / 视频嵌入块（embed）", () => {
+  const withEmbed = (patch: Record<string, unknown>) => {
+    const doc = validDoc();
+    doc.boards[0].regions[0].sections[0].columns[0].blocks.push({
+      id: "e1",
+      type: "embed",
+      url: "https://example.com/post",
+      kind: "link-card",
+      title: "示例",
+      ...patch,
+    } as never);
+    return validateCanvasContent(doc);
+  };
+
+  it("link-card 与 embed 两种形态均合法；不 bump schemaVersion", () => {
+    expect(withEmbed({ description: "d", siteName: "example.com", cover: "https://example.com/c.jpg", status: "ready" }).ok).toBe(true);
+    expect(
+      withEmbed({
+        kind: "embed",
+        provider: "YouTube",
+        html: '<iframe src="https://www.youtube-nocookie.com/embed/x"></iframe>',
+        sandbox: "allow-scripts allow-popups",
+        status: "loading",
+      }).ok,
+    ).toBe(true);
+    expect(withEmbed({ cover: null }).ok).toBe(true);
+    expect(withEmbed({}).doc?.schemaVersion).toBe(2);
+    expect(withEmbed({}).unknownBlockIds).toEqual([]);
+  });
+
+  it("url 必填且仅允许 http(s)", () => {
+    expect(withEmbed({ url: "" }).errors.some((e) => e.includes(".url"))).toBe(true);
+    expect(withEmbed({ url: "javascript:alert(1)" }).errors.some((e) => e.includes("仅允许 http(s)"))).toBe(true);
+    expect(withEmbed({ url: "ftp://x.y/z" }).errors.some((e) => e.includes("仅允许 http(s)"))).toBe(true);
+    expect(withEmbed({ url: "https://" + "a".repeat(CANVAS_LIMITS.maxAssetUrlLength) }).errors.some((e) => e.includes(".url"))).toBe(true);
+  });
+
+  it("kind / status 枚举、标题与描述长度上限", () => {
+    expect(withEmbed({ kind: "video" }).errors.some((e) => e.includes(".kind"))).toBe(true);
+    expect(withEmbed({ status: "pending" }).errors.some((e) => e.includes(".status"))).toBe(true);
+    expect(withEmbed({ title: "t".repeat(CANVAS_LIMITS.maxTitleLength + 1) }).errors.some((e) => e.includes(".title"))).toBe(true);
+    expect(withEmbed({ description: "d".repeat(1001) }).errors.some((e) => e.includes(".description"))).toBe(true);
+    expect(withEmbed({ siteName: "s".repeat(CANVAS_LIMITS.maxNameLength + 1) }).errors.some((e) => e.includes(".siteName"))).toBe(true);
+  });
+
+  it("cover 仅 http(s)；html 只允许 kind=embed 携带且有长度上限", () => {
+    expect(withEmbed({ cover: "data:image/png;base64,AAAA" }).errors.some((e) => e.includes(".cover"))).toBe(true);
+    expect(withEmbed({ cover: "javascript:x" }).errors.some((e) => e.includes(".cover"))).toBe(true);
+    expect(withEmbed({ kind: "link-card", html: "<iframe></iframe>" }).errors.some((e) => e.includes("仅 kind=embed"))).toBe(true);
+    expect(withEmbed({ kind: "embed", html: "x".repeat(20001) }).errors.some((e) => e.includes(".html"))).toBe(true);
+    expect(withEmbed({ kind: "embed", html: "" }).ok).toBe(true);
+  });
+});

@@ -4,6 +4,7 @@ import {
   BOARD_GAP,
   BOARD_PADDING,
   COLUMN_MIN_WIDTH,
+  EMBED_LINK_CARD_CONTENT_HEIGHT,
   MIN_TEXT_CONTENT_HEIGHT,
   createBoardShape,
   emptyDoc,
@@ -556,5 +557,23 @@ describe("B2 布局：行距覆盖 / 垂直对齐 / 版面图片定比例 / 新�
     // 每列 1 块：拉伸语义下块高 = 行高（行高 = 各列自然高的最大值）
     expect(sec.columns[0].blocks[0].height).toBeCloseTo(sec.height, 6);
     expect(sec.columns[1].blocks[0].height).toBeCloseTo(sec.height, 6);
+  });
+
+  it("嵌入块测高：embed 按列内宽 16:9，link-card 固定高（与 loading/error 态一致，不走文本测量）", () => {
+    const { doc, b } = baseDoc();
+    const body = b.regions[0].sections[1];
+    body.verticalAlign = "top";
+    body.columns[0].blocks.push(
+      { id: "v1", type: "embed", url: "https://youtu.be/abcdefghijk", kind: "embed", title: "视频", status: "loading" },
+      { id: "l1", type: "embed", url: "https://example.com/a", kind: "link-card", title: "卡片", cover: "https://example.com/c.jpg" },
+      { id: "l2", type: "embed", url: "https://example.com/b", kind: "link-card", title: "无封面卡片", status: "error" },
+    );
+    const scene = computeScene(doc, fakeMeasure);
+    const col = scene.boards[0].regions[0].sections[1].columns[0];
+    const innerWidth = col.width - BLOCK_CHROME;
+    expect(col.blocks[1].height).toBeCloseTo(innerWidth * (9 / 16) + BLOCK_CHROME, 6);
+    expect(col.blocks[2].height).toBeCloseTo(EMBED_LINK_CARD_CONTENT_HEIGHT + BLOCK_CHROME, 6);
+    // 有无封面 / error 态高度一致，选中与封面加载失败都不跳
+    expect(col.blocks[3].height).toBeCloseTo(col.blocks[2].height, 6);
   });
 });
