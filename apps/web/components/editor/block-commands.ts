@@ -299,6 +299,15 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     run: (editor: Editor, pos: number, transaction?: Transaction) => replaceBlock(editor, pos, textBlock("heading", { level }), transaction),
   })),
   {
+    id: "page-link",
+    label: "链接到页面",
+    description: "搜索笔记并插入站内链接",
+    category: "基本区块",
+    icon: Link2,
+    keywords: ["link", "page", "链接", "笔记", "[["],
+    run: (editor) => { editor.chain().focus().insertContent("[[").run(); },
+  },
+  {
     id: "page",
     label: "页面",
     category: "基本区块",
@@ -650,6 +659,10 @@ export function executeNestedCommand(
   commandId: string,
   range: { from: number; to: number }
 ): BlockCommandRunResult {
+  if (commandId === "page-link") {
+    editor.chain().focus().deleteRange(range).insertContent("[[").run();
+    return "handled";
+  }
   // emit 类命令：派发事件让编辑器处理（事件处理器负责删除 range 并插入内容）
   if ((NESTED_EMIT_COMMANDS as readonly string[]).includes(commandId)) {
     editor.view.dom.dispatchEvent(

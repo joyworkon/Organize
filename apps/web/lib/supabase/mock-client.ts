@@ -80,6 +80,16 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
       this.filters.every((f) => {
         if (f.method === "eq") return row[f.column] === f.value;
         if (f.method === "neq") return row[f.column] !== f.value;
+        if (f.method === "ilike") {
+          // SQL LIKE wildcards with backslash escaping, as used by the page-link picker.
+          const pattern = String(f.value).match(/\\[\s\S]|[\s\S]/g)?.map((char) => {
+            if (char === "%") return ".*";
+            if (char === "_") return ".";
+            const literal = char.startsWith("\\") ? char.slice(1) : char;
+            return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          }).join("") ?? "";
+          return row[f.column] != null && new RegExp(`^${pattern}$`, "isu").test(String(row[f.column]));
+        }
         if (f.method === "in") return (f.value as unknown[]).includes(row[f.column]);
         if (f.method === "gte") return row[f.column] != null && row[f.column] >= (f.value as string | number);
         if (f.method === "lte") return row[f.column] != null && row[f.column] <= (f.value as string | number);
@@ -145,7 +155,8 @@ class MockQuery implements PromiseLike<{ data: any; count: number | null; error:
   or() {
     return this;
   }
-  ilike() {
+  ilike(column: string, value: string) {
+    this.filters.push({ method: "ilike", column, value });
     return this;
   }
   like() {

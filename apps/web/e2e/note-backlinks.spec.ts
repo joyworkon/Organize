@@ -53,4 +53,51 @@ test.describe("B03 反链读路径（v2 切读）", () => {
     await panel.getByText("反链来源笔记").click();
     await expect(page).toHaveURL(new RegExp(`/notes/${seed.sourceId}`));
   });
+
+  test("[[ 创建页面链接后刷新保留，并被真实反链索引识别", async ({ page }) => {
+    await login(page);
+    await page.goto(`/notes/${seed.sourceId}`);
+    const editor = page.locator(".tiptap.organize-editor");
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+    // Use the seeded source and wait for its content, not just the transport-ready flag.
+    await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toBeVisible();
+    const sourceTitle = `行内页面链接-${Date.now()}`;
+    const sourceId = new URL(page.url()).pathname.split("/").pop();
+    // Confirm the source title independently of the subsequent body save.
+    const titleSaved = page.waitForResponse((response) => {
+      if (!response.url().includes("/rpc/save_note_with_tasks_v2") || !response.ok()) return false;
+      const body = response.request().postDataJSON();
+      return body.p_note_id === sourceId && body.p_title === sourceTitle;
+    });
+    await page.getByPlaceholder("无标题笔记").fill(sourceTitle);
+    await titleSaved;
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    await editor.locator(`a[href="/notes/${seed.targetId}"]`).click();
+    await page.getByRole("button", { name: "取消链接", exact: true }).click();
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveCount(0);
+    await editor.locator("p").first().click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.insertText("行内链接验证：");
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveCount(0);
+    await page.keyboard.insertText("[[反链目标");
+    const picker = page.locator(".page-link-popover");
+    await expect(picker.getByRole("option", { name: /^反链目标笔记/ })).toBeEnabled();
+    const linkSaved = page.waitForResponse((response) => {
+      if (!response.url().includes("/rpc/save_note_with_tasks_v2") || !response.ok()) return false;
+      const body = response.request().postDataJSON();
+      return body.p_note_id === sourceId && JSON.stringify(body.p_content).includes(`/notes/${seed.targetId}`);
+    });
+    await page.keyboard.press("Enter");
+    const link = editor.locator(`a[href="/notes/${seed.targetId}"]`);
+    await expect(link).toHaveText("反链目标笔记");
+    await linkSaved;
+    await expect(page.locator(".note-save-status")).toContainText("已保存", { timeout: 30_000 });
+    await page.reload();
+    await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveText("反链目标笔记", { timeout: 30_000 });
+    await editor.locator(`a[href="/notes/${seed.targetId}"]`).click({ modifiers: ["ControlOrMeta"] });
+    await expect(page).toHaveURL(new RegExp(`/notes/${seed.targetId}`));
+    await expect(page.getByTestId("backlinks-panel").getByText(sourceTitle, { exact: true })).toBeVisible({ timeout: 30_000 });
+  });
 });

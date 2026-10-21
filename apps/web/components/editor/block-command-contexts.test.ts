@@ -18,6 +18,7 @@ import { Callout } from "./extensions/callout";
 
 /** 嵌套上下文有真实执行路径的命令 id（executeNestedCommand 的 insert 分支 ∪ 嵌套 emit 路径） */
 const NESTED_INSERT_HANDLED = new Set([
+  "page-link",
   "paragraph",
   "heading-1",
   "heading-2",
