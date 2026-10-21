@@ -5,10 +5,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
-import { BLOCK_COMMANDS, executeNestedCommand } from "./block-commands";
+import { BLOCK_COMMANDS, executeNestedCommand, replaceBlock } from "./block-commands";
 import { BlockCommandMenu, RECENT_GROUP_LABEL } from "./block-command-menu";
+import { showMathEditor } from "./math-editor-dialog";
 import { SLASH_RECENT_STORAGE_KEY } from "./slash-recent-commands";
 
+vi.mock("./math-editor-dialog", () => ({ showMathEditor: vi.fn() }));
 vi.mock("@/hooks/use-ai-availability", () => ({ useAiAvailability: vi.fn(() => false) }));
 vi.mock("@/lib/plugin/slash-commands", () => {
   const entries: never[] = [];
@@ -25,6 +27,7 @@ vi.mock("./block-commands", async () => {
     commandMatches: (command: { label: string }, query: string) => command.label.includes(query),
     isCommandAvailableInContext: () => true,
     executeNestedCommand: vi.fn(() => "handled"),
+    replaceBlock: vi.fn(),
   };
 });
 
@@ -158,6 +161,25 @@ describe("BlockCommandMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
     act(() => document.querySelector<HTMLButtonElement>(".editor-menu-close")!.click());
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens top-level math without deleting the trigger until save, and uses the mapped target", () => {
+    const fake = createFakeEditor("/math保留");
+    editor = fake.editor;
+    const math = { ...BLOCK_COMMANDS[0], id: "math", label: "公式区块", run: vi.fn() };
+    BLOCK_COMMANDS.push(math);
+    try {
+      remount({ clearTrigger: true, range: { from: POS + 1, to: POS + 6 } });
+      act(() => option("公式区块").click());
+      expect(fake.deleteRange).not.toHaveBeenCalled();
+      expect(math.run).not.toHaveBeenCalled();
+      expect(showMathEditor).toHaveBeenCalledWith(editor, expect.objectContaining({
+        isBlock: true, latex: "保留", range: { from: POS, to: POS + 9 },
+      }));
+      const request = vi.mocked(showMathEditor).mock.calls.at(-1)![1];
+      request.onSave!("x^2", { from: 11, to: 20 });
+      expect(replaceBlock).toHaveBeenCalledWith(editor, 11, { type: "mathBlock", attrs: { latex: "x^2" } });
+    } finally { BLOCK_COMMANDS.pop(); }
   });
 
   it("keeps nested commands on the existing dispatcher", () => {
