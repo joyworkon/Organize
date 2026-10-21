@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,13 @@ import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
 import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
+import {
+  DEFAULT_CALENDAR_VIEW_OPTIONS,
+  filterCalendarTasks,
+  loadCalendarViewOptions,
+  saveCalendarViewOptions,
+  type CalendarViewOptions,
+} from "@/lib/tasks/calendar-view-options";
 import { getTaskDependencyView } from "@/lib/tasks/dependencies";
 import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad, type CountdownFormValue } from "@/lib/tasks/countdown";
 import { isOnline } from "@/lib/offline/network";
@@ -20,7 +27,7 @@ import type { PendingTaskOp } from "@/lib/offline/task-queue";
 import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import type { CountdownDay, TaskWithTags } from "@organize/shared";
+import type { CountdownDay, Task, TaskWithTags } from "@organize/shared";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 
 function CalendarPageInner() {
@@ -94,6 +101,51 @@ function CalendarPageInner() {
     pushDeadLetter,
   });
   clearTaskVersionsRef.current = clearTaskVersions;
+
+  // 显示选项：默认与历史行为一致；登录拿到 userId 后读 localStorage，改动即写回（按用户隔离）。
+  const [viewOptions, setViewOptions] = useState<CalendarViewOptions>(DEFAULT_CALENDAR_VIEW_OPTIONS);
+  useEffect(() => {
+    setViewOptions(loadCalendarViewOptions(window.localStorage, userId));
+  }, [userId]);
+  const changeViewOptions = useCallback((next: CalendarViewOptions) => {
+    setViewOptions(next);
+    saveCalendarViewOptions(window.localStorage, userId, next);
+  }, [userId]);
+
+  // 显示选项过滤只作用于日历视图；详情面板与 URL 选择仍用全量 tasks。
+  const calendarTasks = useMemo(() => filterCalendarTasks(visibleTasks, viewOptions), [visibleTasks, viewOptions]);
+  const calendarCountdowns = useMemo(
+    () => (viewOptions.showCountdowns ? countdowns : []),
+    [countdowns, viewOptions.showCountdowns]
+  );
+
+  // 日历内勾选完成：乐观更新走 useTaskMutations（失败自动回滚并提示），toast 提供撤销。
+  const toggleTaskDone = useCallback((task: TaskWithTags) => {
+    const done = task.status === "done";
+    const patch: Partial<Task> = {
+      status: done ? "todo" : "done",
+      completed_at: done ? null : new Date().toISOString(),
+    };
+    void updateTask(task.id, patch);
+    const undoToast = toast({
+      title: done ? "任务已恢复为未完成" : "任务已完成",
+      action: createElement(
+        "button",
+        {
+          type: "button",
+          className: "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+          onClick: () => {
+            undoToast.dismiss();
+            void updateTask(task.id, {
+              status: done ? "done" : "todo",
+              completed_at: done ? new Date().toISOString() : null,
+            });
+          },
+        },
+        "撤销"
+      ),
+    });
+  }, [updateTask]);
 
   const loadCountdowns = useCallback(async () => {
     const version = ++countdownLoadVersion.current;
@@ -223,13 +275,16 @@ function CalendarPageInner() {
           </div>
         )}
         <TaskMonthView
-          tasks={visibleTasks}
-          countdowns={countdowns}
+          tasks={calendarTasks}
+          countdowns={calendarCountdowns}
           onUpdateCountdown={mutateCountdown}
           onDeleteCountdown={(id) => mutateCountdown(id)}
           onTaskClick={(task) => updateUrl({ task: task.id })}
+          onToggleTaskDone={toggleTaskDone}
           onRescheduleTask={rescheduleTask}
           onUpdateTaskSchedule={updateTaskSchedule}
+          viewOptions={viewOptions}
+          onViewOptionsChange={changeViewOptions}
           createPreview={createPreview}
           createdId={createdId}
           onDateClick={(start, end, anchor) => {

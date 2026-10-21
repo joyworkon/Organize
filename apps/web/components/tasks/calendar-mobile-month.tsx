@@ -7,7 +7,7 @@ import { CountdownChip } from "@/components/tasks/countdown-chip";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import { CalendarSwipeSurface } from "@/components/tasks/calendar-swipe-surface";
-import { TaskRepeatIcon, WEEKDAYS_SHORT, recurringPresentation, weekdayLabel } from "@/components/tasks/calendar-shared";
+import { CalendarTaskCheckbox, TaskRepeatIcon, WEEKDAYS_SHORT, recurringPresentation, weekdayLabel } from "@/components/tasks/calendar-shared";
 import {
   agendaScrollTargetKey,
   buildMonthAgenda,
@@ -15,7 +15,6 @@ import {
   calendarDayMarkers,
   compactMonthRows,
   emptyMonthAddDate,
-  getMonthCells,
   getTaskDate,
   isSameCalendarDay,
   isSameCalendarMonth,
@@ -23,6 +22,7 @@ import {
   type AgendaDay,
   type AgendaEntry,
 } from "@/lib/tasks/calendar-agenda";
+import { monthCellsForView, type CalendarWeekStart } from "@/lib/tasks/calendar-view-options";
 import { isRecurringProjection, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { cn } from "@/lib/utils";
@@ -36,13 +36,18 @@ interface MobileMonthViewProps {
   selectedDate: Date;
   /** 已包含重复任务只读投影的可见任务 */
   tasks: TaskWithTags[];
-  /** 42 格范围内的倒数日，按 calendarDayKey 分组 */
+  /** 42/30 格范围内的倒数日，按 calendarDayKey 分组 */
   countdownsByDay: Map<string, CountdownDay[]>;
   /** 外层在「今天」或再次点同一天时递增，用于重新滚动议程 */
   focusNonce: number;
+  /** 周起始日（默认周一，与桌面月网格一致） */
+  weekStart?: CalendarWeekStart;
+  /** 是否显示周末列（关闭时迷你月历只显示工作日 5 列） */
+  showWeekends?: boolean;
   onSelectDate: (date: Date) => void;
   onSwipeStep: (direction: -1 | 1) => void;
   onTaskClick?: (task: TaskWithTags) => void;
+  onToggleTaskDone?: (task: TaskWithTags) => void;
   onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
   createPreview?: CalendarCreatePreview | null;
   createdId?: string | null;
@@ -86,9 +91,12 @@ export function MobileMonthView({
   tasks,
   countdownsByDay,
   focusNonce,
+  weekStart = 1,
+  showWeekends = true,
   onSelectDate,
   onSwipeStep,
   onTaskClick,
+  onToggleTaskDone,
   onDateClick,
   createPreview,
   createdId,
@@ -96,8 +104,9 @@ export function MobileMonthView({
   onRescheduleTask,
 }: MobileMonthViewProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const cells = useMemo(() => getMonthCells(cursor), [cursor]);
-  const rows = useMemo(() => compactMonthRows(cells), [cells]);
+  const cells = useMemo(() => monthCellsForView(cursor, weekStart, showWeekends), [cursor, weekStart, showWeekends]);
+  const rows = useMemo(() => compactMonthRows(cells, showWeekends ? 7 : 5), [cells, showWeekends]);
+  const weekdayHeaders = rows[0].map((cell) => WEEKDAYS_SHORT[(cell.date.getDay() + 6) % 7]);
   const markers = useMemo(
     () => calendarDayMarkers(tasks, countdownsByDay, cells.map((cell) => cell.date)),
     [tasks, countdownsByDay, cells]
@@ -127,11 +136,11 @@ export function MobileMonthView({
     <div data-calendar-surface="mobile-month" className="flex min-h-0 flex-1 flex-col md:hidden">
       <CalendarSwipeSurface onSwipeStep={onSwipeStep} className="shrink-0 border-b px-2 pb-2 pt-1">
         <div role="group" aria-label={`${cursor.getFullYear()}年${cursor.getMonth() + 1}月月历`} data-calendar-surface="mini-month">
-          <div className="grid grid-cols-7 text-center text-xs text-muted-foreground">
-            {WEEKDAYS_SHORT.map((day) => <span key={day} className="py-1">{day}</span>)}
+          <div className={cn("grid text-center text-xs text-muted-foreground", showWeekends ? "grid-cols-7" : "grid-cols-5")}>
+            {weekdayHeaders.map((day, i) => <span key={`${day}-${i}`} className="py-1">{day}</span>)}
           </div>
           {rows.map((row) => (
-            <div key={calendarDayKey(row[0].date)} className="grid grid-cols-7">
+            <div key={calendarDayKey(row[0].date)} className={cn("grid", showWeekends ? "grid-cols-7" : "grid-cols-5")}>
               {row.map(({ date, inMonth }) => {
                 const key = calendarDayKey(date);
                 const marker = inMonth ? markers.get(key) : undefined;
@@ -204,6 +213,7 @@ export function MobileMonthView({
                 day={day}
                 isToday={isSameCalendarDay(day.date, today)}
                 onTaskClick={onTaskClick}
+                onToggleTaskDone={onToggleTaskDone}
                 onDateClick={onDateClick}
                 createPreview={createPreview}
                 createdId={createdId}
@@ -222,6 +232,7 @@ function AgendaDaySection({
   day,
   isToday,
   onTaskClick,
+  onToggleTaskDone,
   onDateClick,
   createPreview,
   createdId,
@@ -231,6 +242,7 @@ function AgendaDaySection({
   day: AgendaDay;
   isToday: boolean;
   onTaskClick?: (task: TaskWithTags) => void;
+  onToggleTaskDone?: (task: TaskWithTags) => void;
   onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
   createPreview?: CalendarCreatePreview | null;
   createdId?: string | null;
@@ -286,6 +298,7 @@ function AgendaDaySection({
                 data-agenda-span={entry.spanIndex > 0 ? "continued" : undefined}
                 className={cn("flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0", projected && "border-dashed text-muted-foreground")}
               >
+                <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} className="h-5 w-5 text-xs" />
                 <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
                   <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
                   <div className="mt-0.5 text-xs text-muted-foreground">{entryMeta(entry)}</div>

@@ -46,12 +46,12 @@ export function getTaskEnd(task: TaskWithTags): Date | null {
   return end && !Number.isNaN(end.getTime()) ? end : start;
 }
 
-/** 42 格月网格（周一开头，含前后补位的非本月日期）。 */
-export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] {
+/** 42 格月网格（默认周一开头，含前后补位的非本月日期；weekStart=0 周日开头）。 */
+export function getMonthCells(cursor: Date, weekStart: 0 | 1 = 1): { date: Date; inMonth: boolean }[] {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const first = new Date(year, month, 1);
-  const offset = (first.getDay() + 6) % 7;
+  const offset = (first.getDay() - weekStart + 7) % 7;
   const cells: { date: Date; inMonth: boolean }[] = [];
   for (let i = offset; i > 0; i -= 1) cells.push({ date: new Date(year, month, 1 - i), inMonth: false });
   const days = new Date(year, month + 1, 0).getDate();
@@ -64,9 +64,12 @@ export function getMonthCells(cursor: Date): { date: Date; inMonth: boolean }[] 
 }
 
 /** 迷你月历按周切行，并裁掉整行都不在本月的尾行（保持紧凑，首行一定含本月日期）。 */
-export function compactMonthRows(cells: { date: Date; inMonth: boolean }[]): { date: Date; inMonth: boolean }[][] {
+export function compactMonthRows(
+  cells: { date: Date; inMonth: boolean }[],
+  rowLength = 7
+): { date: Date; inMonth: boolean }[][] {
   const rows: { date: Date; inMonth: boolean }[][] = [];
-  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+  for (let i = 0; i < cells.length; i += rowLength) rows.push(cells.slice(i, i + rowLength));
   while (rows.length > 1 && rows[rows.length - 1].every((cell) => !cell.inMonth)) rows.pop();
   return rows;
 }
