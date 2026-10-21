@@ -24,7 +24,7 @@ test("周视图全天行连续条：单节点跨列、拖动改期、日视图�
   await page.clock.setFixedTime(new Date(2026, 9, 21, 12));
   await openCalendar(page);
 
-  // n 快速新建：今天（10/21）起、结束 10/23 的跨天定时任务（取消「全天」以保留结束日期）→ 覆盖 10/21~10/23
+  // n 快速新建：今天（10/21）起、结束 10/23 的跨天全天任务 → 覆盖 10/21~10/23
   await page.keyboard.press("n");
   const card = page.locator("[data-calendar-quick-create]");
   await card.getByRole("textbox", { name: "标题" }).fill(TITLE);
@@ -34,7 +34,6 @@ test("周视图全天行连续条：单节点跨列、拖动改期、日视图�
   await editor.getByLabel("结束日期", { exact: true }).fill("2026-10-23");
   await editor.getByRole("button", { name: "确定", exact: true }).click();
   await expect(page.getByLabel("开始日期", { exact: true })).toHaveCount(0);
-  await card.getByRole("checkbox", { name: "全天" }).uncheck();
   await card.getByRole("textbox", { name: "标题" }).press("Enter");
   await expect(card).toHaveCount(0);
   await expect(page.locator('[data-calendar-surface="month"] [data-calendar-created="true"]')).toContainText(TITLE);

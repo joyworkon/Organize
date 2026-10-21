@@ -160,7 +160,7 @@ describe("日历添加起止表单", () => {
     expect(dialog().textContent).toContain("10月19日");
     await act(async () => button("添加").click());
     const payload = mocks.insert.mock.calls[0][0];
-    expect(payload).toMatchObject({ schedule_start_at: at(start).toISOString(), schedule_end_at: at(end).toISOString(), due_date: at(start).toISOString(), all_day: false });
+    expect(payload).toMatchObject({ schedule_start_at: at(start).toISOString(), schedule_end_at: at(end).toISOString(), due_date: at(end).toISOString(), all_day: false });
     expect(layoutDayTimedEvents([payload as TaskWithTags], at(0))).toMatchObject([{ startMin: start, endMin: end }]);
   });
   it("月格默认全天，使用清单选择和日期弹层", async () => {

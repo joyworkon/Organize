@@ -28,7 +28,7 @@ import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
-import { calendarCreateAnchor, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
+import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
 
 interface MobileMonthViewProps {
   cursor: Date;
@@ -112,7 +112,18 @@ export function MobileMonthView({
     [tasks, countdownsByDay, cells]
   );
   const agenda = useMemo(() => buildMonthAgenda(tasks, countdownsByDay, cursor), [tasks, countdownsByDay, cursor]);
-  const days = useMemo(() => withSelectedAgendaDay(agenda, selectedDate, cursor), [agenda, selectedDate, cursor]);
+  const days = useMemo(() => {
+    let result = withSelectedAgendaDay(agenda, selectedDate, cursor);
+    if (createPreview) {
+      // 预览也要生成原本没有安排的日期分组；只遍历当前月，避免跨月长区间无限展开。
+      const last = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+      for (let day = 1; day <= last; day += 1) {
+        const date = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+        if (calendarCreatePreviewOnDay(createPreview, date)) result = withSelectedAgendaDay(result, date, cursor);
+      }
+    }
+    return result;
+  }, [agenda, selectedDate, cursor, createPreview]);
   const monthKey = `${cursor.getFullYear()}-${cursor.getMonth()}`;
   const selectedKey = calendarDayKey(selectedDate);
   const selectedInMonth = isSameCalendarMonth(selectedDate, cursor);
@@ -263,7 +274,7 @@ function AgendaDaySection({
         {isToday && <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">今天</span>}
         {onDateClick && <Plus className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />}
       </button>
-      {createPreview && isSameCalendarDay(createPreview.start, day.date) && <p role="status" className="mb-2 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
+      {createPreview && calendarCreatePreviewOnDay(createPreview, day.date) && <p role="status" className="mb-2 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
       {empty ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed px-3 py-2 text-sm text-muted-foreground">
           <span>这一天没有安排</span>
