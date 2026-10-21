@@ -295,8 +295,9 @@ function AgendaDaySection({
               <div
                 key={task.id}
                 data-calendar-created={task.id === createdId || undefined}
+                data-calendar-task-id={task.id}
                 data-agenda-span={entry.spanIndex > 0 ? "continued" : undefined}
-                className={cn("flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0", projected && "border-dashed text-muted-foreground")}
+                className={cn("flex min-h-14 select-none items-center gap-3 border-b px-3 py-2 last:border-b-0", projected && "border-dashed text-muted-foreground")}
               >
                 <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} className="h-5 w-5 text-xs" />
                 <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">

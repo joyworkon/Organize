@@ -34,6 +34,15 @@ import {
 import { isRecurringProjection, projectRecurringTasks, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
+import type { CalendarRescheduleShortcut } from "@/lib/tasks/calendar-reschedule";
+import {
+  CalendarTaskMenu,
+  findCalendarTaskId,
+  handleCalendarTaskKeyDown,
+  useTaskLongPress,
+  type CalendarTaskMenuActions,
+  type CalendarTaskMenuRequest,
+} from "./calendar-task-menu";
 import {
   ALLDAY_TO_TIMED_DEFAULT_MIN,
   computeTimeGridDrop,
@@ -860,6 +869,7 @@ export function TimeGridView({
                     key={task.id}
                     {...recurringPresentation(task)}
                     data-calendar-created={task.id === createdId || undefined}
+                    data-calendar-task-id={task.id}
                     type="button"
                     className={cn(
                       "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
@@ -984,6 +994,7 @@ export function TimeGridView({
                         key={ev.task.id}
                         {...recurringPresentation(ev.task)}
                         data-calendar-created={ev.task.id === createdId || undefined}
+                        data-calendar-task-id={ev.task.id}
                         type="button"
                         className={cn(
                           "absolute inset-x-0.5 z-10 flex overflow-hidden px-1.5 text-left text-xs font-medium",
@@ -1300,6 +1311,12 @@ interface TaskMonthViewProps extends CountdownActions {
   onToggleTaskDone?: (task: TaskWithTags) => void;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
+  /** 右键/长按/键盘菜单的改期快捷项（今天/明天/下周第一天/清除日期；撤销 toast 由调用方负责）。 */
+  onRescheduleTaskShortcut?: (task: TaskWithTags, shortcut: CalendarRescheduleShortcut) => void;
+  /** 右键菜单「复制一份」：同一时间创建副本（标题加「副本」后缀）。 */
+  onDuplicateTask?: (task: TaskWithTags) => void;
+  /** 右键菜单「删除」：软删 + 撤销 toast（useTaskMutations.deleteTask 同一链路）。 */
+  onDeleteTask?: (taskId: string) => void;
   /** 点击月视图格子空白处、日视图与手机周议程的添加按钮时打开添加。日期数字和年视图改走日视图。 */
   onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
   createPreview?: CalendarCreatePreview | null;
@@ -1321,6 +1338,7 @@ function MonthDayPopover({
   onOpenDay,
   onTaskClick,
   onToggleTaskDone,
+  onTaskContextMenu,
   onAdd,
 }: {
   date: Date;
@@ -1331,6 +1349,8 @@ function MonthDayPopover({
   onOpenDay: () => void;
   onTaskClick?: (task: TaskWithTags) => void;
   onToggleTaskDone?: (task: TaskWithTags) => void;
+  /** 弹层内容经 portal 渲染，根容器的事件委托接不到，右键由这里显式上报。 */
+  onTaskContextMenu?: (task: TaskWithTags, event: React.MouseEvent) => void;
   onAdd?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1392,7 +1412,9 @@ function MonthDayPopover({
             <button
               key={task.id}
               {...recurringPresentation(task)}
+              data-calendar-task-id={task.id}
               type="button"
+              onContextMenu={(event) => onTaskContextMenu?.(task, event)}
               onClick={() => {
                 setOpen(false);
                 onTaskClick?.(recurringSource(task));
@@ -1552,6 +1574,9 @@ function TaskMonthViewContent({
   onToggleTaskDone,
   onRescheduleTask,
   onUpdateTaskSchedule,
+  onRescheduleTaskShortcut,
+  onDuplicateTask,
+  onDeleteTask,
   onDateClick,
   createPreview,
   createdId,
@@ -1621,6 +1646,54 @@ function TaskMonthViewContent({
     () => weeks.map((week) => layoutWeekSegments(monthTasks, week, createdId)),
     [weeks, monthTasks, createdId]
   );
+
+  /* ---- 任务右键 / 长按 / 键盘菜单：单例菜单 + 根容器事件委托 ----
+     各视图条目只带 data-calendar-task-id；contextmenu / 键盘走根容器冒泡，
+     长按走根容器 capture（条目自己的 pointerdown 会 stopPropagation 启动拖拽）。 */
+  const [taskMenu, setTaskMenu] = useState<CalendarTaskMenuRequest | null>(null);
+  const taskMenuNonceRef = useRef(0);
+  const openTaskMenu = useCallback((task: TaskWithTags, position: { x: number; y: number }, keyboard = false) => {
+    taskMenuNonceRef.current += 1;
+    setTaskMenu({ task, x: position.x, y: position.y, keyboard, nonce: taskMenuNonceRef.current });
+  }, []);
+  // 覆盖全部视图渲染的任务；TimeGridView 内部生成的重复投影 id 确定性一致，可直接按 id 命中
+  const taskById = useMemo(() => {
+    const map = new Map<string, TaskWithTags>();
+    for (const task of scheduledTasks) map.set(task.id, task);
+    for (const task of monthTasks) map.set(task.id, task);
+    return map;
+  }, [scheduledTasks, monthTasks]);
+  const resolveTaskById = useCallback((id: string) => taskById.get(id) ?? null, [taskById]);
+  const handleTaskContextMenu = useCallback((event: React.MouseEvent) => {
+    const id = findCalendarTaskId(event.target);
+    if (!id) return;
+    const task = taskById.get(id);
+    if (!task) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openTaskMenu(task, { x: event.clientX, y: event.clientY });
+  }, [openTaskMenu, taskById]);
+  const taskLongPress = useTaskLongPress(openTaskMenu, resolveTaskById);
+  const handleTaskKeyDown = useCallback((event: React.KeyboardEvent) => {
+    const id = findCalendarTaskId(event.target);
+    if (!id) return;
+    const task = taskById.get(id);
+    if (!task) return;
+    const projected = isRecurringProjection(task);
+    handleCalendarTaskKeyDown(event, task, {
+      onToggleDone: !projected && onToggleTaskDone ? (item) => onToggleTaskDone(recurringSource(item)) : undefined,
+      onDelete: !projected && onDeleteTask ? (item) => onDeleteTask(recurringSource(item).id) : undefined,
+      onOpenMenu: (item, position) => openTaskMenu(item, position, true),
+    });
+  }, [onDeleteTask, onToggleTaskDone, openTaskMenu, taskById]);
+  const taskMenuActions = useMemo<CalendarTaskMenuActions>(() => ({
+    onOpenDetail: (task) => onTaskClick?.(recurringSource(task)),
+    onToggleDone: onToggleTaskDone ? (task) => onToggleTaskDone(recurringSource(task)) : undefined,
+    onReschedule: onRescheduleTaskShortcut ? (task, shortcut) => onRescheduleTaskShortcut(recurringSource(task), shortcut) : undefined,
+    onDuplicate: onDuplicateTask ? (task) => onDuplicateTask(recurringSource(task)) : undefined,
+    onDelete: onDeleteTask ? (task) => onDeleteTask(recurringSource(task).id) : undefined,
+  }), [onDeleteTask, onDuplicateTask, onRescheduleTaskShortcut, onTaskClick, onToggleTaskDone]);
+
   // 手机月视图「今天」/ 再次点同一天时递增，让议程重新滚到目标分组。
   const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
 
@@ -1907,7 +1980,12 @@ function TaskMonthViewContent({
   };
 
   return (
-    <div className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div
+      className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      onContextMenu={handleTaskContextMenu}
+      onKeyDown={handleTaskKeyDown}
+      {...taskLongPress}
+    >
       {/* 手机（<md）两行：第一行 标题 + 上一页/今天/下一页，第二行全宽分段模式切换；
           桌面仍是一行，模式分段靠 md:ml-auto 贴到导航组左侧，间距由 header gap-3 提供（= 原 mr-2 + gap-1） */}
       <header className="task-calendar-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3 md:px-6">
@@ -2097,6 +2175,11 @@ function TaskMonthViewContent({
                               onOpenDay={() => openDayView(date)}
                               onTaskClick={onTaskClick}
                               onToggleTaskDone={onToggleTaskDone}
+                              onTaskContextMenu={(task, event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                openTaskMenu(task, { x: event.clientX, y: event.clientY });
+                              }}
                               onAdd={onDateClick ? () => { const cell = monthCellRefs.current.get(keyFor(date)); onDateClick(date, undefined, cell ? calendarCreateAnchor(cell) : undefined); } : undefined}
                             />
                           )}
@@ -2111,6 +2194,7 @@ function TaskMonthViewContent({
                       key={`${seg.task.id}-${weekIndex}`}
                       {...recurringPresentation(seg.task)}
                       data-calendar-created={seg.task.id === createdId || undefined}
+                      data-calendar-task-id={seg.task.id}
                       onPointerDown={(event) => startMonthDrag(event, seg.task, seg.lane)}
                       onPointerMove={moveMonthDrag}
                       onPointerUp={endMonthDrag}
@@ -2221,6 +2305,13 @@ function TaskMonthViewContent({
           onOpenDay={openDayView}
         />
       )}
+
+      <CalendarTaskMenu
+        request={taskMenu}
+        onClose={() => setTaskMenu(null)}
+        weekStart={weekStart}
+        actions={taskMenuActions}
+      />
     </div>
   );
 }
@@ -2305,7 +2396,12 @@ function DayView({
                 recurrence_rule: task.recurrence_rule || null,
               };
               return (
-                <div key={task.id} data-calendar-created={task.id === createdId || undefined} className={cn("flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
+                <div
+                  key={task.id}
+                  data-calendar-created={task.id === createdId || undefined}
+                  data-calendar-task-id={task.id}
+                  className={cn("flex min-h-14 select-none items-center gap-3 border-b px-4 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}
+                >
                   <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} className="h-5 w-5 text-xs" />
                   <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
                     <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>

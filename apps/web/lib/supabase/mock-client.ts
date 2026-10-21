@@ -387,6 +387,58 @@ function updateTaskAtomic(args: Record<string, any>) {
   return { data: { status: "applied", sync_version: task.sync_version }, error: null };
 }
 
+// 048 mutate_trash 的任务分支：软删级联整个子树，restore 把随父入桶的子孙一并恢复
+// （比父任务更早独立删除的保持不动）。其余资源类型维持原有假成功兜底。
+function mutateTaskTrash(args: Record<string, any>) {
+  const action = args.p_action as string;
+  const ids = new Set<string>((args.p_ids ?? []) as string[]);
+  const rows = mockDb.tasks ?? [];
+  let affected = 0;
+  if (action === "soft_delete") {
+    const now = new Date().toISOString();
+    const doomed = new Set<string>();
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const row of rows) {
+        if (row.deleted_at != null || doomed.has(row.id)) continue;
+        if (ids.has(row.id) || (row.parent_task_id != null && doomed.has(row.parent_task_id))) {
+          doomed.add(row.id);
+          grew = true;
+        }
+      }
+    }
+    for (const row of rows) {
+      if (!doomed.has(row.id)) continue;
+      row.deleted_at = now;
+      affected += 1;
+    }
+  } else if (action === "restore") {
+    const restored = new Set<string>();
+    for (const row of rows) {
+      if (ids.has(row.id) && row.deleted_at != null) restored.add(row.id);
+    }
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const row of rows) {
+        if (row.deleted_at == null || restored.has(row.id) || row.parent_task_id == null) continue;
+        const parent = rows.find((candidate) => candidate.id === row.parent_task_id);
+        if (parent && restored.has(parent.id) && row.deleted_at >= parent.deleted_at) {
+          restored.add(row.id);
+          grew = true;
+        }
+      }
+    }
+    for (const row of rows) {
+      if (!restored.has(row.id)) continue;
+      row.deleted_at = null;
+      affected += 1;
+    }
+  }
+  return { data: affected, error: null };
+}
+
 function saveNoteWithTasks(args: Record<string, any>) {
   const note = (mockDb.notes || []).find(
     (row) => row.id === args.p_note_id && row.user_id === MOCK_USER.id
@@ -836,6 +888,7 @@ export function createMockClient(): any {
     rpc: async (name: string, args: Record<string, any> = {}) => {
       if (name === "save_note_with_tasks") return saveNoteWithTasks(args);
       if (name === "update_task_atomic") return updateTaskAtomic(args);
+      if (name === "mutate_trash" && args?.p_resource_type === "task") return mutateTaskTrash(args);
       if (name === "add_task_dependency") return addTaskDependency(args);
       if (name === "remove_task_dependency") return removeTaskDependency(args);
       if (name === "convert_highlight_reference") return convertHighlightReference(args);
