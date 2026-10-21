@@ -4,6 +4,8 @@ import { isRecurringProjection, projectRecurringTasks } from "./recurring-occurr
 import {
   agendaScrollTargetKey,
   buildMonthAgenda,
+  calendarAddDate,
+  monthSelectionOnEntry,
   calendarDayKey,
   calendarDayMarkers,
   compactMonthRows,
@@ -196,5 +198,31 @@ describe("emptyMonthAddDate", () => {
     expect(emptyMonthAddDate(AUG, new Date(2026, 7, 9, 12), new Date(2026, 7, 25, 8))).toEqual(new Date(2026, 7, 25));
     expect(emptyMonthAddDate(AUG, new Date(2026, 7, 9, 12), new Date(2026, 6, 25))).toEqual(new Date(2026, 7, 9));
     expect(emptyMonthAddDate(AUG, new Date(2026, 8, 9), null)).toEqual(new Date(2026, 7, 1));
+  });
+});
+
+
+describe("日历选中与添加目标", () => {
+  const today = new Date(2026, 9, 21, 12);
+  it("月份入口：当前月回今天，其余月钳制日号，兼容跨年与闰年", () => {
+    expect(monthSelectionOnEntry(new Date(2026, 9, 1), today, new Date(2026, 8, 30))).toEqual(new Date(2026, 9, 21));
+    expect(monthSelectionOnEntry(new Date(2026, 10, 1), today, new Date(2026, 9, 31))).toEqual(new Date(2026, 10, 30));
+    expect(monthSelectionOnEntry(new Date(2027, 1, 1), today, new Date(2027, 0, 31))).toEqual(new Date(2027, 1, 28));
+    expect(monthSelectionOnEntry(new Date(2028, 1, 1), today, new Date(2028, 0, 31))).toEqual(new Date(2028, 1, 29));
+    expect(monthSelectionOnEntry(new Date(2027, 0, 1), today, new Date(2026, 11, 31))).toEqual(new Date(2027, 0, 31));
+    expect(monthSelectionOnEntry(new Date(2027, 0, 1), today, null)).toEqual(new Date(2027, 0, 1));
+  });
+  it("月添加：本月选中日 > 今天 > 月初，过期选中日不会漏到旧月", () => {
+    const month = new Date(2026, 9, 1);
+    expect(calendarAddDate("month", month, today, new Date(2026, 9, 25, 15), [])).toEqual(new Date(2026, 9, 25));
+    expect(calendarAddDate("month", month, today, null, [])).toEqual(new Date(2026, 9, 21));
+    expect(calendarAddDate("month", new Date(2026, 10, 1), today, today, [])).toEqual(new Date(2026, 10, 1));
+  });
+  it("周添加：可见选中日 > 可见今天 > 可见周首日，日添加保持当天", () => {
+    const days = Array.from({ length: 7 }, (_, i) => new Date(2026, 9, 19 + i));
+    expect(calendarAddDate("week", days[0], today, days[6], days)).toEqual(days[6]);
+    expect(calendarAddDate("week", days[0], today, new Date(2026, 8, 1), days)).toEqual(new Date(2026, 9, 21));
+    expect(calendarAddDate("week", days[0], new Date(2026, 10, 1), null, days)).toEqual(days[0]);
+    expect(calendarAddDate("day", days[0], today, days[6], days)).toEqual(days[6]);
   });
 });

@@ -208,3 +208,19 @@ export function emptyMonthAddDate(cursor: Date, today: Date, selected: Date | nu
   if (isSameCalendarMonth(today, cursor)) return calendarDateOnly(today);
   return new Date(cursor.getFullYear(), cursor.getMonth(), 1);
 }
+
+/** 进入月份：当月回今天，其余月份保留日号并钳制到月末；无选择时用 1 日。 */
+export function monthSelectionOnEntry(cursor: Date, today: Date, selected: Date | null): Date {
+  if (isSameCalendarMonth(cursor, today)) return calendarDateOnly(today);
+  const last = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  return new Date(cursor.getFullYear(), cursor.getMonth(), Math.min(selected?.getDate() ?? 1, last));
+}
+
+/** 手机添加：可见范围内所选日 > 范围内今天 > 代表日（月1日/可见周首日/日当天）。 */
+export function calendarAddDate(mode: "day" | "week" | "month" | "year", cursor: Date, today: Date, selected: Date | null, weekDays: Date[]): Date {
+  if (mode === "day") return calendarDateOnly(selected ?? cursor);
+  if (mode !== "week") return emptyMonthAddDate(cursor, today, selected);
+  if (selected && weekDays.some((day) => isSameCalendarDay(day, selected))) return calendarDateOnly(selected);
+  if (weekDays.some((day) => isSameCalendarDay(day, today))) return calendarDateOnly(today);
+  return calendarDateOnly(weekDays[0] ?? cursor);
+}

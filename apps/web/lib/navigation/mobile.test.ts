@@ -83,7 +83,9 @@ describe("drawer shell route context", () => {
     expect(mobileCreateAction("/library", new URLSearchParams("view=reading"))).toEqual({ mode: "url", label: "保存链接" });
     expect(mobileCreateAction("/library", new URLSearchParams("view=memos"))).toEqual({ mode: "memo", label: "新建速记" });
     expect(mobileCreateAction("/notes")).toEqual({ mode: "note", label: "新建笔记" });
-    expect(mobileCreateAction("/tasks/calendar")).toEqual({ mode: "task", label: "添加待办" });
+    expect(mobileCreateAction("/tasks/calendar")).toEqual({ mode: "calendar", label: "添加待办" });
+    expect(mobileCreateAction("/tasks")).toEqual({ mode: "task", label: "添加待办" });
+    expect(mobileCreateAction("/tasks/calendar", new URLSearchParams("scope=today"))?.mode).toBe("calendar");
     expect(mobileCreateAction("/tasks/lessons")?.mode).toBe("menu");
     expect(mobileCreateAction("/canvas")).toBeNull();
     expect(mobileCreateAction("/canvas/one")).toBeNull();

@@ -43,13 +43,14 @@ export function mobileRoute(pathname: string, params = new URLSearchParams()) {
   return { section, title, detail };
 }
 
-/** New actions use the existing QuickAdd modes; specialized pages keep their own actions. */
-export function mobileCreateAction(pathname: string, params = new URLSearchParams()): { mode: "menu" | "url" | "note" | "task" | "memo"; label: string } | null {
+/** Calendar creation belongs to its visible date range; other actions use QuickAdd. */
+export function mobileCreateAction(pathname: string, params = new URLSearchParams()): { mode: "menu" | "url" | "note" | "task" | "memo" | "calendar"; label: string } | null {
   if (pathname === "/canvas" || pathname.startsWith("/canvas/")) return null;
   const route = mobileRoute(pathname, params);
   if (route.section === "memos") return { mode: "memo", label: "新建速记" };
   if (route.section === "notes") return { mode: "note", label: "新建笔记" };
-  if (pathname === "/tasks" || pathname === "/tasks/calendar") return { mode: "task", label: "添加待办" };
+  if (pathname === "/tasks/calendar") return { mode: "calendar", label: "添加待办" };
+  if (pathname === "/tasks") return { mode: "task", label: "添加待办" };
   if (pathname === "/library" && params.get("view") === "reading") return { mode: "url", label: "保存链接" };
   return { mode: "menu", label: "新建内容" };
 }

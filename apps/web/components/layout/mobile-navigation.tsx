@@ -86,7 +86,7 @@ export function MobileNavigation({ children }: { children: ReactNode }) {
               <Search className="h-5 w-5" />
             </button>
             {createAction && (
-              <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createAction.label} onClick={() => window.dispatchEvent(new CustomEvent("organize:quick-add", { detail: { mode: createAction.mode } }))}>
+              <button type="button" className="mobile-icon-button mobile-create-button" aria-label={createAction.label} onClick={(event) => window.dispatchEvent(new CustomEvent(createAction.mode === "calendar" ? "organize:calendar-create" : "organize:quick-add", { detail: { mode: createAction.mode, focusTarget: event.currentTarget } }))}>
                 <Plus className="h-5 w-5" />
               </button>
             )}

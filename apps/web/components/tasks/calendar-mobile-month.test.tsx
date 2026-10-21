@@ -185,14 +185,50 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
   });
 
-  it("空月份：保留文案并提供「添加任务」（选中日 / 今天都不在该月时落到 1 日）", () => {
+  it("翻到空月份：选中日与添加日保留同号，议程滚到所选日", () => {
     click(container.querySelector('button[aria-label="下一页"]')!);
     expect(heading()).toBe("2026年11月");
     expect(mobile().textContent).toContain("本月还没有已排期任务或倒数日");
-    expect(mobile().querySelector("[data-agenda-day]")).toBeNull();
+    expect(sectionKeys()).toEqual(["2026-10-19"]);
     click(buttonWithText(mobile(), "添加任务"));
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
-    expect(list().scrollTop).toBe(0);
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 19), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
+    expect(list().scrollTop).toBe(1900);
+  });
+
+  it("添加事件与手机 n、议程添加使用同一个所选日，弹层打开时不重复创建", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(max-width: 767px)" }));
+    const trigger = document.createElement("button"); document.body.appendChild(trigger);
+    const add = () => act(() => { window.dispatchEvent(new CustomEvent("organize:calendar-create", { detail: { focusTarget: trigger } })); });
+    add();
+    expect(onDateClick.mock.calls[0]).toEqual([new Date(2026, 9, 19), undefined, expect.objectContaining({ focusTarget: trigger })]);
+    click(cell("2026-9-25")!);
+    add();
+    expect(onDateClick.mock.calls[1][0]).toEqual(new Date(2026, 9, 25));
+    press("n");
+    expect(onDateClick.mock.calls[2][0]).toEqual(new Date(2026, 9, 25));
+    click(buttonWithText(container, "周"));
+    add();
+    expect(onDateClick.mock.calls[3][0]).toEqual(new Date(2026, 9, 25));
+    click(buttonWithText(container, "日"));
+    add();
+    expect(onDateClick.mock.calls[4][0]).toEqual(new Date(2026, 9, 25));
+    const dialog = document.createElement("div"); dialog.setAttribute("role", "dialog"); document.body.appendChild(dialog);
+    add();
+    expect(onDateClick).toHaveBeenCalledTimes(5);
+    dialog.remove(); trigger.remove(); vi.unstubAllGlobals();
+  });
+
+  it("翻月钳制到月末，返回当月的选中、高亮、添加与滚动都回今天", () => {
+    click(cell("2026-9-31")!);
+    click(container.querySelector('button[aria-label="下一页"]')!);
+    expect(cell("2026-10-30")!.getAttribute("aria-pressed")).toBe("true");
+    click(buttonWithText(section("2026-10-30")!, "添加任务"));
+    expect(onDateClick.mock.calls[0][0]).toEqual(new Date(2026, 10, 30));
+    swipe(mini(), [[100, 100], [200, 100]]);
+    expect(cell("2026-9-19")!.getAttribute("aria-pressed")).toBe("true");
+    expect(list().scrollTop).toBe(1900);
+    click(section("2026-9-19")!.querySelector("button")!);
+    expect(onDateClick.mock.calls[1][0]).toEqual(new Date(2026, 9, 19));
   });
 
   it("「今天」回到当月并重新滚到今天", () => {
@@ -221,7 +257,6 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
   });
 
   it("周视图日期条：圆点覆盖跨天与倒数日、今天标识、滑动翻周且选中日跟随", () => {
-    // 月 → 周落在 cursor（本月 1 日）所在周是既有行为（nav 测试钉住），按 t 回到今天所在周。
     press("w");
     press("t");
     expect(heading()).toBe(weekTitle(at(19)));

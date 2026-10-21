@@ -165,7 +165,7 @@ describe("日历顶栏、键盘导航与年视图钻取", () => {
     expect(heading()).toBe(dayTitle(new Date(2026, 8, 17)));
     press("t");
     press("w");
-    expect(heading()).toBe(weekTitle(new Date(2026, 9, 1)));
+    expect(heading()).toBe(weekTitle(new Date(2026, 9, 19)));
     press("y");
     expect(heading()).toBe("2026年");
     press("ArrowLeft");
@@ -174,6 +174,30 @@ describe("日历顶栏、键盘导航与年视图钻取", () => {
     expect(heading()).toBe(dayTitle(new Date(2025, 9, 19)));
     press("m");
     expect(heading()).toBe("2025年10月");
+  });
+
+  it("月转周跟随选中日，周转月规范化月份后翻页保持所选日号", () => {
+    click('[role="gridcell"][aria-label="10月21日"]');
+    press("w");
+    expect(heading()).toBe(weekTitle(new Date(2026, 9, 21)));
+    press("ArrowRight");
+    expect(heading()).toBe(weekTitle(new Date(2026, 9, 28)));
+    press("m");
+    expect(heading()).toBe("2026年10月");
+    expect(container.querySelector('[data-mini-month-day="2026-9-19"]')!.getAttribute("aria-pressed")).toBe("true");
+    press("ArrowRight");
+    press("d");
+    expect(heading()).toBe(dayTitle(new Date(2026, 10, 19)));
+  });
+
+  it("年视图返回当月同步今天，进入其它月钳制选中日", () => {
+    click('[data-mini-month-day="2026-9-31"]');
+    press("y");
+    click('button[aria-label="查看 2 月"]');
+    expect(container.querySelector('[data-mini-month-day="2026-1-28"]')!.getAttribute("aria-pressed")).toBe("true");
+    press("y");
+    click('button[aria-label="查看 10 月"]');
+    expect(container.querySelector('[data-mini-month-day="2026-9-19"]')!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("输入框、弹层和修饰键不翻页", () => {

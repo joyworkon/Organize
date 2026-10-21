@@ -16,10 +16,12 @@ import {
   calendarDayDiff as dayDiff,
   calendarDayKey as keyFor,
   calendarDayMarkers,
+  calendarAddDate,
   getMonthCells,
   getTaskDate,
   getTaskEnd as taskEnd,
   isSameCalendarDay as isSameDay,
+  monthSelectionOnEntry,
   shiftCalendarDay,
 } from "@/lib/tasks/calendar-agenda";
 import {
@@ -1733,8 +1735,11 @@ function TaskMonthViewContent({
       setSelectedDate(nextSelected);
     } else if (currentMode === "month") {
       const nextCursor = new Date(currentCursor.getFullYear(), currentCursor.getMonth() + direction, 1);
+      const nextSelected = monthSelectionOnEntry(nextCursor, today, currentSelected);
       cursorRef.current = nextCursor;
+      selectedRef.current = nextSelected;
       setCursor(nextCursor);
+      setSelectedDate(nextSelected);
     } else {
       const nextCursor = new Date(currentCursor.getFullYear() + direction, currentCursor.getMonth(), 1);
       cursorRef.current = nextCursor;
@@ -1763,9 +1768,24 @@ function TaskMonthViewContent({
     setAgendaFocusNonce((nonce) => nonce + 1);
   };
   const switchMode = (next: CalendarMode) => {
+    if (next === modeRef.current) return;
     if (next === "day") {
       const aligned = dateForDayView(modeRef.current, cursorRef.current, selectedRef.current);
       selectedRef.current = aligned;
+      setSelectedDate(aligned);
+    } else if (next === "week") {
+      const aligned = dateForDayView(modeRef.current, cursorRef.current, selectedRef.current);
+      cursorRef.current = aligned;
+      selectedRef.current = aligned;
+      setCursor(aligned);
+      setSelectedDate(aligned);
+    } else if (next === "month") {
+      const base = modeRef.current === "day" ? selectedRef.current : cursorRef.current;
+      const nextCursor = new Date(base.getFullYear(), base.getMonth(), 1);
+      const aligned = monthSelectionOnEntry(nextCursor, today, selectedRef.current);
+      cursorRef.current = nextCursor;
+      selectedRef.current = aligned;
+      setCursor(nextCursor);
       setSelectedDate(aligned);
     }
     modeRef.current = next;
@@ -1881,6 +1901,20 @@ function TaskMonthViewContent({
     { key: "m", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "month") },
     { key: "y", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "year") },
   ]);
+
+  useEffect(() => {
+    // The mobile shell delegates here so selection, preview and saving share the page's onDateClick path.
+    const create = (event: Event) => {
+      if (!onDateClick || hasOpenDialog()) return;
+      const date = calendarAddDate(modeRef.current, cursorRef.current, new Date(), selectedRef.current, weekDays);
+      selectedRef.current = date;
+      setSelectedDate(date);
+      const focusTarget = (event as CustomEvent<{ focusTarget?: HTMLElement }>).detail?.focusTarget;
+      onDateClick(date, undefined, focusTarget ? calendarCreateAnchor(focusTarget) : undefined);
+    };
+    window.addEventListener("organize:calendar-create", create);
+    return () => window.removeEventListener("organize:calendar-create", create);
+  }, [onDateClick, weekDays]);
 
   useEffect(() => {
     if (!keyboardCreate || !onDateClick) return;
@@ -2297,9 +2331,12 @@ function TaskMonthViewContent({
           yearCountdowns={yearCountdowns}
           onOpenMonth={(month) => {
             const next = new Date(cursor.getFullYear(), month, 1);
+            const selected = monthSelectionOnEntry(next, today, selectedRef.current);
             cursorRef.current = next;
+            selectedRef.current = selected;
             modeRef.current = "month";
             setCursor(next);
+            setSelectedDate(selected);
             setMode("month");
           }}
           onOpenDay={openDayView}
