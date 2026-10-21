@@ -31,6 +31,9 @@ import {
   setActiveTableAttributes,
   setSelectedCellsBackground,
   setTableRowHeight,
+  setTableColumnWidth,
+  MIN_TABLE_COLUMN_WIDTH,
+  OrganizeTableView,
   tableHasMergedCells,
   topLevelBlockPlaceholder,
 } from "./table-style";
@@ -324,7 +327,7 @@ function directCellWidths(table: ProseMirrorNode) {
   });
 }
 
-function findNestedTable(table: ProseMirrorNode) {
+function findNestedTable(table: ProseMirrorNode): ProseMirrorNode | null {
   let nested: ProseMirrorNode | null = null;
   table.descendants((node) => {
     if (node.type.spec.tableRole === "table") {
@@ -443,6 +446,99 @@ describe("OrganizeTable", () => {
     expect(directCellWidths(innerAfter!)).toEqual(nestedWidthsBefore);
     expect(getActiveTable(current)?.hasCustomColumnWidths).toBe(false);
     expect(tableHasMergedCells(outerAfter)).toBe(false);
+  });
+
+  it("sets every cell in a column, clamps the minimum, and survives JSON/HTML reload", () => {
+    const current = makeMatrixEditor(2, 3);
+    expect(setTableColumnWidth(current, 0, 1, 123.6)).toBe(true);
+    expect(directCellWidths(tableAt(current))).toEqual([
+      [null, [124], null], [null, [124], null],
+    ]);
+    expect(setTableColumnWidth(current, 0, 1, -10)).toBe(true);
+    expect(tableAt(current).child(0).child(1).attrs.colwidth).toEqual([MIN_TABLE_COLUMN_WIDTH]);
+    const html = current.getHTML();
+    const json = current.getJSON();
+    current.commands.setContent(json);
+    expect(tableAt(current).child(1).child(1).attrs.colwidth).toEqual([MIN_TABLE_COLUMN_WIDTH]);
+    current.commands.setContent(html);
+    expect(tableAt(current).child(1).child(1).attrs.colwidth).toEqual([MIN_TABLE_COLUMN_WIDTH]);
+  });
+
+  it("updates colspan slots across rowspans once and preserves other widths", () => {
+    const table = matrixTable(3, 3);
+    const rows = table.content!;
+    rows[0].content = [
+      { ...rows[0].content![0], attrs: { rowspan: 2, colwidth: [80] } },
+      { ...rows[0].content![1], attrs: { colspan: 2, colwidth: [120, 160] } },
+    ];
+    rows[1].content!.shift();
+    const current = makeContentEditor(table);
+    expect(setTableColumnWidth(current, 0, 2, 200)).toBe(true);
+    expect(directCellWidths(tableAt(current))).toEqual([
+      [[80], [120, 200]], [[120], [200]], [[80], [120], [200]],
+    ]);
+    expect(setTableColumnWidth(current, 0, 0, 90)).toBe(true);
+    expect(tableAt(current).child(0).child(0).attrs.colwidth).toEqual([90]);
+    expect(tableAt(current).child(2).child(0).attrs.colwidth).toEqual([90]);
+  });
+
+  it("normalizes malformed widths, including unset colspan slots", () => {
+    const table = matrixTable(1, 2);
+    table.content![0].content = [{
+      ...table.content![0].content![0], attrs: { colspan: 2, colwidth: "bad" },
+    }];
+    const current = makeContentEditor(table);
+    expect(setTableColumnWidth(current, 0, 1, 120)).toBe(true);
+    expect(tableAt(current).child(0).child(0).attrs.colwidth).toEqual([0, 120]);
+  });
+
+  it("rejects invalid positions, column indexes, and nonfinite widths without edits", () => {
+    const current = makeMatrixEditor();
+    const before = current.getJSON();
+    for (const index of [-1, 3, 0.5, NaN]) {
+      expect(setTableColumnWidth(current, 0, index, 100)).toBe(false);
+    }
+    for (const width of [NaN, Infinity, -Infinity]) {
+      expect(setTableColumnWidth(current, 0, 0, width)).toBe(false);
+    }
+    for (const pos of [-1, 1, 99999, NaN, 0.5]) {
+      expect(setTableColumnWidth(current, pos, 0, 100)).toBe(false);
+    }
+    expect(current.getJSON()).toEqual(before);
+  });
+
+  it("pins measured peers atomically, equalizes, and allows resizing again", () => {
+    const current = makeMatrixEditor(2, 3);
+    expect(setTableColumnWidth(current, 0, 1, 140, [100, 100, 100])).toBe(true);
+    expect(directCellWidths(tableAt(current))).toEqual([
+      [[100], [140], [100]], [[100], [140], [100]],
+    ]);
+    expect(current.getHTML()).toContain('data-table-fixed-columns="true"');
+    expect(getActiveTable(current)?.hasCustomColumnWidths).toBe(true);
+    expect(equalizeActiveTableColumns(current)).toBe(true);
+    expect(current.getHTML()).not.toContain("data-table-fixed-columns");
+    expect(setTableColumnWidth(current, 0, 2, 160)).toBe(true);
+    expect(directCellWidths(tableAt(current))).toEqual([
+      [null, null, [160]], [null, null, [160]],
+    ]);
+    expect(getActiveTable(current)?.hasCustomColumnWidths).toBe(true);
+  });
+
+  it("keeps nested table widths scoped and updates the TableView sizing marker", () => {
+    const current = makeContentEditor(nestedWidthTable());
+    const innerBefore = findNestedTable(tableAt(current))!.toJSON();
+    expect(setTableColumnWidth(current, 0, 1, 160, [100, 100])).toBe(true);
+    expect(findNestedTable(tableAt(current))!.toJSON()).toEqual(innerBefore);
+    current.destroy();
+    editor = new Editor({
+      extensions: [StarterKit, OrganizeTable.configure({ resizable: true, View: OrganizeTableView }), OrganizeTableRow, TableCell, TableHeader],
+      content: { type: "doc", content: [matrixTable(2, 2)] },
+    });
+    editor.commands.setTextSelection(4);
+    setTableColumnWidth(editor, 0, 0, 120, [100, 100]);
+    expect(editor.view.dom.querySelector("table")?.hasAttribute("data-table-fixed-columns")).toBe(true);
+    equalizeActiveTableColumns(editor);
+    expect(editor.view.dom.querySelector("table")?.hasAttribute("data-table-fixed-columns")).toBe(false);
   });
 
   it("persists row height through JSON, HTML, and HTML parsing", () => {

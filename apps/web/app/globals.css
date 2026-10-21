@@ -1195,7 +1195,7 @@
   table-layout: auto;
   min-width: min(300px, 100%);
 }
-.organize-editor table[data-table-width="fit"] {
+.organize-editor table[data-table-width="fit"]:not([data-table-fixed-columns]) {
   width: 100% !important;
   table-layout: fixed;
 }
@@ -1698,7 +1698,7 @@
   background: hsl(var(--background));
   box-shadow: 0 18px 56px hsl(222 47% 11% / 0.2);
 }
-.organize-editor-shell .tableWrapper:has(> table.organize-table-fullscreen) table {
+.organize-editor-shell .tableWrapper:has(> table.organize-table-fullscreen) > table:not([data-table-fixed-columns]) {
   width: 100% !important;
 }
 
@@ -1902,6 +1902,43 @@
 .table-row-resize-handle:focus-visible::after,
 .table-row-resize-handle.is-resizing::after {
   opacity: 1;
+}
+/* Column resizing stays inside the table body, clear of the top insert/grip controls. */
+.organize-editor table[data-table-fixed-columns] {
+  table-layout: fixed;
+  min-width: 0;
+}
+.table-direct-controls .table-column-resize-handle {
+  position: absolute;
+  z-index: 19;
+  width: 12px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.table-column-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: hsl(var(--primary));
+  opacity: 0;
+}
+.table-column-resize-handle:hover::after,
+.table-column-resize-handle:focus-visible::after,
+.table-column-resize-handle.is-resizing::after {
+  opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .table-column-resize-handle::after {
+    opacity: 0.35;
+  }
 }
 .table-insert-guide,
 .table-drop-guide {

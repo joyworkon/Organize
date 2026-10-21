@@ -29,6 +29,8 @@ import {
   selectTableRow,
   selectWholeTable,
   setTableRowHeight,
+  setTableColumnWidth,
+  MIN_TABLE_COLUMN_WIDTH,
   tableHasMergedCells,
 } from "./extensions/table-style";
 
@@ -78,13 +80,16 @@ interface DragVisual {
   clientY: number;
 }
 
-interface RowResize {
+interface TableResize {
+  axis: "row" | "column";
   pointerId: number;
   tablePos: number;
-  row: number;
-  startY: number;
-  startHeight: number;
-  height: number;
+  index: number;
+  startCoordinate: number;
+  startSize: number;
+  size: number;
+  columnWidths: number[];
+  tableNode: Editor["state"]["doc"];
   tableElement: HTMLTableElement;
   previewClass: string;
   previewStyle: HTMLStyleElement;
@@ -97,7 +102,7 @@ const CONTROL_CLIP_GUTTER = 80;
 const AXIS_GRIP_SIZE = 16;
 const CORNER_HANDLE_SIZE = 18;
 const BOUNDARY_ADD_OFFSET = 22;
-let rowResizePreviewId = 0;
+let resizePreviewId = 0;
 
 function targetEquals(left: AxisTarget | null, right: AxisTarget | null) {
   return left?.axis === right?.axis && left?.index === right?.index;
@@ -120,6 +125,7 @@ function tablePositionFromElement(editor: Editor, table: HTMLTableElement) {
 }
 
 function measureTable(editor: Editor, tablePos: number): TableGeometry | null {
+  if (tablePos < 0 || tablePos >= editor.state.doc.content.size) return null;
   const shell = editor.view.dom.closest(".organize-editor-shell");
   const node = editor.state.doc.nodeAt(tablePos);
   const nodeDom = editor.view.nodeDOM(tablePos);
@@ -167,7 +173,7 @@ function measureTable(editor: Editor, tablePos: number): TableGeometry | null {
     };
   });
 
-  const colElements = Array.from(table.querySelectorAll("colgroup > col"));
+  const colElements = Array.from(table.querySelectorAll(":scope > colgroup > col"));
   const columns: AxisRect[] = [];
   let nextLeft = tableRect.left - shellRect.left;
   for (let index = 0; index < map.width; index += 1) {
@@ -279,14 +285,30 @@ function releasePointer(element: HTMLButtonElement, pointerId: number) {
   }
 }
 
-function updateRowResizePreview(resize: RowResize) {
+function updateResizePreview(resize: TableResize) {
+  if (resize.axis === "row") {
+    resize.previewStyle.textContent = [
+      `.${resize.previewClass} > tbody > tr:nth-child(${resize.index + 1})`,
+      `{ height: ${resize.size}px !important; }`,
+    ].join(" ");
+    return;
+  }
+  const widths = resize.columnWidths.map((width, index) =>
+    index === resize.index ? resize.size : width);
   resize.previewStyle.textContent = [
-    `.${resize.previewClass} > tbody > tr:nth-child(${resize.row + 1})`,
-    `{ height: ${resize.height}px !important; }`,
-  ].join(" ");
+    `table.${resize.previewClass} { width: ${widths.reduce((sum, width) => sum + width, 0)}px !important; min-width: 0 !important; table-layout: fixed !important; }`,
+    ...widths.map((width, index) =>
+      `.${resize.previewClass} > colgroup > col:nth-child(${index + 1}) { width: ${width}px !important; min-width: 0 !important; }`),
+    `body:has(.${resize.previewClass}) * { cursor: col-resize !important; }`,
+  ].join("\n");
 }
 
-function removeRowResizePreview(resize: RowResize) {
+function resizeTableUnchanged(editor: Editor, resize: TableResize) {
+  return resize.tablePos < editor.state.doc.content.size
+    && editor.state.doc.nodeAt(resize.tablePos)?.eq(resize.tableNode);
+}
+
+function removeResizePreview(resize: TableResize) {
   resize.tableElement.classList.remove(resize.previewClass);
   resize.previewStyle.remove();
 }
@@ -300,9 +322,9 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
   const [insertTarget, setInsertTarget] = useState<AxisTarget | null>(null);
   const [dragVisual, setDragVisual] = useState<DragVisual | null>(null);
   const dragVisualRef = useRef<DragVisual | null>(null);
-  const [resizingRow, setResizingRow] = useState<number | null>(null);
+  const [resizing, setResizing] = useState<AxisTarget | null>(null);
   const dragRef = useRef<AxisDrag | null>(null);
-  const resizeRef = useRef<RowResize | null>(null);
+  const resizeRef = useRef<TableResize | null>(null);
 
   const updateGeometry = useCallback((next: TableGeometry | null) => {
     geometryRef.current = next;
@@ -465,7 +487,7 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
   const cancelInteraction = useCallback(() => {
     const resize = resizeRef.current;
     if (resize) {
-      removeRowResizePreview(resize);
+      removeResizePreview(resize);
       releasePointer(resize.captureElement, resize.pointerId);
       updateGeometry(measureTable(editor, resize.tablePos));
     }
@@ -475,7 +497,7 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
     resizeRef.current = null;
     dragVisualRef.current = null;
     setDragVisual(null);
-    setResizingRow(null);
+    setResizing(null);
     clearTransientTargets();
   }, [clearTransientTargets, editor, updateGeometry]);
 
@@ -516,11 +538,17 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
       const resize = resizeRef.current;
       if (!resize || resize.pointerId !== event.pointerId) return;
       event.preventDefault();
-      resize.height = Math.max(
-        MIN_ROW_HEIGHT,
-        Math.round(resize.startHeight + event.clientY - resize.startY)
+      if (!resizeTableUnchanged(editor, resize)) {
+        cancelInteraction();
+        return;
+      }
+      resize.size = Math.max(
+        resize.axis === "row" ? MIN_ROW_HEIGHT : MIN_TABLE_COLUMN_WIDTH,
+        Math.round(resize.startSize
+          + (resize.axis === "row" ? event.clientY : event.clientX)
+          - resize.startCoordinate)
       );
-      updateRowResizePreview(resize);
+      updateResizePreview(resize);
       updateGeometry(measureTable(editor, resize.tablePos));
     };
 
@@ -556,16 +584,21 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
       const resize = resizeRef.current;
       if (!resize || resize.pointerId !== event.pointerId) return;
       releasePointer(resize.captureElement, resize.pointerId);
-      removeRowResizePreview(resize);
+      removeResizePreview(resize);
       resizeRef.current = null;
-      setResizingRow(null);
+      setResizing(null);
       clearTransientTargets();
-      setTableRowHeight(
-        editor,
-        resize.tablePos,
-        resize.row,
-        resize.height
-      );
+      if (!editor.isEditable
+        || !resizeTableUnchanged(editor, resize)) {
+        updateGeometry(measureTable(editor, resize.tablePos));
+        return;
+      }
+      if (resize.axis === "row") {
+        setTableRowHeight(editor, resize.tablePos, resize.index, resize.size);
+      } else if (resize.size !== resize.startSize) {
+        setTableColumnWidth(editor, resize.tablePos, resize.index, resize.size, resize.columnWidths);
+      }
+      updateGeometry(measureTable(editor, resize.tablePos));
     };
 
     const cancel = (event: PointerEvent) => {
@@ -601,7 +634,7 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
       window.removeEventListener("blur", blur);
       const resize = resizeRef.current;
       if (resize) {
-        removeRowResizePreview(resize);
+        removeResizePreview(resize);
         releasePointer(resize.captureElement, resize.pointerId);
       }
       const drag = dragRef.current;
@@ -618,11 +651,12 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
     updateGeometry,
   ]);
 
-  const beginRowResize = useCallback((
+  const beginResize = useCallback((
     event: React.PointerEvent<HTMLButtonElement>,
-    row: number
+    axis: "row" | "column",
+    index: number
   ) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !editor.isEditable || resizeRef.current || dragRef.current) return;
     const current = geometryRef.current;
     if (!current) return;
     const nodeDom = editor.view.nodeDOM(current.tablePos);
@@ -632,32 +666,36 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
         ? nodeDom.querySelector("table")
         : null;
     if (!(table instanceof HTMLTableElement)) return;
-    const rowElement = table.tBodies[0]?.rows[row];
-    if (!(rowElement instanceof HTMLTableRowElement)) return;
+    const rect = axis === "row" ? current.rows[index] : current.columns[index];
+    const tableNode = editor.state.doc.nodeAt(current.tablePos);
+    if (!rect || !tableNode) return;
     event.preventDefault();
     event.stopPropagation();
     capturePointer(event.currentTarget, event.pointerId);
-    rowResizePreviewId += 1;
-    const previewClass = `organize-row-resize-preview-${rowResizePreviewId}`;
+    resizePreviewId += 1;
+    const previewClass = `organize-${axis}-resize-preview-${resizePreviewId}`;
     const previewStyle = document.createElement("style");
-    previewStyle.dataset.organizeRowResizePreview = "true";
+    previewStyle.setAttribute(`data-organize-${axis}-resize-preview`, "true");
     document.head.appendChild(previewStyle);
     table.classList.add(previewClass);
-    const resize = {
+    const resize: TableResize = {
+      axis,
       pointerId: event.pointerId,
       tablePos: current.tablePos,
-      row,
-      startY: event.clientY,
-      startHeight: rowElement.getBoundingClientRect().height,
-      height: rowElement.getBoundingClientRect().height,
+      index,
+      startCoordinate: axis === "row" ? event.clientY : event.clientX,
+      startSize: rect.size,
+      size: rect.size,
+      columnWidths: current.columns.map((column) => Math.max(MIN_TABLE_COLUMN_WIDTH, Math.round(column.size))),
+      tableNode,
       tableElement: table,
       previewClass,
       previewStyle,
       captureElement: event.currentTarget,
     };
     resizeRef.current = resize;
-    updateRowResizePreview(resize);
-    setResizingRow(row);
+    updateResizePreview(resize);
+    setResizing({ axis, index });
   }, [editor]);
 
   if (!geometry) return null;
@@ -968,7 +1006,7 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
           type="button"
           className={cn(
             "table-row-resize-handle",
-            resizingRow === index && "is-resizing"
+            resizing?.axis === "row" && resizing.index === index && "is-resizing"
           )}
           style={{
             top: rowLocal(row) + row.size,
@@ -981,7 +1019,7 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
           aria-valuemin={MIN_ROW_HEIGHT}
           aria-valuenow={Math.round(row.size)}
           title="拖动调整行高"
-          onPointerDown={(event) => beginRowResize(event, index)}
+          onPointerDown={(event) => beginResize(event, "row", index)}
           onKeyDown={(event) => {
             if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
             event.preventDefault();
@@ -994,6 +1032,44 @@ export function TableDirectControls({ editor }: { editor: Editor }) {
             );
           }}
         />
+        )
+      ))}
+
+      {geometry.columns.map((column, index) => (
+        columnBoundaryIsVisible(index + 1) && (
+          <button
+            key={`column-resize-${index}`}
+            type="button"
+            className={cn(
+              "table-column-resize-handle",
+              resizing?.axis === "column" && resizing.index === index && "is-resizing"
+            )}
+            style={{
+              left: columnLocal(column) + column.size,
+              top: geometry.visibleTop,
+              height: Math.max(0, geometry.visibleBottom - geometry.visibleTop),
+            }}
+            aria-label={`调整第 ${index + 1} 列宽度`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_TABLE_COLUMN_WIDTH}
+            aria-valuenow={Math.round(column.size)}
+            title="拖动调整列宽；左右方向键微调"
+            onPointerDown={(event) => beginResize(event, "column", index)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight"].includes(event.key) || resizeRef.current) return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (!editor.isEditable) return;
+              setTableColumnWidth(
+                editor,
+                geometry.tablePos,
+                index,
+                column.size + (event.key === "ArrowLeft" ? -4 : 4),
+                geometry.columns.map((peer) => peer.size)
+              );
+            }}
+          />
         )
       ))}
 

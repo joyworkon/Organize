@@ -1,4 +1,4 @@
-import type { Editor, JSONContent } from "@tiptap/core";
+import { mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
 import Table, { TableView } from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
@@ -18,6 +18,7 @@ import {
 } from "@tiptap/pm/tables";
 
 export const TABLE_GRID_SIZE = 10;
+export const MIN_TABLE_COLUMN_WIDTH = 48;
 // 用「/」作提示：所有平台（含手机、Windows）都可用，⌘/ 仅是 Mac 键盘的快捷方式
 export const TOP_LEVEL_BLOCK_PLACEHOLDER = "输入内容，或输入「/」插入区块…";
 
@@ -145,7 +146,27 @@ export const OrganizeTableHeader = TableHeader.extend({
   },
 });
 
+function hasFixedTableColumns(node: ProseMirrorNode) {
+  const firstRow = node.firstChild;
+  if (!firstRow?.childCount) return false;
+  return Array.from(
+    { length: firstRow.childCount },
+    (_, index) => firstRow.child(index)
+  ).every((cell) => Array.isArray(cell.attrs.colwidth)
+    && cell.attrs.colwidth.length === cell.attrs.colspan
+    && cell.attrs.colwidth.every((width: unknown) =>
+      typeof width === "number" && Number.isFinite(width) && width > 0));
+}
+
 export const OrganizeTable = Table.extend({
+  renderHTML(props) {
+    return this.parent!({
+      ...props,
+      HTMLAttributes: mergeAttributes(props.HTMLAttributes, {
+        "data-table-fixed-columns": hasFixedTableColumns(props.node) ? "true" : null,
+      }),
+    });
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -181,6 +202,7 @@ export const OrganizeTable = Table.extend({
 });
 
 function syncTableDomAttributes(table: HTMLTableElement, node: ProseMirrorNode) {
+  table.toggleAttribute("data-table-fixed-columns", hasFixedTableColumns(node));
   table.setAttribute("data-table-width", normalizeWidthMode(node.attrs.widthMode));
   table.setAttribute("data-table-color", normalizeColorScheme(node.attrs.colorScheme));
   table.setAttribute("data-table-border-color", normalizePresetColor(node.attrs.borderColor));
@@ -800,6 +822,50 @@ export function moveActiveTableColumn(
     pos: context.start,
     select: true,
   })(editor.state, editor.view.dispatch);
+}
+
+/** Update a logical column, including its slot in colspan/rowspan cells.
+ * UI may supply measured widths to pin unset peers in the same transaction.
+ * Zero denotes an unset slot, as in ProseMirror's own column resizing.
+ */
+export function setTableColumnWidth(
+  editor: Editor,
+  tablePos: number,
+  columnIndex: number,
+  widthPx: number,
+  fallbackWidths?: readonly number[]
+) {
+  if (!Number.isInteger(tablePos) || tablePos < 0
+    || tablePos >= editor.state.doc.content.size) return false;
+  const context = getTableContext(editor, tablePos);
+  if (!context || !isIndexInAxis(columnIndex, context.map.width)
+    || !Number.isFinite(widthPx)) return false;
+  const width = Math.max(MIN_TABLE_COLUMN_WIDTH, Math.round(widthPx));
+  const transaction = editor.state.tr;
+  forEachDirectTableCell(context.node, (cell, relativePos) => {
+    const rect = context.map.findCell(relativePos);
+    const containsColumn = columnIndex >= rect.left && columnIndex < rect.right;
+    if (!containsColumn && !fallbackWidths) return;
+    const saved = Array.isArray(cell.attrs.colwidth) ? cell.attrs.colwidth : [];
+    const widths = Array.from({ length: rect.right - rect.left }, (_, offset) => {
+      const column = rect.left + offset;
+      if (column === columnIndex) return width;
+      const prior = saved[offset];
+      if (typeof prior === "number" && Number.isFinite(prior) && prior > 0) return prior;
+      const fallback = fallbackWidths?.[column];
+      return typeof fallback === "number" && Number.isFinite(fallback) && fallback > 0
+        ? Math.max(MIN_TABLE_COLUMN_WIDTH, Math.round(fallback))
+        : 0;
+    });
+    if (widths.every((value, index) => value === saved[index])
+      && widths.length === saved.length) return;
+    transaction.setNodeMarkup(context.start + relativePos, undefined, {
+      ...cell.attrs,
+      colwidth: widths,
+    });
+  });
+  if (transaction.docChanged) editor.view.dispatch(transaction);
+  return true;
 }
 
 export function setTableRowHeight(
