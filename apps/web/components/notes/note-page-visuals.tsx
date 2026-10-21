@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image as ImageIcon,
   Loader2,
@@ -11,19 +11,10 @@ import {
   Upload,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { NoteIconPicker } from "./note-icon-picker";
+import { NoteCoverReposition } from "./note-cover-reposition";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-
-const PAGE_EMOJIS = [
-  "😀", "😊", "🥰", "😎", "🤔", "💡", "📘", "📚",
-  "📝", "✍️", "🎯", "🚀", "⭐", "🔥", "✅", "📌",
-  "🧭", "🗂️", "📊", "🧠", "🌱", "🎨", "💻", "🏠",
-];
 
 interface NotePageVisualsProps {
   noteId: string;
@@ -58,21 +49,42 @@ export function NotePageVisuals({
   onError,
 }: NotePageVisualsProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
   const [positioning, setPositioning] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const retryFile = useRef<File | null>(null);
+  const uploadLock = useRef(false);
+  const canWrite = useRef(!readOnly);
+  canWrite.current = !readOnly;
+  const mounted = useRef(true);
+  const positionButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (readOnly) { setPositioning(false); setDragOver(false); }
+  }, [readOnly]);
   const supabase = useMemo(() => createClient(), []);
 
   const uploadCover = async (file: File) => {
+    if (!canWrite.current || uploadLock.current) return;
+    retryFile.current = file;
+    const fail = (message: string) => { setUploadError(message); onError(message); };
     if (!file.type.startsWith("image/")) {
-      onError("请选择图片文件");
+      fail("请选择图片文件");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      onError("封面图片不能超过 5MB");
+      fail("封面图片不能超过 5MB");
       return;
     }
 
+    uploadLock.current = true;
     setUploading(true);
+    setPositioning(false);
+    setUploadError(null);
     try {
       const {
         data: { user },
@@ -94,21 +106,51 @@ export function NotePageVisuals({
       const {
         data: { publicUrl },
       } = supabase.storage.from("images").getPublicUrl(path);
-      onCoverChange(publicUrl);
-      onCoverPositionChange(50);
+      if (mounted.current && canWrite.current) {
+        onCoverChange(publicUrl);
+        onCoverPositionChange(50);
+        retryFile.current = null;
+      }
     } catch {
-      onError("封面上传失败，请稍后重试");
+      if (mounted.current && canWrite.current) fail("封面上传失败，请稍后重试");
     } finally {
-      setUploading(false);
+      uploadLock.current = false;
+      if (mounted.current) setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
 
+  const wasPositioning = useRef(false);
+  useEffect(() => {
+    if (!positioning && wasPositioning.current) positionButton.current?.focus();
+    wasPositioning.current = positioning;
+  }, [positioning]);
+  const endPositioning = () => setPositioning(false);
   return (
-    <div className="note-page-visuals">
+    <div className={cn("note-page-visuals", dragOver && "is-drag-over")}
+      onDragOver={(event) => {
+        if (readOnly || !Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+        setDragOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={(event) => {
+        if (readOnly || event.dataTransfer.files.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDragOver(false);
+        const file = event.dataTransfer.files[0];
+        if (file) void uploadCover(file);
+      }}
+    >
       <input
         ref={inputRef}
         type="file"
+        disabled={readOnly || uploading}
+        tabIndex={-1}
         accept="image/jpeg,image/png,image/gif,image/webp"
         className="sr-only"
         aria-label="上传封面图片"
@@ -118,17 +160,18 @@ export function NotePageVisuals({
         }}
       />
 
-      {coverUrl && (
+      {(coverUrl || (!readOnly && (uploading || uploadError || dragOver))) && (
         <div
-          className="note-page-cover"
+          className={cn("note-page-cover", positioning && "is-positioning")}
           style={{
-            backgroundImage: `url(${JSON.stringify(coverUrl)})`,
+            backgroundImage: coverUrl ? `url(${JSON.stringify(coverUrl)})` : undefined,
             backgroundPosition: `center ${coverPosition}%`,
           }}
-          role="img"
+          role="group"
           aria-label="笔记封面"
+          aria-busy={uploading}
         >
-          <div className={readOnly ? "hidden" : "note-page-cover-controls"}>
+          {!readOnly && coverUrl && !positioning && <div className="note-page-cover-controls">
             <Button
               type="button"
               variant="secondary"
@@ -149,7 +192,9 @@ export function NotePageVisuals({
               size="icon"
               title="调整封面位置"
               aria-label="调整封面位置"
-              onClick={() => setPositioning((value) => !value)}
+              ref={positionButton}
+              disabled={uploading}
+              onClick={() => setPositioning(true)}
             >
               <MoveVertical className="h-4 w-4" />
             </Button>
@@ -159,26 +204,27 @@ export function NotePageVisuals({
               size="icon"
               title="移除封面"
               aria-label="移除封面"
-              onClick={() => onCoverChange(null)}
+              disabled={uploading}
+              onClick={() => { setUploadError(null); onCoverChange(null); }}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
-          </div>
-          {positioning && (
-            <div className="note-cover-position">
-              <MoveVertical className="h-4 w-4" />
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={coverPosition}
-                aria-label="封面垂直位置"
-                onChange={(event) =>
-                  onCoverPositionChange(Number(event.target.value))
-                }
-              />
+          </div>}
+          {!readOnly && positioning && coverUrl && (
+            <NoteCoverReposition url={coverUrl} position={coverPosition}
+              onSave={(value) => { onCoverPositionChange(value); endPositioning(); }} onCancel={endPositioning} />
+          )}
+          {!readOnly && uploading && (
+            <div className="note-cover-feedback" role="status"><Loader2 className="h-5 w-5 animate-spin" />正在上传封面…</div>
+          )}
+          {!readOnly && uploadError && (
+            <div className="note-cover-feedback" role="alert">
+              <span>{uploadError}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => retryFile.current && void uploadCover(retryFile.current)}>重试</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>选择其他图片</Button>
             </div>
           )}
+          {!readOnly && dragOver && !uploading && !uploadError && <div className="note-cover-feedback pointer-events-none">松开以上传封面图片</div>}
         </div>
       )}
 
@@ -186,7 +232,8 @@ export function NotePageVisuals({
         className={cn(
           contentClassName,
           "note-page-visual-content",
-          coverUrl && "has-cover"
+          coverUrl && "with-cover",
+          coverUrl && icon && "has-cover"
         )}
       >
         <div className={cn("note-page-icon-actions", !icon && "no-icon")}>
@@ -194,25 +241,26 @@ export function NotePageVisuals({
             readOnly ? (
               <span className="note-page-icon" title="只读模式，无法更改图标">{icon}</span>
             ) : (
-              <EmojiPopover icon={icon} onSelect={onIconChange}>
-                <button
+              <NoteIconPicker icon={icon} onSelect={onIconChange}>
+                <Button
                   type="button"
+                  variant="ghost"
                   className="note-page-icon"
                   aria-label="更改页面图标"
                   title="更改页面图标"
                 >
                   {icon}
-                </button>
-              </EmojiPopover>
+                </Button>
+              </NoteIconPicker>
             )
           ) : (
             !readOnly && (
-              <EmojiPopover icon={null} onSelect={onIconChange}>
+              <NoteIconPicker icon={null} onSelect={onIconChange}>
                 <Button type="button" variant="ghost" size="sm" className="note-page-add-btn">
                   <SmilePlus className="h-4 w-4" />
                   添加图标
                 </Button>
-              </EmojiPopover>
+              </NoteIconPicker>
             )
           )}
 
@@ -239,6 +287,7 @@ export function NotePageVisuals({
               variant="ghost"
               size="sm"
               className="note-page-add-btn"
+              aria-expanded={commentsOpen}
               onClick={onToggleComments}
             >
               <MessageSquare className="h-4 w-4" />
@@ -251,48 +300,5 @@ export function NotePageVisuals({
         </div>
       </div>
     </div>
-  );
-}
-
-function EmojiPopover({
-  icon,
-  onSelect,
-  children,
-}: {
-  icon: string | null;
-  onSelect: (icon: string | null) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <div className="grid grid-cols-8 gap-1">
-          {PAGE_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              className={cn(
-                "grid h-8 w-8 place-items-center rounded text-lg hover:bg-accent",
-                icon === emoji && "bg-accent"
-              )}
-              onClick={() => onSelect(emoji)}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-        {icon && (
-          <button
-            type="button"
-            className="mt-2 flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => onSelect(null)}
-          >
-            <Trash2 className="h-4 w-4" />
-            移除图标
-          </button>
-        )}
-      </PopoverContent>
-    </Popover>
   );
 }
