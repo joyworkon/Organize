@@ -11,6 +11,7 @@ import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
+import { calendarReschedulePatch, nextWeekStartLabel, type CalendarRescheduleShortcut } from "@/lib/tasks/calendar-reschedule";
 import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
 import {
   DEFAULT_CALENDAR_VIEW_OPTIONS,
@@ -242,6 +243,84 @@ function CalendarPageInner() {
     [updateTask]
   );
 
+  // 右键/长按菜单的改期快捷项：整日平移保留时刻与时长；清除日期从日历移除。两者都可撤销。
+  const rescheduleTaskShortcut = useCallback(
+    (task: TaskWithTags, shortcut: CalendarRescheduleShortcut) => {
+      const weekStart = viewOptions.weekStart;
+      const patch = calendarReschedulePatch(task, shortcut, new Date(), weekStart);
+      if (!patch) return;
+      const previous = {
+        schedule_start_at: task.schedule_start_at ?? null,
+        schedule_end_at: task.schedule_end_at ?? null,
+        due_date: task.due_date ?? null,
+      };
+      void updateTask(task.id, patch);
+      const title =
+        shortcut === "clear" ? "已从日历移除"
+        : shortcut === "today" ? "已改期到今天"
+        : shortcut === "tomorrow" ? "已改期到明天"
+        : `已改期到${nextWeekStartLabel(weekStart)}`;
+      const undoToast = toast({
+        title,
+        action: createElement(
+          "button",
+          {
+            type: "button",
+            className: "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+            onClick: () => {
+              undoToast.dismiss();
+              void updateTask(task.id, previous);
+            },
+          },
+          "撤销"
+        ),
+      });
+    },
+    [updateTask, viewOptions]
+  );
+
+  // 菜单「复制一份」：与任务详情的创建副本同一 insert 路径（标题加「副本」，重复规则不带走）。
+  const duplicateTask = useCallback(
+    async (task: TaskWithTags) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast({ title: "登录状态未知，无法创建副本", variant: "destructive" });
+        return;
+      }
+      const result = await supabase
+        .from("tasks")
+        .insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          title: `${task.title} 副本`,
+          description: task.description,
+          status: "todo",
+          priority: task.priority,
+          category: task.category,
+          list_id: task.list_id || null,
+          is_pinned: false,
+          sort_order: 0,
+          schedule_start_at: task.schedule_start_at || task.due_date || null,
+          schedule_end_at: task.schedule_end_at || null,
+          all_day: task.all_day || false,
+          timezone: task.timezone || null,
+          recurrence_rule: null,
+          reading_item_id: task.reading_item_id,
+          note_id: null,
+        })
+        .select("*")
+        .single();
+      if (result.error || !result.data) {
+        toast({ title: "创建副本失败", description: result.error?.message, variant: "destructive" });
+        return;
+      }
+      setTasks((current) => [...current.filter((item) => item.id !== result.data.id), { ...result.data, tags: [] } as TaskWithTags]);
+      window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+      toast({ title: "副本已创建" });
+    },
+    [setTasks, supabase]
+  );
+
   useHotkey([
     {
       key: "escape",
@@ -283,6 +362,9 @@ function CalendarPageInner() {
           onToggleTaskDone={toggleTaskDone}
           onRescheduleTask={rescheduleTask}
           onUpdateTaskSchedule={updateTaskSchedule}
+          onRescheduleTaskShortcut={rescheduleTaskShortcut}
+          onDuplicateTask={(task) => void duplicateTask(task)}
+          onDeleteTask={(taskId) => void deleteTask(taskId)}
           viewOptions={viewOptions}
           onViewOptionsChange={changeViewOptions}
           createPreview={createPreview}
