@@ -437,3 +437,18 @@ describe("timeGridRangeFromOffsets", () => {
     expect(timeGridRangeFromOffsets(px(a), px(b))).toEqual({ startMin, endMin });
   });
 });
+
+
+describe("新建反馈不藏在月格 +N 后", () => {
+  it("拥挤日期临时交换整条泳道，仍保留总数和正常布局", () => {
+    const day = new Date(2026, 9, 21, 9);
+    const tasks = Array.from({ length: 5 }, (_, i) => mkTask(String(i), day.toISOString()));
+    const week = weekDaysOf(day);
+    const normal = layoutWeekSegments(tasks, week);
+    expect(normal.segments.map((segment) => segment.task.id)).not.toContain("4");
+    const feedback = layoutWeekSegments(tasks, week, "4");
+    expect(feedback.segments.map((segment) => segment.task.id)).toContain("4");
+    expect(feedback.hiddenByCol).toEqual(normal.hiddenByCol);
+    expect(layoutWeekSegments(tasks, week)).toEqual(normal);
+  });
+});

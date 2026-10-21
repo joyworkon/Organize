@@ -71,6 +71,46 @@ describe("日历顶栏、键盘导航与年视图钻取", () => {
     act(() => { button!.click(); });
   }
 
+  it("N 在月格新建全天事项，日/周视图新建下个整点的范围", () => {
+    press("n");
+    expect(onDateClick.mock.calls[0][0]).toEqual(new Date(2026, 9, 19));
+    expect(onDateClick.mock.calls[0][1]).toBeUndefined();
+    expect(onDateClick.mock.calls[0][2].focusTarget.getAttribute("role")).toBe("gridcell");
+    press("d");
+    press("N");
+    expect(onDateClick.mock.calls[1].slice(0, 2)).toEqual([new Date(2026, 9, 19, 13), new Date(2026, 9, 19, 14)]);
+    press("w");
+    press("n");
+    expect(onDateClick.mock.calls[2].slice(0, 2)).toEqual([new Date(2026, 9, 19, 13), new Date(2026, 9, 19, 14)]);
+  });
+
+  it("N 的下个整点跨过午夜时，日视图跟随次日保住占位位置", () => {
+    vi.setSystemTime(new Date(2026, 9, 19, 23, 45));
+    press("d"); press("n");
+    expect(onDateClick.mock.calls[0].slice(0, 2)).toEqual([new Date(2026, 9, 20), new Date(2026, 9, 20, 1)]);
+    expect(heading()).toBe(dayTitle(new Date(2026, 9, 20)));
+    expect(onDateClick.mock.calls[0][2].focusTarget.dataset.timeGridDay).toBe("2026-9-20");
+  });
+
+  it("保存后的新排期超出当前月时，展示对应月份并标出新事件", () => {
+    const start = new Date(2026, 10, 15, 9).toISOString();
+    const task: TaskWithTags = { id: "created", user_id: "u", title: "改到下月", description: null, status: "todo", priority: "medium", category: "work", due_date: start, schedule_start_at: start, estimated_minutes: null, actual_minutes: null, reading_item_id: null, note_id: null, is_pinned: false, sort_order: 0, completed_at: null, created_at: start, updated_at: start };
+    act(() => root.render(createElement(TaskMonthView, { tasks: [task], onDateClick, createdId: "created" })));
+    expect(heading()).toBe("2026年11月");
+    expect(container.querySelector('[data-calendar-created="true"]')?.textContent).toContain("改到下月");
+  });
+
+  it("N 不在输入框、弹层、IME、修饰键或连发中触发", () => {
+    const input = document.createElement("input"); document.body.appendChild(input);
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true })));
+    input.remove();
+    const dialog = document.createElement("div"); dialog.setAttribute("role", "dialog"); document.body.appendChild(dialog);
+    press("n"); dialog.remove();
+    press("n", { ctrlKey: true }); press("n", { metaKey: true }); press("n", { altKey: true });
+    press("n", { isComposing: true }); press("n", { keyCode: 229 }); press("n", { repeat: true });
+    expect(onDateClick).not.toHaveBeenCalled();
+  });
+
   it("顶栏用共享按钮，保留模式文案、aria-label，并用 title 提示快捷键", () => {
     const month = container.querySelector<HTMLButtonElement>('button[title="月视图（m）"]')!;
     const day = container.querySelector<HTMLButtonElement>('button[title="日视图（d）"]')!;

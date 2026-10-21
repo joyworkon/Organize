@@ -9,7 +9,7 @@ import type { CountdownDay, TaskWithTags } from "@organize/shared";
 const mocks = vi.hoisted(() => {
   const updateResult = vi.fn().mockResolvedValue({ error: null });
   const update = vi.fn().mockReturnValue({ eq: updateResult });
-  const insert = vi.fn().mockResolvedValue({ error: null });
+  const insert = vi.fn().mockImplementation((payload) => ({ select: () => ({ single: async () => ({ data: { id: "created", ...payload }, error: null }) }) }));
   const query = { select: vi.fn(), eq: vi.fn(), is: vi.fn().mockResolvedValue({ data: [], error: null }), insert, update };
   query.select.mockReturnValue(query);
   query.eq.mockReturnValue(query);
@@ -44,7 +44,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/tasks/calendar",
   useSearchParams: () => mocks.params,
 }));
-vi.mock("@/lib/tasks/workspace", () => ({
+vi.mock("@/lib/tasks/workspace", async (original) => ({
+  ...await original<typeof import("@/lib/tasks/workspace")>(),
   useTaskWorkspaceData: () => ({
     tasks: mocks.tasks,
     lists: [],
@@ -54,7 +55,6 @@ vi.mock("@/lib/tasks/workspace", () => ({
     setTasks: mocks.setTasks,
     supabase: mocks.supabase,
   }),
-  filterTasksByScope: (tasks: unknown[]) => tasks,
 }));
 vi.mock("@/lib/tasks/use-task-mutations", () => ({
   useTaskMutations: () => ({
@@ -141,7 +141,6 @@ describe("日历添加起止表单", () => {
     container.remove();
   });
   const dialog = () => document.querySelector('[role="dialog"]')!;
-  const inputs = () => Array.from(dialog().querySelectorAll<HTMLInputElement>('input[type="time"]'));
   function button(text: string) {
     return Array.from(dialog().querySelectorAll("button")).find((item) => item.textContent === text)!;
   }
@@ -158,48 +157,47 @@ describe("日历添加起止表单", () => {
 
   it.each([[540, 630], [0, 15], [1425, 1440]])("预填 %i–%i，保存精确起止并按时长布局", async (start, end) => {
     await open(at(start), at(end));
-    const clock = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
-    expect(inputs().map((input) => input.value)).toEqual([clock(start), clock(end)]);
-    if (end === 1440) expect(dialog().textContent).toContain("结束（次日）");
+    expect(dialog().textContent).toContain("10月19日");
     await act(async () => button("添加").click());
     const payload = mocks.insert.mock.calls[0][0];
     expect(payload).toMatchObject({ schedule_start_at: at(start).toISOString(), schedule_end_at: at(end).toISOString(), due_date: at(start).toISOString(), all_day: false });
     expect(layoutDayTimedEvents([payload as TaskWithTags], at(0))).toMatchObject([{ startMin: start, endMin: end }]);
   });
-  it("普通日期入口默认 09:00–10:00，重复与 tab 使用共享可访问控件", async () => {
+  it("月格默认全天，使用清单选择和日期弹层", async () => {
     await open(at(0));
-    expect(inputs().map((input) => input.value)).toEqual(["09:00", "10:00"]);
+    expect(dialog().textContent).toContain("10月19日 全天");
     expect(button("任务").getAttribute("aria-pressed")).toBe("true");
     expect(button("倒数日").getAttribute("aria-pressed")).toBe("false");
     expect(dialog().querySelector('[role="combobox"]')?.className).toContain("border-input");
-  });
-  it.each(["09:00", "08:45", ""])("结束 %s 不可提交，修复后可添加", async (value) => {
-    await open(at(540), at(630));
-    change(inputs()[1], value);
-    expect(button("添加").disabled).toBe(true);
-    expect(inputs()[1].getAttribute("aria-invalid")).toBe("true");
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(value ? "结束时间需晚于开始时间" : "请填写开始和结束时间");
     await act(async () => button("添加").click());
-    expect(mocks.insert).not.toHaveBeenCalled();
-    change(inputs()[1], "10:30");
-    expect(button("添加").disabled).toBe(false);
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ schedule_start_at: at(0).toISOString(), schedule_end_at: null, all_day: true }));
   });
-  it("全天忽略时间错误，仍保存零点开始和 null 结束", async () => {
+  it("保存返回行立即合并本地任务，不等待刷新；更多选项打开详情", async () => {
+    mocks.params = new URLSearchParams("scope=list&list=l1");
+    await act(async () => root.render(createElement(CalendarPage)));
     await open(at(540), at(630));
-    change(inputs()[1], "08:00");
-    act(() => (dialog().querySelector('[role="checkbox"]') as HTMLButtonElement).click());
-    expect(inputs()).toHaveLength(0);
+    await act(async () => button("更多选项").click());
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ list_id: "l1" }));
+    const updater = mocks.setTasks.mock.calls.at(-1)![0];
+    const next = updater([]);
+    expect(next).toMatchObject([{ id: expect.any(String), title: "拖选任务", schedule_start_at: at(540).toISOString(), schedule_end_at: at(630).toISOString() }]);
+    expect(mocks.replace.mock.calls.at(-1)![0]).toContain(`task=${next[0].id}`);
+  });
+  it("在已完成筛选里新建待办会切到可见范围，不把新任务藏起来", async () => {
+    mocks.params = new URLSearchParams("scope=completed");
+    await act(async () => root.render(createElement(CalendarPage)));
+    await open(at(540), at(630));
     await act(async () => button("添加").click());
-    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ schedule_start_at: at(0).toISOString(), schedule_end_at: null, due_date: at(0).toISOString(), all_day: true }));
+    expect(mocks.replace.mock.calls.at(-1)![0]).toBe("/tasks/calendar?scope=all");
   });
-  it("倒数日切换保留原保存合同，不受任务时间校验影响", async () => {
+  it("倒数日切换保留原保存合同，成功立即合并本地日历", async () => {
     await open(at(540), at(630));
-    change(inputs()[1], "08:00");
     act(() => button("倒数日").click());
     expect(button("倒数日").getAttribute("aria-pressed")).toBe("true");
-    expect(button("任务").getAttribute("aria-pressed")).toBe("false");
+    mocks.query.is.mockReturnValueOnce(new Promise(() => {}));
     await act(async () => button("添加").click());
     expect(mocks.insert).toHaveBeenCalledWith({ user_id: "u", title: "拖选任务", target_date: "2026-10-19", repeat_annually: false });
+    expect(mocks.countdowns).toMatchObject([{ title: "拖选任务", target_date: "2026-10-19" }]);
   });
 });
 

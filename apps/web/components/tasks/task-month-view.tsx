@@ -34,6 +34,7 @@ import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import { TaskRepeatIcon, WEEKDAYS, WEEKDAYS_SHORT, recurringPresentation, timeLabel } from "./calendar-shared";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { MobileMonthView } from "./calendar-mobile-month";
+import { calendarCreateAnchor, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
 
 // 纯日期函数已迁到 lib/tasks/calendar-agenda；这里保留导出给既有测试与调用方。
 export { getMonthCells, getTaskDate };
@@ -251,7 +252,9 @@ interface TimeGridViewProps {
   countdowns: CountdownDay[];
   onTaskClick?: (task: TaskWithTags) => void;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
-  onDateClick?: (date: Date, end?: Date) => void;
+  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  createPreview?: CalendarCreatePreview | null;
+  createdId?: string | null;
 }
 
 /** 日 / 周视图共用 1 或 7 列时间网格，沿用同一套拖拽与创建回调。 */
@@ -262,6 +265,8 @@ export function TimeGridView({
   onTaskClick,
   onUpdateTaskSchedule,
   onDateClick,
+  createPreview,
+  createdId,
 }: TimeGridViewProps) {
   const { dragDate: countdownDragDate } = useCountdownInteractions();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -339,9 +344,11 @@ export function TimeGridView({
     if (!current.moved) return; // 轻点仍由 click 处理。
     suppressCreateClickRef.current = true;
     const { day, startMin, endMin } = current;
+    const rect = current.column.getBoundingClientRect();
     onDateClick?.(
       new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, startMin),
-      new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, endMin)
+      new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, endMin),
+      calendarCreateAnchor(current.column, new DOMRect(rect.x, rect.y + startMin / 60 * HOUR_HEIGHT, rect.width, (endMin - startMin) / 60 * HOUR_HEIGHT))
     );
   };
 
@@ -811,8 +818,9 @@ export function TimeGridView({
                 allDayTarget && "bg-primary/5"
               )}
             >
+              {createPreview?.allDay && isSameDay(createPreview.start, day) && <div role="status" data-calendar-create-preview="all-day" className="truncate rounded-md border border-dashed border-primary bg-background px-1 text-xs">{createPreview.title || "新事项"} · 全天</div>}
               {chips_countdown.map((item) => (
-                <CountdownChip key={item.id} item={item} compact />
+                <span key={item.id} data-calendar-created={item.id === createdId || undefined}><CountdownChip item={item} compact /></span>
               ))}
               {/* 落点占位渲染在目标列（全天改日或定时块拖上来都走这里）；原卡片保持挂载以维持 pointer capture */}
               {allDayTarget && dragTask && (
@@ -829,6 +837,7 @@ export function TimeGridView({
                   <button
                     key={task.id}
                     {...recurringPresentation(task)}
+                    data-calendar-created={task.id === createdId || undefined}
                     type="button"
                     className={cn(
                       "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
@@ -882,6 +891,9 @@ export function TimeGridView({
             ))}
             {days.map((day, di) => {
               const target = drag && drag.moved && drag.dayIdx === di;
+              const draft = createPreview && !createPreview.allDay && isSameDay(createPreview.start, day) ? createPreview : null;
+              const draftStart = draft ? minutesSinceMidnight(draft.start) : 0;
+              const draftEnd = draft?.end ? (isSameDay(draft.end, day) ? minutesSinceMidnight(draft.end) : 1440) : draftStart + 60;
               return (
                 <div
                   key={di}
@@ -891,6 +903,7 @@ export function TimeGridView({
                     target && "bg-primary/5"
                   )}
                   data-time-grid-day={keyFor(day)}
+                  tabIndex={-1}
                   style={{ touchAction: onDateClick ? "none" : undefined }}
                   onPointerDown={(event) => startSelection(event, day, di)}
                   onPointerMove={moveSelection}
@@ -918,7 +931,8 @@ export function TimeGridView({
                               Math.floor(slot / 60),
                               slot % 60
                             ),
-                            new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, slot + 60)
+                            new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, slot + 60),
+                            calendarCreateAnchor(e.currentTarget, new DOMRect(rect.x, rect.y + slot / 60 * HOUR_HEIGHT, rect.width, HOUR_HEIGHT))
                           );
                         }
                       : undefined
@@ -946,6 +960,7 @@ export function TimeGridView({
                       <button
                         key={ev.task.id}
                         {...recurringPresentation(ev.task)}
+                        data-calendar-created={ev.task.id === createdId || undefined}
                         type="button"
                         className={cn(
                           "absolute inset-x-0.5 z-10 flex overflow-hidden px-1.5 text-left text-xs font-medium",
@@ -1004,6 +1019,13 @@ export function TimeGridView({
                       </button>
                     );
                   })}
+                  {draft && (
+                    <div role="status" data-calendar-create-preview="timed" className="pointer-events-none absolute inset-x-0.5 z-30 overflow-hidden rounded-md border border-dashed border-primary bg-background px-1 text-xs tabular-nums"
+                      style={{ top: draftStart / 60 * HOUR_HEIGHT, height: Math.max(14, (draftEnd - draftStart) / 60 * HOUR_HEIGHT) }}>
+                      <span className="block whitespace-nowrap">{minutesLabel(draftStart)} – {minutesLabel(draftEnd)}</span>
+                      <span className="block truncate font-medium">{draft.title || "新任务"}</span>
+                    </div>
+                  )}
                   {selection?.moved && selection.dayIdx === di && (
                     <div
                       role="status"
@@ -1140,7 +1162,8 @@ export interface WeekSegment {
  */
 export function layoutWeekSegments(
   tasks: TaskWithTags[],
-  week: Date[]
+  week: Date[],
+  createdId?: string | null
 ): { segments: WeekSegment[]; hiddenByCol: number[] } {
   const weekStart = dateOnly(week[0]);
   const weekEnd = dateOnly(week[6]);
@@ -1176,6 +1199,15 @@ export function layoutWeekSegments(
     laneEnds[lane] = seg.endCol;
   }
 
+  // Temporarily exchange whole lanes so feedback remains visible on a crowded day.
+  // All overlapping ranges keep their assigned lane; normal layout resumes after feedback.
+  const createdLane = segs.find((seg) => seg.task.id === createdId)?.lane;
+  if (createdLane !== undefined && createdLane >= MAX_LANES) {
+    for (const seg of segs) {
+      if (seg.lane === createdLane) seg.lane = MAX_LANES - 1;
+      else if (seg.lane === MAX_LANES - 1) seg.lane = createdLane;
+    }
+  }
   const hiddenByCol = [0, 0, 0, 0, 0, 0, 0];
   const visible: WeekSegment[] = [];
   for (const seg of segs) {
@@ -1237,7 +1269,9 @@ interface TaskMonthViewProps extends CountdownActions {
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   /** 点击月视图格子空白处、日视图与手机周议程的添加按钮时打开添加。日期数字和年视图改走日视图。 */
-  onDateClick?: (date: Date, end?: Date) => void;
+  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  createPreview?: CalendarCreatePreview | null;
+  createdId?: string | null;
 }
 
 const MONTH_CELL_FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] focus-visible:ring-offset-background";
@@ -1355,7 +1389,7 @@ export function TaskMonthView(props: TaskMonthViewProps) {
   return <CountdownProvider onUpdateCountdown={props.onUpdateCountdown} onDeleteCountdown={props.onDeleteCountdown}><TaskMonthViewContent {...props} /></CountdownProvider>;
 }
 
-function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onRescheduleTask, onUpdateTaskSchedule, onDateClick }: TaskMonthViewProps) {
+function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onRescheduleTask, onUpdateTaskSchedule, onDateClick, createPreview, createdId }: TaskMonthViewProps) {
   const { dragDate: countdownDragDate } = useCountdownInteractions();
   const today = new Date();
   const [mode, setMode] = useState<CalendarMode>("month");
@@ -1371,6 +1405,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
   const monthGridRef = useRef<HTMLDivElement>(null);
   const monthRowsRef = useRef<Array<HTMLDivElement | null>>([]);
   const monthCellRefs = useRef(new Map<string, HTMLDivElement>());
+  const [keyboardCreate, setKeyboardCreate] = useState<{ date: Date; timed: boolean; focusTarget?: HTMLElement } | null>(null);
   const [rovingDate, setRovingDate] = useState<Date | null>(null);
   const rovingRef = useRef<Date | null>(null);
   // 方向键连发时，焦点还在旧格子上，下一次位移要从已经写下的目标日接着算。
@@ -1383,6 +1418,21 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
   const dragOverDate = monthDrag?.moved && monthDrag.target ? keyFor(monthDrag.target) : null;
   const cells = useMemo(() => getMonthCells(cursor), [cursor]);
   const weekDays = useMemo(() => weekDaysOf(cursor), [cursor]);
+  const revealedCreateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!createdId || revealedCreateRef.current === createdId) return;
+    const task = tasks.find((item) => item.id === createdId);
+    const countdown = countdowns.find((item) => item.id === createdId);
+    const date = task ? getTaskDate(task) : countdown ? new Date(`${countdown.repeat_annually ? annualOccurrenceDate(countdown.target_date, cursorRef.current.getFullYear()) : countdown.target_date}T00:00:00`) : null;
+    if (!date) return;
+    revealedCreateRef.current = createdId;
+    if (modeRef.current === "day") setSelectedDate(dateOnly(date));
+    else if (modeRef.current === "week" && !weekDaysOf(cursorRef.current).some((day) => isSameDay(day, date))) {
+      setCursor(dateOnly(date)); setSelectedDate(dateOnly(date));
+    } else if (modeRef.current === "month" && !getMonthCells(cursorRef.current).some((cell) => isSameDay(cell.date, date))) {
+      setCursor(new Date(date.getFullYear(), date.getMonth(), 1)); setSelectedDate(dateOnly(date));
+    }
+  }, [createdId, tasks, countdowns]);
   const scheduledTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
   const monthTasks = useMemo(() => {
     if (mode === "year") return scheduledTasks;
@@ -1396,8 +1446,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     return result;
   }, [cells]);
   const weekLayouts = useMemo(
-    () => weeks.map((week) => layoutWeekSegments(monthTasks, week)),
-    [weeks, monthTasks]
+    () => weeks.map((week) => layoutWeekSegments(monthTasks, week, createdId)),
+    [weeks, monthTasks, createdId]
   );
   // 手机月视图「今天」/ 再次点同一天时递增，让议程重新滚到目标分组。
   const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
@@ -1535,7 +1585,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     if ((key === "Enter" || key === " ") && !event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
-      onDateClick?.(cellDate);
+      onDateClick?.(cellDate, undefined, calendarCreateAnchor(event.currentTarget));
     }
   };
   useEffect(() => {
@@ -1554,6 +1604,29 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     node.focus();
   }, [rovingDate, cursor, mode]);
   useHotkey([
+    {
+      key: "n", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false,
+      handler: (event) => {
+        if (!onDateClick || hasOpenDialog() || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+        event.preventDefault();
+        const month = modeRef.current === "month" || modeRef.current === "year";
+        const mobile = window.matchMedia?.("(max-width: 767px)").matches;
+        const date = new Date(modeRef.current === "month" && !mobile ? activeRovingDate : selectedRef.current);
+        date.setHours(month ? 0 : new Date().getHours() + 1, 0, 0, 0);
+        const focusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+        if (!month) {
+          const selected = dateOnly(date);
+          selectedRef.current = selected;
+          setSelectedDate(selected);
+          if (modeRef.current === "week" && !weekDaysOf(cursorRef.current).some((day) => isSameDay(day, date))) {
+            cursorRef.current = selected;
+            setCursor(selected);
+          }
+        }
+        // Resolve the anchor after any date/week navigation has rendered its target column.
+        setKeyboardCreate({ date, timed: !month, focusTarget });
+      },
+    },
     { key: "arrowleft", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "prev") },
     { key: "arrowright", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "next") },
     { key: "t", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "today") },
@@ -1562,6 +1635,21 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
     { key: "m", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "month") },
     { key: "y", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "year") },
   ]);
+
+  useEffect(() => {
+    if (!keyboardCreate || !onDateClick) return;
+    const { date, timed, focusTarget } = keyboardCreate;
+    const cell = timed ? document.querySelector<HTMLElement>(`[data-time-grid-day="${keyFor(date)}"]`) : monthCellRefs.current.get(keyFor(date));
+    let anchor: CalendarCreateAnchor = cell ? calendarCreateAnchor(cell) : { focusTarget };
+    if (cell && timed) {
+      const scroller = cell.parentElement?.parentElement?.parentElement;
+      if (scroller) scroller.scrollTop = Math.max(0, date.getHours() * HOUR_HEIGHT - HOUR_HEIGHT);
+      const rect = cell.getBoundingClientRect();
+      anchor = calendarCreateAnchor(cell, new DOMRect(rect.x, rect.y + date.getHours() * HOUR_HEIGHT, rect.width, HOUR_HEIGHT));
+    }
+    setKeyboardCreate(null);
+    onDateClick(date, timed ? new Date(date.getTime() + 3_600_000) : undefined, anchor);
+  }, [keyboardCreate, onDateClick]);
 
   const title =
     mode === "year" ? `${cursor.getFullYear()}年`
@@ -1717,6 +1805,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
             <div className="min-h-0 flex-1 overflow-y-auto">
               <DayView
                 date={selectedDate}
+                createPreview={createPreview}
+                createdId={createdId}
                 tasks={monthTasks}
                 countdowns={countdowns}
                 onTaskClick={onTaskClick}
@@ -1734,6 +1824,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
               onTaskClick={onTaskClick}
               onUpdateTaskSchedule={onUpdateTaskSchedule}
               onDateClick={onDateClick}
+            createPreview={createPreview}
+            createdId={createdId}
             />
           </div>
         </>
@@ -1763,7 +1855,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                   {week.map((date, col) => {
                     const inMonth = cells[weekIndex * 7 + col].inMonth;
                     const cellKey = keyFor(date);
-                    const dayCountdowns = monthCountdowns.get(cellKey) || [];
+                    const dayCountdowns = [...(monthCountdowns.get(cellKey) || [])].sort((a, b) => Number(b.id === createdId) - Number(a.id === createdId));
                     const moreCount = monthCellOverflowCount(hiddenByCol[col], dayCountdowns.length);
                     const dayTasks = moreCount > 0 ? tasksOnDay(monthTasks, date) : [];
                     const isRoving = keyFor(date) === keyFor(activeRovingDate);
@@ -1779,11 +1871,12 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                         ref={(node) => {
                           if (node) monthCellRefs.current.set(cellKey, node);
                         }}
-                        onClick={onDateClick ? () => onDateClick(date) : undefined}
+                        onClick={onDateClick ? (event) => { setSelectedDate(date); setRovingDate(date); rovingRef.current = date; onDateClick(date, undefined, calendarCreateAnchor(event.currentTarget)); } : undefined}
                         onKeyDown={(event) => onMonthCellKeyDown(event, date)}
                         className={cn(
                           "relative border-b border-r p-1.5 last:border-r-0",
                           MONTH_CELL_FOCUS,
+                          createPreview && isSameDay(createPreview.start, date) && "bg-accent ring-2 ring-inset ring-primary",
                           onDateClick && "cursor-pointer hover:bg-muted/40",
                           !inMonth && "bg-muted/20 text-muted-foreground",
                           isToday && "bg-accent/70",
@@ -1811,8 +1904,9 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                         >
                           {date.getDate()}
                         </Button>
+                        {createPreview && isSameDay(createPreview.start, date) && <span data-calendar-create-preview="month" className="pointer-events-none absolute inset-x-1.5 top-8 z-20 truncate rounded border border-dashed border-primary bg-background px-1 text-xs">{createPreview.title || "新事项"}</span>}
                         <div className="absolute inset-x-1.5 bottom-1 flex items-center gap-1">
-                          {dayCountdowns[0] && <CountdownChip item={dayCountdowns[0]} />}
+                          {dayCountdowns[0] && <span data-calendar-created={dayCountdowns[0].id === createdId || undefined}><CountdownChip item={dayCountdowns[0]} /></span>}
                           {moreCount > 0 && (
                             <MonthDayPopover
                               date={date}
@@ -1822,7 +1916,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                               tabIndex={isRoving ? 0 : -1}
                               onOpenDay={() => openDayView(date)}
                               onTaskClick={onTaskClick}
-                              onAdd={onDateClick ? () => onDateClick(date) : undefined}
+                              onAdd={onDateClick ? () => { const cell = monthCellRefs.current.get(keyFor(date)); onDateClick(date, undefined, cell ? calendarCreateAnchor(cell) : undefined); } : undefined}
                             />
                           )}
                         </div>
@@ -1835,6 +1929,7 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
                       type="button"
                       key={`${seg.task.id}-${weekIndex}`}
                       {...recurringPresentation(seg.task)}
+                      data-calendar-created={seg.task.id === createdId || undefined}
                       onPointerDown={(event) => startMonthDrag(event, seg.task, seg.lane)}
                       onPointerMove={moveMonthDrag}
                       onPointerUp={endMonthDrag}
@@ -1903,6 +1998,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
             onSwipeStep={step}
             onTaskClick={onTaskClick}
             onDateClick={onDateClick}
+            createPreview={createPreview}
+            createdId={createdId}
             onUpdateTaskSchedule={onUpdateTaskSchedule}
             onRescheduleTask={onRescheduleTask}
           />
@@ -1918,6 +2015,8 @@ function TaskMonthViewContent({ tasks, countdowns = [], onTaskClick, onReschedul
             onTaskClick={onTaskClick}
             onUpdateTaskSchedule={onUpdateTaskSchedule}
             onDateClick={onDateClick}
+            createPreview={createPreview}
+            createdId={createdId}
           />
         </CalendarSwipeSurface>
       )}
@@ -1949,7 +2048,11 @@ function DayView({
   onUpdateTaskSchedule,
   onRescheduleTask,
   onAdd,
+  createPreview,
+  createdId,
 }: {
+  createPreview?: CalendarCreatePreview | null;
+  createdId?: string | null;
   date: Date;
   tasks: TaskWithTags[];
   countdowns: CountdownDay[];
@@ -1974,6 +2077,7 @@ function DayView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5 md:px-8">
+      {createPreview && isSameDay(createPreview.start, date) && <p role="status" className="mb-3 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
       {onAdd && (
         <button
           type="button"
@@ -1989,7 +2093,7 @@ function DayView({
           <div className="mb-2 text-sm font-semibold text-muted-foreground">倒数日</div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {dayCountdowns.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 rounded-xl border bg-muted/40 p-3 ">
+              <div key={item.id} data-calendar-created={item.id === createdId || undefined} className="flex items-center gap-2 rounded-xl border bg-muted/40 p-3 ">
                 <Hourglass className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.title}</span>
                 {item.repeat_annually && <span className="shrink-0 text-xs text-muted-foreground">每年</span>}
@@ -2014,7 +2118,7 @@ function DayView({
                 recurrence_rule: task.recurrence_rule || null,
               };
               return (
-                <div key={task.id} className={cn("flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
+                <div key={task.id} data-calendar-created={task.id === createdId || undefined} className={cn("flex min-h-14 items-center gap-3 border-b px-4 py-2 last:border-b-0", isRecurringProjection(task) && "border-dashed text-muted-foreground")}>
                   {!isRecurringProjection(task) && <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border text-xs", task.status === "done" ? "bg-muted" : "border-muted-foreground/30")}>{task.status === "done" ? "✓" : ""}</span>}
                   <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
                     <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
