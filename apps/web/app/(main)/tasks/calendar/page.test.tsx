@@ -183,6 +183,13 @@ describe("日历添加起止表单", () => {
     expect(next).toMatchObject([{ id: expect.any(String), title: "拖选任务", schedule_start_at: at(540).toISOString(), schedule_end_at: at(630).toISOString() }]);
     expect(mocks.replace.mock.calls.at(-1)![0]).toContain(`task=${next[0].id}`);
   });
+  it("创建卡打开期间不会被另一个日期入口替换草稿范围", async () => {
+    await open(at(540), at(630));
+    await act(async () => mocks.clickDate!(at(900), at(960)));
+    expect(dialog().querySelector<HTMLInputElement>("input")!.value).toBe("拖选任务");
+    await act(async () => button("添加").click());
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ schedule_start_at: at(540).toISOString(), schedule_end_at: at(630).toISOString() }));
+  });
   it("在已完成筛选里新建待办会切到可见范围，不把新任务藏起来", async () => {
     mocks.params = new URLSearchParams("scope=completed");
     await act(async () => root.render(createElement(CalendarPage)));

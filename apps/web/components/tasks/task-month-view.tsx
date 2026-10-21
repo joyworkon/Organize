@@ -1020,10 +1020,10 @@ export function TimeGridView({
                     );
                   })}
                   {draft && (
-                    <div role="status" data-calendar-create-preview="timed" className="pointer-events-none absolute inset-x-0.5 z-30 overflow-hidden rounded-md border border-dashed border-primary bg-background px-1 text-xs tabular-nums"
+                    <div role="status" data-calendar-create-preview="timed" className="pointer-events-none absolute inset-x-0.5 z-30 rounded-md border border-dashed border-primary bg-background px-1 text-xs tabular-nums"
                       style={{ top: draftStart / 60 * HOUR_HEIGHT, height: Math.max(14, (draftEnd - draftStart) / 60 * HOUR_HEIGHT) }}>
-                      <span className="block whitespace-nowrap">{minutesLabel(draftStart)} – {minutesLabel(draftEnd)}</span>
-                      <span className="block truncate font-medium">{draft.title || "新任务"}</span>
+                      <span className="block whitespace-nowrap rounded-sm bg-background">{minutesLabel(draftStart)} – {minutesLabel(draftEnd)}</span>
+                      <span className="block truncate bg-background font-medium">{draft.title || "新任务"}</span>
                     </div>
                   )}
                   {selection?.moved && selection.dayIdx === di && (

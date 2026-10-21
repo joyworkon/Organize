@@ -233,6 +233,7 @@ function CalendarPageInner() {
           createPreview={createPreview}
           createdId={createdId}
           onDateClick={(start, end, anchor) => {
+            if (addRange) return; // An in-flight create keeps its original range and anchor.
             // 详情打开时，点日历空白只关闭面板，与 ✕ / Esc 一样回到当前视图。
             if (selectedTaskId) {
               closeTask();

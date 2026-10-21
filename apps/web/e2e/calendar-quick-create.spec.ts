@@ -126,3 +126,22 @@ test("crowded month +N transfers to anchored creation without losing title focus
   await page.keyboard.press("Escape");
   await expect(card(page)).toHaveCount(0);
 });
+
+
+test("15-minute selection keeps the live title visible without enlarging its range", async ({ page }) => {
+  await openCalendar(page);
+  await page.getByRole("button", { name: "日", exact: true }).click();
+  const surface = page.locator('[data-time-grid-day]:visible');
+  await surface.evaluate((element) => { element.closest('.overflow-y-auto')!.scrollTop = 7 * 56; });
+  const rect = await surface.boundingBox();
+  const x = rect!.x + rect!.width / 2;
+  const y = rect!.y + 9 * 56;
+  await page.mouse.move(x, y); await page.mouse.down();
+  await page.mouse.move(x, y + 14, { steps: 3 }); await page.mouse.up();
+  await card(page).getByRole("textbox", { name: "标题" }).fill("短任务标题");
+  const preview = surface.locator('[data-calendar-create-preview="timed"]');
+  await expect(preview).toHaveCSS("height", "14px");
+  await expect(preview.getByText("短任务标题", { exact: true })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+});
