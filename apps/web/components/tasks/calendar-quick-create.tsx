@@ -13,6 +13,7 @@ import { CountdownFormFields } from "./countdown-form-fields";
 import { useIsNarrowViewport } from "@/components/canvas/use-is-narrow-viewport";
 import { countdownFormError, type CountdownFormValue } from "@/lib/tasks/countdown";
 import { isImeComposing } from "@/lib/input/submit-guard";
+import { calendarDateOnly, isSameCalendarDay } from "@/lib/tasks/calendar-agenda";
 import { toast } from "@/hooks/use-toast";
 import type { useTaskWorkspaceData } from "@/lib/tasks/workspace";
 import type { CountdownDay, TaskList, TaskWithTags } from "@organize/shared";
@@ -24,6 +25,32 @@ export interface CalendarCreateAnchor {
 }
 export interface CalendarCreateRange { start: Date; end?: Date; anchor?: CalendarCreateAnchor }
 export interface CalendarCreatePreview { start: Date; end?: Date; allDay: boolean; title: string }
+
+/** 全天按本地日历日覆盖首尾；定时预览保留原来的起点语义。 */
+export function calendarCreatePreviewOnDay(preview: CalendarCreatePreview, day: Date): boolean {
+  if (!preview.allDay || !preview.end) return isSameCalendarDay(preview.start, day);
+  const date = calendarDateOnly(day);
+  return calendarDateOnly(preview.start) <= date && date <= calendarDateOnly(preview.end);
+}
+
+function normalizeAllDaySchedule(schedule: TaskSchedule): TaskSchedule {
+  if (!schedule.all_day || !schedule.schedule_start_at) return schedule;
+  const start = calendarDateOnly(new Date(schedule.schedule_start_at));
+  const end = schedule.schedule_end_at ? calendarDateOnly(new Date(schedule.schedule_end_at)) : null;
+  if (end && end > start) end.setHours(23, 59, 0, 0);
+  return { ...schedule, schedule_start_at: start.toISOString(), schedule_end_at: end && end > start ? end.toISOString() : null };
+}
+
+function toggleAllDay(schedule: TaskSchedule, allDay: boolean): TaskSchedule {
+  const next = { ...normalizeAllDaySchedule(schedule), all_day: allDay };
+  if (allDay) return normalizeAllDaySchedule(next);
+  if (!next.schedule_start_at) return next;
+  const start = new Date(next.schedule_start_at);
+  if (!next.schedule_end_at || new Date(next.schedule_end_at) <= start) {
+    next.schedule_end_at = new Date(start.getTime() + 3_600_000).toISOString();
+  }
+  return next;
+}
 
 export function calendarCreateAnchor(element: HTMLElement, rect = element.getBoundingClientRect()): CalendarCreateAnchor {
   return { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }, focusTarget: element };
@@ -48,8 +75,12 @@ export function calendarScheduleLabel(schedule: TaskSchedule): string {
   if (!schedule.schedule_start_at) return "选择日期和时间";
   const start = new Date(schedule.schedule_start_at);
   const day = `${start.getMonth() + 1}月${start.getDate()}日`;
-  if (schedule.all_day) return `${day} 全天`;
   const end = schedule.schedule_end_at ? new Date(schedule.schedule_end_at) : null;
+  if (schedule.all_day) {
+    if (!end || isSameCalendarDay(start, end)) return `${day} 全天`;
+    const year = end.getFullYear() !== start.getFullYear() ? `${end.getFullYear()}年` : "";
+    return `${day} – ${year}${end.getMonth() + 1}月${end.getDate()}日 全天`;
+  }
   return `${day} ${start.toLocaleDateString("zh-CN", { weekday: "short" })} ${clock(start)}${end ? ` – ${localKey(start) === localKey(end) ? "" : `${end.getMonth() + 1}月${end.getDate()}日 `}${clock(end)}` : ""}`;
 }
 
@@ -87,9 +118,10 @@ export function CalendarQuickCreate({ range, supabase, lists, defaultListId, onC
   } } }), [range.anchor]);
 
   useEffect(() => {
-    const start = tab === "countdown" ? new Date(`${countdown.target_date}T00:00:00`) : new Date(schedule.schedule_start_at ?? range.start);
+    const previewSchedule = normalizeAllDaySchedule(schedule);
+    const start = tab === "countdown" ? new Date(`${countdown.target_date}T00:00:00`) : new Date(previewSchedule.schedule_start_at ?? range.start);
     if (Number.isNaN(start.getTime())) return;
-    onPreviewChange({ start, end: tab === "task" && schedule.schedule_end_at ? new Date(schedule.schedule_end_at) : undefined, allDay: tab === "countdown" || schedule.all_day, title: tab === "task" ? title : countdown.title });
+    onPreviewChange({ start, end: tab === "task" && previewSchedule.schedule_end_at ? new Date(previewSchedule.schedule_end_at) : undefined, allDay: tab === "countdown" || schedule.all_day, title: tab === "task" ? title : countdown.title });
   }, [title, schedule, tab, countdown, onPreviewChange, range.start]);
 
   useEffect(() => {
@@ -102,7 +134,11 @@ export function CalendarQuickCreate({ range, supabase, lists, defaultListId, onC
     return () => { visual.removeEventListener("resize", update); visual.removeEventListener("scroll", update); };
   }, [mobile]);
 
-  const scheduleError = !schedule.schedule_start_at ? "请选择开始日期" : !schedule.all_day && schedule.schedule_end_at && new Date(schedule.schedule_end_at) <= new Date(schedule.schedule_start_at) ? "结束时间需晚于开始时间" : null;
+  const scheduleError = !schedule.schedule_start_at ? "请选择开始日期"
+    : schedule.schedule_end_at && (schedule.all_day
+      ? calendarDateOnly(new Date(schedule.schedule_end_at)) < calendarDateOnly(new Date(schedule.schedule_start_at))
+      : new Date(schedule.schedule_end_at) <= new Date(schedule.schedule_start_at))
+      ? (schedule.all_day ? "结束日期不能早于开始日期" : "结束时间需晚于开始时间") : null;
   const dismiss = () => { if (!savingRef.current) onClose(); };
   const restoreFocus = (event: Event) => {
     event.preventDefault();
@@ -119,11 +155,10 @@ export function CalendarQuickCreate({ range, supabase, lists, defaultListId, onC
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("未登录");
       if (tab === "task") {
-        const start = new Date(schedule.schedule_start_at!);
-        if (schedule.all_day) start.setHours(0, 0, 0, 0);
+        const normalized = normalizeAllDaySchedule(schedule);
         const payload = {
           id: crypto.randomUUID(), user_id: user.id, title: title.trim(), status: "todo", priority: "medium", category: "work", list_id: listId,
-          ...schedule, schedule_start_at: start.toISOString(), schedule_end_at: schedule.all_day ? null : schedule.schedule_end_at, due_date: start.toISOString(),
+          ...normalized, due_date: normalized.schedule_end_at || normalized.schedule_start_at,
         };
         const result = await supabase.from("tasks").insert(payload).select("*").single();
         if (result.error) throw result.error;
@@ -165,8 +200,8 @@ export function CalendarQuickCreate({ range, supabase, lists, defaultListId, onC
       <fieldset disabled={saving} className="space-y-3">
         {tab === "task" ? <>
           <label className="block space-y-2 text-sm font-medium">标题<Input ref={titleRef} autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：整理周报" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} /></label>
-          <TaskDatePopover value={schedule} onChange={setSchedule} className="z-[80] max-h-[calc(100dvh-5rem)] max-w-[calc(100vw-1rem)]" trigger={<Button type="button" variant="ghost" className="h-auto w-full justify-start whitespace-normal px-2 text-left text-sm" aria-label="修改日期和时间">{calendarScheduleLabel(schedule)}</Button>} />
-          <label className="flex items-center gap-2 text-sm"><Checkbox checked={schedule.all_day} onCheckedChange={(checked) => setSchedule((current) => ({ ...current, all_day: checked === true }))} />全天</label>
+          <TaskDatePopover value={schedule} onChange={setSchedule} className="z-[80] max-h-[min(calc(100dvh-5rem),var(--radix-popover-content-available-height))] max-w-[calc(100vw-1rem)]" trigger={<Button type="button" variant="ghost" className="h-auto w-full justify-start whitespace-normal px-2 text-left text-sm" aria-label="修改日期和时间">{calendarScheduleLabel(schedule)}</Button>} />
+          <label className="flex items-center gap-2 text-sm"><Checkbox checked={schedule.all_day} onCheckedChange={(checked) => setSchedule((current) => toggleAllDay(current, checked === true))} />全天</label>
           <div className="flex items-center gap-2 text-sm"><label htmlFor={`${headingId}-list`}>清单</label><Select value={listId ?? "none"} onValueChange={(value) => setListId(value === "none" ? null : value)}><SelectTrigger id={`${headingId}-list`} className="ml-auto w-40"><SelectValue placeholder="无清单" /></SelectTrigger><SelectContent className="z-[80]"><SelectItem value="none">无清单</SelectItem>{lists.filter((list) => !list.deleted_at).map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent></Select></div>
         </> : <CountdownFormFields value={countdown} onChange={setCountdown} disabled={saving} />}
       </fieldset>

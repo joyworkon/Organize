@@ -55,7 +55,7 @@ describe("CalendarQuickCreate", () => {
     expect(onPreviewChange).toHaveBeenLastCalledWith({ start: at(840), end: at(930), allDay: false, title: "会议" });
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(insert).toHaveBeenCalledTimes(1);
-    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ list_id: "list", schedule_start_at: at(840).toISOString(), schedule_end_at: at(930).toISOString() }));
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ list_id: "list", schedule_start_at: at(840).toISOString(), schedule_end_at: at(930).toISOString(), due_date: at(930).toISOString() }));
     expect(onTaskCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "new" }), false);
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -106,5 +106,56 @@ describe("CalendarQuickCreate", () => {
     expect(initialCalendarSchedule({ start: at(0) }).all_day).toBe(true);
     expect(initialCalendarSchedule({ start: at(0), end: at(15) }).all_day).toBe(false);
     expect(calendarScheduleLabel(initialCalendarSchedule({ start: at(1425), end: at(1440) }))).toContain("10月22日 00:00");
+  });
+  it("全天区间显示首尾日期，预览与保存归一到本地零点和结束日 23:59；失败保留区间", async () => {
+    single.mockResolvedValueOnce({ data: null, error: { message: "网络失败" } });
+    await render(); change("出差");
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, all_day: true, schedule_end_at: at(2 * 1440 + 600).toISOString() }));
+    expect(calendarScheduleLabel(mocks.schedule!)).toBe("10月21日 – 10月23日 全天");
+    expect(onPreviewChange).toHaveBeenLastCalledWith({ start: at(0), end: at(3 * 1440 - 1), allDay: true, title: "出差" });
+    await act(async () => button("添加").click());
+    const payload = expect.objectContaining({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: at(3 * 1440 - 1).toISOString(), due_date: at(3 * 1440 - 1).toISOString() });
+    expect(insert).toHaveBeenLastCalledWith(payload);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(calendarScheduleLabel(mocks.schedule!)).toBe("10月21日 – 10月23日 全天");
+    await act(async () => button("添加").click());
+    expect(insert).toHaveBeenLastCalledWith(payload);
+    expect(onTaskCreated).toHaveBeenCalledOnce();
+  });
+  it.each([null, at(900).toISOString()])("同日全天保存 end=null：%s", async (end) => {
+    await render(); change("全天任务");
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, all_day: true, schedule_end_at: end }));
+    expect(calendarScheduleLabel(mocks.schedule!)).toBe("10月21日 全天");
+    await act(async () => button("添加").click());
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: null, due_date: at(0).toISOString() }));
+  });
+  it("勾选全天归一跨日首尾，取消时保留有效结束；单日取消补一小时", async () => {
+    await render();
+    const checkbox = () => document.querySelector<HTMLButtonElement>('[data-calendar-quick-create] [role="checkbox"]')!;
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, schedule_end_at: at(2 * 1440 + 600).toISOString() }));
+    act(() => checkbox().click());
+    expect(mocks.schedule).toMatchObject({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: at(3 * 1440 - 1).toISOString() });
+    act(() => checkbox().click());
+    expect(mocks.schedule).toMatchObject({ all_day: false, schedule_end_at: at(3 * 1440 - 1).toISOString() });
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, schedule_start_at: at(840).toISOString(), schedule_end_at: at(930).toISOString() }));
+    act(() => checkbox().click());
+    expect(mocks.schedule).toMatchObject({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: null });
+    act(() => checkbox().click());
+    expect(mocks.schedule).toMatchObject({ all_day: false, schedule_start_at: at(0).toISOString(), schedule_end_at: at(60).toISOString() });
+    // 日期弹层同日区间会返回 23:59；取消全天时仍按单日默认时长处理。
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, all_day: true, schedule_end_at: at(1439).toISOString() }));
+    act(() => checkbox().click());
+    expect(mocks.schedule).toMatchObject({ all_day: false, schedule_end_at: at(60).toISOString() });
+  });
+  it("全天结束日早于开始禁用添加和更多选项，Enter 也不写入；同日时刻更早有效", async () => {
+    await render(); const input = change("出差");
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, all_day: true, schedule_end_at: at(-1).toISOString() }));
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe("结束日期不能早于开始日期");
+    expect(button("添加").disabled).toBe(true);
+    expect(button("更多选项").disabled).toBe(true);
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(insert).not.toHaveBeenCalled();
+    act(() => mocks.changeSchedule!({ ...mocks.schedule!, schedule_end_at: at(1).toISOString() }));
+    expect(button("添加").disabled).toBe(false);
   });
 });

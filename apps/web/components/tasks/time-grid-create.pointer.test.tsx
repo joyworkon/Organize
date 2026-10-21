@@ -89,6 +89,24 @@ describe("时间网格空白拖选创建", () => {
     act(() => root.render(createElement(TimeGridView, { days: [day], tasks: [], countdowns: [], onDateClick, createPreview: null })));
     expect(ghost()).toBeNull();
   });
+  it("全天跨天预览覆盖首尾各列，独立泳道不遮住已有任务；取消清空", () => {
+    const days = weekDaysOf(day);
+    const preview = { start: days[2], end: new Date(2026, 9, 23, 23, 59), allDay: true, title: "出差" };
+    const props = { days, tasks: [{ ...task, all_day: true }], countdowns: [], onDateClick };
+    act(() => root.render(createElement(TimeGridView, { ...props, createPreview: preview })));
+    const ghosts = Array.from(container.querySelectorAll<HTMLElement>('[data-calendar-create-preview="all-day"]'));
+    expect(ghosts).toHaveLength(3);
+    expect(ghosts.map((ghost) => ghost.parentElement?.getAttribute("data-countdown-date"))).toEqual(["2026-10-21", "2026-10-22", "2026-10-23"]);
+    for (const ghost of ghosts) {
+      expect(ghost.textContent).toContain("出差 · 全天");
+      expect(Number.parseInt(ghost.style.top)).toBeGreaterThan(4);
+    }
+    act(() => root.render(createElement(TimeGridView, { ...props, createPreview: { ...preview, title: "改出差", start: days[3] } })));
+    expect(container.querySelectorAll('[data-calendar-create-preview="all-day"]')).toHaveLength(2);
+    expect(container.querySelector('[data-calendar-create-preview="all-day"]')?.textContent).toContain("改出差");
+    act(() => root.render(createElement(TimeGridView, { ...props, createPreview: null })));
+    expect(container.querySelector('[data-calendar-create-preview]')).toBeNull();
+  });
 
   it("反向拖选使用松手的最终坐标", () => {
     const [column] = render();

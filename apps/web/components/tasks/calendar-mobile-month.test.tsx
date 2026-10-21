@@ -135,6 +135,19 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(mobile().querySelector('[role="grid"], [role="row"], [role="gridcell"], button.absolute, [data-countdown-surface]')).toBeNull();
     expect(Array.from(mobile().querySelectorAll("[aria-label]")).some((node) => node.getAttribute("aria-label")!.startsWith("查看 "))).toBe(false);
   });
+  it("跨月全天预览包含空日期的首尾分组，桌面月格也覆盖区间；取消删除临时分组", () => {
+    const preview = { start: new Date(2026, 8, 30), end: new Date(2026, 9, 2, 23, 59), allDay: true, title: "跨月出差" };
+    const props = { tasks: [], countdowns: [], onDateClick };
+    act(() => root.render(createElement(TaskMonthView, { ...props, createPreview: preview })));
+    expect(sectionKeys()).toEqual(["2026-9-1", "2026-9-2", "2026-9-19"]);
+    for (const key of ["2026-9-1", "2026-9-2"]) expect(section(key)?.querySelector('[role="status"]')?.textContent).toBe("跨月出差");
+    const ghosts = Array.from(container.querySelectorAll('[data-calendar-create-preview="month"]'));
+    expect(ghosts).toHaveLength(3);
+    expect(ghosts.map((ghost) => ghost.closest('[role="gridcell"]')?.getAttribute("aria-label"))).toEqual(["9月30日", "10月1日", "10月2日"]);
+    act(() => root.render(createElement(TaskMonthView, { ...props, createPreview: null })));
+    expect(sectionKeys()).toEqual(["2026-9-19"]);
+    expect(container.querySelector('[data-calendar-create-preview]')).toBeNull();
+  });
 
   it("议程：按日期排序，含跨月延续与跨天后续天、仅倒数日日期、今天徽标，并初始滚到今天", () => {
     expect(sectionKeys()).toEqual(["2026-9-1", "2026-9-2", "2026-9-19", "2026-9-21", "2026-9-22", "2026-9-23", "2026-9-25"]);

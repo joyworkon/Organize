@@ -69,7 +69,7 @@ import {
 } from "./calendar-shared";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { MobileMonthView } from "./calendar-mobile-month";
-import { calendarCreateAnchor, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
+import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
 
 // 纯日期函数已迁到 lib/tasks/calendar-agenda；这里保留导出给既有测试与调用方。
 export { getMonthCells, getTaskDate };
@@ -826,7 +826,8 @@ export function TimeGridView({
   const hasOverflow = hiddenByCol.some((count) => count > 0);
   // 溢出列的 +N 固定占第 MAX_LANES 行（该列三条泳道必满），行高随之加一。
   const rowLanes = Math.max(usedLanes, hasOverflow ? MAX_LANES + 1 : 0);
-  const rowMinHeight = Math.max(38, stripTop + 8 + rowLanes * ALLDAY_LANE_PX - 4);
+  const hasCreatePreview = createPreview?.allDay && days.some((day) => calendarCreatePreviewOnDay(createPreview, day));
+  const rowMinHeight = Math.max(38, stripTop + 8 + (rowLanes + (hasCreatePreview ? 1 : 0)) * ALLDAY_LANE_PX - 4);
   const firstFreeLane = (di: number) => {
     for (let lane = 0; lane < MAX_LANES; lane += 1) {
       if (!allDaySegments.some((seg) => seg.lane === lane && seg.startCol <= di && di <= seg.endCol)) return lane;
@@ -885,12 +886,12 @@ export function TimeGridView({
                 {chips_countdown.map((item) => (
                   <span key={item.id} data-calendar-created={item.id === createdId || undefined}><CountdownChip item={item} compact /></span>
                 ))}
-                {createPreview?.allDay && isSameDay(createPreview.start, day) && (
+                {createPreview?.allDay && calendarCreatePreviewOnDay(createPreview, day) && (
                   <div
                     role="status"
                     data-calendar-create-preview="all-day"
                     className="absolute inset-x-1 z-20 flex items-center overflow-hidden rounded-md border border-dashed border-primary bg-background px-1 text-xs"
-                    style={{ top: laneTop(firstFreeLane(di)), height: ALLDAY_BAR_PX }}
+                    style={{ top: laneTop(rowLanes), height: ALLDAY_BAR_PX }}
                   >
                     <span className="truncate">{createPreview.title || "新事项"} · 全天</span>
                   </div>
@@ -1002,7 +1003,7 @@ export function TimeGridView({
             ))}
             {days.map((day, di) => {
               const target = drag && drag.moved && drag.dayIdx === di;
-              const draft = createPreview && !createPreview.allDay && isSameDay(createPreview.start, day) ? createPreview : null;
+              const draft = createPreview && !createPreview.allDay && calendarCreatePreviewOnDay(createPreview, day) ? createPreview : null;
               const draftStart = draft ? minutesSinceMidnight(draft.start) : 0;
               const draftEnd = draft?.end ? (isSameDay(draft.end, day) ? minutesSinceMidnight(draft.end) : 1440) : draftStart + 60;
               return (
@@ -2181,7 +2182,7 @@ function TaskMonthViewContent({
                         className={cn(
                           "relative border-b border-r p-1.5 last:border-r-0",
                           MONTH_CELL_FOCUS,
-                          createPreview && isSameDay(createPreview.start, date) && "bg-accent ring-2 ring-inset ring-primary",
+                          createPreview && calendarCreatePreviewOnDay(createPreview, date) && "bg-accent ring-2 ring-inset ring-primary",
                           onDateClick && "cursor-pointer hover:bg-muted/40",
                           !inMonth && "bg-muted/20 text-muted-foreground",
                           isToday && "bg-accent/70",
@@ -2209,7 +2210,7 @@ function TaskMonthViewContent({
                         >
                           {date.getDate()}
                         </Button>
-                        {createPreview && isSameDay(createPreview.start, date) && <span data-calendar-create-preview="month" className="pointer-events-none absolute inset-x-1.5 top-8 z-20 truncate rounded border border-dashed border-primary bg-background px-1 text-xs">{createPreview.title || "新事项"}</span>}
+                        {createPreview && calendarCreatePreviewOnDay(createPreview, date) && <span data-calendar-create-preview="month" className="pointer-events-none absolute inset-x-1.5 top-8 z-20 truncate rounded border border-dashed border-primary bg-background px-1 text-xs">{createPreview.title || "新事项"}</span>}
                         <div className="absolute inset-x-1.5 bottom-1 flex items-center gap-1">
                           {dayCountdowns[0] && <span data-calendar-created={dayCountdowns[0].id === createdId || undefined}><CountdownChip item={dayCountdowns[0]} /></span>}
                           {moreCount > 0 && (
@@ -2411,7 +2412,7 @@ function DayView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-5 md:px-8">
-      {createPreview && isSameDay(createPreview.start, date) && <p role="status" className="mb-3 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
+      {createPreview && calendarCreatePreviewOnDay(createPreview, date) && <p role="status" className="mb-3 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
       {onAdd && (
         <button
           type="button"
