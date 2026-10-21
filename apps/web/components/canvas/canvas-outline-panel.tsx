@@ -28,6 +28,7 @@ import {
   deleteRegion,
   duplicateRegion,
   moveRegion,
+  moveBoardInOrder,
   renameRegion,
   type CanvasTemplateKind,
 } from "@/lib/canvas/commands";
@@ -69,6 +70,7 @@ export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeP
         <div key={board.id} className="canvas-outline-board">
           <BoardRow store={store} boardId={board.id} name={board.name ?? ""}
             label={board.name || `页面 ${bi + 1}`} writable={writable}
+            index={bi} total={doc.boards.length}
             selected={selection?.kind === "board" && selection.boardId === board.id}
             onReveal={onReveal} onFit={onFit} />
           {board.regions.map((region, ri) => (
@@ -92,8 +94,9 @@ export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeP
   );
 }
 
-function BoardRow({ store, boardId, name, label, writable, selected, onReveal, onFit }: {
+function BoardRow({ store, boardId, name, label, writable, selected, index, total, onReveal, onFit }: {
   store: CanvasStore; boardId: string; name: string; label: string; writable: boolean; selected: boolean;
+  index: number; total: number;
   onReveal: CanvasOutlineTreeProps["onReveal"]; onFit: CanvasOutlineTreeProps["onFit"];
 }) {
   const [editing, setEditing] = useState(false);
@@ -138,6 +141,16 @@ function BoardRow({ store, boardId, name, label, writable, selected, onReveal, o
         {writable && <>
           <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
             title="重命名页面" aria-label={`重命名页面 ${label}`} onClick={startRename}><Pencil className="h-3 w-3" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+            title={index === 0 ? "已是第一个页面，无法上移" : "上移页面（调整预览顺序，画布位置不变）"}
+            aria-label={`上移页面 ${label}`} disabled={index === 0}
+            onClick={() => store.getState().apply("上移页面", (doc) => moveBoardInOrder(doc, { boardId, direction: "up" }))}>
+            <ArrowUp className="h-3 w-3" /></Button>
+          <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+            title={index === total - 1 ? "已是最后一个页面，无法下移" : "下移页面（调整预览顺序，画布位置不变）"}
+            aria-label={`下移页面 ${label}`} disabled={index === total - 1}
+            onClick={() => store.getState().apply("下移页面", (doc) => moveBoardInOrder(doc, { boardId, direction: "down" }))}>
+            <ArrowDown className="h-3 w-3" /></Button>
           <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
             title="复制页面" aria-label={`复制页面 ${label}`} onClick={() => {
               const id = commitBoardDuplicate(store, boardId);

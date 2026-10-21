@@ -283,6 +283,19 @@ export function moveBoard(
   });
 }
 
+/** 页面上移/下移：只交换文档顺序，保留页面对象与空间坐标。 */
+export function moveBoardInOrder(
+  doc: CanvasDoc,
+  args: { boardId: string; direction: "up" | "down" },
+): CanvasCommandResult {
+  const index = doc.boards.findIndex((board) => board.id === args.boardId);
+  const target = args.direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || target < 0 || target >= doc.boards.length) return { doc };
+  const boards = [...doc.boards];
+  [boards[index], boards[target]] = [boards[target], boards[index]];
+  return { doc: { ...doc, boards }, focus: { kind: "board", boardId: args.boardId } };
+}
+
 export function resizeBoard(
   doc: CanvasDoc,
   args: { boardId: string; width: number },

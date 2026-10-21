@@ -38,6 +38,7 @@ import {
   insertRegionAfter,
   insertSectionAfter,
   moveBlock,
+  moveBoardInOrder,
   moveRegion,
   removeColumn,
   renameBoard,
@@ -70,6 +71,49 @@ function docWithBoard() {
   const res = createBoard(doc, { x: 0, y: 0 }, counterIds());
   return { doc: res.doc, board: res.doc.boards[0], focus: res.focus };
 }
+
+describe("moveBoardInOrder", () => {
+  function threePages() {
+    let doc = emptyDoc();
+    const ids = counterIds();
+    for (let i = 0; i < 3; i++) doc = createBoard(doc, { x: i * 800 - 500, y: i * -300 }, ids).doc;
+    return doc;
+  }
+
+  it("第三页上移两次到首位，再下移；只改数组顺序，保留全部对象和几何", () => {
+    const doc = threePages();
+    doc.freeItems.push({ id: "free-a", block: createTextBlock(), x: 0, y: 0, width: 200, zIndex: 1 });
+    doc.freeItems.push({ id: "free-b", block: createTextBlock(), x: 300, y: 0, width: 200, zIndex: 2 });
+    doc.connectors = [{ id: "edge", from: "free-a", to: "free-b", arrow: "end", line: "solid", color: "", label: "关系" }];
+    const before = structuredClone(doc);
+    const [a, b, c] = doc.boards;
+    const first = moveBoardInOrder(doc, { boardId: c.id, direction: "up" });
+    expect(first.doc.boards).toEqual([a, c, b]);
+    const second = moveBoardInOrder(first.doc, { boardId: c.id, direction: "up" });
+    expect(second.doc.boards).toEqual([c, a, b]);
+    expect(second.focus).toEqual({ kind: "board", boardId: c.id });
+    expect(second.doc.boards[0]).toBe(c);
+    expect(second.doc.boards[1]).toBe(a);
+    expect(second.doc.boards[2]).toBe(b);
+    expect(second.doc.freeItems).toBe(doc.freeItems);
+    expect(second.doc.connectors).toBe(doc.connectors);
+    expect({ ...second.doc, boards: doc.boards }).toEqual(before);
+    expect(doc).toEqual(before);
+    expect(moveBoardInOrder(second.doc, { boardId: c.id, direction: "down" }).doc.boards).toEqual([a, c, b]);
+    expect(validateCanvasContent(second.doc).errors).toEqual([]);
+  });
+
+  it("边界、缺失页面及空文档返回原文档且不带焦点，不制造撤销事务", () => {
+    const doc = threePages();
+    expect(moveBoardInOrder(doc, { boardId: doc.boards[0].id, direction: "up" })).toEqual({ doc });
+    expect(moveBoardInOrder(doc, { boardId: doc.boards[2].id, direction: "down" }).doc).toBe(doc);
+    expect(moveBoardInOrder(doc, { boardId: "missing", direction: "down" })).toEqual({ doc });
+    const empty = emptyDoc();
+    expect(moveBoardInOrder(empty, { boardId: "missing", direction: "up" }).doc).toBe(empty);
+    doc.boards = [doc.boards[0]];
+    expect(moveBoardInOrder(doc, { boardId: doc.boards[0].id, direction: "down" }).doc).toBe(doc);
+  });
+});
 
 describe("detachBlockToFree", () => {
   it.each(["title", "body", "image"] as const)("%s 保留 ID、内容、样式和原世界坐标，输入不变", (kind) => {
