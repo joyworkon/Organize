@@ -69,6 +69,11 @@ function edit(
   const draft: CanvasDoc = structuredClone(doc);
   draft.schemaVersion = CANVAS_SCHEMA_VERSION;
   const focus = mutate(draft);
+  // Removal and conversion into a page cannot leave dangling endpoints.
+  if (draft.connectors) {
+    const live = new Set(draft.freeItems.map((item) => item.id));
+    draft.connectors = draft.connectors.filter((edge) => live.has(edge.from) && live.has(edge.to));
+  }
   return { doc: draft, focus: focus ?? null };
 }
 

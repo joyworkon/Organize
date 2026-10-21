@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CANVAS_SCHEMA_VERSION, type CanvasDoc } from "./model";
 import { parseJsonBody, validateCanvasPatchBody } from "./api-mutation";
 
-const emptyDoc: CanvasDoc = { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [] };
+const emptyDoc: CanvasDoc = { schemaVersion: CANVAS_SCHEMA_VERSION, boards: [], freeItems: [], connectors: [] };
 
 function req(body: string): Request {
   return new Request("http://localhost/api/canvases/x", {

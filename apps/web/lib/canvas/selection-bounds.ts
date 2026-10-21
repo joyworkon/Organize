@@ -19,6 +19,9 @@ export function boundsForSelection(scene: Scene, selection: InsertSelection, doc
   } else if (selection.kind === "free" || selection.kind === "frees") {
     const ids = new Set(selection.kind === "free" ? [selection.itemId] : selection.itemIds);
     boxes = scene.freeItems.filter((f) => ids.has(f.itemId));
+  } else if (selection.kind === "connector") {
+    const edge = doc?.connectors?.find((entry) => entry.id === selection.connectorId);
+    boxes = edge ? scene.freeItems.filter((item) => item.itemId === edge.from || item.itemId === edge.to) : [];
   } else {
     const ids = new Set(selection.kind === "block" ? [selection.blockId] : selection.blockIds);
     boxes = scene.boards.flatMap((b) => b.regions).flatMap((r) => r.sections)

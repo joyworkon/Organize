@@ -100,6 +100,9 @@ test.describe("构思画布", () => {
     await page.keyboard.type("正文第一段");
     await page.keyboard.press("Enter"); // 正文下再插一个通栏
 
+    // 收起添加面板并适合页面，保持 100% 几何且让右侧加号避开属性栏。
+    await page.getByRole("button", { name: "折叠添加面板" }).click();
+    await page.getByRole("button", { name: "适合全部", exact: true }).click();
     // 悬停最新通栏的块 → 右侧加号 → 变两列
     const blocks = page.locator("[data-block-type='text']");
     const countBefore = await blocks.count();

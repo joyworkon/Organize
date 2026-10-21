@@ -22,6 +22,7 @@ import {
   isSafeButtonHref,
   isSafeEmbedUrl,
 } from "./model";
+import { CANVAS_COLOR_KEYS } from "./text-styles";
 import { validateSourceRefField } from "./source-ref";
 
 export const CANVAS_LIMITS = {
@@ -34,6 +35,8 @@ export const CANVAS_LIMITS = {
   maxBlocksPerColumn: 20,
   maxBlocks: 400,
   maxFreeItems: 100,
+  maxConnectors: 400,
+  maxConnectorLabelLength: 100,
   maxTextLength: 5000,
   maxTitleLength: 200,
   maxNameLength: 100,
@@ -472,6 +475,27 @@ export function validateCanvasContent(
       markId((item.block as { id: string }).id, `${path}.block`);
     }
   });
+
+  if (!Array.isArray(doc.connectors)) {
+    errors.push("connectors 必须是数组");
+  } else {
+    if (doc.connectors.length > CANVAS_LIMITS.maxConnectors) errors.push("连接线数量超过上限");
+    const freeIds = new Set(doc.freeItems.filter((item) => item && typeof item === "object").map((item) => item.id));
+    doc.connectors.forEach((edge, index) => {
+      const path = `connectors[${index}]`;
+      if (!edge || typeof edge !== "object" || Array.isArray(edge)) { errors.push(`${path} 必须是对象`); return; }
+      if (!isId(edge.id)) errors.push(`${path}.id 非法`);
+      else markId(edge.id, path);
+      if (!isId(edge.from) || !freeIds.has(edge.from) || !isId(edge.to) || !freeIds.has(edge.to) || edge.from === edge.to) errors.push(`${path} 端点非法`);
+      for (const side of [edge.fromSide, edge.toSide]) {
+        if (side !== undefined && !["top", "right", "bottom", "left"].includes(side)) errors.push(`${path} 锚点非法`);
+      }
+      if (!["none", "end", "both"].includes(edge.arrow)) errors.push(`${path}.arrow 非法`);
+      if (!["solid", "dashed"].includes(edge.line)) errors.push(`${path}.line 非法`);
+      if (!CANVAS_COLOR_KEYS.some((key) => key === edge.color)) errors.push(`${path}.color 非法`);
+      if (typeof edge.label !== "string" || edge.label.length > CANVAS_LIMITS.maxConnectorLabelLength) errors.push(`${path}.label 超长或非法`);
+    });
+  }
 
   const stats = countNodes(doc);
   if (stats.blocks > CANVAS_LIMITS.maxBlocks) {

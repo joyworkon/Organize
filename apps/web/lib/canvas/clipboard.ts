@@ -8,6 +8,7 @@
 import {
   CANVAS_SCHEMA_VERSION,
   type CanvasBlock,
+  type CanvasConnector,
   type CanvasCommandResult,
   type CanvasDoc,
   type CanvasFreeItem,
@@ -27,7 +28,7 @@ import type { ExplicitInsertPosition, InsertSelection } from "./insert-target";
 import { CANVAS_LIMITS } from "./validation";
 
 export type CanvasClipboardPayload =
-  | { kind: "free"; items: CanvasFreeItem[]; plainText: string }
+  | { kind: "free"; items: CanvasFreeItem[]; connectors?: CanvasConnector[]; plainText: string }
   | { kind: "blocks"; blocks: CanvasBlock[]; plainText: string }
   | { kind: "region"; sourceBoardId: string; region: CanvasRegion; plainText: string };
 
@@ -55,7 +56,7 @@ const LIMIT_REGIONS = `这个版面的区块已达 ${CANVAS_LIMITS.maxRegionsPer
 const NO_PLACE = "没有可放置的版面，这次没有粘贴";
 
 export function copyCanvasSelection(doc: CanvasDoc, selection: InsertSelection): CanvasClipboardPayload | null {
-  if (!selection || selection.kind === "board") return null;
+  if (!selection || selection.kind === "board" || selection.kind === "connector") return null;
   if (selection.kind === "free" || selection.kind === "frees") {
     const wanted = new Set(selection.kind === "free" ? [selection.itemId] : selection.itemIds);
     const items = doc.freeItems
@@ -63,7 +64,7 @@ export function copyCanvasSelection(doc: CanvasDoc, selection: InsertSelection):
       .sort((a, b) => a.zIndex - b.zIndex || doc.freeItems.indexOf(a) - doc.freeItems.indexOf(b))
       .map((item) => structuredClone(item));
     if (items.length === 0) return null;
-    return { kind: "free", items, plainText: plainTextFromBlocks(items.map((item) => item.block)) };
+    return { kind: "free", items, connectors: structuredClone((doc.connectors ?? []).filter((edge) => wanted.has(edge.from) && wanted.has(edge.to))), plainText: plainTextFromBlocks(items.map((item) => item.block)) };
   }
   if (selection.kind === "region") {
     const found = findRegion(doc, selection.regionId);
@@ -95,7 +96,7 @@ export function pasteCanvasClipboard(
   target: CanvasPasteTarget,
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasClipboardPasteResult {
-  if (payload.kind === "free") return pasteFreeItems(doc, payload.items, target, newId);
+  if (payload.kind === "free") return pasteFreeItems(doc, payload.items, target, newId, payload.connectors);
   if (payload.kind === "region") return pasteRegion(doc, payload, target, newId);
   return pasteBlocks(doc, payload.blocks, target, newId);
 }
@@ -128,8 +129,10 @@ function pasteFreeItems(
   items: readonly CanvasFreeItem[],
   target: CanvasPasteTarget,
   newId: CanvasIdGenerator,
+  connectors: readonly CanvasConnector[] = [],
 ): CanvasClipboardPasteResult {
   if (items.length === 0) return { doc };
+  if ((doc.connectors?.length ?? 0) + connectors.length > CANVAS_LIMITS.maxConnectors) return { doc, rejected: "连接线数量超过上限，这次没有粘贴" };
   if (doc.freeItems.length + items.length > CANVAS_LIMITS.maxFreeItems) return { doc, rejected: LIMIT_FREE };
   const origin = {
     x: Math.min(...items.map((item) => item.x)),
@@ -144,6 +147,7 @@ function pasteFreeItems(
   const draft = cloneDoc(doc);
   let z = nextZIndex(draft);
   const itemIds: string[] = [];
+  const remap = new Map<string, string>();
   for (const item of items) {
     const clone = structuredClone(item);
     clone.id = newId();
@@ -154,7 +158,13 @@ function pasteFreeItems(
     z += 1;
     draft.freeItems.push(clone);
     itemIds.push(clone.id);
+    remap.set(item.id, clone.id);
   }
+  const edges = connectors.flatMap((edge) => {
+    const from = remap.get(edge.from), to = remap.get(edge.to);
+    return from && to ? [{ ...structuredClone(edge), id: newId(), from, to }] : [];
+  });
+  if (edges.length) draft.connectors = [...(draft.connectors ?? []), ...edges];
   return {
     doc: draft,
     focus: itemIds.length === 1

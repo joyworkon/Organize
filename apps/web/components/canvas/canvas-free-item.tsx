@@ -14,7 +14,8 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MIN_TEXT_CONTENT_HEIGHT, type CanvasFreeItem } from "@/lib/canvas/model";
+import { CONNECTOR_SIDES } from "@/lib/canvas/connectors";
+import { MIN_TEXT_CONTENT_HEIGHT, type CanvasFreeItem, type CanvasConnectorSide } from "@/lib/canvas/model";
 import { deleteFreeItem, updateFreeItem, updateFreeItemBlock } from "@/lib/canvas/commands";
 import {
   freeIdsFromSelection,
@@ -70,6 +71,8 @@ export interface CanvasFreeItemViewProps {
   onGroupLive: (live: { dx: number; dy: number } | null) => void;
   /** 拖动中上报参考线；结束/取消传 null。 */
   onSnapGuides: (guides: SnapGuide[] | null) => void;
+  onLiveGeometry?: (id: string, rect: SnapRect | null) => void;
+  onConnect?: (side?: CanvasConnectorSide) => void;
 }
 
 export const CanvasFreeItemView = memo(function CanvasFreeItemView({
@@ -91,6 +94,8 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   heightForWidth,
   onGroupLive,
   onSnapGuides,
+  onLiveGeometry,
+  onConnect,
 }: CanvasFreeItemViewProps) {
   const dragRef = useRef<{
     mode: "move" | "resize";
@@ -285,6 +290,10 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   const y = (groupResizeLive?.y ?? item.y) + (live?.dy ?? 0) + (groupLive?.dy ?? 0);
   const width = live?.w ?? groupResizeLive?.width ?? item.width;
   const displayHeight = live?.h ?? (groupResizeLive ? heightForWidth?.(width) ?? height : height);
+  useEffect(() => {
+    onLiveGeometry?.(item.id, live ? { x, y, width, height: displayHeight } : null);
+  }, [item.id, live, x, y, width, displayHeight, onLiveGeometry]);
+  useEffect(() => () => onLiveGeometry?.(item.id, null), [item.id, onLiveGeometry]);
   const canResize = interactive && !store.getState().readOnly;
 
   // 局部窄化：三元分支内 TS 无法凭 isText 收窄 item.block
@@ -360,7 +369,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         borderRadius: block.style?.radius != null ? `${block.style.radius}px` : undefined }}
       data-free-item-id={item.id}
       role="button"
-      tabIndex={interactive && !editing ? 0 : -1}
+      tabIndex={(interactive || !!onConnect) && !editing ? 0 : -1}
       aria-label={isText ? "自由文本内容框" : "自由图片内容框"}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || !interactive || editing || e.key !== "Enter" || !isText) return;
@@ -394,6 +403,18 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         interactive && isText && !editing ? () => store.getState().startEdit(item.id) : undefined
       }
     >
+      {!editing && !grouped && onConnect && CONNECTOR_SIDES.map((side) => (
+        <button key={side} type="button" className={`canvas-connector-port canvas-connector-port-${side}`}
+          data-connector-port={side} aria-label={`从${({ top: "上", right: "右", bottom: "下", left: "左" })[side]}边连接`}
+          style={{ transform: `translate(-50%, -50%) scale(${1 / zoom})`,
+            left: side === "left" ? -28 / zoom : side === "right" ? `calc(100% + ${28 / zoom}px)` : undefined }}
+          onClick={(e) => { e.stopPropagation(); if (e.detail === 0) onConnect(side); }} />
+      ))}
+      {selected && !grouped && onConnect && (
+        <button type="button" className="canvas-connect-start" aria-label="连接到另一个元素"
+          style={{ transform: `scale(${1 / zoom})`, transformOrigin: "top left" }}
+          data-connect-start="true" onClick={(e) => { e.stopPropagation(); onConnect(); }}>连接</button>
+      )}
       {selected && canResize && !grouped && (
         <span className="canvas-free-badge" aria-label="自由定位元素">
           自由定位
@@ -480,6 +501,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           {/* 移动手柄（方向键微调由工作区统一处理：1px / ⇧10px） */}
           <div
             className="canvas-free-move"
+            style={{ top: onConnect ? -16 - 24 / zoom : undefined }}
             title="拖动移动"
             aria-label="拖动移动自由容器"
             role="button"

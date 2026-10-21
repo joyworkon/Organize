@@ -7144,3 +7144,39 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   [data-calendar-quick-create] button[role="checkbox"] { min-height: 16px; height: 16px; width: 16px; }
   [data-calendar-quick-create] label:has([role="checkbox"]) { min-height: 44px; }
 }
+
+/* Connections use world geometry; controls stay in viewport coordinates. */
+.canvas-connectors { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.canvas-connectors g:focus-visible { outline: none; }
+.canvas-connectors g:focus-visible .canvas-connector-line { stroke-width: 4px; }
+.canvas-connector-port { position: absolute; z-index: 5; width: 24px; height: 24px; border: 0; background: transparent; cursor: crosshair; touch-action: none; opacity: 0; pointer-events: none; }
+.canvas-connector-port::after { content: ""; position: absolute; inset: 7px; border: 1px solid hsl(var(--foreground)); border-radius: 50%; background: hsl(var(--background)); }
+.canvas-free-item:hover .canvas-connector-port, .canvas-free-item.is-selected .canvas-connector-port, .canvas-free-item:focus-within .canvas-connector-port { opacity: 1; pointer-events: auto; }
+/* Offset from the width resize grips; both actions remain reachable. */
+.canvas-connector-port-top { left: 50%; top: 0; }
+.canvas-connector-port-bottom { left: 50%; top: 100%; }
+.canvas-connector-port-left { left: -18px; top: 50%; }
+.canvas-connector-port-right { left: calc(100% + 18px); top: 50%; }
+.canvas-connect-start { position: absolute; left: 0; top: calc(100% + 12px); min-height: 32px; padding: 4px 12px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); font-size: 13px; z-index: 5; }
+.canvas-connector-toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); width: max-content; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); box-shadow: var(--shadow-md); z-index: 45; font-size: 13px; }
+.canvas-connector-toolbar label { display: flex; gap: 4px; align-items: center; }
+.canvas-connector-toolbar select, .canvas-connector-toolbar input { min-height: 32px; padding: 4px 8px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); }
+.canvas-connector-toolbar input { width: 144px; }
+.canvas-connect-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 12px; background: hsl(var(--background)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); z-index: 46; white-space: nowrap; font-size: 13px; }
+.canvas-connect-hint button { margin-left: 8px; text-decoration: underline; min-height: 32px; }
+@media (max-width: 767px), (pointer: coarse) {
+  .canvas-connect-start, .canvas-connector-toolbar button, .canvas-connector-toolbar select, .canvas-connect-hint button { min-height: 44px; }
+  .canvas-connector-toolbar .canvas-swatch { width: 44px; min-width: 44px; height: 44px; }
+  .canvas-connector-toolbar input { font-size: 16px; min-height: 44px; }
+}
+
+.canvas-connector-toolbar .canvas-swatch { display: grid; place-items: center; margin: 0; width: 32px; height: 32px; flex-shrink: 0; background: hsl(var(--background)); }
+.canvas-connector-toolbar .canvas-swatch::after { content: none; }
+.canvas-connector-toolbar .canvas-swatch span { display: block; width: 18px; height: 18px; border-radius: var(--radius-xs); }
+.canvas-connector-toolbar .canvas-swatch[aria-pressed="true"] { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+@media (max-width: 767px), (pointer: coarse) {
+  .canvas-connector-toolbar .canvas-swatch { width: 44px; height: 44px; }
+}
+@media (max-width: 767px) {
+  .canvas-connector-toolbar, .canvas-connect-hint { top: 64px; }
+}
