@@ -6966,3 +6966,19 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 @media (max-width: 767px), (pointer: coarse) {
   .organize-link-actions button { min-height: 44px; }
 }
+
+/* Calendar creation feedback uses the same neutral focus token in both themes. */
+[data-calendar-created="true"] {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+  background-color: hsl(var(--accent));
+  transition: background-color 160ms, outline-color 160ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-calendar-created="true"] { transition: none; }
+}
+@media (max-width: 767px) {
+  /* Dialog's 44px button targets must not stretch the checkbox glyph. */
+  [data-calendar-quick-create] button[role="checkbox"] { min-height: 16px; height: 16px; width: 16px; }
+  [data-calendar-quick-create] label:has([role="checkbox"]) { min-height: 44px; }
+}

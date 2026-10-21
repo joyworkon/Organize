@@ -28,6 +28,8 @@ import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, TaskWithTags } from "@organize/shared";
 
+import { calendarCreateAnchor, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
+
 interface MobileMonthViewProps {
   cursor: Date;
   today: Date;
@@ -41,7 +43,9 @@ interface MobileMonthViewProps {
   onSelectDate: (date: Date) => void;
   onSwipeStep: (direction: -1 | 1) => void;
   onTaskClick?: (task: TaskWithTags) => void;
-  onDateClick?: (date: Date) => void;
+  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  createPreview?: CalendarCreatePreview | null;
+  createdId?: string | null;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
 }
@@ -86,6 +90,8 @@ export function MobileMonthView({
   onSwipeStep,
   onTaskClick,
   onDateClick,
+  createPreview,
+  createdId,
   onUpdateTaskSchedule,
   onRescheduleTask,
 }: MobileMonthViewProps) {
@@ -179,7 +185,7 @@ export function MobileMonthView({
             <div className="space-y-3">
               <p>本月还没有已排期任务或倒数日</p>
               {onDateClick && (
-                <Button type="button" variant="outline" size="sm" onClick={() => onDateClick(emptyMonthAddDate(cursor, today, selectedDate))}>
+                <Button type="button" variant="outline" size="sm" onClick={(event) => onDateClick(emptyMonthAddDate(cursor, today, selectedDate), undefined, calendarCreateAnchor(event.currentTarget))}>
                   <Plus className="h-4 w-4" />
                   添加任务
                 </Button>
@@ -199,6 +205,8 @@ export function MobileMonthView({
                 isToday={isSameCalendarDay(day.date, today)}
                 onTaskClick={onTaskClick}
                 onDateClick={onDateClick}
+                createPreview={createPreview}
+                createdId={createdId}
                 onUpdateTaskSchedule={onUpdateTaskSchedule}
                 onRescheduleTask={onRescheduleTask}
               />
@@ -215,13 +223,17 @@ function AgendaDaySection({
   isToday,
   onTaskClick,
   onDateClick,
+  createPreview,
+  createdId,
   onUpdateTaskSchedule,
   onRescheduleTask,
 }: {
   day: AgendaDay;
   isToday: boolean;
   onTaskClick?: (task: TaskWithTags) => void;
-  onDateClick?: (date: Date) => void;
+  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  createPreview?: CalendarCreatePreview | null;
+  createdId?: string | null;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
   onRescheduleTask?: (taskId: string, newStartDate: Date) => Promise<void>;
 }) {
@@ -230,7 +242,7 @@ function AgendaDaySection({
     <section data-agenda-day={day.key} data-agenda-today={isToday ? "true" : undefined} className="px-4 py-3">
       <button
         type="button"
-        onClick={onDateClick ? () => onDateClick(day.date) : undefined}
+        onClick={onDateClick ? (event) => onDateClick(day.date, undefined, calendarCreateAnchor(event.currentTarget)) : undefined}
         aria-label={onDateClick ? `${dateLabel(day.date)} ${weekdayLabel(day.date)}${isToday ? "，今天" : ""}，添加` : undefined}
         className={cn("mb-2 flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-left", onDateClick && "hover:bg-muted/60")}
       >
@@ -239,11 +251,12 @@ function AgendaDaySection({
         {isToday && <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">今天</span>}
         {onDateClick && <Plus className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />}
       </button>
+      {createPreview && isSameCalendarDay(createPreview.start, day.date) && <p role="status" className="mb-2 truncate rounded-lg border border-dashed border-primary px-3 py-2 text-sm">{createPreview.title || "新事项"}</p>}
       {empty ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed px-3 py-2 text-sm text-muted-foreground">
           <span>这一天没有安排</span>
           {onDateClick && (
-            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => onDateClick(day.date)}>
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={(event) => onDateClick(day.date, undefined, calendarCreateAnchor(event.currentTarget))}>
               <Plus className="h-4 w-4" />
               添加任务
             </Button>
@@ -252,7 +265,7 @@ function AgendaDaySection({
       ) : (
         <div className="overflow-hidden rounded-xl border bg-background">
           {day.countdowns.map((item) => (
-            <div key={item.id} className="flex min-h-12 items-center gap-2 border-b bg-muted/40 px-3 py-2 last:border-b-0">
+            <div key={item.id} data-calendar-created={item.id === createdId || undefined} className="flex min-h-12 items-center gap-2 border-b bg-muted/40 px-3 py-2 last:border-b-0">
               <CountdownChip item={item} />
             </div>
           ))}
@@ -269,6 +282,7 @@ function AgendaDaySection({
             return (
               <div
                 key={task.id}
+                data-calendar-created={task.id === createdId || undefined}
                 data-agenda-span={entry.spanIndex > 0 ? "continued" : undefined}
                 className={cn("flex min-h-14 items-center gap-3 border-b px-3 py-2 last:border-b-0", projected && "border-dashed text-muted-foreground")}
               >

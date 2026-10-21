@@ -85,6 +85,7 @@ describe("待办日历帮助", () => {
   it("列出翻页、回今天和切视图", () => {
     const items = PAGE_SHORTCUTS.find((page) => page.page === "待办日历")!.items;
     expect(items).toEqual([
+      { keys: "n", desc: "在选中日期新建事项" },
       { keys: "← / →", desc: "上一页 / 下一页" },
       { keys: "t", desc: "回到今天" },
       { keys: "d / w / m / y", desc: "日 / 周 / 月 / 年视图" },

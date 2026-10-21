@@ -165,7 +165,7 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(empty.textContent).toContain("这一天没有安排");
     expect(list().scrollTop).toBe(2700);
     click(buttonWithText(empty, "添加任务"));
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 9, 27));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 9, 27), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
 
     click(cell("2026-9-19")!);
     expect(list().scrollTop).toBe(1900);
@@ -182,7 +182,7 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(section("2026-10-1")!.textContent).toContain("这一天没有安排");
     expect(mobile().textContent).toContain("本月还没有已排期任务或倒数日");
     click(buttonWithText(section("2026-10-1")!, "添加任务"));
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
   });
 
   it("空月份：保留文案并提供「添加任务」（选中日 / 今天都不在该月时落到 1 日）", () => {
@@ -191,7 +191,7 @@ describe("手机月视图：迷你月历 + 议程、周日期条、滑动翻页"
     expect(mobile().textContent).toContain("本月还没有已排期任务或倒数日");
     expect(mobile().querySelector("[data-agenda-day]")).toBeNull();
     click(buttonWithText(mobile(), "添加任务"));
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(new Date(2026, 10, 1), undefined, expect.objectContaining({ focusTarget: expect.any(HTMLElement) }));
     expect(list().scrollTop).toBe(0);
   });
 

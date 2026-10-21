@@ -72,16 +72,30 @@ describe("时间网格空白拖选创建", () => {
     expect(column.querySelector('[role="status"]')?.textContent).toBe("09:00 – 10:30");
     pointer(column, "pointerup", 630, 1, 500);
     click(column, 630);
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(630));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(630), expect.objectContaining({ focusTarget: column, rect: expect.objectContaining({ width: 100 }) }));
     expect(column.releasePointerCapture).toHaveBeenCalledWith(1);
     expect(container.querySelector('[role="status"]')).toBeNull();
   });
+  it("创建卡持有的范围保留占位，标题/时间更新后跟随，取消后消失", () => {
+    const preview = { start: at(540), end: at(630), allDay: false, title: "新会议" };
+    act(() => root.render(createElement(TimeGridView, { days: [day], tasks: [], countdowns: [], onDateClick, createPreview: preview })));
+    const ghost = () => container.querySelector<HTMLElement>('[data-calendar-create-preview="timed"]');
+    expect(ghost()?.textContent).toContain("09:00 – 10:30");
+    expect(ghost()?.textContent).toContain("新会议");
+    expect(ghost()?.style.height).toBe("84px");
+    act(() => root.render(createElement(TimeGridView, { days: [day], tasks: [], countdowns: [], onDateClick, createPreview: { ...preview, start: at(600), end: at(660), title: "改会议" } })));
+    expect(ghost()?.textContent).toContain("10:00 – 11:00");
+    expect(ghost()?.textContent).toContain("改会议");
+    act(() => root.render(createElement(TimeGridView, { days: [day], tasks: [], countdowns: [], onDateClick, createPreview: null })));
+    expect(ghost()).toBeNull();
+  });
+
   it("反向拖选使用松手的最终坐标", () => {
     const [column] = render();
     pointer(column, "pointerdown", 630);
     pointer(column, "pointermove", 600);
     pointer(column, "pointerup", 540);
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(630));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(630), expect.objectContaining({ focusTarget: column, rect: expect.objectContaining({ width: 100 }) }));
   });
   it("轻点保留原 30 分钟槽位，午夜起点也传 end", () => {
     const [column] = render();
@@ -90,7 +104,7 @@ describe("时间网格空白拖选创建", () => {
     pointer(column, "pointerup", 2);
     expect(onDateClick).not.toHaveBeenCalled();
     click(column, 2);
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(0), at(60));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(0), at(60), expect.objectContaining({ focusTarget: column, rect: expect.objectContaining({ width: 100 }) }));
   });
   it.each(["Escape", "pointercancel", "lostpointercapture"])("%s 取消并拦住后续 click，下一次点击仍有效", (type) => {
     const [column] = render();
@@ -105,7 +119,7 @@ describe("时间网格空白拖选创建", () => {
     pointer(column, "pointerdown", 540);
     pointer(column, "pointerup", 540);
     click(column);
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(600));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(600), expect.objectContaining({ focusTarget: column, rect: expect.objectContaining({ width: 100 }) }));
   });
   it("非主键不 capture，其它 pointer 不更新或结束当前范围", () => {
     const [column] = render();
@@ -116,7 +130,7 @@ describe("时间网格空白拖选创建", () => {
     pointer(column, "pointerup", 630, 2);
     expect(onDateClick).not.toHaveBeenCalled();
     pointer(column, "pointerup", 600);
-    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(600));
+    expect(onDateClick).toHaveBeenCalledExactlyOnceWith(at(540), at(600), expect.objectContaining({ focusTarget: column, rect: expect.objectContaining({ width: 100 }) }));
   });
   it.each([true, false])("任务按钮/子元素不触发空白创建（改期回调=%s）", (canMove) => {
     const [column] = render([day], [task], canMove);
