@@ -6933,6 +6933,26 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   background: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
 }
+/* 预览按页演示指示条：上一页 / 页码页名 / 下一页 */
+.canvas-preview-pager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.canvas-preview-pager-label {
+  padding: 0 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+.canvas-preview-pager-exit {
+  padding-left: 8px;
+  margin-left: 4px;
+  border-left: 1px solid hsl(var(--border));
+}
 .canvas-mobile-notice {
   position: fixed;
   top: 56px;
