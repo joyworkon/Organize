@@ -1,0 +1,96 @@
+import { expect, test } from "@playwright/test";
+
+test("[[ searches pages, inserts a normal link, and persists across SPA navigation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("organize:onboarded", "1"));
+  await page.goto("/notes/note-1");
+  await page.getByRole("button", { name: "新建笔记并打开标签页" }).click();
+  await expect(page).not.toHaveURL(/\/notes\/note-1$/);
+  const editor = page.locator(".tiptap.organize-editor");
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  const sourceUrl = page.url();
+  await editor.locator("p").first().click();
+  await page.keyboard.insertText("前文[[");
+  const picker = page.locator(".page-link-popover");
+  const list = picker.getByRole("listbox", { name: "链接到页面" });
+  await expect(list).toBeVisible();
+  await expect(picker.getByRole("status")).toContainText("最近编辑");
+  await page.keyboard.insertText("产品灵感");
+  const target = list.getByRole("option", { name: /^产品灵感碎片/ });
+  await expect(target).toBeEnabled();
+  await expect(target.locator("mark")).toHaveText("产品灵感");
+  await page.screenshot({ animations: "disabled", path: ".tmp-e2e/page-link-desktop-light.png" });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(target).toHaveCSS("background-color", "rgb(44, 44, 44)");
+  await page.screenshot({ animations: "disabled", path: ".tmp-e2e/page-link-desktop-dark.png" });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(target).toHaveCSS("background-color", "rgb(240, 240, 240)");
+  await expect(list.getByRole("option", { name: /^读《/ })).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  const link = editor.locator('a[href="/notes/note-2"]');
+  await expect(link).toHaveText("产品灵感碎片");
+  await page.keyboard.insertText("继续输入");
+  await expect(link).toHaveText("产品灵感碎片");
+  await expect(editor).toContainText("前文产品灵感碎片继续输入");
+  await expect(editor).not.toContainText("[[");
+  // Mock data is in memory: SPA navigation verifies save/read without discarding the mock DB.
+  await link.click({ modifiers: ["ControlOrMeta"] });
+  await expect(page).toHaveURL(/\/notes\/note-2$/);
+  await page.goBack();
+  await expect(page).toHaveURL(sourceUrl);
+  await expect(editor.locator('a[href="/notes/note-2"]')).toHaveText("产品灵感碎片");
+});
+
+test("slash entry, keyboard selection, Escape, new page and mobile bounds", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => localStorage.setItem("organize:onboarded", "1"));
+  await page.goto("/notes/note-1");
+  const editor = page.locator(".tiptap.organize-editor");
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  await editor.locator("p").first().click();
+  await page.keyboard.press("Home");
+  await page.keyboard.insertText("/链接到页面");
+  await expect(page.locator(".block-command-popover").getByRole("option", { name: /^链接到页面/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  const picker = page.locator(".page-link-popover");
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole("status")).toContainText("最近编辑");
+  await page.keyboard.press("ArrowDown");
+  await expect(picker.getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
+  await page.screenshot({ animations: "disabled", path: ".tmp-e2e/page-link-mobile.png" });
+  const box = await picker.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(editor).toContainText("[[");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText("[[新会议页面-e2e");
+  await expect(picker.getByText("没有匹配的页面", { exact: true })).toBeVisible();
+  await expect(picker.getByRole("option", { name: "新建页面“新会议页面-e2e”" })).toBeEnabled();
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  const newLink = editor.getByRole("link", { name: "新会议页面-e2e" });
+  await expect(newLink).toHaveAttribute("href", /\/notes\/[0-9a-f-]{36}$/);
+  await newLink.click({ modifiers: ["ControlOrMeta"] });
+  await expect(page.getByPlaceholder("无标题笔记")).toHaveValue("新会议页面-e2e");
+});
+
+
+test("code blocks keep literal [[ text without opening the picker", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("organize:onboarded", "1"));
+  await page.goto("/notes/note-1");
+  await page.getByRole("button", { name: "新建笔记并打开标签页" }).click();
+  await expect(page).not.toHaveURL(/\/notes\/note-1$/);
+  const editor = page.locator(".tiptap.organize-editor");
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  await editor.locator("p").first().click();
+  await page.keyboard.type("/code");
+  await expect(page.locator(".block-command-popover").getByRole("option", { name: /^代码块/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.insertText("[[会议");
+  await expect(editor.locator("pre")).toContainText("[[会议");
+  await expect(page.locator(".page-link-popover")).toHaveCount(0);
+});

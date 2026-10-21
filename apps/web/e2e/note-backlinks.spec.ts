@@ -53,4 +53,31 @@ test.describe("B03 反链读路径（v2 切读）", () => {
     await panel.getByText("反链来源笔记").click();
     await expect(page).toHaveURL(new RegExp(`/notes/${seed.sourceId}`));
   });
+
+  test("[[ 创建页面链接后刷新保留，并被真实反链索引识别", async ({ page }) => {
+    await login(page);
+    await page.goto(`/notes/${seed.targetId}`);
+    await page.getByRole("button", { name: "新建笔记并打开标签页" }).click();
+    await expect(page).not.toHaveURL(new RegExp(`/notes/${seed.targetId}$`));
+    const editor = page.locator(".tiptap.organize-editor");
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
+    // Wait for the final collaborative editor, which replaces the initial local instance.
+    await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
+    const sourceTitle = `行内页面链接-${Date.now()}`;
+    await page.getByPlaceholder("无标题笔记").fill(sourceTitle);
+    await editor.locator("p").first().click();
+    await page.keyboard.insertText("[[反链目标");
+    const picker = page.locator(".page-link-popover");
+    await expect(picker.getByRole("option", { name: /^反链目标笔记/ })).toBeEnabled();
+    await page.keyboard.press("Enter");
+    const link = editor.locator(`a[href="/notes/${seed.targetId}"]`);
+    await expect(link).toHaveText("反链目标笔记");
+    await expect(page.locator(".note-save-status")).toContainText("已保存", { timeout: 30_000 });
+    await page.reload();
+    await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveText("反链目标笔记", { timeout: 30_000 });
+    await editor.locator(`a[href="/notes/${seed.targetId}"]`).click({ modifiers: ["ControlOrMeta"] });
+    await expect(page).toHaveURL(new RegExp(`/notes/${seed.targetId}`));
+    await expect(page.getByTestId("backlinks-panel").getByText(sourceTitle, { exact: true })).toBeVisible({ timeout: 30_000 });
+  });
 });

@@ -283,6 +283,7 @@ function SectionHeadingLabels({
 // B04（R09 续）：气泡工具栏与块交互纯函数层拆出（纯移动；keydown 提为可单测工厂）
 import { BlockMultiSelectBar } from "./block-multi-select-bar";
 import { BubbleToolbar } from "./bubble-toolbar";
+import { PageLinkMenu } from "./page-link-menu";
 import { LinkHoverCard } from "./link-hover-card";
 import {
   activeTableReferenceRect,
@@ -1502,6 +1503,7 @@ export function TipTapEditor({
           onToggleFullscreen={() => setTableFullscreen((value) => !value)}
         />
       </BubbleMenu>
+      <PageLinkMenu editor={editor} noteId={noteId} />
       <LinkHoverCard editor={editor} editRequest={linkEditRequest} internalLinkStates={internalLinkStates} onNavigate={(path) => router.push(path)} />
       <MathEditorDialog editor={editor} />
       <EditorContent editor={editor} />
