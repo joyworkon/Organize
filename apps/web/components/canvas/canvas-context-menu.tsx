@@ -35,6 +35,7 @@ export type CanvasContextMenuAction =
   | "cut"
   | "paste"
   | "duplicate"
+  | "detach-to-free"
   | "delete"
   | "select-all"
   | "zoom-fit"
@@ -57,6 +58,7 @@ function isMenuCommand(id: string): id is CanvasContextMenuAction {
     || id === "cut"
     || id === "paste"
     || id === "duplicate"
+    || id === "detach-to-free"
     || id === "delete"
     || id === "select-all"
     || id === "zoom-fit"
@@ -170,6 +172,7 @@ export function canvasContextMenuModel(input: {
   selection: CanvasSelection;
   readOnly: boolean;
   hasClipboard: boolean;
+  canDetach?: boolean;
   labels: { mod: string; shift: string };
 }): CanvasContextMenuEntry[] {
   const { scope, selection, readOnly, hasClipboard, labels } = input;
@@ -191,6 +194,9 @@ export function canvasContextMenuModel(input: {
     { id: "cut", label: "剪切", shortcut: `${labels.mod}X`, disabled: readOnly || !canCopy },
     { id: "paste", label: "粘贴", shortcut: `${labels.mod}V`, disabled: readOnly || !hasClipboard },
     { id: "duplicate", label: "创建副本", shortcut: `${labels.mod}D`, disabled: readOnly || !canCopy },
+    ...(input.canDetach && (selection?.kind === "block" || selection?.kind === "blocks")
+      ? [{ id: "detach-to-free", label: "转为自由定位", shortcut: "", disabled: readOnly }]
+      : []),
     ...freeArrangeMenuEntries(freeCount, readOnly),
     {
       id: "delete",

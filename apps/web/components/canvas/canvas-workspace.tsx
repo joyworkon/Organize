@@ -98,6 +98,7 @@ import { CanvasMinimap, CanvasMinimapToggle, useMinimapOpen } from "./canvas-min
 import { isFreeItemDragging } from "./canvas-free-item";
 import { applyArrangeAction, isFreeArrangeAction, nudgeFreeItems } from "./free-item-actions";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
+import { canDetachSelection, commitDetachSelection } from "./canvas-detach-actions";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
 import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, matchCanvasShortcut, zoomCanvasAtCenter } from "./canvas-shortcuts";
 import { CanvasShortcutsDialog } from "./canvas-shortcuts-dialog";
@@ -511,6 +512,10 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   }, []);
 
   const onContextAction = useCallback((action: CanvasContextMenuAction) => {
+    if (action === "detach-to-free") {
+      commitDetachSelection(store, scene);
+      return;
+    }
     if (action === "copy") {
       commitCanvasCopy(store);
       return;
@@ -1436,6 +1441,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
           sourceStatuses={sourceStatuses}
           onRefreshSource={(blockId) => void refreshMaterialSnapshot(blockId)}
           freeBoxes={scene.freeItems}
+          scene={scene}
         />
       )}
 
@@ -1518,6 +1524,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
             selection,
             readOnly: readOnly || previewMode || connectionsOnly,
             hasClipboard: hasCanvasClipboard(),
+            canDetach: canDetachSelection(doc, selection),
             labels: shortcutLabels,
           })}
           onSelect={onContextAction}

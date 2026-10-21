@@ -11,6 +11,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import { commitBoardDuplicate } from "./canvas-board-actions";
+import { canDetachSelection, commitDetachSelection } from "./canvas-detach-actions";
+import type { Scene } from "@/lib/canvas/layout";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Copy, Trash2 } from "@/components/icons";
@@ -97,6 +99,7 @@ export function CanvasPropertyBar({
   sourceStatuses,
   onRefreshSource,
   freeBoxes = [],
+  scene,
 }: {
   store: CanvasStore;
   measurer: MeasurerLike;
@@ -108,6 +111,7 @@ export function CanvasPropertyBar({
   onRefreshSource?: (blockId: string) => void;
   /** 场景里已测的自由元素高度。对齐/分布用它，不用固定高。 */
   freeBoxes?: readonly FreeArrangeBox[];
+  scene?: Scene;
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
@@ -138,6 +142,12 @@ export function CanvasPropertyBar({
     return <div className="canvas-property-bar" aria-label="多个模块属性">
       <h3 className="canvas-prop-title">已选中 {selection.blockIds.length} 个模块</h3>
       <p className="text-xs text-muted-foreground">拖动任一选中模块可一起移动；Shift 点击可增减选区。</p>
+      {canDetachSelection(doc, selection) && (
+        <Button type="button" variant="outline" size="sm" className="text-xs"
+          onClick={() => commitDetachSelection(store, scene)}>
+          转为自由定位（{new Set(selection.blockIds).size}）
+        </Button>
+      )}
       <Button
         type="button"
         variant="outline"
@@ -1119,6 +1129,12 @@ export function CanvasPropertyBar({
           下移
         </Button>
       </div>
+      {canDetachSelection(doc, selection) && (
+        <Button type="button" variant="outline" size="sm" className="text-xs"
+          onClick={() => commitDetachSelection(store, scene)}>
+          转为自由定位
+        </Button>
+      )}
       <Button
         type="button"
         variant="outline"
