@@ -22,6 +22,8 @@ import { selectionForFocus, withoutCanvasFocus } from "@/lib/canvas/focus-link";
 import { MATERIAL_ADD_ERROR, MATERIAL_ADD_SUCCESS } from "@/lib/canvas/material-feedback";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   Loader2,
   Maximize2,
@@ -36,6 +38,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { hasOpenDialog, isTypingTarget } from "@/lib/hooks/use-hotkey";
+import { previewPageStep, resolvePreviewBoardId, stepPreviewBoardId } from "@/lib/canvas/preview-nav";
 import { createClient } from "@/lib/supabase/client";
 import {
   CANVAS_SCHEMA_VERSION,
@@ -194,6 +197,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  /** 预览演示的当前页（进入预览与翻页时更新；指示条与翻页键的数据源）。 */
+  const [previewBoardId, setPreviewBoardId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuRequest | null>(null);
   const contextMenuRef = useRef<CanvasContextMenuRequest | null>(null);
   const contextNonce = useRef(0);
@@ -485,6 +490,48 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     );
   }, [scene, store, visibleViewportNow]);
 
+  // ---------------- 预览按页演示 ----------------
+
+  /** 预览翻页：按 doc.boards 顺序循环选页并适合该页（与「适合选区」同一路径）。 */
+  const gotoPreviewPage = useCallback(
+    (step: 1 | -1) => {
+      const boardId = stepPreviewBoardId(store.getState().doc, previewBoardId, step);
+      if (!boardId) return;
+      setPreviewBoardId(boardId);
+      store.getState().select({ kind: "board", boardId });
+      fitSelection({ kind: "board", boardId });
+    },
+    [store, fitSelection, previewBoardId],
+  );
+
+  /**
+   * 进入预览自动落页：togglePreview 会清空选区，落页目标取进入前选区
+   * （直接归属页 / 自由元素几何最近页 / 第一页）。退出预览保持清空选区的
+   * 原语义、不改视口缩放。
+   */
+  useEffect(() => {
+    const unsub = store.subscribe((state, prev) => {
+      if (state.previewMode === prev.previewMode) return;
+      if (!state.previewMode) {
+        store.getState().select(null);
+        setPreviewBoardId(null);
+        return;
+      }
+      const boardId = resolvePreviewBoardId(state.doc, scene, prev.selection);
+      setPreviewBoardId(boardId);
+      if (!boardId) return;
+      store.getState().select({ kind: "board", boardId });
+      fitSelection({ kind: "board", boardId });
+    });
+    return unsub;
+  }, [store, scene, fitSelection]);
+
+  /** 指示条数据：记忆页失效（如远端同步删页）时回退第一页展示。 */
+  const pagerIndex = previewMode
+    ? doc.boards.findIndex((b) => b.id === previewBoardId)
+    : -1;
+  const pagerBoard = previewMode ? (pagerIndex >= 0 ? doc.boards[pagerIndex] : doc.boards[0] ?? null) : null;
+
   // A link from the library is a one-shot selection, after document/font geometry is ready.
   useEffect(() => {
     if (focusBlockId === null) { handledFocus.current = null; return; }
@@ -565,6 +612,17 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
       if (s.previewMode && e.key === "Escape") {
         s.togglePreview();
         return;
+      }
+      // 预览翻页（→ / ← / PageDown / PageUp / Space / Shift+Space）；
+      // 匹配留在本 keydown（依赖 previewMode 守卫），输入焦点与弹层让位。
+      if (s.previewMode && !isTypingTarget(e)) {
+        const step = previewPageStep(e);
+        if (step !== 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          gotoPreviewPage(step);
+          return;
+        }
       }
       if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z") {
         if (s.readOnly || s.previewMode) return;
@@ -680,7 +738,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection, connectionsOnly]);
+  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection, gotoPreviewPage, connectionsOnly]);
 
   const worldCenterNow = useCallback(() => {
     const rect = visibleViewportNow();
@@ -1568,9 +1626,38 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
       </Dialog>
 
       {previewMode && (
-        <div className="canvas-preview-hint" role="status">
-          预览模式 · 按 Esc 退出
-        </div>
+        pagerBoard ? (
+          <div className="canvas-preview-hint canvas-preview-pager" role="status" data-testid="canvas-preview-pager">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="上一页"
+              title="上一页（← / PageUp / Shift+Space）"
+              onClick={() => gotoPreviewPage(-1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="canvas-preview-pager-label" aria-live="polite">
+              第 {doc.boards.indexOf(pagerBoard) + 1} / {doc.boards.length} 页 · {pagerBoard.name || "未命名页面"}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="下一页"
+              title="下一页（→ / PageDown / Space）"
+              onClick={() => gotoPreviewPage(1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className="canvas-preview-pager-exit">Esc 退出</span>
+          </div>
+        ) : (
+          <div className="canvas-preview-hint" role="status">
+            预览模式 · 按 Esc 退出
+          </div>
+        )
       )}
     </div>
   );

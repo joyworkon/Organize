@@ -21,6 +21,8 @@ export function CanvasShortcutsDialog({ open, onOpenChange, labels }: {
     ["创建副本", `${mod}D`],
     ["删除选中对象", "Delete / Backspace"],
     ["取消选择 / 退出编辑或预览", "Esc"],
+    ["预览下一页", "→ / PageDown / Space"],
+    ["预览上一页", "← / PageUp / Shift+Space"],
     ["微移版面（操作柄聚焦时）", "↑ ↓ ← →"],
     ["加大微移步长", `${shift}↑ ↓ ← →`],
     ["微调选中的自由元素 1px / 10px", `↑ ↓ ← → / ${shift}↑ ↓ ← →`],
