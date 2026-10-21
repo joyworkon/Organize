@@ -7,6 +7,7 @@ import Link from "@tiptap/extension-link";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewNote } from "@/lib/notes/create-note";
 import { PageLinkTrigger } from "./extensions/page-link-trigger";
+import { createBlockKeydownHandlers } from "./block-interaction";
 import { PageLinkMenu, searchLinkPages } from "./page-link-menu";
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), ilike: vi.fn(), eq: vi.fn() }));
@@ -76,6 +77,25 @@ describe("page picker asynchronous states", () => {
     await flush();
     expect(editor.getHTML()).toContain('href="/notes/target"');
     expect(document.querySelector(".page-link-popover")).toBeNull();
+  });
+
+  it("lets the picker handle Enter in a heading before the editor's heading shortcut", async () => {
+    let open = false;
+    act(() => {
+      editor.commands.setContent("<h2></h2>");
+      editor.setOptions({ editorProps: { handleKeyDown: createBlockKeydownHandlers({
+        getEditor: () => editor, isMenuOpen: () => open,
+        onOpenCommandMenu: () => {}, onOpenSearchDialog: () => {},
+      }) } });
+      root.render(<PageLinkMenu editor={editor} noteId="source" onOpenChange={(value) => { open = value; }} />);
+    });
+    type("[[会议"); await flush(160);
+    expect(open).toBe(true);
+    key("Enter"); await flush();
+    expect(editor.state.doc.childCount).toBe(1);
+    expect(editor.state.doc.firstChild?.type.name).toBe("heading");
+    expect(editor.getHTML()).toContain('href="/notes/target"');
+    expect(open).toBe(false);
   });
 
   it("ignores stale search responses and preserves the latest query", async () => {

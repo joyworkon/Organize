@@ -56,17 +56,15 @@ test.describe("B03 反链读路径（v2 切读）", () => {
 
   test("[[ 创建页面链接后刷新保留，并被真实反链索引识别", async ({ page }) => {
     await login(page);
-    await page.goto(`/notes/${seed.targetId}`);
-    await page.getByRole("button", { name: "新建笔记并打开标签页" }).click();
-    await expect(page).not.toHaveURL(new RegExp(`/notes/${seed.targetId}$`));
+    await page.goto(`/notes/${seed.sourceId}`);
     const editor = page.locator(".tiptap.organize-editor");
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 30_000 });
-    // Wait for the final collaborative editor, which replaces the initial local instance.
+    // Use the seeded source and wait for its content, not just the transport-ready flag.
     await expect(page.locator('.note-page[data-collab-session="ready"]')).toBeVisible({ timeout: 45_000 });
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toBeVisible();
     const sourceTitle = `行内页面链接-${Date.now()}`;
     const sourceId = new URL(page.url()).pathname.split("/").pop();
-    // A newly opened note can still be replacing its initial editor/save binding.
-    // Confirm this source title was saved before exercising the inline picker.
+    // Confirm the source title independently of the subsequent body save.
     const titleSaved = page.waitForResponse((response) => {
       if (!response.url().includes("/rpc/save_note_with_tasks_v2") || !response.ok()) return false;
       const body = response.request().postDataJSON();
@@ -75,7 +73,13 @@ test.describe("B03 反链读路径（v2 切读）", () => {
     await page.getByPlaceholder("无标题笔记").fill(sourceTitle);
     await titleSaved;
     await expect(editor).toHaveAttribute("contenteditable", "true");
+    await editor.locator(`a[href="/notes/${seed.targetId}"]`).click();
+    await page.getByRole("button", { name: "取消链接", exact: true }).click();
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveCount(0);
     await editor.locator("p").first().click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.insertText("行内链接验证：");
+    await expect(editor.locator(`a[href="/notes/${seed.targetId}"]`)).toHaveCount(0);
     await page.keyboard.insertText("[[反链目标");
     const picker = page.locator(".page-link-popover");
     await expect(picker.getByRole("option", { name: /^反链目标笔记/ })).toBeEnabled();

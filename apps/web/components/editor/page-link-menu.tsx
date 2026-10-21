@@ -1,7 +1,7 @@
 "use client";
 
 import type { Editor } from "@tiptap/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileText, Plus, Search } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
@@ -35,9 +35,16 @@ export async function searchLinkPages(query: string, noteId?: string): Promise<P
   return pages.map((page) => ({ ...page, parent_title: page.parent_note_id ? titles.get(page.parent_note_id) : undefined }));
 }
 
-export function PageLinkMenu({ editor, noteId }: { editor: Editor; noteId?: string }) {
+export function PageLinkMenu({ editor, noteId, onOpenChange }: {
+  editor: Editor; noteId?: string; onOpenChange?: (open: boolean) => void;
+}) {
   const [session, setSession] = useState<Session | null>(null);
   const close = useCallback(() => setSession(null), []);
+  const open = Boolean(session && editor.isEditable);
+  useLayoutEffect(() => {
+    onOpenChange?.(open);
+    return () => onOpenChange?.(false);
+  }, [open, onOpenChange]);
   useEffect(close, [editor, noteId, close]);
   useEffect(() => {
     const dom = editor.view.dom;

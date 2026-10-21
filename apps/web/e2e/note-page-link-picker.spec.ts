@@ -9,6 +9,10 @@ test("[[ searches pages, inserts a normal link, and persists across SPA navigati
   await expect(editor).toHaveAttribute("contenteditable", "true");
   const sourceUrl = page.url();
   await editor.locator("p").first().click();
+  await page.keyboard.type("/h2");
+  await expect(page.locator(".block-command-popover").getByRole("option", { name: /^标题 2/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(editor.locator("h2")).toBeVisible();
   await page.keyboard.insertText("前文[[");
   const picker = page.locator(".page-link-popover");
   const list = picker.getByRole("listbox", { name: "链接到页面" });
