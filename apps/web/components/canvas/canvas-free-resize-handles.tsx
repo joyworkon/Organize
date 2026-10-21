@@ -1,14 +1,15 @@
 "use client";
 
 import type { KeyboardEvent, PointerEvent } from "react";
-import { FREE_RESIZE_HANDLES, type FreeResizeHandle } from "@/lib/canvas/free-resize";
+import { FREE_RESIZE_HANDLES, SHAPE_RESIZE_HANDLES, type FreeResizeHandle } from "@/lib/canvas/free-resize";
 
-const LABELS: Record<FreeResizeHandle, string> = { w: "左边", e: "右边", nw: "左上角", ne: "右上角", sw: "左下角", se: "右下角" };
+const LABELS: Record<FreeResizeHandle, string> = { n: "上边", s: "下边", w: "左边", e: "右边", nw: "左上角", ne: "右上角", sw: "左下角", se: "右下角" };
 
 /** Shared screen-sized handles; the parent remains in world coordinates. */
-export function CanvasFreeResizeHandles({ zoom, group = false, active, size, onBegin, onMove, onEnd, onCancel, onKeyDown }: {
+export function CanvasFreeResizeHandles({ zoom, group = false, shape = false, active, size, onBegin, onMove, onEnd, onCancel, onKeyDown }: {
   zoom: number;
   group?: boolean;
+  shape?: boolean;
   active?: FreeResizeHandle | null;
   size?: string;
   onBegin: (e: PointerEvent, handle: FreeResizeHandle) => void;
@@ -18,7 +19,7 @@ export function CanvasFreeResizeHandles({ zoom, group = false, active, size, onB
   onKeyDown?: (e: KeyboardEvent, handle: FreeResizeHandle) => void;
 }) {
   return <>
-    {FREE_RESIZE_HANDLES.map((handle) => (
+    {(shape ? SHAPE_RESIZE_HANDLES : FREE_RESIZE_HANDLES).map((handle) => (
       <div
         key={handle}
         className={`canvas-resize-handle canvas-resize-${handle}${!group && handle === "e" ? " canvas-free-resize" : ""}`}

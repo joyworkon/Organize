@@ -5,6 +5,8 @@ import { scaleFreeGroup, type FreeResizeHandle } from "@/lib/canvas/free-resize"
 import type { FreeGroupMember } from "@/lib/canvas/free-selection";
 import type { SnapGuide, SnapRect } from "@/lib/canvas/snap";
 import { updateFreeItem } from "@/lib/canvas/commands";
+import { SHAPE_MIN_HEIGHT, SHAPE_MAX_HEIGHT } from "@/lib/canvas/model";
+import { BLOCK_CHROME } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { setFreeItemDragging } from "./canvas-free-item";
 import { CanvasFreeResizeHandles } from "./canvas-free-resize-handles";
@@ -17,6 +19,13 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
   onLive: (members: FreeGroupMember[] | null) => void;
   onGuides: (guides: SnapGuide[] | null) => void;
 }) {
+  const shapeLimits = (items: readonly FreeGroupMember[]) => {
+    const shapes = items.filter((m) => store.getState().doc.freeItems.find((item) => item.id === m.id)?.block.type === "shape");
+    return {
+      minScale: Math.max(0, ...shapes.map((m) => (SHAPE_MIN_HEIGHT + BLOCK_CHROME) / m.height)),
+      maxScale: Math.min(Infinity, ...shapes.map((m) => Math.min(2000 / m.width, (SHAPE_MAX_HEIGHT + BLOCK_CHROME) / m.height))),
+    };
+  };
   const drag = useRef<{
     el: HTMLElement; pointerId: number; startX: number; startY: number;
     members: FreeGroupMember[]; handle: FreeResizeHandle; last: FreeGroupMember[] | null;
@@ -39,7 +48,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
     if (!patches.length) return;
     store.getState().apply("缩放整组自由容器", (doc) => {
       let next = doc;
-      for (const member of patches) next = updateFreeItem(next, { itemId: member.id, x: member.x, y: member.y, width: member.width }).doc;
+      for (const member of patches) next = updateFreeItem(next, { itemId: member.id, x: member.x, y: member.y, width: member.width, height: member.height }).doc;
       return { doc: next };
     });
   }, [onGuides, onLive, store]);
@@ -54,6 +63,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
     if (!current.last && Math.abs(dx) <= 2 && Math.abs(dy) <= 2) return;
     const result = scaleFreeGroup(current.members, current.handle, dx, dy, {
       center: e.shiftKey, snapEnabled: !e.altKey, targets, threshold: 6 / zoom,
+      ...shapeLimits(current.members),
     });
     current.last = result.members;
     onLive(result.members);
@@ -71,6 +81,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
       e.stopPropagation();
       const el = e.currentTarget as HTMLElement;
       el.setPointerCapture(e.pointerId);
+      el.focus({ preventScroll: true });
       drag.current = { el, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, members, handle, last: null };
       setFreeItemDragging(true);
       esc.current = (event) => {
@@ -93,10 +104,10 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
       e.preventDefault();
       e.stopPropagation();
       if (store.getState().readOnly) return;
-      const result = scaleFreeGroup(members, handle, e.key === "ArrowLeft" ? -10 : 10, 0, { center: e.shiftKey, snapEnabled: false });
+      const result = scaleFreeGroup(members, handle, e.key === "ArrowLeft" ? -10 : 10, 0, { center: e.shiftKey, snapEnabled: false, ...shapeLimits(members) });
       store.getState().apply("缩放整组自由容器", (doc) => {
         let next = doc;
-        for (const m of result.members) next = updateFreeItem(next, { itemId: m.id, x: m.x, y: m.y, width: m.width }).doc;
+        for (const m of result.members) next = updateFreeItem(next, { itemId: m.id, x: m.x, y: m.y, width: m.width, height: m.height }).doc;
         return { doc: next };
       });
     }}

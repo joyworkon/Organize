@@ -329,12 +329,15 @@ function layoutRegion(
   return { regionId: region.id, y: regionY, height, sections };
 }
 
-/** 自由容器高度：文本按测量；图片按容器比例（ratio≠auto）或宽度/自然比例（auto）。 */
+/** 自由容器高度：形状用持久内容高；文本按测量；图片按容器比例或自然比例。 */
 export function freeItemHeight(
   item: CanvasDoc["freeItems"][number],
   measure: CanvasMeasure,
 ): number {
   const inner = Math.max(1, item.width - BLOCK_CHROME);
+  if (item.block.type === "shape") {
+    return Math.max(MIN_TEXT_CONTENT_HEIGHT, item.block.height) + BLOCK_CHROME;
+  }
   if (item.block.type === "image") {
     const ratio = item.block.ratio;
     if (ratio && ratio !== "auto") {

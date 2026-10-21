@@ -399,10 +399,19 @@ export function CanvasPropertyBar({
     const item = target.item;
     const freeText = item.block.type === "text" ? item.block : null;
     const freeImage = item.block.type === "image" ? item.block : null;
+    const shape = item.block.type === "shape" ? item.block : null;
     return (
       <div className="canvas-property-bar" aria-label="自由容器属性">
-        <h3 className="canvas-prop-title">{freeText ? "自由文本" : "自由图片"}</h3>
+        <h3 className="canvas-prop-title">{shape ? "自由形状" : freeText ? "自由文本" : "自由图片"}</h3>
         <p className="text-xs text-muted-foreground">自由定位，不参与自动排版。</p>
+        {shape && <>
+          <ModeRow value={shape.kind} options={[{ value: "rect", label: "矩形" }, { value: "ellipse", label: "椭圆" }]}
+            onChange={(kind) => store.getState().apply("切换形状", (d) =>
+              updateFreeItemBlock(d, { itemId: item.id, kind: kind as "rect" | "ellipse" }))} />
+          <SwatchRow label="背景" keys={CANVAS_BG_KEYS} value={shape.style?.background ?? ""}
+            onPick={(key) => store.getState().apply("形状背景", (d) =>
+              updateFreeItemBlock(d, { itemId: item.id, style: { background: key || null } }))} />
+        </>}
         {freeText && (
           <>
             <ModeRow
@@ -513,23 +522,28 @@ export function CanvasPropertyBar({
           boxes={freeBoxes}
           showAlign={false}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="min-w-0 flex-1 px-1 text-xs"
-          onClick={() => setMoveTargetOpen(true)}
-        >
-          移入区块…
-        </Button>
-        <MoveFreeItemDialog
-          store={store}
-          doc={doc}
-          itemId={item.id}
-          open={moveTargetOpen}
-          onOpenChange={setMoveTargetOpen}
-        />
-        <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />
+        {!shape && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 px-1 text-xs"
+              onClick={() => setMoveTargetOpen(true)}
+            >
+              移入区块…
+            </Button>
+            <MoveFreeItemDialog
+              store={store}
+              doc={doc}
+              itemId={item.id}
+              open={moveTargetOpen}
+              onOpenChange={setMoveTargetOpen}
+            />
+          </>
+        )}
+        {shape && <p className="text-xs text-muted-foreground">形状仅支持自由定位。</p>}
+        {shape?.kind !== "ellipse" && <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />}
         <Button
           type="button"
           variant="outline"

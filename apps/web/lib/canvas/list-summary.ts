@@ -1,7 +1,7 @@
 /** 列表只传紧凑预览；不包含文本全文、图片 URL 或源资料引用。 */
 import { computeScene, type CanvasMeasure } from "./layout";
 import { contentBounds, layoutMinimap, worldToMinimap, type Box } from "./minimap";
-import type { CanvasBlock } from "./model";
+import type { CanvasBlock, CanvasFreeItemBlock } from "./model";
 import { validateCanvasContent } from "./validation";
 
 export interface CanvasSummaryShape extends Box {
@@ -18,7 +18,7 @@ export interface CanvasListSummary {
 
 export const CANVAS_SUMMARY_MAX_SHAPES = 40;
 
-function blockText(block: CanvasBlock): string {
+function blockText(block: CanvasBlock | CanvasFreeItemBlock): string {
   if (block.type === "text" || block.type === "materialCard") return block.text;
   if (block.type === "embed") return block.title;
   return "";
@@ -39,9 +39,9 @@ export function summarizeCanvas(content: unknown): CanvasListSummary | null {
   let blocks = 0;
   let excerpt = "";
   const kinds = new Map<string, CanvasSummaryShape["kind"]>();
-  const visit = (block: CanvasBlock) => {
+  const visit = (block: CanvasBlock | CanvasFreeItemBlock) => {
     blocks += 1;
-    kinds.set(block.id, block.type === "image" ? "image" : block.type === "divider" || block.type === "button" ? "block" : "text");
+    kinds.set(block.id, block.type === "image" ? "image" : block.type === "divider" || block.type === "button" || block.type === "shape" ? "block" : "text");
     if (!excerpt) excerpt = Array.from(blockText(block).split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "").slice(0, 80).join("");
   };
   for (const board of doc.boards) for (const region of board.regions) {

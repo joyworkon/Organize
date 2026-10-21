@@ -58,6 +58,7 @@ import {
   createFreeImage,
   createFreeText,
   createFreeSticky,
+  createFreeShape,
   insertBlockAtTarget,
   updateMaterialSnapshot,
   type CanvasTemplateKind,
@@ -85,7 +86,7 @@ import { isMockBackend, resolveAssetUrl, uploadCanvasImage } from "@/lib/canvas/
 import { validateCanvasContent } from "@/lib/canvas/validation";
 import { createCanvasStore, type CanvasSelection } from "./canvas-store";
 import { boundsForSelection } from "@/lib/canvas/selection-bounds";
-import { computeScene } from "@/lib/canvas/layout";
+import { BLOCK_CHROME, computeScene } from "@/lib/canvas/layout";
 import { createCanvasMeasure, useCanvasScene, useFontsReady } from "./use-canvas-scene";
 import { useSourceStatus } from "./use-source-status";
 import { CanvasMaterialPanel } from "./canvas-material-panel";
@@ -768,6 +769,12 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
   }, [store, worldCenterNow]);
 
+  const addFreeShape = useCallback((kind: "rect" | "ellipse") => {
+    const center = worldCenterNow();
+    store.getState().apply(`新建${kind === "rect" ? "矩形" : "椭圆"}`, (d) =>
+      createFreeShape(d, { kind, x: center.x - 80, y: center.y - (100 + BLOCK_CHROME) / 2 }));
+  }, [store, worldCenterNow]);
+
   /** 面板之间放不下默认页面时，缩小新页面以保留两侧加号的操作空间。 */
   const fitNewPageIfNeeded = useCallback(() => {
     const rect = visibleViewportNow();
@@ -1421,6 +1428,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
               onAddLandingBoard={addLandingBoard}
               onAddFreeText={addFreeText}
               onAddFreeSticky={addFreeSticky}
+              onAddFreeShape={addFreeShape}
               onAddFreeImage={() => {
                 // 自由放置入口同样固定「视口中心」语义：选择文件前先点按钮
                 freeImageInputRef.current?.click();

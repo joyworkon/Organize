@@ -7,7 +7,7 @@
  *  （图标 + 文字，title 悬停提示，button + aria-label 可 Tab 聚焦，
  *   点击后插入并更新目标提示）；
  * - 「页面」组：新建空白页面 / 宣传落地页骨架（B1 入口保留）；
- * - 「自由放置」次级折叠区：自由文本 / 自由图片 / 便签，明确标注「自由定位，不随页面排版」
+ * - 「自由放置」次级折叠区：自由文本 / 自由图片 / 便签 / 矩形 / 椭圆，标注「自由定位，不随页面排版」
  *  （默认添加**不**创建脱离页面的自由内容）；
  * - 「结构」「模板」折叠区：复用 B1 大纲树与四项模板；
  * - 「资料」折叠区（E 阶段）：由工作区注入资料搜索面板（引用卡片/摘录/图片）；
@@ -17,6 +17,8 @@
 import { useState, type ReactNode } from "react";
 import {
   ChevronDown,
+  CheckSquare,
+  Circle,
   ChevronRight,
   Heading1,
   Image as ImageIcon,
@@ -57,6 +59,7 @@ export interface CanvasAddPanelProps {
   onAddLandingBoard: () => void;
   onAddFreeText: () => void;
   onAddFreeSticky: () => void;
+  onAddFreeShape: (kind: "rect" | "ellipse") => void;
   onAddFreeImage: () => void;
   onApplyTemplate: (template: CanvasTemplateKind) => void;
   /** 资料面板（E 阶段接入）：由工作区提供，渲染在「资料」折叠组。 */
@@ -105,6 +108,7 @@ export function CanvasAddPanel({
   onAddLandingBoard,
   onAddFreeText,
   onAddFreeSticky,
+  onAddFreeShape,
   onAddFreeImage,
   onApplyTemplate,
   material,
@@ -196,6 +200,15 @@ export function CanvasAddPanel({
             <StickyNote className="h-4 w-4 flex-shrink-0" />
             <span>便签</span>
           </Button>
+          {(["rect", "ellipse"] as const).map((kind) => {
+            const label = kind === "rect" ? "矩形" : "椭圆";
+            const Icon = kind === "rect" ? CheckSquare : Circle;
+            return <Button key={kind} type="button" variant="ghost" className="canvas-add-item"
+              aria-label={`新建${label}`} title={`新建${label}：自由定位，可调整宽高和背景`}
+              onClick={() => onAddFreeShape(kind)}>
+              <Icon className="h-4 w-4 flex-shrink-0" /><span>{label}</span>
+            </Button>;
+          })}
         </div>
       </DetailsGroup>
 
