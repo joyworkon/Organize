@@ -131,6 +131,8 @@ test.describe("触屏标注", () => {
   test.use({ hasTouch: true });
 
   test("390px 触屏点按、深浅色与弹层边界", async ({ page }, testInfo) => {
+    // 弹层入场 zoom-in-95（150ms）会让 boundingBox 测得 43.x px：关动画后触控目标断言才稳定。
+    await page.emulateMedia({ reducedMotion: "reduce" });
     const { editor } = await createNote(page);
     await page.keyboard.type("/");
     await expect(page.locator(".block-command-popover")).toBeVisible();

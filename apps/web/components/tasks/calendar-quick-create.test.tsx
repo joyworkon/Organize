@@ -107,6 +107,30 @@ describe("CalendarQuickCreate", () => {
     expect(initialCalendarSchedule({ start: at(0), end: at(15) }).all_day).toBe(false);
     expect(calendarScheduleLabel(initialCalendarSchedule({ start: at(1425), end: at(1440) }))).toContain("10月22日 00:00");
   });
+  it("拖选显式 allDay：跨日归一到首日零点与末日 23:59，同日 end=null，不再建成定时", () => {
+    const spanning = initialCalendarSchedule({ start: at(0), end: at(2 * 1440), allDay: true });
+    expect(spanning).toMatchObject({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: at(3 * 1440 - 1).toISOString() });
+    expect(calendarScheduleLabel(spanning)).toBe("10月21日 – 10月23日 全天");
+    // 拖选起点若带时刻也按日历日归一；反向顺序已由调用方排好，这里只认日期。
+    expect(initialCalendarSchedule({ start: at(600), end: at(1440 + 30), allDay: true })).toMatchObject({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: at(2 * 1440 - 1).toISOString() });
+    expect(initialCalendarSchedule({ start: at(0), end: at(0), allDay: true })).toMatchObject({ all_day: true, schedule_end_at: null });
+    expect(initialCalendarSchedule({ start: at(0), allDay: true })).toMatchObject({ all_day: true, schedule_end_at: null });
+    // 显式 allDay=false 可覆盖「零点无 end ⇒ 全天」的格子约定。
+    expect(initialCalendarSchedule({ start: at(0), allDay: false })).toMatchObject({ all_day: false, schedule_start_at: at(0).toISOString(), schedule_end_at: at(60).toISOString() });
+  });
+  it("拖选跨天全天区间打开后预览与保存直接沿用区间", async () => {
+    await act(async () => root.render(createElement(CalendarQuickCreate, {
+      range: { start: at(0), end: at(2 * 1440), allDay: true, anchor: calendarCreateAnchor(origin, new DOMRect(1200, 800, 150, 80)) },
+      supabase, lists: [], defaultListId: null, onClose, onTaskCreated, onCountdownCreated, onPreviewChange,
+    })));
+    expect(calendarScheduleLabel(mocks.schedule!)).toBe("10月21日 – 10月23日 全天");
+    expect(button("10月21日 – 10月23日 全天").getAttribute("aria-label")).toBe("修改日期和时间");
+    expect(document.querySelector<HTMLButtonElement>('[data-calendar-quick-create] [role="checkbox"]')?.getAttribute("aria-checked")).toBe("true");
+    change("出差");
+    expect(onPreviewChange).toHaveBeenLastCalledWith({ start: at(0), end: at(3 * 1440 - 1), allDay: true, title: "出差" });
+    await act(async () => button("添加").click());
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ all_day: true, schedule_start_at: at(0).toISOString(), schedule_end_at: at(3 * 1440 - 1).toISOString(), due_date: at(3 * 1440 - 1).toISOString() }));
+  });
   it("全天区间显示首尾日期，预览与保存归一到本地零点和结束日 23:59；失败保留区间", async () => {
     single.mockResolvedValueOnce({ data: null, error: { message: "网络失败" } });
     await render(); change("出差");
