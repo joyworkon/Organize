@@ -264,6 +264,56 @@ describe("时间网格 全天 ↔ 定时 跨区拖拽转换", () => {
     });
   });
 
+  describe("全天行连续条", () => {
+    /** 周二~周四的全天任务：整条一个按钮，条内任意位置抓起。 */
+    const spanTask: TaskWithTags = {
+      ...base,
+      all_day: true,
+      due_date: at(0, 20).toISOString(),
+      schedule_start_at: at(0, 20).toISOString(),
+      schedule_end_at: at(0, 22).toISOString(),
+    };
+
+    it("周视图：跨天任务只渲染一条，span 标注起止列", () => {
+      const { chip } = render(weekDaysOf(day), [spanTask]);
+      const bars = container.querySelectorAll("[data-all-day-span]");
+      expect(bars).toHaveLength(1);
+      expect(chip).not.toBeNull();
+      expect(bars[0]).toBe(chip!);
+      expect(bars[0].getAttribute("data-all-day-span")).toBe("1-3");
+    });
+
+    it("从条中段抓起拖到别的列改期，写回新起点并保时长", () => {
+      const { chip, cells } = render(weekDaysOf(day), [spanTask]);
+      // 覆盖层宽 100（网格 148 − 左轴 48），按下点 x=90 落在周三列
+      vi.spyOn(chip!.parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(48, -240, 100, 60));
+      pointer(chip!, "pointerdown", ALL_DAY_Y, 90);
+      pointer(chip!, "pointermove", ALL_DAY_Y, 60); // 周一列
+      expect(cells[0].contains(placeholder())).toBe(true);
+      pointer(chip!, "pointerup", ALL_DAY_Y, 60);
+      expect(onUpdateTaskSchedule).toHaveBeenCalledExactlyOnceWith("task", expect.objectContaining({
+        schedule_start_at: at(0, 19).toISOString(),
+        schedule_end_at: at(0, 21).toISOString(),
+        all_day: true,
+      }));
+    });
+
+    it("条内 wiggle 后落回抓取列：不改期；轻点条仍打开详情", async () => {
+      const { chip } = render(weekDaysOf(day), [spanTask]);
+      vi.spyOn(chip!.parentElement!, "getBoundingClientRect").mockReturnValue(new DOMRect(48, -240, 100, 60));
+      pointer(chip!, "pointerdown", ALL_DAY_Y, 90);
+      pointer(chip!, "pointermove", ALL_DAY_Y, 75); // 条内换列（周二）
+      pointer(chip!, "pointermove", ALL_DAY_Y, 90); // 回到抓取列
+      pointer(chip!, "pointerup", ALL_DAY_Y, 90);
+      expect(onUpdateTaskSchedule).not.toHaveBeenCalled();
+      // 轻点（无位移）不被误判为拖拽，仍触发 peek
+      pointer(chip!, "pointerdown", ALL_DAY_Y, 90);
+      pointer(chip!, "pointerup", ALL_DAY_Y, 90);
+      click(chip!);
+      expect(onTaskClick).toHaveBeenCalledExactlyOnceWith(spanTask);
+    });
+  });
+
   describe("同区拖拽不回归", () => {
     it("全天芯片改日：目标列出现占位，写回 all_day=true 且时长不变", () => {
       const { chip, cells } = render(weekDaysOf(day), [allDayTask]);

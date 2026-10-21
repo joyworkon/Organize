@@ -33,6 +33,13 @@ import {
   type CalendarViewOptions,
   type CalendarWeekStart,
 } from "@/lib/tasks/calendar-view-options";
+import {
+  MAX_SPAN_LANES,
+  allDayRowTasksOnDay,
+  isSingleDayTimedSpan as isSingleDayTimed,
+  layoutSpanSegments,
+  type SpanSegment,
+} from "@/lib/tasks/calendar-allday-layout";
 import { isRecurringProjection, projectRecurringTasks, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
@@ -68,8 +75,8 @@ import { calendarCreateAnchor, type CalendarCreateAnchor, type CalendarCreatePre
 export { getMonthCells, getTaskDate };
 
 const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
-/** 每周最多可见泳道数，超出的折叠为 +N */
-export const MAX_LANES = 3;
+/** 每周最多可见泳道数，超出的折叠为 +N（与全天行共用，见 lib/tasks/calendar-allday-layout） */
+export const MAX_LANES = MAX_SPAN_LANES;
 const DAY_HEADER_PX = 28;
 const LANE_HEIGHT_PX = 22;
 /** 单元格底部为倒数日徽章预留的条带高度 */
@@ -165,14 +172,6 @@ interface WeekTimedEvent {
   endMin: number;
   lane: number;
   lanes: number;
-}
-
-function isSingleDayTimed(start: Date, end: Date): boolean {
-  return isSameDay(start, end) || (
-    end.getTime() > start.getTime() && minutesSinceMidnight(end) === 0 &&
-    end.getSeconds() === 0 && end.getMilliseconds() === 0 &&
-    isSameDay(start, new Date(end.getTime() - 1))
-  );
 }
 
 /** 单日定时事件布局：包含当天 24:00 右开边界，重叠的贪心分列。 */
@@ -284,10 +283,29 @@ interface TimeGridViewProps {
   onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
   createPreview?: CalendarCreatePreview | null;
   createdId?: string | null;
+  /** 全天行 +N 弹层「在日视图打开」的落点；未提供时该按钮为空操作。 */
+  onOpenDay?: (date: Date) => void;
+  /** +N 弹层经 portal 渲染，根容器事件委托接不到，右键由这里显式上报。 */
+  onTaskContextMenu?: (task: TaskWithTags, event: React.MouseEvent) => void;
 }
 
 /** 时间网格列数 → grid-cols 类（隐藏周末时 5 列）。 */
 const TIME_GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 5: "grid-cols-5", 7: "grid-cols-7" };
+
+/** 全天行连续条的几何：条高 / 泳道行距 / 倒数日 chip 行距（chip 12px + 4px 间隙）。 */
+const ALLDAY_BAR_PX = 24;
+const ALLDAY_LANE_PX = 28;
+const ALLDAY_CHIP_ROW_PX = 16;
+
+/** 跨天条的 aria 文案：`标题，10月20日–10月22日`；单日任务返回 undefined（按钮内容即名称）。 */
+function allDaySpanLabel(task: TaskWithTags): string | undefined {
+  const start = getTaskDate(task);
+  if (!start) return undefined;
+  const end = taskEnd(task);
+  if (!end || isSameDay(start, end)) return undefined;
+  const fmt = (date: Date) => `${date.getMonth() + 1}月${date.getDate()}日`;
+  return `${task.title}，${fmt(start)}–${fmt(end)}`;
+}
 
 /** 日 / 周视图共用 1、5 或 7 列时间网格，沿用同一套拖拽与创建回调。 */
 export function TimeGridView({
@@ -300,6 +318,8 @@ export function TimeGridView({
   onDateClick,
   createPreview,
   createdId,
+  onOpenDay,
+  onTaskContextMenu,
 }: TimeGridViewProps) {
   const { dragDate: countdownDragDate } = useCountdownInteractions();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -410,27 +430,11 @@ export function TimeGridView({
     [days, tasks]
   );
 
-  // 全天行：全天任务 + 跨天任务（含与当日有交集的）
-  const dayAllDay = useMemo(
-    () =>
-      days.map((day) => {
-        const dayStart = dateOnly(day).getTime();
-        const dayEnd = dayStart + 86400000;
-        return tasks.filter((task) => {
-          const start = getTaskDate(task);
-          if (!start) return false;
-          const end = taskEnd(task);
-          if (!end) return false;
-          const singleTimed =
-            !task.all_day && isSingleDayTimed(start, end);
-          if (singleTimed) return false;
-          return (
-            Math.max(dateOnly(start).getTime(), dayStart) <=
-            Math.min(dateOnly(end).getTime(), dayEnd - 1)
-          );
-        });
-      }),
-    [days, tasks]
+  // 全天行：全天任务 + 跨天任务画成跨列连续条（与月视图同一切段/泳道算法），
+  // 倒数日仍按日独立 chip；单日定时任务留在时间网格。
+  const { segments: allDaySegments, hiddenByCol } = useMemo(
+    () => layoutSpanSegments(tasks, days, { allDayRowOnly: true, createdId }),
+    [tasks, days, createdId]
   );
 
   const startTimedDrag = (
@@ -466,11 +470,17 @@ export function TimeGridView({
   const startChipDrag = (
     event: React.PointerEvent<HTMLButtonElement>,
     task: TaskWithTags,
-    dayIdx: number
+    startCol: number
   ) => {
     if (!onUpdateTaskSchedule || isRecurringProjection(task)) return;
     event.stopPropagation();
-    grabRef.current = { offsetMin: 0, origDayIdx: dayIdx, origSlotMin: 0, startClientY: event.clientY };
+    // 连续条整条一个按钮：原列按按下位置计算（在条的哪一段抓住，该列就是「原地」），
+    // 条内 wiggle 后落回原列不视为改期；无布局环境（jsdom）退回段起点列。
+    const overlayRect = event.currentTarget.parentElement?.getBoundingClientRect();
+    const grabDayIdx = overlayRect && overlayRect.width > 0
+      ? monthColFromClientX(event.clientX, overlayRect.left, overlayRect.width, days.length)
+      : startCol;
+    grabRef.current = { offsetMin: 0, origDayIdx: grabDayIdx, origSlotMin: 0, startClientY: event.clientY };
     movedRef.current = false;
     dragPointerRef.current = { element: event.currentTarget, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -479,9 +489,9 @@ export function TimeGridView({
       allDayChip: true,
       zone: "all-day",
       grabOffsetMin: 0,
-      origDayIdx: dayIdx,
+      origDayIdx: grabDayIdx,
       origSlotMin: 0,
-      dayIdx,
+      dayIdx: grabDayIdx,
       slotMin: 0,
       moved: false,
     });
@@ -805,6 +815,25 @@ export function TimeGridView({
 
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
+  // 全天行几何：倒数日 chip 占顶部条带（最高列决定行高），任务条按泳道排在下方。
+  const maxCountdownRows = Array.from(visibleCountdowns.values()).reduce(
+    (max, list) => Math.max(max, list.length),
+    0
+  );
+  const stripTop = maxCountdownRows * ALLDAY_CHIP_ROW_PX;
+  const laneTop = (lane: number) => stripTop + 4 + lane * ALLDAY_LANE_PX;
+  const usedLanes = allDaySegments.reduce((max, seg) => Math.max(max, seg.lane + 1), 0);
+  const hasOverflow = hiddenByCol.some((count) => count > 0);
+  // 溢出列的 +N 固定占第 MAX_LANES 行（该列三条泳道必满），行高随之加一。
+  const rowLanes = Math.max(usedLanes, hasOverflow ? MAX_LANES + 1 : 0);
+  const rowMinHeight = Math.max(38, stripTop + 8 + rowLanes * ALLDAY_LANE_PX - 4);
+  const firstFreeLane = (di: number) => {
+    for (let lane = 0; lane < MAX_LANES; lane += 1) {
+      if (!allDaySegments.some((seg) => seg.lane === lane && seg.startCol <= di && di <= seg.endCol)) return lane;
+    }
+    return 0; // 满员时叠放第一行（仅拖拽瞬态）
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* 星期表头 */}
@@ -831,74 +860,121 @@ export function TimeGridView({
         ))}
       </div>
 
-      {/* 全天 / 跨天 / 倒数日 条 */}
+      {/* 全天 / 跨天 / 倒数日 条：倒数日按日 chip 留在列内，任务画成跨列连续条 */}
       <div data-countdown-surface="all-day" className="flex shrink-0 border-b bg-muted/20">
         <div className="grid w-12 shrink-0 place-items-center text-[10px] text-muted-foreground">
           全天
         </div>
-        {days.map((day, di) => {
-          const chips = dayAllDay[di];
-          const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
-          const allDayTarget = !!drag && drag.zone === "all-day" && drag.moved && drag.dayIdx === di;
-          return (
-            <div
-              key={di}
-              data-countdown-date={countdownDateKey(day)}
-              className={cn(
-                "min-h-[38px] min-w-0 flex-1 space-y-1 border-l p-1",
-                countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
-                isSameDay(day, now) && "bg-accent/60",
-                allDayTarget && "bg-primary/5"
-              )}
-            >
-              {createPreview?.allDay && isSameDay(createPreview.start, day) && <div role="status" data-calendar-create-preview="all-day" className="truncate rounded-md border border-dashed border-primary bg-background px-1 text-xs">{createPreview.title || "新事项"} · 全天</div>}
-              {chips_countdown.map((item) => (
-                <span key={item.id} data-calendar-created={item.id === createdId || undefined}><CountdownChip item={item} compact /></span>
-              ))}
-              {/* 落点占位渲染在目标列（全天改日或定时块拖上来都走这里）；原卡片保持挂载以维持 pointer capture */}
-              {allDayTarget && dragTask && (
-                <div
-                  data-drop-placeholder="all-day"
-                  className="flex h-6 items-center overflow-hidden rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-muted-foreground"
-                >
-                  <span className="truncate">{dragTask.title}</span>
-                </div>
-              )}
-              {chips.map((task) => {
-                const isDragged = drag?.taskId === task.id && drag.allDayChip;
-                return (
-                  <button
-                    key={task.id}
-                    {...recurringPresentation(task)}
-                    data-calendar-created={task.id === createdId || undefined}
-                    data-calendar-task-id={task.id}
-                    type="button"
-                    className={cn(
-                      "flex w-full items-center gap-1 overflow-hidden rounded-[--radius-sm] px-1.5 py-1 text-left text-xs",
-                      categoryClass(task),
-                      isDragged && "opacity-30"
-                    )}
-                    style={{ touchAction: isRecurringProjection(task) ? "auto" : "none" }}
-                    onPointerDown={(e) => startChipDrag(e, task, di)}
-                    onPointerMove={isDragged ? moveDrag : undefined}
-                    onPointerUp={isDragged ? endDrag : undefined}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (movedRef.current) {
-                        movedRef.current = false;
-                        return;
-                      }
-                      onTaskClick?.(recurringSource(task));
-                    }}
+        <div className={cn("relative min-w-0 flex-1 grid", TIME_GRID_COLS[days.length] ?? "grid-cols-7")}>
+          {days.map((day, di) => {
+            const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
+            const allDayTarget = !!drag && drag.zone === "all-day" && drag.moved && drag.dayIdx === di;
+            const hiddenCount = hiddenByCol[di];
+            return (
+              <div
+                key={di}
+                data-countdown-date={countdownDateKey(day)}
+                className={cn(
+                  "relative min-w-0 space-y-1 border-l p-1",
+                  countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
+                  isSameDay(day, now) && "bg-accent/60",
+                  allDayTarget && "bg-primary/5"
+                )}
+                style={{ minHeight: rowMinHeight }}
+              >
+                {chips_countdown.map((item) => (
+                  <span key={item.id} data-calendar-created={item.id === createdId || undefined}><CountdownChip item={item} compact /></span>
+                ))}
+                {createPreview?.allDay && isSameDay(createPreview.start, day) && (
+                  <div
+                    role="status"
+                    data-calendar-create-preview="all-day"
+                    className="absolute inset-x-1 z-20 flex items-center overflow-hidden rounded-md border border-dashed border-primary bg-background px-1 text-xs"
+                    style={{ top: laneTop(firstFreeLane(di)), height: ALLDAY_BAR_PX }}
                   >
-                    <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} />
-                    <span className="truncate"><TaskRepeatIcon task={task} />{task.title}</span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
+                    <span className="truncate">{createPreview.title || "新事项"} · 全天</span>
+                  </div>
+                )}
+                {/* 落点占位渲染在目标列（全天改日或定时块拖上来都走这里）；原条保持挂载以维持 pointer capture */}
+                {allDayTarget && dragTask && (
+                  <div
+                    data-drop-placeholder="all-day"
+                    className="absolute inset-x-1 z-20 flex items-center overflow-hidden rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-muted-foreground"
+                    style={{ top: laneTop(firstFreeLane(di)), height: ALLDAY_BAR_PX }}
+                  >
+                    <span className="truncate">{dragTask.title}</span>
+                  </div>
+                )}
+                {hiddenCount > 0 && (
+                  <div className="absolute inset-x-1 z-10" style={{ top: laneTop(MAX_LANES), height: ALLDAY_BAR_PX }}>
+                    <MonthDayPopover
+                      date={day}
+                      tasks={allDayRowTasksOnDay(tasks, day)}
+                      countdowns={[]}
+                      moreCount={hiddenCount}
+                      tabIndex={0}
+                      onOpenDay={() => onOpenDay?.(day)}
+                      onTaskClick={onTaskClick}
+                      onToggleTaskDone={onToggleTaskDone}
+                      onTaskContextMenu={onTaskContextMenu}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* 连续条覆盖层：层本身不拦截指针，条可交互，列内倒数日与背景不受遮挡 */}
+          <div className="pointer-events-none absolute inset-0">
+            {allDaySegments.map((seg) => {
+              const isDragged = drag?.taskId === seg.task.id && drag.allDayChip;
+              const presentation = recurringPresentation(seg.task);
+              const singleColumn = days.length === 1;
+              return (
+                <button
+                  key={seg.task.id}
+                  {...presentation}
+                  data-calendar-created={seg.task.id === createdId || undefined}
+                  data-calendar-task-id={seg.task.id}
+                  data-all-day-span={`${seg.startCol}-${seg.endCol}`}
+                  type="button"
+                  aria-label={presentation["aria-label"] ?? allDaySpanLabel(seg.task)}
+                  className={cn(
+                    "pointer-events-auto absolute z-10 flex items-center gap-1 overflow-hidden px-1.5 text-left text-xs transition-colors hover:brightness-95",
+                    categoryClass(seg.task),
+                    !seg.continuesBefore && "rounded-l",
+                    !seg.continuesAfter && "rounded-r",
+                    onUpdateTaskSchedule && !isRecurringProjection(seg.task) && "cursor-grab select-none active:cursor-grabbing",
+                    isDragged && "opacity-30"
+                  )}
+                  style={{
+                    touchAction: isRecurringProjection(seg.task) ? "auto" : "none",
+                    top: laneTop(seg.lane),
+                    height: ALLDAY_BAR_PX,
+                    left: `calc(${(seg.startCol / days.length) * 100}% + ${seg.continuesBefore ? 0 : 2}px)`,
+                    width: `calc(${((seg.endCol - seg.startCol + 1) / days.length) * 100}% - ${(seg.continuesBefore ? 0 : 2) + (seg.continuesAfter ? 0 : 2)}px)`,
+                  }}
+                  onPointerDown={(e) => startChipDrag(e, seg.task, seg.startCol)}
+                  onPointerMove={isDragged ? moveDrag : undefined}
+                  onPointerUp={isDragged ? endDrag : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (movedRef.current) {
+                      movedRef.current = false;
+                      return;
+                    }
+                    onTaskClick?.(recurringSource(seg.task));
+                  }}
+                >
+                  {seg.continuesBefore
+                    ? (singleColumn && <span aria-hidden className="shrink-0 text-muted-foreground">‹</span>)
+                    : <CalendarTaskCheckbox task={seg.task} onToggle={onToggleTaskDone} />}
+                  <span className="min-w-0 flex-1 truncate"><TaskRepeatIcon task={seg.task} />{seg.task.title}</span>
+                  {seg.continuesAfter && singleColumn && <span aria-hidden className="shrink-0 text-muted-foreground">›</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* 时间网格 */}
@@ -1179,88 +1255,19 @@ function countdownDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-export interface WeekSegment {
-  task: TaskWithTags;
-  /** 起始列 0-6 */
-  startCol: number;
-  /** 结束列 0-6（含） */
-  endCol: number;
-  /** 从上周延续（左端不闭合、不显示勾选框） */
-  continuesBefore: boolean;
-  /** 延续到下周（右端不闭合） */
-  continuesAfter: boolean;
-  /** 泳道序号 */
-  lane: number;
-}
+export type WeekSegment = SpanSegment;
 
 /**
- * 把任务按"周"切成连续条形段并贪心分配泳道。
- * week 为该周可见列（7 列整周，或隐藏周末时的 5 列工作日）。
- * 返回可见段（泳道 < MAX_LANES）与每列被折叠的任务数（+N 更多）。
+ * 月视图格的跨天任务连续条布局（含单日任务）。
+ * 切段 / 泳道 / +N 折叠的共享实现已迁 lib/tasks/calendar-allday-layout，
+ * 与日/周时间网格全天行共用，避免两套算法漂移。
  */
 export function layoutWeekSegments(
   tasks: TaskWithTags[],
   week: Date[],
   createdId?: string | null
 ): { segments: WeekSegment[]; hiddenByCol: number[] } {
-  const cols = week.length;
-  const weekStart = dateOnly(week[0]);
-  const weekEnd = dateOnly(week[cols - 1]);
-
-  const segs: WeekSegment[] = [];
-  for (const task of tasks) {
-    const start = getTaskDate(task);
-    if (!start) continue;
-    const end = taskEnd(task) || start;
-    const taskStart = dateOnly(start);
-    const taskFinish = dateOnly(end);
-    if (taskFinish < weekStart || taskStart > weekEnd) continue;
-    const startCol = Math.max(0, dayDiff(taskStart, weekStart));
-    const endCol = Math.min(cols - 1, dayDiff(taskFinish, weekStart));
-    // 起点在最后一个可见列之后（如周一开头隐藏周末时的周日单日任务）：本周不可见。
-    if (startCol > cols - 1 || endCol < 0) continue;
-    segs.push({
-      task,
-      startCol,
-      endCol: Math.max(startCol, endCol),
-      continuesBefore: taskStart < weekStart,
-      continuesAfter: taskFinish > weekEnd,
-      lane: 0,
-    });
-  }
-
-  // 先按起始列、再按跨度降序排，贪心分配到第一个能放下的泳道
-  segs.sort((a, b) => a.startCol - b.startCol || (b.endCol - b.startCol) - (a.endCol - a.startCol));
-  const laneEnds: number[] = [];
-  for (const seg of segs) {
-    let lane = laneEnds.findIndex((end) => end < seg.startCol);
-    if (lane === -1) {
-      lane = laneEnds.length;
-      laneEnds.push(-1);
-    }
-    seg.lane = lane;
-    laneEnds[lane] = seg.endCol;
-  }
-
-  // Temporarily exchange whole lanes so feedback remains visible on a crowded day.
-  // All overlapping ranges keep their assigned lane; normal layout resumes after feedback.
-  const createdLane = segs.find((seg) => seg.task.id === createdId)?.lane;
-  if (createdLane !== undefined && createdLane >= MAX_LANES) {
-    for (const seg of segs) {
-      if (seg.lane === createdLane) seg.lane = MAX_LANES - 1;
-      else if (seg.lane === MAX_LANES - 1) seg.lane = createdLane;
-    }
-  }
-  const hiddenByCol = Array.from({ length: cols }, () => 0);
-  const visible: WeekSegment[] = [];
-  for (const seg of segs) {
-    if (seg.lane < MAX_LANES) {
-      visible.push(seg);
-    } else {
-      for (let col = seg.startCol; col <= seg.endCol; col += 1) hiddenByCol[col] += 1;
-    }
-  }
-  return { segments: visible, hiddenByCol };
+  return layoutSpanSegments(tasks, week, { createdId });
 }
 
 /**
@@ -2114,8 +2121,14 @@ function TaskMonthViewContent({
               onToggleTaskDone={onToggleTaskDone}
               onUpdateTaskSchedule={onUpdateTaskSchedule}
               onDateClick={onDateClick}
-            createPreview={createPreview}
-            createdId={createdId}
+              createPreview={createPreview}
+              createdId={createdId}
+              onOpenDay={openDayView}
+              onTaskContextMenu={(task, event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openTaskMenu(task, { x: event.clientX, y: event.clientY });
+              }}
             />
           </div>
         </>
@@ -2320,6 +2333,12 @@ function TaskMonthViewContent({
             onDateClick={onDateClick}
             createPreview={createPreview}
             createdId={createdId}
+            onOpenDay={openDayView}
+            onTaskContextMenu={(task, event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openTaskMenu(task, { x: event.clientX, y: event.clientY });
+            }}
           />
         </CalendarSwipeSurface>
       )}
