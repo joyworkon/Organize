@@ -66,6 +66,8 @@ import {
   type InsertTarget,
 } from "@/lib/canvas/insert-target";
 import { replaceImage, startImageInsert } from "@/lib/canvas/image-insert";
+import { normalizeEmbedUrl, startEmbedInsert } from "@/lib/canvas/embed-insert";
+import { showPrompt } from "@/components/ui/prompt-dialog";
 import { worldCenter, worldViewportRect } from "@/lib/canvas/coords";
 import {
   duplicateCanvas,
@@ -134,8 +136,8 @@ interface LoadState {
   phase: "loading" | "ready" | "not-found" | "unauthorized";
 }
 
-/** 添加面板「非图片」五项的块工厂与事务标签（模块级常量，避免每次渲染重建）。 */
-const ADD_BLOCK_FACTORY: Record<Exclude<AddBlockKind, "image">, () => CanvasBlock> = {
+/** 添加面板「非图片 / 非链接视频」五项的块工厂与事务标签（模块级常量，避免每次渲染重建）。 */
+const ADD_BLOCK_FACTORY: Record<Exclude<AddBlockKind, "image" | "embed">, () => CanvasBlock> = {
   title: () => createTextBlock("title"),
   body: () => createTextBlock("body"),
   list: () => createTextBlock("list"),
@@ -149,6 +151,7 @@ const ADD_BLOCK_LABEL: Record<AddBlockKind, string> = {
   list: "插入列表",
   divider: "插入分隔线",
   button: "插入行动按钮",
+  embed: "插入链接/视频",
 };
 
 /** 保存用序列化：pending 资产不带临时地址（占位）；已保存资产不带本机键。 */
@@ -191,6 +194,8 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuRequest | null>(null);
   const contextMenuRef = useRef<CanvasContextMenuRequest | null>(null);
   const contextNonce = useRef(0);
+  /** 右键粘贴 URL 的接管（runEmbedInsert 定义在本组件后段，经 ref 桥接避免前向引用）。 */
+  const embedInsertRef = useRef<((url: string, explicit?: ExplicitInsertPosition | null) => void) | null>(null);
   const [shortcutLabels, setShortcutLabels] = useState(() => canvasShortcutLabels());
   useEffect(() => {
     setShortcutLabels(canvasShortcutLabels(navigator.platform));
@@ -540,6 +545,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       pointer: request.world,
       explicit,
       atPointer: request.scope === "canvas",
+      onInsertEmbed: (url, pasteExplicit) => embedInsertRef.current?.(url, pasteExplicit),
     });
   }, [fitAll, scene, store]);
 
@@ -806,13 +812,47 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
     [store, resolveInsertTargetNow, revealTarget],
   );
 
-  /** 添加面板六项（B2）：统一解析目标后落块。 */
+  /** 链接 / 视频插入编排（添加面板 prompt 与粘贴 URL 两入口共用）。 */
+  const runEmbedInsert = useCallback(
+    async (url: string, explicit?: ExplicitInsertPosition | null) => {
+      const target = resolveInsertTargetNow(explicit ?? null);
+      if ("create" in target) {
+        toast({ title: "无法插入链接", description: "请先选中页面或区块再粘贴链接", variant: "destructive" });
+        return;
+      }
+      await startEmbedInsert({ store, target, url });
+      revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
+    },
+    [store, resolveInsertTargetNow, revealIfNeeded],
+  );
+  embedInsertRef.current = (url, explicit) => {
+    void runEmbedInsert(url, explicit);
+  };
+
+  /** 添加面板七项（B2 统一解析 + E 链接视频）。 */
   const addBlock = useCallback(
     (kind: AddBlockKind) => {
       if (kind === "image") {
         // 打开文件选择器前固定目标快照（选择期间选区变化不影响在途目标）
         imageTargetSnapshotRef.current = resolveInsertTargetNow();
         imageInputRef.current?.click();
+        return;
+      }
+      if (kind === "embed") {
+        void (async () => {
+          const input = await showPrompt({
+            title: "链接 / 视频",
+            placeholder: "https://…（支持 YouTube / Bilibili 等，其余生成链接卡片）",
+            confirmText: "插入",
+          });
+          if (input === null) return;
+          const url = normalizeEmbedUrl(input);
+          if (!url) {
+            toast({ title: "链接无效", description: "请输入 http(s) 链接", variant: "destructive" });
+            return;
+          }
+          await runEmbedInsert(url);
+        })();
         return;
       }
       const target = resolveInsertTargetNow();
@@ -822,7 +862,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
       // 平移远离后插入：把目标区块带回可视区（视口内则不跳动）
       revealIfNeeded({ kind: "region", boardId: target.boardId, regionId: target.regionId });
     },
-    [store, resolveInsertTargetNow, revealIfNeeded],
+    [store, resolveInsertTargetNow, revealIfNeeded, runEmbedInsert],
   );
 
   /** 图片统一插入编排（面板/拖入/粘贴三入口共用）。 */
@@ -1376,6 +1416,7 @@ export function CanvasWorkspace({ documentId, readOnly = false }: CanvasWorkspac
           onCreateLanding={addLandingBoard}
           onReplaceImage={onReplaceImage}
           onInsertFiles={onInsertFiles}
+          onInsertEmbed={(url, explicit) => void runEmbedInsert(url, explicit)}
           onOpenContextMenu={openContextMenu}
         />
       </div>

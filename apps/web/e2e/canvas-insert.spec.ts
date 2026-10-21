@@ -63,13 +63,26 @@ async function dispatchPaste(page: Page, name: string) {
     ({ fileName, b64 }: { fileName: string; b64: string }) => {
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      for (let i = 0; i < bytes.length; i += 1) bytes[i] = bin.charCodeAt(i);
       const dt = new DataTransfer();
       dt.items.add(new File([bytes], fileName, { type: "image/png" }));
       const el = document.querySelector("[data-testid='canvas-viewport']")!;
       el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
     },
     { fileName: name, b64: PNG_BASE64 },
+  );
+}
+
+/** 在视口上派发纯文本粘贴（URL 分流走 embed 插入）。 */
+async function dispatchTextPaste(page: Page, text: string) {
+  await page.evaluate(
+    ({ value }: { value: string }) => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", value);
+      const el = document.querySelector("[data-testid='canvas-viewport']")!;
+      el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
+    },
+    { value: text },
   );
 }
 
@@ -381,5 +394,49 @@ test.describe("构思画布 B2：图片在途行为（mock 延时）", () => {
     const posAfter = await image.boundingBox();
     expect(Math.abs(posAfter!.x - posBefore!.x)).toBeLessThan(2);
     expect(Math.abs(posAfter!.y - posBefore!.y)).toBeLessThan(2);
+  });
+});
+
+test.describe("构思画布：链接 / 视频嵌入（mock /api/oembed）", () => {
+  test("粘贴单行 https URL 生成链接卡片；⌘Z 撤销移除", async ({ page }) => {
+    await openNewCanvas(page);
+    await createBlankBoard(page);
+    await dispatchTextPaste(page, "https://example.com/some-post");
+    const embed = page.locator("[data-block-type='embed']");
+    await expect(embed).toHaveCount(1);
+    // mock oembed 返回稳定 link-card 数据
+    await expect(embed).toContainText("Mock 链接卡片");
+    await expect(embed).toContainText("example.com");
+    // 撤销一步：插入前（解析完成是 skipHistory，⌘Z 直接回到插入前）
+    await page.keyboard.press("Meta+z");
+    await expect(page.locator("[data-block-type='embed']")).toHaveCount(0);
+  });
+
+  test("粘贴 Bilibili 视频链接生成可播嵌入，sandbox 无 allow-same-origin", async ({ page }) => {
+    await openNewCanvas(page);
+    await createBlankBoard(page);
+    await dispatchTextPaste(page, "https://www.bilibili.com/video/BV1xx411c7mD");
+    const embed = page.locator("[data-block-type='embed']");
+    await expect(embed).toHaveCount(1);
+    const iframe = embed.locator("iframe");
+    await expect(iframe).toHaveCount(1);
+    const sandbox = await iframe.getAttribute("sandbox");
+    expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+  });
+
+  test("添加面板「链接 / 视频」：输入 URL 插入链接卡片，可改标题快照", async ({ page }) => {
+    await openNewCanvas(page);
+    await createBlankBoard(page);
+    await page.getByRole("button", { name: "添加链接 / 视频" }).click();
+    await page.getByRole("textbox", { name: "链接 / 视频" }).fill("https://example.com/from-panel");
+    await page.getByRole("button", { name: "插入" }).click();
+    const embed = page.locator("[data-block-type='embed']");
+    await expect(embed).toHaveCount(1);
+    await expect(embed).toContainText("Mock 链接卡片");
+    // 属性栏标题是本地快照：改名即时反映在卡片上
+    await embed.click();
+    await page.getByLabel("链接标题").fill("我的收藏");
+    await expect(embed).toContainText("我的收藏");
   });
 });

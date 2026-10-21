@@ -59,6 +59,7 @@ import type { CanvasStore } from "./canvas-store";
 import {
   CanvasButtonBlockView,
   CanvasDividerBlockView,
+  CanvasEmbedBlockView,
   CanvasImageBlockView,
   CanvasMaterialCardBlockView,
   CanvasTextBlockView,
@@ -868,6 +869,13 @@ const SectionBody = memo(function SectionBody({
                   >
                     {belowPlus}
                   </CanvasMaterialCardBlockView>,
+                );
+              }
+              if (block.type === "embed") {
+                return hoverWrapper(
+                  <CanvasEmbedBlockView {...common} block={block}>
+                    {belowPlus}
+                  </CanvasEmbedBlockView>,
                 );
               }
               return hoverWrapper(

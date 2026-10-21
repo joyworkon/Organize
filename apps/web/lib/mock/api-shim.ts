@@ -1046,6 +1046,51 @@ const deleteCanvasShim: MockHandler = ({ params }) => {
   return { body: { success: true, affected: 1 } };
 };
 
+// ---- 构思画布：链接 / 视频嵌入（/api/oembed 的 mock 对齐实现；不出网） ----
+
+/**
+ * 与真实 resolveOEmbed 同形状的稳定假数据：白名单视频域 → kind:"embed"（iframe），
+ * 其余 → kind:"link-card"（OG 卡片）。e2e 与本地 mock 模式不依赖外网。
+ */
+const oembedShim: MockHandler = ({ body }) => {
+  const rawUrl = typeof body?.url === "string" ? body.url.trim() : "";
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { status: 400, body: { error: "无效的 URL", code: "INVALID_URL" } };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { status: 400, body: { error: "仅支持 http/https 链接", code: "INVALID_URL" } };
+  }
+  const host = url.hostname.toLowerCase();
+  const videoMatch =
+    /(^|\.)(youtube\.com|youtu\.be|bilibili\.com|vimeo\.com)$/.test(host) ||
+    /^mock\.embed\.example$/.test(host);
+  if (videoMatch) {
+    return {
+      body: {
+        url: rawUrl,
+        kind: "embed",
+        provider: "Mock Video",
+        title: "Mock 嵌入视频",
+        html: '<iframe src="https://mock.embed.example/embed" frameborder="0" allow="fullscreen" allowfullscreen loading="lazy"></iframe>',
+        sandbox: "allow-scripts allow-popups allow-presentation",
+      },
+    };
+  }
+  return {
+    body: {
+      url: rawUrl,
+      kind: "link-card",
+      title: "Mock 链接卡片",
+      description: "mock 后端生成的稳定链接卡片描述，用于本地与 e2e 验证。",
+      siteName: host,
+      cover: "https://mock.embed.example/cover.jpg",
+    },
+  };
+};
+
 // ---- 垃圾箱（对齐 list_trash / mutate_trash RPC 的返回形状）----
 
 // 真实实现是两个 RPC；mock 下按「表 → 资源类型」映射扫 deleted_at 非空的行。
@@ -1181,6 +1226,7 @@ const ROUTES: MockRoute[] = [
   { method: "GET", pattern: /^\/api\/canvases\/([^/]+)$/, handler: getCanvasShim },
   { method: "PATCH", pattern: /^\/api\/canvases\/([^/]+)$/, handler: patchCanvasShim },
   { method: "DELETE", pattern: /^\/api\/canvases\/([^/]+)$/, handler: deleteCanvasShim },
+  { method: "POST", pattern: /^\/api\/oembed$/, handler: oembedShim },
   { method: "GET", pattern: /^\/api\/plugins$/, handler: listPlugins },
   { method: "POST", pattern: /^\/api\/plugins$/, handler: upsertPlugin },
   { method: "PATCH", pattern: /^\/api\/plugins\/([^/]+)$/, handler: patchPlugin },

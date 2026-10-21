@@ -41,16 +41,19 @@ import {
   applySmartWeights,
   detachSourceRef,
   updateMaterialCard,
+  updateEmbedBlock,
 } from "@/lib/canvas/commands";
 import {
   findBlockLocation,
   findFreeItem,
   findRegion,
+  isSafeEmbedUrl,
   type CanvasFontSizeTier,
   type CanvasDoc,
   type CanvasImageRatio,
   type CanvasSectionVerticalAlign,
 } from "@/lib/canvas/model";
+import { resolveEmbedBlock } from "@/lib/canvas/embed-insert";
 import { BLOCK_CHROME, canAddColumnAt, computeSmartWeights, regionGap, regionInnerWidth } from "@/lib/canvas/layout";
 import {
   CANVAS_BG_KEYS,
@@ -535,7 +538,9 @@ export function CanvasPropertyBar({
           ? "分隔线"
           : block.type === "materialCard"
             ? "资料卡片"
-            : "行动按钮";
+            : block.type === "embed"
+              ? "链接 / 视频"
+              : "行动按钮";
   const ratio = block.type === "image" ? (block.ratio ?? "auto") : "auto";
   const sourceRef = blockSourceRef(block);
   const blockIndex = column.blocks.findIndex((b) => b.id === block.id);
@@ -705,6 +710,92 @@ export function CanvasPropertyBar({
             )
           }
         />
+      )}
+      {block.type === "embed" && (
+        <>
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">标题</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.title}
+              aria-label="链接标题"
+              onChange={(e) =>
+                store.getState().apply("链接标题", (d) =>
+                  updateEmbedBlock(d, { blockId: block.id, title: e.target.value }),
+                )
+              }
+            />
+          </label>
+          <label className="canvas-prop-row">
+            <span className="canvas-prop-label">链接</span>
+            <input
+              className="canvas-prop-input"
+              style={{ width: 132 }}
+              value={block.url}
+              placeholder="https://…"
+              aria-label="链接地址"
+              onChange={(e) =>
+                store.getState().apply(
+                  "链接地址",
+                  (d) => updateEmbedBlock(d, { blockId: block.id, url: e.target.value }),
+                  { coalesceKey: `embed-url:${block.id}` },
+                )
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && isSafeEmbedUrl(block.url)) {
+                  e.preventDefault();
+                  void resolveEmbedBlock({ store, blockId: block.id, historyLabel: "重新解析链接", force: true });
+                }
+              }}
+            />
+          </label>
+          <label className="canvas-prop-row canvas-prop-row-top">
+            <span className="canvas-prop-label">描述</span>
+            <textarea
+              className="canvas-prop-input canvas-prop-textarea"
+              style={{ width: 132 }}
+              rows={4}
+              value={block.description ?? ""}
+              aria-label="链接描述"
+              onChange={(e) =>
+                store.getState().apply(
+                  "链接描述",
+                  (d) => updateEmbedBlock(d, { blockId: block.id, description: e.target.value }),
+                  { coalesceKey: `embed-desc:${block.id}` },
+                )
+              }
+            />
+          </label>
+          <p className="canvas-prop-note">
+            标题 / 描述是画布内快照副本，改链接后点「重新解析」更新（Enter 亦可）。
+          </p>
+          <div className="canvas-prop-row canvas-prop-actions">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-w-0 flex-1 px-1 text-xs"
+              disabled={!isSafeEmbedUrl(block.url) || block.status === "loading"}
+              title={isSafeEmbedUrl(block.url) ? "重新解析链接（覆盖本地标题 / 描述快照，可撤销）" : "链接非法：仅支持 http/https"}
+              onClick={() =>
+                void resolveEmbedBlock({ store, blockId: block.id, historyLabel: "重新解析链接", force: true })
+              }
+            >
+              重新解析
+            </Button>
+            <a
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-w-0 flex-1 px-1 text-xs")}
+              href={isSafeEmbedUrl(block.url) ? block.url : undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-disabled={!isSafeEmbedUrl(block.url)}
+              aria-label="打开链接"
+            >
+              打开链接
+            </a>
+          </div>
+        </>
       )}
       {block.type === "button" && (
         <>

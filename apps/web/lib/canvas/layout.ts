@@ -26,6 +26,7 @@ import {
   DIVIDER_CONTENT_HEIGHT,
   IMAGE_RATIO_WIDTH_PER_HEIGHT,
   MIN_TEXT_CONTENT_HEIGHT,
+  embedContentHeight,
   imageNaturalHeight,
 } from "./model";
 
@@ -282,6 +283,7 @@ function layoutSection(
  * 块的内容自然高（不含块 chrome）：
  * - 图片：定比例容器锁高（ratio≠auto），否则按原比例（宽度/比例）；
  * - 分隔线：固定线盒高；
+ * - 嵌入（链接卡/视频）：embed 按宽 16:9、link-card 固定高（不走文本测量）；
  * - 行动按钮：与文本同走测量（块拉伸时垂直居中由渲染层处理）；
  * - 文本：测量值夹到最小内容高。
  */
@@ -298,6 +300,7 @@ export function blockContentNaturalHeight(
     return imageNaturalHeight(block, innerWidth);
   }
   if (block.type === "divider") return DIVIDER_CONTENT_HEIGHT;
+  if (block.type === "embed") return embedContentHeight(block, innerWidth);
   if (block.type === "button") {
     return Math.max(MIN_TEXT_CONTENT_HEIGHT, measure(block, innerWidth));
   }

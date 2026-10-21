@@ -3,7 +3,7 @@
 /**
  * 左侧添加面板（阶段 B2）：带文字的分组面板，替代孤立的自由文本/自由图片图标。
  *
- * - 「添加」组：标题/正文/图片/列表/分隔线/行动按钮六项直接可见
+ * - 「添加」组：标题/正文/图片/列表/分隔线/行动按钮/链接视频七项直接可见
  *  （图标 + 文字，title 悬停提示，button + aria-label 可 Tab 聚焦，
  *   点击后插入并更新目标提示）；
  * - 「页面」组：新建空白页面 / 宣传落地页骨架（B1 入口保留）；
@@ -21,6 +21,7 @@ import {
   Heading1,
   Image as ImageIcon,
   LayoutTemplate,
+  Link2,
   List,
   Minus,
   MousePointerClick,
@@ -31,8 +32,8 @@ import type { CanvasTemplateKind } from "@/lib/canvas/commands";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasOutlineTree, CanvasTemplateList } from "./canvas-outline-panel";
 
-/** 「添加」组六项（图片项由工作区接管文件选择）。 */
-export type AddBlockKind = "title" | "body" | "image" | "list" | "divider" | "button";
+/** 「添加」组七项（图片走文件选择；链接 / 视频走 URL 输入）。 */
+export type AddBlockKind = "title" | "body" | "image" | "list" | "divider" | "button" | "embed";
 
 const ADD_ITEMS: Array<{ kind: AddBlockKind; label: string; hint: string; icon: typeof TypeIcon }> = [
   { kind: "title", label: "标题", hint: "插入标题块（点击即改目标区块）", icon: Heading1 },
@@ -41,6 +42,7 @@ const ADD_ITEMS: Array<{ kind: AddBlockKind; label: string; hint: string; icon: 
   { kind: "list", label: "列表", hint: "插入列表块，每行一条", icon: List },
   { kind: "divider", label: "分隔线", hint: "插入细分隔线", icon: Minus },
   { kind: "button", label: "行动按钮", hint: "插入行动按钮（纯链接，属性栏改文案与链接）", icon: MousePointerClick },
+  { kind: "embed", label: "链接 / 视频", hint: "粘贴 URL 生成链接卡片或视频嵌入（支持 YouTube / Bilibili 等）", icon: Link2 },
 ];
 
 export interface CanvasAddPanelProps {

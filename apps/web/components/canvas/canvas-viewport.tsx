@@ -85,6 +85,11 @@ export interface CanvasViewportProps {
     explicit: ExplicitInsertPosition | null,
     at: { x: number; y: number },
   ) => void;
+  /**
+   * 粘贴单行 http(s) URL 的接管（B 链接卡 / 视频嵌入）：由工作区解析插入目标。
+   * 画布内结构化剪贴板优先于该路径；文本编辑中保持原生粘贴。
+   */
+  onInsertEmbed?: (url: string, explicit: ExplicitInsertPosition | null) => void;
   /** 右键模块、自由元素、区块、版面或画布空白。文本编辑目标不调用。 */
   onOpenContextMenu?: (point: CanvasContextMenuPoint) => void;
 }
@@ -105,6 +110,7 @@ export function CanvasViewportView({
   onCreateLanding,
   onReplaceImage,
   onInsertFiles,
+  onInsertEmbed,
   onOpenContextMenu,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -331,11 +337,12 @@ export function CanvasViewportView({
         pointer,
         explicit: pointer ? hitTestInsertPosition(doc, scene, pointer.x, pointer.y) : null,
         systemText: text,
+        onInsertEmbed,
       });
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [doc, interactive, onInsertFiles, scene, store]);
+  }, [doc, interactive, onInsertEmbed, onInsertFiles, scene, store]);
 
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     const hit = resolveCanvasContextTarget(e.target);
