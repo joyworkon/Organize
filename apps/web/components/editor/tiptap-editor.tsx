@@ -109,6 +109,8 @@ import { createCollabSeedController } from "./collab-seeding";
 /** 编辑器根 dom 的 textbox ARIA（role/aria-multiline/aria-readonly 联动） */
 import { editorTextboxAria, syncEditorAriaReadonly } from "./editor-aria";
 
+import { focusTitleFromBody } from "@/lib/notes/note-title-navigation";
+
 export type { TransactionSource };
 
 interface EditorProps {
@@ -130,6 +132,8 @@ interface EditorProps {
   onUpdate: (content: Record<string, unknown>, source: TransactionSource) => void;
   /** 编辑器实例就绪 / 销毁时回调，供页面标题与正文联动（T1/T2） */
   onEditorReady?: (editor: Editor | null) => void;
+  /** Optional page-title focus bridge; does not change editor identity. */
+  onFocusTitle?: () => void;
   /** 笔记树（含 parent_note_id），供路径栏(Breadcrumb)块渲染父级链；不传则该块显示占位 */
   noteTree?: { id: string; title: string | null; icon: string | null; parent_note_id: string | null }[];
 /** 当前正文内站内链接的受控状态；删除/缺失目标不可继续导航。 */
@@ -304,6 +308,7 @@ export function TipTapEditor({
   content,
   onUpdate,
   onEditorReady,
+  onFocusTitle,
   noteTree,
   internalLinkStates = EMPTY_INTERNAL_LINK_STATES,
   editable = true,
@@ -316,6 +321,8 @@ export function TipTapEditor({
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const onFocusTitleRef = useRef(onFocusTitle);
+  onFocusTitleRef.current = onFocusTitle;
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
   const initialContentRef = useRef(content);
@@ -374,6 +381,21 @@ export function TipTapEditor({
     [collab, disableTaskItemToggle]
   );
 
+  const handleBlockKeyDown = createBlockKeydownHandlers({
+    noteId,
+    getEditor: () => keyboardEditorRef.current,
+    isMenuOpen: () => keyboardMenuOpenRef.current,
+    onOpenCommandMenu: (pos, point) => {
+      setActionMenu(null);
+      setCommandMenu({ pos, point });
+    },
+    onOpenSearchDialog: () => {
+      setDialog(null);
+      setFindBarOpen(true);
+      setFindFocusNonce((nonce) => nonce + 1);
+    },
+  });
+
   const editor = useEditor({
     extensions,
     // 协作模式：初始内容归 Y.Doc 管（首次同步后按需播种 DB 内容），不能注入初始 content
@@ -397,20 +419,13 @@ export function TipTapEditor({
         ...editorTextboxAria(editable && !collabSeedBlocked),
       },
       // B04：键盘分派共用菜单的块动作，实时读取编辑器与弹层状态，不重建 editor。
-      handleKeyDown: createBlockKeydownHandlers({
-        noteId,
-        getEditor: () => keyboardEditorRef.current,
-        isMenuOpen: () => keyboardMenuOpenRef.current,
-        onOpenCommandMenu: (pos, point) => {
-          setActionMenu(null);
-          setCommandMenu({ pos, point });
-        },
-        onOpenSearchDialog: () => {
-          setDialog(null);
-          setFindBarOpen(true);
-          setFindFocusNonce((nonce) => nonce + 1);
-        },
-      }),
+      handleKeyDown: (view, event) => {
+        const current = keyboardEditorRef.current;
+        const focusTitle = onFocusTitleRef.current;
+        // Run after ProseMirror flushes the DOM selection, before its block commands.
+        if (current && focusTitle && !keyboardMenuOpenRef.current && focusTitleFromBody(event, current, focusTitle)) return true;
+        return handleBlockKeyDown(view, event);
+      },
       // 从编辑器外拖入文件（图片 / 视频 / 音频 / 附件）
       handleDrop: (view, event, _slice, moved) => {
         if (moved) return false;

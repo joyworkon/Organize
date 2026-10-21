@@ -167,8 +167,7 @@
 /* 标题区（图标/封面/评论 + 标题）共用 hover 域：仅鼠标移入时显示三个「添加」操作 */
 .note-page-title-zone .note-page-icon-actions .note-page-add-btn {
   opacity: 0;
-  visibility: hidden;
-  transition: opacity 120ms ease;
+  transition: opacity 100ms ease;
   /* 红色标题区里的小号操作用白色实体胶囊承载，避免小字直接落在亮红底上。 */
   border: 1px solid hsl(var(--card) / 0.72);
   background: hsl(var(--card));
@@ -255,9 +254,7 @@
   display: flex;
   gap: 6px;
   opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: opacity 100ms ease;
 }
 .note-page-cover:hover .note-page-cover-controls,
 .note-page-cover:focus-within .note-page-cover-controls {
@@ -267,26 +264,49 @@
 }
 .note-page-cover-controls button {
   gap: 6px;
-  box-shadow: 0 1px 5px hsl(220 20% 10% / 0.16);
 }
+.note-page-cover.is-positioning { z-index: 3; }
+.note-cover-reposition { cursor: grab; touch-action: none; }
+.note-cover-reposition:active { cursor: grabbing; }
+.note-cover-reposition:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -3px; }
 .note-cover-position {
   position: absolute;
   right: 12px;
   bottom: 12px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  width: min(280px, calc(100% - 24px));
-  padding: 8px 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--background) / 0.94);
-  box-shadow: 0 2px 10px hsl(220 20% 10% / 0.14);
+  border-radius: 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: default;
 }
-.note-cover-position input {
-  flex: 1;
-  min-width: 0;
-  accent-color: hsl(var(--primary));
+.note-cover-position input { width: 96px; accent-color: hsl(var(--primary)); }
+.note-cover-feedback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: hsl(var(--background) / 0.94);
+  color: hsl(var(--foreground));
+}
+.note-page-visuals.is-drag-over { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+@media (hover: none) {
+  .note-page-title-zone .note-page-icon-actions .note-page-add-btn,
+  .note-page-cover .note-page-cover-controls { opacity: 1; visibility: visible; pointer-events: auto; }
+}
+@media (pointer: coarse), (max-width: 767px) {
+  .note-page-visuals button, .note-icon-picker button { min-height: 44px; min-width: 44px; }
+  .note-cover-position input { min-height: 44px; }
 }
 .note-page-visual-content {
   position: relative;
@@ -307,6 +327,7 @@
 }
 /* 无图标时按钮组对齐标题/正文的内容轴：负补偿按钮自身 px-3，让首个图标与标题文字同轴；
    有图标时页面图标保持通栏左缘（Notion 风格） */
+.note-page-visual-content.with-cover .note-page-icon-actions.no-icon { min-height: 44px; }
 .note-page-icon-actions.no-icon {
   padding-left: calc(var(--organize-content-lane-inset) - 0.75rem);
 }
@@ -5056,13 +5077,11 @@
     right: 8px;
     opacity: 1;
   }
-  .note-page-cover-controls button span {
-    display: none;
-  }
   .note-page-visual-content.has-cover {
-    margin-top: -36px;
+    margin-top: -28px;
   }
   .note-page-icon-actions {
+    min-height: 72px;
     padding-left: 0;
   }
   .note-page-icon {

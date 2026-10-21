@@ -1,5 +1,7 @@
 "use client";
 
+import { isTitleLastLine } from "@/lib/notes/note-title-navigation";
+
 import { Suspense, useEffect, useState, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Editor } from "@tiptap/react";
@@ -1050,10 +1052,16 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
   // T1/T2：在标题里按回车，把拆分点之后的文字迁移到正文顶部的新段落。
   const handleTitleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || !capabilities.canEdit || !collabResolved) return;
+    if (!capabilities.canEdit || !collabResolved) return;
     // 输入法组合态下回车只是确认候选词，不触发拆分。
     if (titleComposingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (!editorRef.current || editorRef.current.isDestroyed || !editorRef.current.isEditable) return;
+    if (event.key === "ArrowDown" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && isTitleLastLine(event.currentTarget)) {
+      event.preventDefault();
+      editorRef.current.commands.focus("start");
+      return;
+    }
+    if (event.key !== "Enter") return;
     event.preventDefault();
 
     const el = event.currentTarget;
@@ -1774,8 +1782,9 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       {/* 标题区（图标/封面/评论 + 标题）与目录同处一个 hover 域：鼠标移入标题时显示三个「添加」操作 */}
       <div className="note-page-title-zone">
         <NotePageVisuals
+          key={noteId}
           noteId={noteId}
-          readOnly={capabilities.isViewer}
+          readOnly={!capabilities.canEdit || !collabResolved}
           contentClassName={contentClassName}
           icon={icon}
           coverUrl={coverUrl}
@@ -1950,6 +1959,12 @@ function NoteEditorContent({ noteId, invalidateRef }: {
             onUpdate={handleContentUpdate}
             noteTree={allNotes}
             internalLinkStates={contentLinkStates}
+            onFocusTitle={capabilities.canEdit && collabResolved ? () => {
+              const element = titleRef.current;
+              if (!element) return;
+              element.focus();
+              element.setSelectionRange(element.value.length, element.value.length);
+            } : undefined}
             onEditorReady={(editor) => {
               editorRef.current = editor;
               setEditorInstance(editor);
