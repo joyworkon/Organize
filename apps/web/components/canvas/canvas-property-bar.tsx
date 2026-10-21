@@ -464,6 +464,16 @@ export function CanvasPropertyBar({
                 )
               }
             />
+            <SwatchRow
+              label="背景"
+              keys={CANVAS_BG_KEYS}
+              value={freeText.style?.background ?? ""}
+              onPick={(key) =>
+                store.getState().apply("自由文本背景", (d) =>
+                  updateFreeItemBlock(d, { itemId: item.id, style: { background: key || null } }),
+                )
+              }
+            />
           </>
         )}
         {freeImage && (

@@ -57,6 +57,7 @@ import {
   createBoardSkeleton,
   createFreeImage,
   createFreeText,
+  createFreeSticky,
   insertBlockAtTarget,
   updateMaterialSnapshot,
   type CanvasTemplateKind,
@@ -760,6 +761,13 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
   }, [store, worldCenterNow]);
 
+  const addFreeSticky = useCallback(() => {
+    const at = worldCenterNow();
+    store.getState().apply("新建便签", (d) => createFreeSticky(d, at));
+    const sel = store.getState().selection;
+    if (sel?.kind === "free") store.getState().startEdit(sel.itemId);
+  }, [store, worldCenterNow]);
+
   /** 面板之间放不下默认页面时，缩小新页面以保留两侧加号的操作空间。 */
   const fitNewPageIfNeeded = useCallback(() => {
     const rect = visibleViewportNow();
@@ -1412,6 +1420,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
               onAddBlankBoard={addBlankBoard}
               onAddLandingBoard={addLandingBoard}
               onAddFreeText={addFreeText}
+              onAddFreeSticky={addFreeSticky}
               onAddFreeImage={() => {
                 // 自由放置入口同样固定「视口中心」语义：选择文件前先点按钮
                 freeImageInputRef.current?.click();

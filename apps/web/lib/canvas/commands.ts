@@ -1147,6 +1147,18 @@ export function createFreeText(
   });
 }
 
+/** 便签沿用自由文本结构、层级与焦点，只预设内容样式。 */
+export function createFreeSticky(
+  doc: CanvasDoc,
+  args: { x: number; y: number; width?: number; background?: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  const result = createFreeText(doc, { ...args, width: args.width ?? 220 }, newId);
+  const item = result.doc.freeItems[result.doc.freeItems.length - 1];
+  item.block.style = { ...item.block.style, background: args.background ?? "yellow", radius: 8 };
+  return result;
+}
+
 export function createFreeImage(
   doc: CanvasDoc,
   args: { x: number; y: number; width?: number; asset?: CanvasImageAsset | null },
