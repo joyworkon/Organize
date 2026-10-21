@@ -51,7 +51,7 @@ import {
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { showPrompt } from "@/components/ui/prompt-dialog";
+import { showMathEditor } from "./math-editor-dialog";
 import { BLOCK_COMMANDS } from "./block-commands";
 import { TableGridPicker } from "./table-controls";
 import { BLOCK_BACKGROUND_TYPES } from "./extensions/block-style";
@@ -146,9 +146,7 @@ const blockOptions: BlockOption[] = [
     icon: Sigma,
     isActive: (e) => e.isActive("mathBlock"),
     action: (e) => {
-      void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 E = mc^2" }).then((latex) => {
-        if (latex) e.chain().focus().insertMathBlock(latex).run();
-      });
+      showMathEditor(e, { isBlock: true });
     },
   },
   ...([2, 3, 4, 5] as const).map((cols) => ({
@@ -433,11 +431,7 @@ export function BubbleToolbar({
   const ActiveBlockIcon = activeBlock.icon;
 
   const addInlineMath = () => {
-    void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 a^2 + b^2 = c^2" }).then((latex) => {
-      if (latex) {
-        editor.chain().focus().insertInlineMath(latex).run();
-      }
-    });
+    showMathEditor(editor, { isBlock: false });
   };
 
   const insertEmoji = (emoji: string) => {

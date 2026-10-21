@@ -8,7 +8,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { createEditorBridge } from "@/lib/plugin/editor-bridge";
 import { slashCommandRegistry } from "@/lib/plugin/slash-commands";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
-import { BLOCK_COMMANDS, commandMatches, executeNestedCommand, isCommandAvailableInContext } from "./block-commands";
+import { BLOCK_COMMANDS, commandMatches, executeNestedCommand, isCommandAvailableInContext, replaceBlock } from "./block-commands";
+import { showMathEditor } from "./math-editor-dialog";
 import { EditorPopover } from "./editor-popover";
 import type { SlashMenuEventDetail } from "./extensions/slash-command";
 import { highlightMatch } from "./highlight-match";
@@ -135,7 +136,19 @@ export function BlockCommandMenu({
     const command = options[index];
     if (!command || isDisabled(command)) return;
 
-    if (nested && range) {
+    if (command.id === "math" && !nested) {
+      const node = editor.state.doc.nodeAt(pos);
+      if (!node) return;
+      const trigger = clearTrigger ? resolveTriggerDeleteRange({ range, blockPos: pos, blockNodeSize: node.nodeSize, blockText: node.textContent }) : null;
+      const validTrigger = trigger && isSlashTriggerText(editor.state.doc.textBetween(trigger.from, trigger.to));
+      const source = validTrigger
+        ? editor.state.doc.textBetween(pos + 1, trigger.from) + editor.state.doc.textBetween(trigger.to, pos + node.nodeSize - 1)
+        : node.textContent;
+      showMathEditor(editor, { isBlock: true, ...(source.trim() ? { latex: source.trim() } : {}),
+        range: { from: pos, to: pos + node.nodeSize },
+        onSave: (latex, mapped) => replaceBlock(editor, mapped.from, { type: "mathBlock", attrs: { latex } }),
+      });
+    } else if (nested && range) {
       // 嵌套场景：只有能真实处理的命令才消费触发字符（R06 一致性约定）；
       // unsupported 时不动文档——"/" 与已输入字符保留，用户可继续编辑。
       // range 文本不是 "/查询词" 时同样不动文档（executeNestedCommand 会整段删掉它）

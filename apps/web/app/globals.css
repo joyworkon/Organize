@@ -7371,3 +7371,33 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 @media (max-width: 767px) {
   .canvas-connector-toolbar, .canvas-connect-hint { top: 64px; }
 }
+
+/* Formula editing shares the compact atom toolbar and dialog surfaces. */
+.organize-editor .math-inline.ProseMirror-selectednode,
+.organize-editor .math-block.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  background: hsl(var(--accent));
+}
+.organize-math-anchor { display: inline-block; max-width: 100%; cursor: pointer; }
+.organize-math-anchor:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: 4px; }
+.organize-math-toolbar {
+  position: fixed; z-index: 45; display: flex; gap: 2px; padding: 4px;
+  max-width: calc(100vw - 16px); overflow-x: auto;
+  border: 1px solid hsl(var(--border)); border-radius: 8px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); box-shadow: var(--shadow-md);
+}
+.organize-math-toolbar > button { flex-shrink: 0; min-height: 36px; min-width: 36px; }
+.organize-math-dialog { max-width: 640px; max-height: 90dvh; }
+.organize-math-source {
+  display: block; margin-top: 8px; width: 100%; min-height: 128px; resize: vertical;
+  padding: 12px; border: 1px solid hsl(var(--input)); border-radius: 8px;
+  background: hsl(var(--background)); color: hsl(var(--foreground)); font-family: monospace; font-size: 14px;
+}
+.organize-math-source:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+.organize-math-preview { min-height: 96px; max-height: 240px; overflow: auto; margin-top: 8px; padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--muted)); }
+.organize-math-preview[data-invalid="true"] { border-color: hsl(var(--destructive)); }
+@media (max-width: 767px), (pointer: coarse) {
+  .organize-math-toolbar > button { min-height: 44px; min-width: 44px; }
+  .organize-math-source { font-size: 16px; }
+}

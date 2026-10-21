@@ -1,59 +1,57 @@
 "use client";
 
 import { Node, Extension } from "@tiptap/core";
-import { showPrompt } from "@/components/ui/prompt-dialog";
+import { NodeSelection } from "@tiptap/pm/state";
+import { closeHistory } from "@tiptap/pm/history";
+import { showMathEditor } from "../math-editor-dialog";
+import { MathToolbar } from "../math-toolbar";
+import { renderMath } from "../math-render";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import katex from "katex";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * 公式节点（行内 + 区块），使用 KaTeX 渲染 LaTeX。
- * 点击公式可重新编辑 LaTeX 源码。
- */
-
-/** KaTeX 之外的兜底路径必须按纯文本转义：latex 是用户可控输入，直接注入 innerHTML 会形成 XSS 面 */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function MathNodeView({ node, updateAttributes, extension }: NodeViewProps) {
-  const isBlock = extension.name === "mathBlock";
+/** Existing JSON/HTML contracts remain inlineMath/mathBlock + latex. */
+export function MathNodeView({ node, editor, getPos, selected }: NodeViewProps) {
+  const isBlock = node.type.name === "mathBlock";
   const latex = (node.attrs.latex as string) || "";
-
-  const html = useMemo(() => {
-    try {
-      return katex.renderToString(latex || "\\;", {
-        throwOnError: false,
-        displayMode: isBlock,
-      });
-    } catch {
-      return `<span class="text-destructive">${escapeHtml(latex)}</span>`;
-    }
-  }, [latex, isBlock]);
-
-  const handleClick = () => {
-    void showPrompt({ title: "编辑公式（LaTeX）", defaultValue: latex }).then((next) => {
-      if (next !== null && next !== latex) {
-        updateAttributes({ latex: next });
-      }
-    });
+  const anchor = useRef<HTMLElement>(null);
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    const update = () => refresh((value) => value + 1);
+    editor.on("transaction", update);
+    editor.on("update", update);
+    return () => { editor.off("transaction", update); editor.off("update", update); };
+  }, [editor]);
+  const select = () => {
+    const pos = getPos();
+    if (typeof pos === "number") editor.commands.setNodeSelection(pos);
   };
-
-  return (
-    <NodeViewWrapper
-      as={isBlock ? "div" : "span"}
-      className={isBlock ? "math-block" : "math-inline"}
-      contentEditable={false}
-      onClick={handleClick}
-      title="点击编辑公式"
-    >
-      <span dangerouslySetInnerHTML={{ __html: html }} />
-    </NodeViewWrapper>
-  );
+  const edit = () => {
+    if (!editor.isEditable) return;
+    select();
+    const pos = getPos();
+    if (typeof pos !== "number") return;
+    showMathEditor(editor, { isBlock, latex, range: { from: pos, to: pos + node.nodeSize }, onSave: (next, range) => {
+      if (!editor.isEditable || editor.state.doc.nodeAt(range.from)?.type !== node.type) return;
+      const current = editor.state.doc.nodeAt(range.from)!;
+      if (current.attrs.latex !== next) editor.view.dispatch(closeHistory(editor.state.tr).setNodeMarkup(range.from, undefined, { ...current.attrs, latex: next }));
+    } });
+  };
+  const html = useMemo(() => renderMath(latex, isBlock).html, [latex, isBlock]);
+  return <NodeViewWrapper as={isBlock ? "div" : "span"} className={`${isBlock ? "math-block" : "math-inline"}${selected ? " ProseMirror-selectednode" : ""}`}
+    contentEditable={false} data-math-block={isBlock ? "" : undefined} data-math-inline={!isBlock ? "" : undefined} data-latex={latex}>
+    <span ref={anchor} className="organize-math-anchor" tabIndex={0} role="button"
+      aria-label={editor.isEditable ? "编辑公式" : "选择公式，复制 LaTeX"} aria-haspopup={editor.isEditable ? "dialog" : undefined}
+      onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+      onClick={() => { select(); if (editor.isEditable) edit(); }} onFocus={select}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (event.key === "Enter" || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e")) { event.preventDefault(); event.stopPropagation(); edit(); }
+        if (event.key === " ") { event.preventDefault(); select(); }
+      }}>
+      {latex ? <span dangerouslySetInnerHTML={{ __html: html }} /> : <span className="text-muted-foreground">空公式</span>}
+    </span>
+    {selected && <MathToolbar editor={editor} anchor={anchor} isBlock={isBlock} latex={latex} onEdit={edit} />}
+  </NodeViewWrapper>;
 }
 
 function createMathNode(name: string, isBlock: boolean) {
@@ -78,15 +76,7 @@ function createMathNode(name: string, isBlock: boolean) {
     },
 
     renderHTML({ HTMLAttributes, node }) {
-      let rendered: string;
-      try {
-        rendered = katex.renderToString((node.attrs.latex as string) || "\\;", {
-          throwOnError: false,
-          displayMode: isBlock,
-        });
-      } catch {
-        rendered = `<span class="text-destructive">${escapeHtml(node.attrs.latex as string)}</span>`;
-      }
+      const rendered = renderMath((node.attrs.latex as string) || "", isBlock).html;
       const wrapper = document.createElement(isBlock ? "div" : "span");
       wrapper.setAttribute(`data-${isBlock ? "math-block" : "math-inline"}`, "");
       wrapper.setAttribute("data-latex", (node.attrs.latex as string) || "");
@@ -114,6 +104,19 @@ declare module "@tiptap/core" {
 
 export const MathCommands = Extension.create({
   name: "mathCommands",
+
+  priority: 200,
+
+  addKeyboardShortcuts() {
+    const edit = () => {
+      const { selection } = this.editor.state;
+      if (!this.editor.isEditable || !(selection instanceof NodeSelection) || !["inlineMath", "mathBlock"].includes(selection.node.type.name)) return false;
+      const element = this.editor.view.nodeDOM(selection.from) as HTMLElement | null;
+      element?.querySelector<HTMLElement>(".organize-math-anchor")?.click();
+      return true;
+    };
+    return { Enter: edit, "Mod-e": edit };
+  },
 
   addCommands() {
     return {

@@ -27,6 +27,7 @@ import Details from "@tiptap/extension-details";
 import DetailsContent from "@tiptap/extension-details-content";
 import DetailsSummary from "@tiptap/extension-details-summary";
 import { Callout } from "./extensions/callout";
+import { MathEditorDialog, showMathEditor } from "./math-editor-dialog";
 import { InlineMath, MathBlock, MathCommands } from "./extensions/math";
 import { Columns, Column } from "./extensions/columns";
 import { BlockStyle } from "./extensions/block-style";
@@ -722,13 +723,15 @@ export function TipTapEditor({
         else if (detail.type === "math") {
           const pos = detail.pos;
           const nestedRange = detail.nested && detail.range ? detail.range : null;
-          void showPrompt({ title: "输入 LaTeX 公式", placeholder: "例如 E = mc^2" }).then((latex) => {
-            if (!latex) return;
-            if (nestedRange) {
-              editor.chain().focus().deleteRange(nestedRange).insertContent({ type: "mathBlock", attrs: { latex } }).run();
-            } else {
-              replaceAt(editor, pos, { type: "mathBlock", attrs: { latex } });
-            }
+          showMathEditor(editor, { isBlock: true,
+            range: nestedRange ?? { from: pos, to: pos + (editor.state.doc.nodeAt(pos)?.nodeSize ?? 0) },
+            onSave: (latex, range) => {
+              if (nestedRange) {
+                editor.chain().deleteRange(range).insertContent({ type: "mathBlock", attrs: { latex } }).run();
+              } else {
+                replaceAt(editor, range.from, { type: "mathBlock", attrs: { latex } });
+              }
+            },
           });
         } else if (detail.type === "reference") {
           if (detail.nested && detail.range) {
@@ -1500,6 +1503,7 @@ export function TipTapEditor({
         />
       </BubbleMenu>
       <LinkHoverCard editor={editor} editRequest={linkEditRequest} internalLinkStates={internalLinkStates} onNavigate={(path) => router.push(path)} />
+      <MathEditorDialog editor={editor} />
       <EditorContent editor={editor} />
       <TableDirectControls editor={editor} />
       <div

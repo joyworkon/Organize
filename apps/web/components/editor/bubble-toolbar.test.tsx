@@ -4,10 +4,10 @@ import type { Editor } from "@tiptap/react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { showPrompt } from "@/components/ui/prompt-dialog";
+import { showMathEditor } from "./math-editor-dialog";
 import { BubbleToolbar } from "./bubble-toolbar";
 
-vi.mock("@/components/ui/prompt-dialog", () => ({ showPrompt: vi.fn() }));
+vi.mock("./math-editor-dialog", () => ({ showMathEditor: vi.fn() }));
 
 describe("BubbleToolbar", () => {
   let container: HTMLDivElement;
@@ -142,15 +142,16 @@ describe("BubbleToolbar", () => {
   it("opens the inline link editor instead of a modal prompt", () => {
     click("链接");
     expect(callbacks.onEditLink).toHaveBeenCalledExactlyOnceWith();
-    expect(showPrompt).not.toHaveBeenCalled();
+    expect(showMathEditor).not.toHaveBeenCalled();
   });
 
-  it("keeps the inline formula prompt and insertion command", async () => {
-    vi.mocked(showPrompt).mockResolvedValueOnce("x^2");
-    await act(async () => button("行内公式").click());
-    expect(showPrompt).toHaveBeenCalledWith({ title: "输入 LaTeX 公式", placeholder: "例如 a^2 + b^2 = c^2" });
-    expect(chain.insertInlineMath).toHaveBeenCalledWith("x^2");
-    expect(chain.run).toHaveBeenCalledOnce();
+  it("opens the shared formula editor for inline and block insertion", () => {
+    click("行内公式");
+    expect(showMathEditor).toHaveBeenLastCalledWith(editor, { isBlock: false });
+    click("文本");
+    click("公式区块");
+    expect(showMathEditor).toHaveBeenLastCalledWith(editor, { isBlock: true });
+    expect(chain.run).not.toHaveBeenCalled();
   });
 
   it("keeps upload, URL, attachment, reference and table callback signatures", () => {
