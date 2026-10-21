@@ -70,6 +70,16 @@ import {
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { MobileMonthView } from "./calendar-mobile-month";
 import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
+import {
+  DRAG_CREATE_MOVE_PX,
+  dragCreateDayRange,
+  dragCreateRangeLabel,
+  dragCreateRowIndex,
+  dragCreateWeekColumns,
+  isDayInDragCreateRange,
+  unionRect,
+  type DragCreateDayRange,
+} from "@/lib/tasks/calendar-drag-create";
 
 // 纯日期函数已迁到 lib/tasks/calendar-agenda；这里保留导出给既有测试与调用方。
 export { getMonthCells, getTaskDate };
@@ -83,6 +93,9 @@ const LANE_HEIGHT_PX = 22;
 const COUNTDOWN_STRIP_PX = 20;
 
 export type CalendarMode = "day" | "week" | "month" | "year";
+
+/** 空白创建回调；月格 / 全天行拖选传 `allDay=true`，避免快速新建把带 end 的区间当成定时。 */
+export type CalendarDateClickHandler = (date: Date, end?: Date, anchor?: CalendarCreateAnchor, allDay?: boolean) => void;
 
 const CALENDAR_MODE_TITLE: Record<CalendarMode, string> = {
   day: "日视图（d）",
@@ -111,6 +124,17 @@ interface MonthDragState {
   lane: number;
   moved: boolean;
   target: Date | null;
+}
+
+/** 月格空白拖选新建：capture 留在起点格子，跨行落点按周行矩形命中。 */
+interface MonthCreateDragState {
+  pointerId: number;
+  cell: HTMLDivElement;
+  startX: number;
+  startY: number;
+  anchorDate: Date;
+  targetDate: Date;
+  moved: boolean;
 }
 
 /* ------------------------- 日 / 周共用时间网格 ------------------------- */
@@ -227,6 +251,18 @@ interface TimeGridSelection {
   moved: boolean;
 }
 
+/** 全天行空白拖列新建跨天全天：capture 在起点列，落点列按整行宽度换算。 */
+interface AllDaySelection {
+  pointerId: number;
+  column: HTMLDivElement;
+  row: HTMLElement;
+  startIdx: number;
+  endIdx: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+}
+
 /** 拖定时块上/下沿改开始或结束时间的会话状态（列固定，不跨列）。 */
 interface TimeGridResizeState {
   pointerId: number;
@@ -280,7 +316,7 @@ interface TimeGridViewProps {
   onTaskClick?: (task: TaskWithTags) => void;
   onToggleTaskDone?: (task: TaskWithTags) => void;
   onUpdateTaskSchedule?: (taskId: string, schedule: TaskSchedule) => Promise<void>;
-  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  onDateClick?: CalendarDateClickHandler;
   createPreview?: CalendarCreatePreview | null;
   createdId?: string | null;
   /** 全天行 +N 弹层「在日视图打开」的落点；未提供时该按钮为空操作。 */
@@ -359,7 +395,26 @@ export function TimeGridView({
     clearSelection();
   }, [clearSelection]);
 
-  useEffect(() => { cancelSelection(); }, [firstDayKey, lastDayKey, cancelSelection]);
+  const allDaySelectionRef = useRef<AllDaySelection | null>(null);
+  const [allDaySelection, setAllDaySelection] = useState<AllDaySelection | null>(null);
+  const suppressAllDayClickRef = useRef(false);
+
+  const clearAllDaySelection = useCallback(() => {
+    const current = allDaySelectionRef.current;
+    allDaySelectionRef.current = null;
+    setAllDaySelection(null);
+    if (current?.column.hasPointerCapture(current.pointerId)) {
+      current.column.releasePointerCapture(current.pointerId);
+    }
+  }, []);
+
+  const cancelAllDaySelection = useCallback(() => {
+    if (!allDaySelectionRef.current) return;
+    suppressAllDayClickRef.current = true;
+    clearAllDaySelection();
+  }, [clearAllDaySelection]);
+
+  useEffect(() => { cancelSelection(); cancelAllDaySelection(); }, [firstDayKey, lastDayKey, cancelSelection, cancelAllDaySelection]);
 
   const startSelection = (event: React.PointerEvent<HTMLDivElement>, day: Date, dayIdx: number) => {
     // 任务按钮及其子元素（包括手柄）不进入空白创建，即使未提供改期回调。
@@ -404,6 +459,63 @@ export function TimeGridView({
       calendarCreateAnchor(current.column, new DOMRect(rect.x, rect.y + startMin / 60 * HOUR_HEIGHT, rect.width, (endMin - startMin) / 60 * HOUR_HEIGHT))
     );
   };
+
+  /* ---- 全天行空白：轻点建单日全天，拖过相邻列建跨天全天；列数已按隐藏周末裁剪。 ---- */
+  const startAllDaySelection = (event: React.PointerEvent<HTMLDivElement>, dayIdx: number) => {
+    // 倒数日 chip、+N 与连续条自己处理指针；这里再挡一次，连同非主键和进行中的手势。
+    if (!onDateClick || event.button !== 0 || !event.isPrimary || allDaySelectionRef.current || selectionRef.current ||
+        (event.target as HTMLElement).closest("button, input, [role='button'], [data-calendar-task-id]")) return;
+    suppressAllDayClickRef.current = false;
+    const column = event.currentTarget;
+    const row = column.parentElement as HTMLElement;
+    column.setPointerCapture(event.pointerId);
+    const next: AllDaySelection = {
+      pointerId: event.pointerId, column, row, startIdx: dayIdx, endIdx: dayIdx,
+      startX: event.clientX, startY: event.clientY, moved: false,
+    };
+    allDaySelectionRef.current = next;
+    setAllDaySelection(next);
+  };
+
+  const moveAllDaySelection = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = allDaySelectionRef.current;
+    if (!current || current.pointerId !== event.pointerId) return null;
+    const moved = current.moved || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) >= DRAG_CREATE_MOVE_PX;
+    const rect = current.row.getBoundingClientRect();
+    const endIdx = moved && rect.width > 0 ? monthColFromClientX(event.clientX, rect.left, rect.width, days.length) : current.endIdx;
+    if (current.moved === moved && current.endIdx === endIdx) return current;
+    const next = { ...current, moved, endIdx };
+    allDaySelectionRef.current = next;
+    setAllDaySelection(next);
+    return next;
+  };
+
+  const endAllDaySelection = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = moveAllDaySelection(event);
+    if (!current) return;
+    clearAllDaySelection();
+    if (!current.moved) return; // 轻点仍由 click 处理。
+    suppressAllDayClickRef.current = true;
+    const lo = Math.min(current.startIdx, current.endIdx);
+    const hi = Math.max(current.startIdx, current.endIdx);
+    const first = (current.row.children[lo] as HTMLElement | undefined) ?? current.column;
+    const last = (current.row.children[hi] as HTMLElement | undefined) ?? current.column;
+    const union = unionRect(first.getBoundingClientRect(), last.getBoundingClientRect());
+    onDateClick?.(
+      dateOnly(days[lo]),
+      lo === hi ? undefined : dateOnly(days[hi]),
+      calendarCreateAnchor(first, new DOMRect(union.x, union.y, union.width, union.height)),
+      true
+    );
+  };
+
+  const cancelAllDaySelectionForEvent = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (allDaySelectionRef.current?.pointerId === event.pointerId) cancelAllDaySelection();
+  };
+
+  const allDayCreateCols = allDaySelection?.moved
+    ? { lo: Math.min(allDaySelection.startIdx, allDaySelection.endIdx), hi: Math.max(allDaySelection.startIdx, allDaySelection.endIdx) }
+    : null;
 
   const dragTask = (drag && tasks.find((t) => t.id === drag.taskId)) || null;
 
@@ -766,10 +878,11 @@ export function TimeGridView({
   const cancelActiveGesture = () => {
     if (resizeRef.current) cancelResize();
     else if (drag) cancelDrag();
+    else if (allDaySelectionRef.current) cancelAllDaySelection();
     else cancelSelection();
   };
 
-  useHotkey(selection || drag || resize
+  useHotkey(selection || allDaySelection || drag || resize
     ? [{ key: "Escape", handler: cancelActiveGesture, allowInInput: true }]
     : []);
 
@@ -827,7 +940,7 @@ export function TimeGridView({
   // 溢出列的 +N 固定占第 MAX_LANES 行（该列三条泳道必满），行高随之加一。
   const rowLanes = Math.max(usedLanes, hasOverflow ? MAX_LANES + 1 : 0);
   const hasCreatePreview = createPreview?.allDay && days.some((day) => calendarCreatePreviewOnDay(createPreview, day));
-  const rowMinHeight = Math.max(38, stripTop + 8 + (rowLanes + (hasCreatePreview ? 1 : 0)) * ALLDAY_LANE_PX - 4);
+  const rowMinHeight = Math.max(38, stripTop + 8 + (rowLanes + (hasCreatePreview || allDayCreateCols ? 1 : 0)) * ALLDAY_LANE_PX - 4);
   const firstFreeLane = (di: number) => {
     for (let lane = 0; lane < MAX_LANES; lane += 1) {
       if (!allDaySegments.some((seg) => seg.lane === lane && seg.startCol <= di && di <= seg.endCol)) return lane;
@@ -871,17 +984,36 @@ export function TimeGridView({
             const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
             const allDayTarget = !!drag && drag.zone === "all-day" && drag.moved && drag.dayIdx === di;
             const hiddenCount = hiddenByCol[di];
+            const inAllDayCreate = !!allDayCreateCols && allDayCreateCols.lo <= di && di <= allDayCreateCols.hi;
             return (
               <div
                 key={di}
                 data-countdown-date={countdownDateKey(day)}
+                data-calendar-drag-create={inAllDayCreate ? "all-day" : undefined}
+                tabIndex={-1}
                 className={cn(
                   "relative min-w-0 space-y-1 border-l p-1",
+                  onDateClick && "select-none",
                   countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
                   isSameDay(day, now) && "bg-accent/60",
-                  allDayTarget && "bg-primary/5"
+                  allDayTarget && "bg-primary/5",
+                  inAllDayCreate && "bg-primary/10"
                 )}
                 style={{ minHeight: rowMinHeight }}
+                onPointerDown={onDateClick ? (event) => startAllDaySelection(event, di) : undefined}
+                onPointerMove={onDateClick ? moveAllDaySelection : undefined}
+                onPointerUp={onDateClick ? endAllDaySelection : undefined}
+                onPointerCancel={onDateClick ? cancelAllDaySelectionForEvent : undefined}
+                onLostPointerCapture={onDateClick ? cancelAllDaySelectionForEvent : undefined}
+                onClick={onDateClick ? (event) => {
+                  // 拖列松手后的兼容 click 已由拖选建卡，这里吞掉；轻点空白建当日单日全天。
+                  if (suppressAllDayClickRef.current) {
+                    suppressAllDayClickRef.current = false;
+                    return;
+                  }
+                  if ((event.target as HTMLElement).closest("button, input, [role='button'], [data-calendar-task-id]")) return;
+                  onDateClick(dateOnly(day), undefined, calendarCreateAnchor(event.currentTarget), true);
+                } : undefined}
               >
                 {chips_countdown.map((item) => (
                   <span key={item.id} data-calendar-created={item.id === createdId || undefined}><CountdownChip item={item} compact /></span>
@@ -974,6 +1106,22 @@ export function TimeGridView({
                 </button>
               );
             })}
+            {/* 拖列新建的即时区间条：独立泳道，松手后由创建卡的 createPreview 接管 */}
+            {allDayCreateCols && (
+              <div
+                role="status"
+                data-calendar-drag-create-bar="all-day"
+                className="absolute z-20 flex items-center overflow-hidden rounded-md border border-dashed border-primary bg-background px-1.5 text-xs font-medium"
+                style={{
+                  top: laneTop(rowLanes),
+                  height: ALLDAY_BAR_PX,
+                  left: `calc(${(allDayCreateCols.lo / days.length) * 100}% + 2px)`,
+                  width: `calc(${((allDayCreateCols.hi - allDayCreateCols.lo + 1) / days.length) * 100}% - 4px)`,
+                }}
+              >
+                <span className="truncate">{dragCreateRangeLabel(dragCreateDayRange(days[allDayCreateCols.lo], days[allDayCreateCols.hi]))}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1328,7 +1476,7 @@ interface TaskMonthViewProps extends CountdownActions {
   /** 右键菜单「删除」：软删 + 撤销 toast（useTaskMutations.deleteTask 同一链路）。 */
   onDeleteTask?: (taskId: string) => void;
   /** 点击月视图格子空白处、日视图与手机周议程的添加按钮时打开添加。日期数字和年视图改走日视图。 */
-  onDateClick?: (date: Date, end?: Date, anchor?: CalendarCreateAnchor) => void;
+  onDateClick?: CalendarDateClickHandler;
   createPreview?: CalendarCreatePreview | null;
   createdId?: string | null;
   /** 显示选项（周起始日 / 周末列）；缺省等于默认值，不改变既有行为。 */
@@ -1622,6 +1770,10 @@ function TaskMonthViewContent({
   const suppressMonthClickRef = useRef(false);
   const [monthDrag, setMonthDrag] = useState<MonthDragState | null>(null);
   const dragOverDate = monthDrag?.moved && monthDrag.target ? keyFor(monthDrag.target) : null;
+  const monthCreateRef = useRef<MonthCreateDragState | null>(null);
+  const suppressMonthCreateClickRef = useRef(false);
+  const [monthCreate, setMonthCreate] = useState<MonthCreateDragState | null>(null);
+  const monthCreateRange: DragCreateDayRange | null = monthCreate?.moved ? dragCreateDayRange(monthCreate.anchorDate, monthCreate.targetDate) : null;
   const cells = useMemo(() => monthCellsForView(cursor, weekStart, showWeekends), [cursor, weekStart, showWeekends]);
   const weekDays = useMemo(() => visibleWeekDays(weekDaysOf(cursor, weekStart), showWeekends), [cursor, weekStart, showWeekends]);
   const revealedCreateRef = useRef<string | null>(null);
@@ -2021,6 +2173,86 @@ function TaskMonthViewContent({
     clearMonthDrag(event);
   };
 
+  /* ---- 月格空白拖选新建跨天全天：轻点仍走 click 建单日，拖过阈值后按周行矩形跨行取日。 ---- */
+  const clearMonthCreate = useCallback(() => {
+    const current = monthCreateRef.current;
+    monthCreateRef.current = null;
+    setMonthCreate(null);
+    if (current?.cell.hasPointerCapture(current.pointerId)) current.cell.releasePointerCapture(current.pointerId);
+  }, []);
+
+  const cancelMonthCreate = useCallback(() => {
+    if (!monthCreateRef.current) return;
+    suppressMonthCreateClickRef.current = true;
+    clearMonthCreate();
+  }, [clearMonthCreate]);
+
+  // 翻页 / 切模式会重建格子，捕获元素卸载后收不到 lostpointercapture，这里兜底清理。
+  useEffect(() => { cancelMonthCreate(); }, [cells, mode, cancelMonthCreate]);
+  useHotkey(monthCreate ? [{ key: "Escape", handler: cancelMonthCreate, allowInInput: true }] : []);
+
+  const startMonthCreate = (event: React.PointerEvent<HTMLDivElement>, date: Date) => {
+    // 日期数字、+N、倒数日 chip 与任务条都自行 stopPropagation；这里再挡一次，连同非主键和进行中的手势。
+    if (!onDateClick || event.button !== 0 || !event.isPrimary || monthCreateRef.current || monthDragRef.current ||
+        (event.target as HTMLElement).closest("button, input, [role='button'], [role='checkbox'], [data-calendar-task-id]")) return;
+    suppressMonthCreateClickRef.current = false;
+    const cell = event.currentTarget;
+    cell.setPointerCapture(event.pointerId);
+    const next: MonthCreateDragState = {
+      pointerId: event.pointerId, cell, startX: event.clientX, startY: event.clientY,
+      anchorDate: date, targetDate: date, moved: false,
+    };
+    monthCreateRef.current = next;
+    setMonthCreate(next);
+  };
+
+  const moveMonthCreate = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = monthCreateRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const moved = current.moved || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) >= DRAG_CREATE_MOVE_PX;
+    let targetDate = current.targetDate;
+    if (moved) {
+      // capture 后 currentTarget 始终是起点格子，按周行矩形命中跨行落点；拖出网格夹到首末行 / 列。
+      const rowRects = monthRowsRef.current.slice(0, weeks.length).map((row) => row?.getBoundingClientRect());
+      const rowIndex = dragCreateRowIndex(rowRects, event.clientY);
+      const rect = rowIndex >= 0 ? rowRects[rowIndex] : undefined;
+      if (rect && rect.width > 0) targetDate = weeks[rowIndex][monthColFromClientX(event.clientX, rect.left, rect.width, colCount)];
+    }
+    if (current.moved !== moved || current.targetDate.getTime() !== targetDate.getTime()) {
+      const next = { ...current, moved, targetDate };
+      monthCreateRef.current = next;
+      setMonthCreate(next);
+    }
+  };
+
+  const endMonthCreate = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (monthCreateRef.current?.pointerId !== event.pointerId) return;
+    moveMonthCreate(event);
+    const current = monthCreateRef.current!;
+    clearMonthCreate();
+    if (!current.moved) return; // 轻点仍由 click 建单日全天。
+    suppressMonthCreateClickRef.current = true;
+    const range = dragCreateDayRange(current.anchorDate, current.targetDate);
+    const first = monthCellRefs.current.get(keyFor(range.start)) ?? current.cell;
+    const last = monthCellRefs.current.get(keyFor(range.end)) ?? current.cell;
+    const union = unionRect(first.getBoundingClientRect(), last.getBoundingClientRect());
+    setSelectedDate(range.start);
+    setRovingDate(range.start);
+    rovingRef.current = range.start;
+    onDateClick?.(
+      range.start,
+      isSameDay(range.start, range.end) ? undefined : range.end,
+      calendarCreateAnchor(first, new DOMRect(union.x, union.y, union.width, union.height)),
+      true
+    );
+  };
+
+  const cancelMonthCreateForEvent = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (monthCreateRef.current?.pointerId === event.pointerId) cancelMonthCreate();
+  };
+
+  const monthCreateFirstRow = monthCreateRange ? weeks.findIndex((week) => dragCreateWeekColumns(week, monthCreateRange)) : -1;
+
   return (
     <div
       className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
@@ -2150,6 +2382,7 @@ function TaskMonthViewContent({
           >
             {weeks.map((week, weekIndex) => {
               const { segments, hiddenByCol } = weekLayouts[weekIndex];
+              const createCols = monthCreateRange ? dragCreateWeekColumns(week, monthCreateRange) : null;
               return (
                 <div
                   key={keyFor(week[0])}
@@ -2167,26 +2400,42 @@ function TaskMonthViewContent({
                     const isRoving = keyFor(date) === keyFor(activeRovingDate);
                     const dateLabel = `${date.getMonth() + 1}月${date.getDate()}日`;
                     const isToday = isSameDay(date, today);
+                    const inCreateRange = !!monthCreateRange && isDayInDragCreateRange(date, monthCreateRange);
                     return (
                       <div
                         key={cellKey}
                         data-countdown-date={countdownDateKey(date)}
+                        data-calendar-drag-create={inCreateRange ? "month" : undefined}
                         role="gridcell"
                         tabIndex={isRoving ? 0 : -1}
                         aria-label={dateLabel}
                         ref={(node) => {
                           if (node) monthCellRefs.current.set(cellKey, node);
                         }}
-                        onClick={onDateClick ? (event) => { setSelectedDate(date); setRovingDate(date); rovingRef.current = date; onDateClick(date, undefined, calendarCreateAnchor(event.currentTarget)); } : undefined}
+                        onClick={onDateClick ? (event) => {
+                          // 拖选松手后的兼容 click 已由拖选建卡，这里吞掉；轻点仍建单日全天。
+                          if (suppressMonthCreateClickRef.current) {
+                            suppressMonthCreateClickRef.current = false;
+                            return;
+                          }
+                          setSelectedDate(date); setRovingDate(date); rovingRef.current = date;
+                          onDateClick(date, undefined, calendarCreateAnchor(event.currentTarget));
+                        } : undefined}
+                        onPointerDown={onDateClick ? (event) => startMonthCreate(event, date) : undefined}
+                        onPointerMove={onDateClick ? moveMonthCreate : undefined}
+                        onPointerUp={onDateClick ? endMonthCreate : undefined}
+                        onPointerCancel={onDateClick ? cancelMonthCreateForEvent : undefined}
+                        onLostPointerCapture={onDateClick ? cancelMonthCreateForEvent : undefined}
                         onKeyDown={(event) => onMonthCellKeyDown(event, date)}
                         className={cn(
                           "relative border-b border-r p-1.5 last:border-r-0",
                           MONTH_CELL_FOCUS,
                           createPreview && calendarCreatePreviewOnDay(createPreview, date) && "bg-accent ring-2 ring-inset ring-primary",
-                          onDateClick && "cursor-pointer hover:bg-muted/40",
+                          onDateClick && "cursor-pointer select-none hover:bg-muted/40",
                           !inMonth && "bg-muted/20 text-muted-foreground",
                           isToday && "bg-accent/70",
                           (dragOverDate === cellKey || countdownDragDate === countdownDateKey(date)) && "bg-primary/10 ring-2 ring-inset ring-primary",
+                          inCreateRange && "bg-primary/10",
                         )}
                       >
                         <Button
@@ -2296,6 +2545,23 @@ function TaskMonthViewContent({
                       {monthDrag.task.title}
                     </div>
                   ))}
+                  {/* 拖选新建的即时区间条：每周行一段，跨周行时只有首段向读屏播报 */}
+                  {createCols && monthCreateRange && (
+                    <div
+                      role={weekIndex === monthCreateFirstRow ? "status" : undefined}
+                      aria-hidden={weekIndex === monthCreateFirstRow ? undefined : true}
+                      data-calendar-drag-create-bar="month"
+                      className="pointer-events-none absolute z-20 truncate rounded border border-dashed border-primary bg-background px-1.5 text-xs font-medium"
+                      style={{
+                        top: DAY_HEADER_PX + 2,
+                        height: LANE_HEIGHT_PX - 4,
+                        left: `calc(${(createCols.startCol / colCount) * 100}% + 2px)`,
+                        width: `calc(${((createCols.endCol - createCols.startCol + 1) / colCount) * 100}% - 4px)`,
+                      }}
+                    >
+                      {dragCreateRangeLabel(monthCreateRange)}
+                    </div>
+                  )}
                 </div>
               );
             })}

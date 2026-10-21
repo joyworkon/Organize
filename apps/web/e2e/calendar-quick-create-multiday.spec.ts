@@ -23,6 +23,8 @@ async function chooseRange(page: Page) {
   await editor.getByRole("button", { name: "时间段", exact: true }).click();
   await editor.getByLabel("结束日期", { exact: true }).fill("2026-10-23");
   await editor.getByRole("button", { name: "确定", exact: true }).click();
+  // 等日期弹层完全卸载再按 Esc：退出动画未收尾时 Esc 会落在弹层上，卡片不关。
+  await expect(page.getByLabel("开始日期", { exact: true })).toHaveCount(0);
   await expect(card(page).getByRole("button", { name: "修改日期和时间" })).toHaveText("10月21日 – 10月23日 全天");
   await expect(card(page).getByRole("checkbox", { name: "全天", exact: true })).toBeChecked();
 }

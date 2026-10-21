@@ -369,14 +369,14 @@ function CalendarPageInner() {
           onViewOptionsChange={changeViewOptions}
           createPreview={createPreview}
           createdId={createdId}
-          onDateClick={(start, end, anchor) => {
+          onDateClick={(start, end, anchor, allDay) => {
             if (addRange) return; // An in-flight create keeps its original range and anchor.
             // 详情打开时，点日历空白只关闭面板，与 ✕ / Esc 一样回到当前视图。
             if (selectedTaskId) {
               closeTask();
               return;
             }
-            setAddRange({ start, end, anchor });
+            setAddRange({ start, end, anchor, allDay });
           }}
         />
         {addRange && <CalendarQuickCreate

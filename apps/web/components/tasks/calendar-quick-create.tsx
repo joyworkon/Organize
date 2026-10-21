@@ -23,7 +23,8 @@ export interface CalendarCreateAnchor {
   rect?: Pick<DOMRect, "x" | "y" | "width" | "height">;
   focusTarget?: HTMLElement;
 }
-export interface CalendarCreateRange { start: Date; end?: Date; anchor?: CalendarCreateAnchor }
+/** `allDay` 由月格 / 全天行拖选显式给出；缺省时沿用「零点且无 end ⇒ 全天」的格子约定。 */
+export interface CalendarCreateRange { start: Date; end?: Date; allDay?: boolean; anchor?: CalendarCreateAnchor }
 export interface CalendarCreatePreview { start: Date; end?: Date; allDay: boolean; title: string }
 
 /** 全天按本地日历日覆盖首尾；定时预览保留原来的起点语义。 */
@@ -59,11 +60,18 @@ export function calendarCreateAnchor(element: HTMLElement, rect = element.getBou
 export function initialCalendarSchedule(range: CalendarCreateRange): TaskSchedule {
   const start = new Date(range.start);
   // A date-only cell represents an all-day event; explicit grid ranges preserve midnight.
-  const allDay = !range.end && start.getHours() === 0 && start.getMinutes() === 0;
+  const allDay = range.allDay ?? (!range.end && start.getHours() === 0 && start.getMinutes() === 0);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (allDay) {
+    return normalizeAllDaySchedule({
+      schedule_start_at: start.toISOString(), schedule_end_at: range.end?.toISOString() ?? null,
+      all_day: true, timezone, recurrence_rule: null,
+    });
+  }
   return {
     schedule_start_at: start.toISOString(),
-    schedule_end_at: allDay ? null : (range.end ?? new Date(start.getTime() + 3_600_000)).toISOString(),
-    all_day: allDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, recurrence_rule: null,
+    schedule_end_at: (range.end ?? new Date(start.getTime() + 3_600_000)).toISOString(),
+    all_day: false, timezone, recurrence_rule: null,
   };
 }
 
