@@ -280,10 +280,10 @@ class MarkdownRenderer {
         return this.renderQuote(Array.isArray(node.content) ? node.content : []);
 
       case "callout": {
-        // 标注 → 引用：emoji 作首行前缀，正文逐行引用
-        const emoji = String(node.attrs?.emoji || "💡");
+        // 标注 → 引用：emoji 作首行前缀（无图标时退化为普通引用），正文逐行引用
+        const emoji = typeof node.attrs?.emoji === "string" ? node.attrs.emoji.trim() : "💡";
         const body = this.renderQuote(Array.isArray(node.content) ? node.content : []);
-        return body.replace(/^>/, `> ${emoji}`);
+        return emoji ? body.replace(/^>/, `> ${emoji}`) : body;
       }
 
       case "codeBlock": {
