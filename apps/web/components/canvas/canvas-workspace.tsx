@@ -800,6 +800,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
       // ⌘V 交给 paste 事件，避免按键和系统剪贴板各粘一次。
       if (action === "paste") return;
       if (action) {
+        if (action === "pen" && (s.readOnly || s.previewMode || connectionsOnly || e.repeat || isFreeItemDragging())) return;
         if (action === "duplicate" && (s.readOnly || s.previewMode)) return;
         if (action === "cut" && (s.readOnly || s.previewMode)) {
           e.preventDefault();
@@ -810,6 +811,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
         // Capture consumes canvas keys before focused objects and the global ? help.
         e.stopPropagation();
         switch (action) {
+          case "pen": s.setTool(s.tool === "pen" ? "select" : "pen"); break;
           case "select-all": {
             const blockIds = allCanvasBlockIds(s.doc);
             if (blockIds.length) s.select({ kind: "blocks", blockIds });
@@ -864,7 +866,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
         // 弹层打开时 Esc 让位给弹层自身关闭（属性栏对话框等）；
         // 自由元素拖动中的 Esc 只取消拖动（canvas-free-item 自行处理），不清选区。
         if (hasOpenDialog() || isFreeItemDragging()) return;
-        s.select(null);
+        if (s.tool === "pen") { e.preventDefault(); s.setTool("select"); }
+        else s.select(null);
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && s.selection) {

@@ -12,6 +12,7 @@ export function CanvasShortcutsDialog({ open, onOpenChange, labels }: {
   const returnFocus = useRef<HTMLElement | null>(null);
   const { mod, shift } = labels;
   const shortcuts = [
+    ["切换画笔模式 / 退出画笔", "P / Esc"],
     ["撤销", `${mod}Z`],
     ["重做", `${shift}${mod}Z`],
     ["查找画布内容", `${mod}F`],

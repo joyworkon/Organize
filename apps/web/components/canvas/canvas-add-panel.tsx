@@ -29,10 +29,12 @@ import {
   MousePointerClick,
   Rows3,
   StickyNote,
+  Pencil,
   Type as TypeIcon,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import type { CanvasTemplateKind } from "@/lib/canvas/commands";
+import { useCanvasSelector } from "./use-canvas-selector";
 import type { CanvasStore } from "./canvas-store";
 import { CanvasOutlineTree, CanvasTemplateList } from "./canvas-outline-panel";
 
@@ -121,6 +123,7 @@ export function CanvasAddPanel({
   onExportBoard,
   exporting,
 }: CanvasAddPanelProps) {
+  const tool = useCanvasSelector(store, (s) => s.tool);
   return (
     <div className="canvas-add-panel" role="toolbar" aria-label="画布添加面板" data-testid="canvas-add-panel">
       <p className="canvas-add-hint" data-testid="canvas-insert-hint" aria-live="polite">
@@ -205,6 +208,11 @@ export function CanvasAddPanel({
           >
             <StickyNote className="h-4 w-4 flex-shrink-0" />
             <span>便签</span>
+          </Button>
+          <Button type="button" variant={tool === "pen" ? "secondary" : "ghost"} className="canvas-add-item"
+            aria-label="画笔" aria-pressed={tool === "pen"} title="画笔（P）；Esc 退出"
+            onClick={() => store.getState().setTool(tool === "pen" ? "select" : "pen")}>
+            <Pencil className="h-4 w-4 flex-shrink-0" /><span>画笔</span>
           </Button>
           {(["rect", "ellipse"] as const).map((kind) => {
             const label = kind === "rect" ? "矩形" : "椭圆";

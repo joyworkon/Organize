@@ -40,6 +40,9 @@ import { createCanvasMeasure } from "./use-canvas-scene";
 import { CanvasFreeGroupResize } from "./canvas-free-group-resize";
 import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import { CanvasConnectorLayer, CanvasConnectorToolbar, useCanvasConnectors } from "./canvas-connectors";
+import { useCanvasInk } from "./use-canvas-ink";
+import { useCanvasSelector } from "./use-canvas-selector";
+import { inkPath } from "@/lib/canvas/ink";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
 export const MIN_ZOOM = 0.1;
@@ -127,7 +130,11 @@ export function CanvasViewportView({
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [panning, setPanning] = useState(false);
   const vp = useStoreViewport(store);
-  const connections = useCanvasConnectors(store, viewportRef, connectorsInteractive && !spaceHeld, !interactive);
+  const tool = useCanvasSelector(store, (s) => s.tool);
+  const pen = interactive && tool === "pen";
+  const ink = useCanvasInk(store, pen && !spaceHeld);
+  const connections = useCanvasConnectors(store, viewportRef, connectorsInteractive && !spaceHeld && !pen, !interactive);
+  useEffect(() => { if (!interactive && store.getState().tool === "pen") store.getState().setTool("select"); }, [interactive, store]);
   const [singleLive, setSingleLive] = useState<Record<string, SnapRect>>({});
   const onLiveGeometry = useCallback((id: string, rect: SnapRect | null) => {
     setSingleLive((previous) => {
@@ -138,8 +145,8 @@ export function CanvasViewportView({
       return next;
     });
   }, []);
-  const pointer = useCanvasPointer(store, scene, interactive, spaceHeld);
-  const touch = useCanvasTouch(store, interactive, () => pointer.cancel());
+  const pointer = useCanvasPointer(store, scene, interactive && !pen, spaceHeld);
+  const touch = useCanvasTouch(store, interactive, () => { pointer.cancel(); ink.cancel(); }, pen && !spaceHeld);
   /** 最近一次指针在视口内的世界坐标（粘贴落点用）。 */
   const lastPointerWorldRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   /** 指针是否还在视口内。离开后键盘粘贴改走原位偏移，图片粘贴仍用上次坐标。 */
@@ -166,7 +173,7 @@ export function CanvasViewportView({
     const members = ids.flatMap((id) => {
       const item = doc.freeItems.find((entry) => entry.id === id);
       const box = scene.freeItems.find((entry) => entry.itemId === id);
-      return item && box ? [{ id, x: item.x, y: item.y, width: item.width, height: box.height }] : [];
+      return item && box ? [{ id, minWidth: item.block.type === "ink" ? 1 : undefined, x: item.x, y: item.y, width: item.width, height: box.height }] : [];
     });
     return members.length > 1 ? members : null;
   }, [doc.freeItems, scene.freeItems, store]);
@@ -277,7 +284,7 @@ export function CanvasViewportView({
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!interactive) return;
+      if (!interactive || store.getState().tool === "pen") return;
       // 只响应空白处：目标必须是视口或世界容器本身
       const target = e.target as HTMLElement;
       if (!target.classList.contains("canvas-viewport") && !target.classList.contains("canvas-world")) {
@@ -397,7 +404,8 @@ export function CanvasViewportView({
   return (
     <div
       ref={viewportRef}
-      className={`canvas-viewport ${interactive ? "is-editable" : ""} ${spaceHeld || panning || touch.navigating ? "is-panning" : ""}`}
+      tabIndex={-1}
+      className={`canvas-viewport ${pen ? "is-drawing" : ""} ${interactive ? "is-editable" : ""} ${spaceHeld || panning || touch.navigating ? "is-panning" : ""}`}
       data-testid="canvas-viewport"
       style={{
         backgroundSize: `${24 * vp.zoom}px ${24 * vp.zoom}px`,
@@ -406,20 +414,30 @@ export function CanvasViewportView({
       onPointerDownCapture={(e) => {
         if (connections.down(e)) return;
         if (touch.onPointerDown(e)) return;
+        if (ink.down(e)) return;
+        if (spaceHeld || e.button === 1) { beginPan(e); e.stopPropagation(); return; }
         pointer.down(e);
       }}
       onPointerMoveCapture={(e) => {
         if (connections.move(e)) return;
         touch.onPointerMove(e);
+        if (ink.move(e)) return;
         pointer.move(e);
       }}
       onClickCapture={(e) => {
+        if (pen) { e.preventDefault(); e.stopPropagation(); return; }
         pointer.clickCapture(e);
         touch.onClickCapture(e);
       }}
       onKeyDownCapture={connections.keyDown}
-      onPointerUpCapture={connections.up}
-      onPointerCancelCapture={connections.cancel}
+      onPointerUpCapture={(e) => {
+        if (ink.finish(e)) { touch.onPointerUp(e); return; }
+        connections.up(e);
+      }}
+      onPointerCancelCapture={(e) => {
+        if (ink.finish(e, true)) { touch.onPointerCancel(e); return; }
+        connections.cancel();
+      }}
       onPointerDown={(e) => {
         beginPan(e);
         onPointerDownBackground(e);
@@ -445,12 +463,14 @@ export function CanvasViewportView({
         if (owned) touch.release(e);
       }}
       onLostPointerCapture={(e) => {
+        ink.finish(e, true);
         pointer.finish(e, true);
         if (e.target === e.currentTarget && connections.draft?.pointerId === e.pointerId) connections.cancel();
         // 子元素放开自己的捕获时事件会冒泡上来，不能据此结束正在进行的捏合。
         if (e.target === e.currentTarget) touch.onPointerCancel(e);
         endPan(e);
       }}
+      onDoubleClickCapture={pen ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -464,11 +484,11 @@ export function CanvasViewportView({
         }}
       >
         <CanvasConnectorLayer store={store} doc={doc} selection={selection} zoom={vp.zoom}
-          interactive={connectorsInteractive} draft={connections.draft} onEditLabel={connections.editLabel}
+          interactive={connectorsInteractive && !pen} draft={connections.draft} onEditLabel={connections.editLabel}
           boxes={scene.freeItems.map((box) => {
             const resized = groupResizeLive?.find((member) => member.id === box.itemId);
             const item = doc.freeItems.find((item) => item.id === box.itemId);
-            const base = resized ? { ...resized, height: item?.block.type === "shape" ? resized.height : item && measure ? freeItemHeight({ ...item, width: resized.width }, measure) : resized.height } : box;
+            const base = resized ? { ...resized, height: (item?.block.type === "shape" || item?.block.type === "ink") ? resized.height : item && measure ? freeItemHeight({ ...item, width: resized.width }, measure) : resized.height } : box;
             const delta = selectedFreeIds.includes(box.itemId) ? groupLive : null;
             return { ...base, ...singleLive[box.itemId], itemId: box.itemId,
               x: singleLive[box.itemId]?.x ?? base.x + (delta?.dx ?? 0),
@@ -484,7 +504,7 @@ export function CanvasViewportView({
               sceneBoard={sceneBoard}
               store={store}
               zoom={vp.zoom}
-              interactive={interactive}
+              interactive={interactive && !pen}
               userId={userId}
               assetUrls={assetUrls}
               selectedBoard={selection?.kind === "board" && selection.boardId === board.id}
@@ -513,7 +533,7 @@ export function CanvasViewportView({
               height={box.height}
               store={store}
               zoom={vp.zoom}
-              interactive={interactive}
+              interactive={interactive && !pen}
               selected={selectedFreeIds.includes(item.id)}
               grouped={grouped}
               editing={editingBlockId === item.id}
@@ -528,7 +548,7 @@ export function CanvasViewportView({
               onGroupLive={onGroupLive}
               onSnapGuides={onSnapGuides}
               onLiveGeometry={onLiveGeometry}
-              onConnect={connectorsInteractive ? (side) => connections.start(item.id, side) : undefined}
+              onConnect={connectorsInteractive && !pen ? (side) => connections.start(item.id, side) : undefined}
             />
           );
         })}
@@ -542,7 +562,7 @@ export function CanvasViewportView({
               x: (live?.x ?? box.x) + (groupLive?.dx ?? 0),
               y: (live?.y ?? box.y) + (groupLive?.dy ?? 0),
               width: live?.width ?? box.width,
-              height: live && item.block.type === "shape" ? live.height : live && (measure || item.block.type === "image") ? freeItemHeight({ ...item, width: live.width }, measure ?? (() => box.height)) : box.height,
+              height: live && (item.block.type === "shape" || item.block.type === "ink") ? live.height : live && (measure || item.block.type === "image") ? freeItemHeight({ ...item, width: live.width }, measure ?? (() => box.height)) : box.height,
             };
           });
           const frame = rects.length > 1 ? groupBounds(rects) : null;
@@ -556,13 +576,17 @@ export function CanvasViewportView({
                 title={hasLockedFreeItems(doc, selectedFreeIds) ? "先解锁再整组移动或缩放" : undefined}>
                 {hasLockedFreeItems(doc, selectedFreeIds) ? "含锁定元素" : "自由定位"}
               </span>
-              {interactive && !store.getState().readOnly && !hasLockedFreeItems(doc, selectedFreeIds) && members && members.length === selectedFreeIds.length && (
+              {interactive && !pen && !store.getState().readOnly && !hasLockedFreeItems(doc, selectedFreeIds) && members && members.length === selectedFreeIds.length && (
                 <CanvasFreeGroupResize store={store} members={members} zoom={vp.zoom}
                   targets={snapTargetsFor(selectedFreeIds)} onLive={onGroupResizeLive} onGuides={onSnapGuides} />
               )}
             </div>
           );
         })()}
+        {ink.points.length > 1 && <svg className="canvas-ink-draft" aria-hidden="true" data-testid="canvas-ink-draft">
+          <path d={inkPath(ink.points.flatMap((p) => [p.x, p.y]))} fill="none" stroke="hsl(var(--foreground))"
+            strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>}
         {pointer.visual?.marquee && <div className="canvas-selection-marquee" style={{ left: pointer.visual.marquee.x, top: pointer.visual.marquee.y, width: pointer.visual.marquee.width, height: pointer.visual.marquee.height }} />}
         {pointer.visual?.ghosts?.map((box) => <div key={box.blockId} className="canvas-selection-marquee" style={{ left: box.x, top: box.y, width: box.width, height: box.height }} />)}
         {pointer.visual?.drop && <div className="canvas-drop-indicator" style={{ left: pointer.visual.drop.x, top: pointer.visual.drop.y, width: pointer.visual.drop.width }} />}
@@ -582,11 +606,12 @@ export function CanvasViewportView({
           )
         ))}
       </div>
-      <CanvasConnectorToolbar store={store} doc={doc} selection={selection} interactive={connectorsInteractive}
+      <CanvasConnectorToolbar store={store} doc={doc} selection={selection} interactive={connectorsInteractive && !pen}
         editingLabel={connections.editingLabel} labelRef={connections.labelRef} />
+      {pen && <div className="canvas-pen-hint" role="status">画笔模式 · Esc 退出</div>}
       {connections.draft && <div className="canvas-connect-hint" role="status">点选另一个元素建立连接<button type="button" aria-label="取消连接" onClick={connections.cancel}>取消</button></div>}
       {pointer.visual?.hint && <div className="canvas-drag-hint" role="status">{pointer.visual.hint}</div>}
-      {interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
+      {interactive && !pen && doc.boards.length === 0 && doc.freeItems.length === 0 && (
         <div className="canvas-empty-hint">
           <p>双击画布任意位置，开始你的第一张构思稿</p>
           {(onCreateBlank || onCreateLanding) && (

@@ -21,6 +21,8 @@ import {
   EMBED_HTML_MAX_LENGTH,
   isSafeButtonHref,
   isSafeEmbedUrl,
+  INK_MAX_POINTS,
+  INK_MAX_SIZE,
   SHAPE_MIN_HEIGHT,
   SHAPE_MAX_HEIGHT,
 } from "./model";
@@ -136,6 +138,20 @@ function validateBlock(
   if (!isId(b.id)) {
     errors.push(`${path}.id 非法`);
     return false;
+  }
+  if (b.type === "ink") {
+    if (!free) errors.push(`${path} 笔迹仅允许自由定位`);
+    for (const key of ["height", "baseWidth", "baseHeight"] as const) {
+      if (!isFiniteNumber(b[key]) || b[key] < 1 || b[key] > INK_MAX_SIZE) errors.push(`${path}.${key} 非法`);
+    }
+    if (!Array.isArray(b.points) || b.points.length < 4 || b.points.length % 2 !== 0 || b.points.length > INK_MAX_POINTS * 2 ||
+      b.points.some((n, i) => !isFiniteNumber(n) || n < 0 || n > Number(i % 2 === 0 ? b.baseWidth : b.baseHeight))) {
+      errors.push(`${path}.points 非法`);
+    }
+    if (![2, 4, 8].includes(b.strokeWidth as number)) errors.push(`${path}.strokeWidth 非法`);
+    if (b.color !== undefined && !(CANVAS_COLOR_KEYS as readonly unknown[]).includes(b.color)) errors.push(`${path}.color 非法`);
+    validateStyle(b.style, errors, path);
+    return true;
   }
   if (b.type === "shape") {
     if (!free) errors.push(`${path} 形状仅允许自由定位`);
@@ -472,7 +488,7 @@ export function validateCanvasContent(
     else markId(item.id, path);
     if (!isFiniteNumber(item.x) || Math.abs(item.x) > 1e6) errors.push(`${path}.x 非法`);
     if (!isFiniteNumber(item.y) || Math.abs(item.y) > 1e6) errors.push(`${path}.y 非法`);
-    if (!isFiniteNumber(item.width) || item.width < 40 || item.width > 2000) {
+    if (!isFiniteNumber(item.width) || item.width < (item.block?.type === "ink" ? 1 : 40) || item.width > 2000) {
       errors.push(`${path}.width 非法`);
     }
     if (!Number.isInteger(item.zIndex) || item.zIndex < 0 || item.zIndex > 10000) {

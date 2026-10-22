@@ -204,6 +204,47 @@ describe("canvas touch gestures", () => {
     expect(store.getState().viewport.zoom).toBeGreaterThan(1);
   });
 
+  it("read-only viewport preserves the current preview page selection", () => {
+    const { store, doc, scene } = boardFixture();
+    store.getState().select({ kind: "board", boardId: doc.boards[0].id });
+    render(createElement(CanvasViewportView, {
+      store, doc, scene, userId: "user", interactive: false, spaceHeld: false,
+      selection: store.getState().selection, editingBlockId: null, assetUrls: {}, sourceStatuses: new Map(),
+    }));
+    expect(store.getState().selection).toEqual({ kind: "board", boardId: doc.boards[0].id });
+  });
+
+  it("second finger cancels unfinished ink and continues pinch without committing a stroke", () => {
+    const { store } = renderBoard(true);
+    act(() => store.getState().setTool("pen"));
+    const viewport = container.querySelector("[data-testid='canvas-viewport']") as HTMLElement;
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, clientX: 150, clientY: 150 });
+    expect(container.querySelector(".canvas-ink-draft")).not.toBeNull();
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, clientX: 200, clientY: 150 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, clientX: 300, clientY: 150 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, clientX: 150, clientY: 150 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 2, clientX: 300, clientY: 150 });
+    expect(container.querySelector(".canvas-ink-draft")).toBeNull();
+    expect(store.getState().doc.freeItems).toHaveLength(0);
+    expect(store.getState().viewport.zoom).toBeGreaterThan(1);
+  });
+
+  it.each(["blur", "preview", "lostcapture"])("%s cancels ink without a save or undo transaction", (cancel) => {
+    const { store } = renderBoard(true);
+    act(() => store.getState().setTool("pen"));
+    const viewport = container.querySelector("[data-testid='canvas-viewport']") as HTMLElement;
+    dispatchPointer(viewport, "pointerdown", { pointerType: "mouse", clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerType: "mouse", clientX: 150, clientY: 150 });
+    if (cancel === "blur") act(() => window.dispatchEvent(new Event("blur")));
+    if (cancel === "preview") act(() => store.getState().togglePreview());
+    if (cancel === "lostcapture") act(() => viewport.releasePointerCapture(1));
+    dispatchPointer(viewport, "pointerup", { pointerType: "mouse", clientX: 150, clientY: 150 });
+    expect(container.querySelector(".canvas-ink-draft")).toBeNull();
+    expect(store.getState().doc.freeItems).toHaveLength(0);
+    expect(store.getState().localSeq).toBe(0);
+  });
+
   it("keeps mouse dragging from panning, and still pans with the middle button", () => {
     const { store } = renderBoard(false);
     const block = container.querySelector("[data-block-id]") as HTMLElement;

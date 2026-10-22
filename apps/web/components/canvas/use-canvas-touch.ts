@@ -45,7 +45,7 @@ function releaseOn(el: HTMLElement, id: number) {
  * 触屏单指平移 / 双指捏合。鼠标与触控板不进这里。
  * 返回 true 表示这次 pointerdown 已由平移或捏合接管，调用方不要再走框选或模块拖动。
  */
-export function useCanvasTouch(store: CanvasStore, interactive: boolean, cancelPointer: () => void) {
+export function useCanvasTouch(store: CanvasStore, interactive: boolean, cancelPointer: () => void, drawing = false) {
   const sessionRef = useRef(createTouchSession());
   const swallowClick = useRef(false);
   const pinchingRef = useRef(false);
@@ -75,7 +75,7 @@ export function useCanvasTouch(store: CanvasStore, interactive: boolean, cancelP
     return sync(stepTouch(sessionRef.current, {
       type,
       pointer: { id: e.pointerId, x: e.clientX, y: e.clientY },
-      kind: type === "down" ? touchTargetKind(e.target as Element) : undefined,
+      kind: type === "down" ? drawing ? "content" : touchTargetKind(e.target as Element) : undefined,
       panContent: !interactive,
       viewport: store.getState().viewport,
       origin: { x: rect.left, y: rect.top },

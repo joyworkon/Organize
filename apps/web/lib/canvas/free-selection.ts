@@ -6,6 +6,7 @@
 import { snapFreeItem, type SnapGuide, type SnapRect } from "./snap";
 
 export interface FreeGroupMember {
+  minWidth?: number;
   id: string;
   x: number;
   y: number;

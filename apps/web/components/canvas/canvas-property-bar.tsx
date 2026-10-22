@@ -418,13 +418,21 @@ export function CanvasPropertyBar({
     const item = target.item;
     const freeText = item.block.type === "text" ? item.block : null;
     const freeImage = item.block.type === "image" ? item.block : null;
+    const ink = item.block.type === "ink" ? item.block : null;
     const shape = item.block.type === "shape" ? item.block : null;
     return (
       <div className="canvas-property-bar" aria-label="自由容器属性">
-        <h3 className="canvas-prop-title">{shape ? "自由形状" : freeText ? "自由文本" : "自由图片"}</h3>
+        <h3 className="canvas-prop-title">{ink ? "笔迹" : shape ? "自由形状" : freeText ? "自由文本" : "自由图片"}</h3>
         <p className="text-xs text-muted-foreground">自由定位，不参与自动排版。</p>
         <FreeLockButton store={store} doc={doc} itemIds={[item.id]} />
         {item.locked && <p className="text-xs text-muted-foreground">已锁定位置和尺寸，仍可编辑内容、样式、图层或删除。</p>}
+        {ink && <>
+          <SwatchRow label="颜色" palette="text" keys={CANVAS_COLOR_KEYS} value={ink.color ?? ""}
+            onPick={(color) => store.getState().apply("笔迹颜色", (d) => updateFreeItemBlock(d, { itemId: item.id, color }))} />
+          <span className="canvas-prop-label">线宽</span>
+          <ModeRow value={String(ink.strokeWidth)} options={[{ value: "2", label: "细" }, { value: "4", label: "中" }, { value: "8", label: "粗" }]}
+            onChange={(width) => store.getState().apply("笔迹线宽", (d) => updateFreeItemBlock(d, { itemId: item.id, strokeWidth: Number(width) as 2 | 4 | 8 }))} />
+        </>}
         {shape && <>
           <ModeRow value={shape.kind} options={[{ value: "rect", label: "矩形" }, { value: "ellipse", label: "椭圆" }]}
             onChange={(kind) => store.getState().apply("切换形状", (d) =>
@@ -543,7 +551,7 @@ export function CanvasPropertyBar({
           boxes={freeBoxes}
           showAlign={false}
         />
-        {!shape && (
+        {!shape && !ink && (
           <>
             <Button
               type="button"
@@ -566,7 +574,7 @@ export function CanvasPropertyBar({
           </>
         )}
         {shape && <p className="text-xs text-muted-foreground">形状仅支持自由定位。</p>}
-        {shape?.kind !== "ellipse" && <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />}
+        {!ink && shape?.kind !== "ellipse" && <RadiusControl store={store} blockId={item.block.id} itemId={item.id} />}
         <Button
           type="button"
           variant="outline"
@@ -1282,8 +1290,10 @@ function SwatchRow({
   keys,
   value,
   onPick,
+  palette,
 }: {
   label: string;
+  palette?: "text";
   keys: readonly string[];
   value: string;
   onPick: (key: string) => void;
@@ -1300,6 +1310,7 @@ function SwatchRow({
             aria-checked={value === key}
             title={COLOR_LABELS[key] ?? key}
             aria-label={`${label}：${COLOR_LABELS[key] ?? key}`}
+            style={palette === "text" ? { background: key ? `var(--cv-text-${key})` : "hsl(var(--foreground))" } : undefined}
             className={`canvas-swatch cv-bg-${key || "default"} ${value === key ? "is-active" : ""}`}
             onClick={() => onPick(key)}
           />
