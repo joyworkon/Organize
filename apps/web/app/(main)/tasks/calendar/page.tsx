@@ -1,17 +1,39 @@
 "use client";
 
-import { createElement, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, Loader2 } from "@/components/icons";
+import { CalendarDays, Inbox, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { mutateTrash } from "@/lib/trash/client";
 import { CalendarQuickCreate, type CalendarCreateRange, type CalendarCreatePreview } from "@/components/tasks/calendar-quick-create";
 import { TaskMonthView } from "@/components/tasks/task-month-view";
 import { TaskInlineDetail } from "@/components/tasks/task-inline-detail";
+import {
+  CalendarUnscheduledSheet,
+  CalendarUnscheduledTray,
+  type UnscheduledQuickShortcut,
+} from "@/components/tasks/calendar-unscheduled-tray";
 import type { SidebarSelection } from "@/components/tasks/task-sidebar";
 import { useTaskWorkspaceData, filterTasksByScope } from "@/lib/tasks/workspace";
 import { computeDragReschedule } from "@/lib/tasks/reschedule";
-import { calendarReschedulePatch, nextWeekStartLabel, type CalendarRescheduleShortcut } from "@/lib/tasks/calendar-reschedule";
+import {
+  calendarReschedulePatch,
+  nextWeekStartLabel,
+  rescheduleShortcutTarget,
+  type CalendarRescheduleShortcut,
+} from "@/lib/tasks/calendar-reschedule";
+import {
+  filterUnscheduledTasks,
+  loadUnscheduledTrayOpen,
+  saveUnscheduledTrayOpen,
+  scheduleChangeLabel,
+  scheduleUndoSnapshot,
+  unscheduledDropLabel,
+  unscheduledDropPatch,
+  type CalendarUnscheduledDragState,
+  type UnscheduledDropTarget,
+} from "@/lib/tasks/calendar-unscheduled";
+import { undoToastAction } from "@/lib/tasks/undo-toast";
 import { useTaskMutations } from "@/lib/tasks/use-task-mutations";
 import {
   DEFAULT_CALENDAR_VIEW_OPTIONS,
@@ -26,6 +48,7 @@ import { isOnline } from "@/lib/offline/network";
 import { addTaskDeadLetterEntry } from "@/lib/offline/task-dead-letter";
 import type { PendingTaskOp } from "@/lib/offline/task-queue";
 import { hasOpenDialog, useHotkey } from "@/lib/hooks/use-hotkey";
+import { useIsNarrowViewport } from "@/components/canvas/use-is-narrow-viewport";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { CountdownDay, Task, TaskWithTags } from "@organize/shared";
@@ -113,6 +136,113 @@ function CalendarPageInner() {
     saveCalendarViewOptions(window.localStorage, userId, next);
   }, [userId]);
 
+  // 未排期任务托盘：桌面开关按用户持久化（默认关）；手机（<768）走底部 sheet，不做拖拽。
+  const narrowViewport = useIsNarrowViewport();
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [traySheetOpen, setTraySheetOpen] = useState(false);
+  useEffect(() => {
+    setTrayOpen(loadUnscheduledTrayOpen(window.localStorage, userId));
+  }, [userId]);
+  const [trayDrag, setTrayDrag] = useState<CalendarUnscheduledDragState | null>(null);
+  const trayDropTargetRef = useRef<UnscheduledDropTarget | null>(null);
+  const unscheduledTasks = useMemo(() => filterUnscheduledTasks(tasks), [tasks]);
+
+  // 拖入排期 / 快捷排期共用：乐观更新 + 撤销 toast；失败回滚与错误提示仍由 useTaskMutations 负责。
+  const scheduleUnscheduledTask = useCallback(
+    (task: TaskWithTags, target: UnscheduledDropTarget) => {
+      const previous = scheduleUndoSnapshot(task);
+      void updateTask(task.id, unscheduledDropPatch(target));
+      const undoToast = toast({
+        title: unscheduledDropLabel(target),
+        action: undoToastAction(() => {
+          undoToast.dismiss();
+          void updateTask(task.id, previous);
+        }),
+      });
+    },
+    [updateTask]
+  );
+
+  const quickScheduleUnscheduledTask = useCallback(
+    (task: TaskWithTags, shortcut: UnscheduledQuickShortcut) => {
+      scheduleUnscheduledTask(task, { zone: "all-day", date: rescheduleShortcutTarget(shortcut, new Date()) });
+    },
+    [scheduleUnscheduledTask]
+  );
+
+  // 托盘条目持有 pointer capture，坐标上抛到这里再下发给日历视图算落点（预览在视图内渲染）。
+  const handleTrayDragStart = useCallback((task: TaskWithTags, clientX: number, clientY: number) => {
+    setTrayDrag({ task, clientX, clientY, moved: false });
+  }, []);
+  const handleTrayDragMove = useCallback((taskId: string, clientX: number, clientY: number, moved: boolean) => {
+    setTrayDrag((current) =>
+      current && current.task.id === taskId ? { ...current, clientX, clientY, moved } : current
+    );
+  }, []);
+  const handleTrayDragTarget = useCallback((target: UnscheduledDropTarget | null) => {
+    trayDropTargetRef.current = target;
+  }, []);
+  const cancelTrayDrag = useCallback(() => {
+    setTrayDrag(null);
+    trayDropTargetRef.current = null;
+  }, []);
+  const handleTrayDragEnd = useCallback(
+    (task: TaskWithTags) => {
+      const target = trayDropTargetRef.current;
+      cancelTrayDrag();
+      // 落在日历外 / 未越过阈值：静默取消，不改数据。
+      if (!target) return;
+      scheduleUnscheduledTask(task, target);
+    },
+    [cancelTrayDrag, scheduleUnscheduledTask]
+  );
+
+  // Esc 取消拖入排期；preventDefault 让「关闭详情面板」的 Esc 让位。
+  useHotkey(trayDrag
+    ? [{
+        key: "escape",
+        ctrlKey: false,
+        metaKey: false,
+        preventDefault: false,
+        handler: (event) => {
+          if (event.defaultPrevented) return;
+          event.preventDefault();
+          cancelTrayDrag();
+        },
+      }]
+    : []);
+
+  const trayToggleButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      aria-label="未排期任务"
+      title="未排期任务"
+      aria-pressed={narrowViewport ? undefined : trayOpen}
+      className="shrink-0"
+      onClick={() => {
+        if (narrowViewport) {
+          setTraySheetOpen(true);
+          return;
+        }
+        setTrayOpen((open) => {
+          const next = !open;
+          saveUnscheduledTrayOpen(window.localStorage, userId, next);
+          return next;
+        });
+      }}
+    >
+      <Inbox className="h-4 w-4" />
+      未排期
+      {unscheduledTasks.length > 0 && (
+        <span className="ml-0.5 rounded-full bg-muted px-1.5 text-[10px] font-semibold leading-4 tabular-nums text-muted-foreground">
+          {unscheduledTasks.length}
+        </span>
+      )}
+    </Button>
+  );
+
   // 显示选项过滤只作用于日历视图；详情面板与 URL 选择仍用全量 tasks。
   const calendarTasks = useMemo(() => filterCalendarTasks(visibleTasks, viewOptions), [visibleTasks, viewOptions]);
   const calendarCountdowns = useMemo(
@@ -130,21 +260,13 @@ function CalendarPageInner() {
     void updateTask(task.id, patch);
     const undoToast = toast({
       title: done ? "任务已恢复为未完成" : "任务已完成",
-      action: createElement(
-        "button",
-        {
-          type: "button",
-          className: "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
-          onClick: () => {
-            undoToast.dismiss();
-            void updateTask(task.id, {
-              status: done ? "done" : "todo",
-              completed_at: done ? new Date().toISOString() : null,
-            });
-          },
-        },
-        "撤销"
-      ),
+      action: undoToastAction(() => {
+        undoToast.dismiss();
+        void updateTask(task.id, {
+          status: done ? "done" : "todo",
+          completed_at: done ? new Date().toISOString() : null,
+        });
+      }),
     });
   }, [updateTask]);
 
@@ -225,22 +347,62 @@ function CalendarPageInner() {
         schedule_end_at: task?.schedule_end_at ?? null,
         target: date,
       });
-      await updateTask(taskId, patch);
+      if (!task) {
+        await updateTask(taskId, patch);
+        return;
+      }
+      // 与快捷改期一致：乐观更新 + 撤销 toast（失败回滚仍由 useTaskMutations 负责）。
+      const previous = scheduleUndoSnapshot(task);
+      const label = scheduleChangeLabel(task, {
+        schedule_start_at: patch.schedule_start_at,
+        schedule_end_at: patch.schedule_end_at,
+        all_day: task.all_day,
+      });
+      void updateTask(taskId, patch);
+      if (label) {
+        const undoToast = toast({
+          title: label,
+          action: undoToastAction(() => {
+            undoToast.dismiss();
+            void updateTask(taskId, previous);
+          }),
+        });
+      }
     },
     [tasks, updateTask]
   );
 
   const updateTaskSchedule = useCallback(
     async (taskId: string, schedule: TaskSchedule) => {
-      await updateTask(taskId, {
+      const task = tasks.find((item) => item.id === taskId);
+      const previous = task ? scheduleUndoSnapshot(task) : null;
+      const label = task
+        ? scheduleChangeLabel(task, {
+            schedule_start_at: schedule.schedule_start_at,
+            schedule_end_at: schedule.schedule_end_at,
+            all_day: schedule.all_day,
+          })
+        : null;
+      const mutation = updateTask(taskId, {
         schedule_start_at: schedule.schedule_start_at,
         schedule_end_at: schedule.schedule_end_at,
         all_day: schedule.all_day,
         timezone: schedule.timezone,
         recurrence_rule: schedule.recurrence_rule,
       });
+      // 拖动改期 / 调时长 / 全天⇄定时互转 / 弹层改期统一给撤销（与快捷改期同样式）。
+      if (previous && label) {
+        const undoToast = toast({
+          title: label,
+          action: undoToastAction(() => {
+            undoToast.dismiss();
+            void updateTask(taskId, previous);
+          }),
+        });
+      }
+      await mutation;
     },
-    [updateTask]
+    [tasks, updateTask]
   );
 
   // 右键/长按菜单的改期快捷项：整日平移保留时刻与时长；清除日期从日历移除。两者都可撤销。
@@ -262,18 +424,10 @@ function CalendarPageInner() {
         : `已改期到${nextWeekStartLabel(weekStart)}`;
       const undoToast = toast({
         title,
-        action: createElement(
-          "button",
-          {
-            type: "button",
-            className: "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
-            onClick: () => {
-              undoToast.dismiss();
-              void updateTask(task.id, previous);
-            },
-          },
-          "撤销"
-        ),
+        action: undoToastAction(() => {
+          undoToast.dismiss();
+          void updateTask(task.id, previous);
+        }),
       });
     },
     [updateTask, viewOptions]
@@ -367,6 +521,9 @@ function CalendarPageInner() {
           onDeleteTask={(taskId) => void deleteTask(taskId)}
           viewOptions={viewOptions}
           onViewOptionsChange={changeViewOptions}
+          toolbarAction={trayToggleButton}
+          unscheduledDrag={trayDrag}
+          onUnscheduledDragTarget={handleTrayDragTarget}
           createPreview={createPreview}
           createdId={createdId}
           onDateClick={(start, end, anchor, allDay) => {
@@ -407,6 +564,20 @@ function CalendarPageInner() {
           defaultListId={selection.scope === "list" ? selection.listId : null}
         />}
       </div>
+      {trayOpen && !narrowViewport && (
+        <CalendarUnscheduledTray
+          tasks={tasks}
+          onOpenTask={(task) => updateUrl({ task: task.id })}
+          onQuickSchedule={quickScheduleUnscheduledTask}
+          dragCallbacks={{
+            onDragStart: handleTrayDragStart,
+            onDragMove: handleTrayDragMove,
+            onDragEnd: handleTrayDragEnd,
+            onDragCancel: cancelTrayDrag,
+            dragTaskId: trayDrag?.task.id ?? null,
+          }}
+        />
+      )}
       {selectedTask && (
         <TaskInlineDetail
           task={selectedTask}
@@ -419,6 +590,16 @@ function CalendarPageInner() {
           blockingPrerequisites={selectedBlockingPrerequisites}
         />
       )}
+      <CalendarUnscheduledSheet
+        open={traySheetOpen}
+        onOpenChange={setTraySheetOpen}
+        tasks={tasks}
+        onOpenTask={(task) => {
+          setTraySheetOpen(false);
+          updateUrl({ task: task.id });
+        }}
+        onQuickSchedule={quickScheduleUnscheduledTask}
+      />
     </div>
   );
 }
