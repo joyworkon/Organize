@@ -10,9 +10,11 @@ import { BLOCK_COMMANDS } from "./block-commands";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
 import { findListParent, setListStyle } from "./extensions/list-style";
 import { BlockActionMenu } from "./block-action-menu";
+import { unlinkSyncedBlock } from "./extensions/synced-block-actions";
 import type { EditorBlockTarget } from "./types";
 
 vi.mock("@/components/ui/prompt-dialog", () => ({ showPrompt: vi.fn() }));
+vi.mock("./extensions/synced-block-actions", () => ({ unlinkSyncedBlock: vi.fn() }));
 vi.mock("./extensions/block-selection", () => ({ focusAndHighlightBlock: vi.fn() }));
 vi.mock("./extensions/list-style", () => ({ findListParent: vi.fn(() => null), setListStyle: vi.fn() }));
 vi.mock("./block-commands", async () => {
@@ -158,5 +160,18 @@ describe("BlockActionMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
     render([]);
     expect(document.querySelector(".editor-menu-empty")?.textContent).toBe("没有已启用的笔记技能");
+  });
+
+  it("labels synced duplicates as references and offers unlink only with edit permission", () => {
+    target = { ...target, type: "syncedBlock", json: { type: "syncedBlock", attrs: { syncedId: "source-id" } } };
+    Object.defineProperty(editor, "isEditable", { configurable: true, value: true });
+    render();
+    expect(button("插入引用副本")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("创建副本");
+    click("解除同步");
+    expect(unlinkSyncedBlock).toHaveBeenCalledWith(editor, target.pos, "source-id");
+    Object.defineProperty(editor, "isEditable", { value: false });
+    render();
+    expect(document.body.textContent).not.toContain("解除同步");
   });
 });

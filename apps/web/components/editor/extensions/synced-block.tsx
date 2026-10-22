@@ -10,6 +10,8 @@ import {
 } from "@tiptap/react";
 import { AlertTriangle, Loader2, RefreshCw, Repeat2 } from "@/components/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { copySyncedReference, unlinkSyncedBlock } from "./synced-block-actions";
 import {
   classifyConflict,
   clearSyncedPending,
@@ -43,8 +45,15 @@ function broadcast(message: SyncMessage) {
 
 type SyncedStatus = SyncedBlockUiStatus;
 
-function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
+export function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
   const syncedId = String(node.attrs.syncedId || "");
+  const [editable, setEditable] = useState(editor.isEditable);
+  useEffect(() => {
+    const update = () => setEditable(editor.isEditable);
+    editor.on("transaction", update);
+    editor.on("update", update);
+    return () => { editor.off("transaction", update); editor.off("update", update); };
+  }, [editor]);
   // hydrated 是历史持久化属性（R05 起忽略其网络可信性）：每次挂载都视为未注水，
   // 一律从服务端拉取；本地 pending 优先于远端（见挂载 effect）。
   const [status, setStatus] = useState<SyncedStatus>("loading");
@@ -395,6 +404,15 @@ function SyncedBlockView({ node, editor, getPos }: NodeViewProps) {
             <RefreshCw className="h-3 w-3" />已同步
           </span>
         )}
+        <div className="organize-synced-actions">
+          <Button type="button" variant="ghost" size="sm" onClick={() => { void copySyncedReference(syncedId); }}>复制引用</Button>
+          {editable && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => {
+              const pos = currentPos();
+              if (pos !== null) unlinkSyncedBlock(editor, pos, syncedId);
+            }}>解除同步</Button>
+          )}
+        </div>
       </div>
       <NodeViewContent className="organize-synced-content" as="div" />
     </NodeViewWrapper>

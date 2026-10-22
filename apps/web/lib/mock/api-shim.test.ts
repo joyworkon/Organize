@@ -343,6 +343,7 @@ describe("mock api shim", () => {
     expect(created.status).toBe(201);
     expect(created.body.revision).toBe(1);
     const blockId = created.body.id as string;
+    expect(blockId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
     const updated = await call(`/api/synced-blocks/${blockId}`, {
       method: "PATCH",
