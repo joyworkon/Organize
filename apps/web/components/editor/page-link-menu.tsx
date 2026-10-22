@@ -57,9 +57,10 @@ export function PageLinkMenu({ editor, noteId, onOpenChange }: {
     };
     dom.addEventListener("organize-page-link", handler);
     const checkEditable = () => { if (!editor.isEditable) close(); };
+    editor.on("blur", close);
     editor.on("transaction", checkEditable);
     editor.on("update", checkEditable);
-    return () => { dom.removeEventListener("organize-page-link", handler); editor.off("transaction", checkEditable); editor.off("update", checkEditable); };
+    return () => { dom.removeEventListener("organize-page-link", handler); editor.off("blur", close); editor.off("transaction", checkEditable); editor.off("update", checkEditable); };
   }, [editor, close]);
   return session && editor.isEditable
     ? <PageLinkResults editor={editor} noteId={noteId} session={session} onClose={close} />
