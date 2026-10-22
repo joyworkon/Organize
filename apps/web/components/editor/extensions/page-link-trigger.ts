@@ -1,4 +1,6 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
+import { closeHistory } from "@tiptap/pm/history";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion from "@tiptap/suggestion";
 import type { EditorMenuPoint } from "../types";
@@ -13,12 +15,30 @@ function dispatch(editor: Editor, detail: PageLinkEvent, cancelable = false) {
   return editor.view.dom.dispatchEvent(new CustomEvent("organize-page-link", { bubbles: true, cancelable, detail }));
 }
 
+/** One matcher keeps @ and [[ mutually exclusive, including @ inside a wiki query. */
+function findPageLinkMatch($position: ResolvedPos) {
+  const before = $position.parent.textBetween(0, $position.parentOffset, "\n", "\ufffc");
+  const wiki = /\[\[([^\[\]\n\ufffc]*)$/.exec(before);
+  // Unlike [[, @ must start a paragraph or follow whitespace (including CJK spaces).
+  // Prefix is excluded from the range; brackets/inline atoms end an @ query.
+  const at = wiki ? null : /(?:^|\s)(@([^@\[\]\n\ufffc]*))$/.exec(before);
+  const text = wiki?.[0] ?? at?.[1];
+  if (!text) return null;
+  return { range: { from: $position.pos - text.length, to: $position.pos }, query: wiki?.[1] ?? at![2], text };
+}
+
 /** Plain text + the existing link mark: no new document node or save protocol. */
 export function insertPageLink(editor: Editor, range: Range, note: { id: string; title: string }) {
   if (!editor.isEditable || editor.isDestroyed) return false;
-  const text = editor.state.doc.textBetween(range.from, range.to);
-  if (!text.startsWith("[[") || editor.state.selection.from !== range.to || !editor.state.selection.empty) return false;
-  return editor.chain().focus().insertContentAt(range, {
+  if (!Number.isInteger(range.from) || !Number.isInteger(range.to) || range.from < 1 || range.to > editor.state.doc.content.size || range.from >= range.to) return false;
+  if (editor.state.selection.from !== range.to || !editor.state.selection.empty) return false;
+  const match = findPageLinkMatch(editor.state.doc.resolve(range.to));
+  if (!match || match.range.from !== range.from) return false;
+  return editor.chain().focus().command(({ tr }) => {
+    // Keep choosing a page separate from typing its query in the undo history.
+    closeHistory(tr);
+    return true;
+  }).insertContentAt(range, {
     type: "text", text: note.title || "无标题笔记",
     marks: [{ type: "link", attrs: { href: `/notes/${encodeURIComponent(note.id)}` } }],
   }).unsetMark("link", { extendEmptyMarkRange: false }).run();
@@ -39,13 +59,8 @@ export const PageLinkTrigger = Extension.create({
       char: "[[",
       allowedPrefixes: null,
       allowSpaces: true,
-      // Match across text marks, only up to the caret; a closing bracket ends the query.
-      findSuggestionMatch: ({ $position }) => {
-        const before = $position.parent.textBetween(0, $position.parentOffset, "\n", "\ufffc");
-        const match = /\[\[([^\[\]\n\ufffc]*)$/.exec(before);
-        if (!match) return null;
-        return { range: { from: $position.pos - match[0].length, to: $position.pos }, query: match[1], text: match[0] };
-      },
+      // Custom matcher enforces @ prefixes; [[ retains its unrestricted mid-text entry.
+      findSuggestionMatch: ({ $position }) => findPageLinkMatch($position),
       allow: ({ state, range }) => {
         if (!this.editor.isEditable) return false;
         const parent = state.doc.resolve(range.from).parent;

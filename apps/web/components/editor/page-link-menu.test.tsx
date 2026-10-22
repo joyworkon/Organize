@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); editor.destroy(); document.body.innerHTML = ""; });
 
-describe("page picker asynchronous states", () => {
+describe.each(["[[", "@"])("page picker asynchronous states (%s)", (trigger) => {
   it("escapes SQL wildcards and leaves access control to RLS rather than an owner filter", async () => {
     await searchLinkPages("100%_\\", "source");
     expect(mocks.ilike).toHaveBeenCalledWith("title", "%100\\%\\_\\\\%");
@@ -63,7 +63,7 @@ describe("page picker asynchronous states", () => {
 
   it("shows loading, retries failed searches, and inserts on mouse selection without stealing focus", async () => {
     mocks.query.mockResolvedValueOnce({ data: null, error: { message: "failed" } });
-    type("[[会议");
+    type(`${trigger}会议`);
     await flush();
     expect(document.querySelector('[role="status"]')?.textContent).toContain("正在加载");
     await flush(160);
@@ -89,7 +89,7 @@ describe("page picker asynchronous states", () => {
       }) } });
       root.render(<PageLinkMenu editor={editor} noteId="source" onOpenChange={(value) => { open = value; }} />);
     });
-    type("[[会议"); await flush(160);
+    type(`${trigger}会议`); await flush(160);
     expect(open).toBe(true);
     key("Enter"); await flush();
     expect(editor.state.doc.childCount).toBe(1);
@@ -98,10 +98,21 @@ describe("page picker asynchronous states", () => {
     expect(open).toBe(false);
   });
 
+  it("leaves composition Enter and keyCode 229 alone", async () => {
+    type(`${trigger}会议`); await flush(160);
+    act(() => {
+      editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
+      editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true }));
+    });
+    await flush();
+    expect(editor.getHTML()).not.toContain('href=');
+    expect(editor.getText()).toContain(`${trigger}会议`);
+  });
+
   it("ignores stale search responses and preserves the latest query", async () => {
     const old = deferred<typeof success>();
     mocks.query.mockReturnValueOnce(old.promise);
-    type("[[旧"); await flush(160);
+    type(`${trigger}旧`); await flush(160);
     type("会议"); await flush(160);
     expect(option().textContent).toContain("会议纪要");
     old.resolve({ data: [{ ...page, title: "旧结果" }], error: null }); await flush();
@@ -110,14 +121,14 @@ describe("page picker asynchronous states", () => {
   });
 
   it("Escape preserves typed text, does not reopen while typing, and permission loss closes", async () => {
-    type("[[会议"); await flush(160);
+    type(`${trigger}会议`); await flush(160);
     key("Escape");
     expect(document.querySelector(".page-link-popover")).toBeNull();
     type("更多"); await flush();
     expect(document.querySelector(".page-link-popover")).toBeNull();
-    expect(editor.getText()).toBe("[[会议更多");
+    expect(editor.getText()).toBe(`${trigger}会议更多`);
     act(() => { editor.commands.setContent("<p></p>"); });
-    type("[[会议"); await flush(160);
+    type(`${trigger}会议`); await flush(160);
     act(() => { editor.setEditable(false); }); await flush();
     expect(document.querySelector(".page-link-popover")).toBeNull();
   });
@@ -141,11 +152,11 @@ describe("page picker asynchronous states", () => {
   it("keeps text on creation failure and retries through the shared creation service", async () => {
     mocks.query.mockResolvedValue({ data: [], error: null });
     vi.mocked(createNewNote).mockResolvedValueOnce({ status: "failed", message: "failed" }).mockResolvedValueOnce({ status: "created", noteId: "new-note" });
-    type("[[新会议"); await flush(160);
+    type(`${trigger}新会议`); await flush(160);
     expect(document.body.textContent).toContain("没有匹配的页面");
     key("Enter"); await flush();
     expect(document.querySelector('[role="alert"]')?.textContent).toBe("failed");
-    expect(editor.getText()).toBe("[[新会议");
+    expect(editor.getText()).toBe(`${trigger}新会议`);
     key("Enter"); await flush();
     expect(createNewNote).toHaveBeenLastCalledWith(expect.anything(), { title: "新会议" });
     expect(editor.getHTML()).toContain('href="/notes/new-note"');
@@ -155,11 +166,22 @@ describe("page picker asynchronous states", () => {
     mocks.query.mockResolvedValue({ data: [], error: null });
     const pending = deferred<Awaited<ReturnType<typeof createNewNote>>>();
     vi.mocked(createNewNote).mockReturnValue(pending.promise);
-    type("[[新会议"); await flush(160);
+    type(`${trigger}新会议`); await flush(160);
     key("Enter"); await flush();
     key("Escape");
     pending.resolve({ status: "created", noteId: "late" }); await flush();
-    expect(editor.getText()).toBe("[[新会议");
+    expect(editor.getText()).toBe(`${trigger}新会议`);
     expect(editor.getHTML()).not.toContain('href=');
   });
+});
+
+it("closes on editor blur and preserves the @ query", async () => {
+  type("@会议"); await flush(160);
+  expect(document.querySelector(".page-link-popover")).not.toBeNull();
+  act(() => { editor.emit("blur", { editor, event: new FocusEvent("blur"), transaction: editor.state.tr }); });
+  await flush();
+  expect(document.querySelector(".page-link-popover")).toBeNull();
+  expect(editor.getText()).toBe("@会议");
+  type("继续"); await flush();
+  expect(document.querySelector(".page-link-popover")).toBeNull();
 });
