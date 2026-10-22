@@ -39,6 +39,7 @@ import { Embed } from "./extensions/embed";
 import { SyncedBlock } from "./extensions/synced-block";
 import { DatabaseBlock } from "./extensions/database-block";
 import { PageLinkTrigger } from "./extensions/page-link-trigger";
+import { EmojiSuggestTrigger } from "./extensions/emoji-trigger";
 import { SlashCommand } from "./extensions/slash-command";
 import { DetailsKeyboard, OrganizeDetails } from "./extensions/details-keyboard";
 import { BlockDeepLink } from "./extensions/deep-link";
@@ -156,6 +157,7 @@ export function buildEditorExtensions(options: {
     DatabaseBlock,
     SlashCommand,
     PageLinkTrigger,
+    EmojiSuggestTrigger,
     BlockDeepLink,
     InternalLinkStateDecorations.configure({
       getStates: getInternalLinkStates,

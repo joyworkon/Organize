@@ -288,6 +288,7 @@ function SectionHeadingLabels({
 import { BlockMultiSelectBar } from "./block-multi-select-bar";
 import { BubbleToolbar } from "./bubble-toolbar";
 import { PageLinkMenu } from "./page-link-menu";
+import { EmojiSuggestMenu } from "./emoji-suggest-menu";
 import { LinkHoverCard } from "./link-hover-card";
 import {
   activeTableReferenceRect,
@@ -358,6 +359,8 @@ export function TipTapEditor({
   const keyboardMenuOpenRef = useRef(false);
   const pageLinkOpenRef = useRef(false);
   const onPageLinkOpenChange = useCallback((open: boolean) => { pageLinkOpenRef.current = open; }, []);
+  const emojiSuggestOpenRef = useRef(false);
+  const onEmojiSuggestOpenChange = useCallback((open: boolean) => { emojiSuggestOpenRef.current = open; }, []);
   keyboardMenuOpenRef.current = Boolean(commandMenu || actionMenu || tablePicker || dialog || presentationStart);
   const [selectRect, setSelectRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const selectDragRef = useRef<{
@@ -392,7 +395,7 @@ export function TipTapEditor({
   const handleBlockKeyDown = createBlockKeydownHandlers({
     noteId,
     getEditor: () => keyboardEditorRef.current,
-    isMenuOpen: () => keyboardMenuOpenRef.current || pageLinkOpenRef.current,
+    isMenuOpen: () => keyboardMenuOpenRef.current || pageLinkOpenRef.current || emojiSuggestOpenRef.current,
     onOpenCommandMenu: (pos, point) => {
       setActionMenu(null);
       setCommandMenu({ pos, point });
@@ -431,7 +434,7 @@ export function TipTapEditor({
         const current = keyboardEditorRef.current;
         const focusTitle = onFocusTitleRef.current;
         // Run after ProseMirror flushes the DOM selection, before its block commands.
-        if (current && focusTitle && !keyboardMenuOpenRef.current && !pageLinkOpenRef.current && focusTitleFromBody(event, current, focusTitle)) return true;
+        if (current && focusTitle && !keyboardMenuOpenRef.current && !pageLinkOpenRef.current && !emojiSuggestOpenRef.current && focusTitleFromBody(event, current, focusTitle)) return true;
         return handleBlockKeyDown(view, event);
       },
       // 从编辑器外拖入文件（图片 / 视频 / 音频 / 附件）
@@ -1525,6 +1528,7 @@ export function TipTapEditor({
         />
       </BubbleMenu>
       <PageLinkMenu editor={editor} noteId={noteId} onOpenChange={onPageLinkOpenChange} />
+      <EmojiSuggestMenu editor={editor} onOpenChange={onEmojiSuggestOpenChange} />
       <LinkHoverCard editor={editor} editRequest={linkEditRequest} internalLinkStates={internalLinkStates} onNavigate={(path) => router.push(path)} />
       <MathEditorDialog editor={editor} />
       <MermaidEditorDialog editor={editor} />
