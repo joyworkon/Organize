@@ -95,27 +95,27 @@ function compareTasks(a: TaskWithTags, b: TaskWithTags): number {
 }
 
 /**
- * 手机月议程：任务覆盖到的本月每一天都生成条目（含从上月延续进来、以及延续到下月的），
- * 与仅有倒数日的日期合并，按日期排序。条目内按 开始时刻 → sort_order → id 稳定排序，
- * 因此延续中的任务（开始更早）自然排在当天新开始的任务之前。
+ * 任意天数范围的议程：任务覆盖到的范围内每一天都生成条目（含从范围前延续进来、
+ * 以及延续到范围后的），与仅有倒数日的日期合并，按日期排序。条目内按
+ * 开始时刻 → sort_order → id 稳定排序，延续中的任务（开始更早）自然排在当天新开始的任务之前。
  * 传入的 tasks 应已包含重复任务的只读投影（projectRecurringTasks），这里不区分。
+ * 范围为 [startDay, startDay + days - 1]（本地日期，含首尾）。
  */
-export function buildMonthAgenda(
+export function buildRangeAgenda(
   tasks: TaskWithTags[],
   countdownsByDay: Map<string, CountdownDay[]>,
-  cursor: Date
+  startDay: Date,
+  days: number
 ): AgendaDay[] {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const monthStart = new Date(year, month, 1);
-  const monthEnd = new Date(year, month + 1, 0);
-  const days = new Map<string, AgendaDay>();
+  const rangeStart = calendarDateOnly(startDay);
+  const rangeEnd = shiftCalendarDay(rangeStart, Math.max(1, days) - 1);
+  const byDay = new Map<string, AgendaDay>();
   const dayFor = (date: Date): AgendaDay => {
     const key = calendarDayKey(date);
-    let day = days.get(key);
+    let day = byDay.get(key);
     if (!day) {
       day = { key, date: calendarDateOnly(date), entries: [], countdowns: [] };
-      days.set(key, day);
+      byDay.set(key, day);
     }
     return day;
   };
@@ -126,10 +126,10 @@ export function buildMonthAgenda(
     const first = calendarDateOnly(start);
     const endDay = calendarDateOnly(getTaskEnd(task) ?? start);
     const last = endDay < first ? first : endDay;
-    if (last < monthStart || first > monthEnd) continue;
+    if (last < rangeStart || first > rangeEnd) continue;
     const spanDays = calendarDayDiff(last, first) + 1;
-    const from = first < monthStart ? monthStart : first;
-    const to = last > monthEnd ? monthEnd : last;
+    const from = first < rangeStart ? rangeStart : first;
+    const to = last > rangeEnd ? rangeEnd : last;
     for (let cursorDay = from; cursorDay <= to; cursorDay = shiftCalendarDay(cursorDay, 1)) {
       dayFor(cursorDay).entries.push({ task, spanIndex: calendarDayDiff(cursorDay, first), spanDays });
     }
@@ -138,13 +138,50 @@ export function buildMonthAgenda(
   for (const [key, items] of countdownsByDay) {
     if (items.length === 0) continue;
     const [y, m, d] = key.split("-").map(Number);
-    if (y !== year || m !== month) continue;
-    dayFor(new Date(y, m, d)).countdowns = items;
+    const date = new Date(y, m, d);
+    if (date < rangeStart || date > rangeEnd) continue;
+    dayFor(date).countdowns = items;
   }
 
-  return Array.from(days.values())
+  return Array.from(byDay.values())
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .map((day) => ({ ...day, entries: [...day.entries].sort((a, b) => compareTasks(a.task, b.task)) }));
+}
+
+/**
+ * 手机月议程：当月范围（1 日到月末）的议程，语义与 buildRangeAgenda 一致。
+ */
+export function buildMonthAgenda(
+  tasks: TaskWithTags[],
+  countdownsByDay: Map<string, CountdownDay[]>,
+  cursor: Date
+): AgendaDay[] {
+  const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const days = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  return buildRangeAgenda(tasks, countdownsByDay, monthStart, days);
+}
+
+/**
+ * 桌面日程视图的「已逾期」组：逾期（isTaskOverdue 口径，排除 done/cancelled）
+ * 且最后一天在范围起点 cursor 之前——仍落在可见范围内的任务按日出现，不重复列。
+ * 按开始时刻 → sort_order → id 升序（最久逾期的在最前）。重复投影不重复列出。
+ */
+export function buildOverdueAgendaTasks(
+  tasks: TaskWithTags[],
+  cursor: Date,
+  isOverdue: (task: TaskWithTags, now: Date) => boolean,
+  now: Date = new Date()
+): TaskWithTags[] {
+  const cursorDay = calendarDateOnly(cursor);
+  return tasks
+    .filter((task) => {
+      const start = getTaskDate(task);
+      if (!start || !isOverdue(task, now)) return false;
+      const endDay = calendarDateOnly(getTaskEnd(task) ?? start);
+      const last = endDay < calendarDateOnly(start) ? calendarDateOnly(start) : endDay;
+      return last < cursorDay;
+    })
+    .sort(compareTasks);
 }
 
 /**
@@ -216,9 +253,10 @@ export function monthSelectionOnEntry(cursor: Date, today: Date, selected: Date 
   return new Date(cursor.getFullYear(), cursor.getMonth(), Math.min(selected?.getDate() ?? 1, last));
 }
 
-/** 手机添加：可见范围内所选日 > 范围内今天 > 代表日（月1日/可见周首日/日当天）。 */
-export function calendarAddDate(mode: "day" | "week" | "month" | "year", cursor: Date, today: Date, selected: Date | null, weekDays: Date[]): Date {
+/** 手机添加：可见范围内所选日 > 范围内今天 > 代表日（月1日/可见周首日/日当天/日程范围首日）。 */
+export function calendarAddDate(mode: "day" | "week" | "month" | "year" | "agenda", cursor: Date, today: Date, selected: Date | null, weekDays: Date[]): Date {
   if (mode === "day") return calendarDateOnly(selected ?? cursor);
+  if (mode === "agenda") return calendarDateOnly(calendarDateOnly(today) >= calendarDateOnly(cursor) ? today : cursor);
   if (mode !== "week") return emptyMonthAddDate(cursor, today, selected);
   if (selected && weekDays.some((day) => isSameCalendarDay(day, selected))) return calendarDateOnly(selected);
   if (weekDays.some((day) => isSameCalendarDay(day, today))) return calendarDateOnly(today);

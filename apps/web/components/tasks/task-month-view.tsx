@@ -12,6 +12,8 @@ import { CountdownChip, CountdownProvider, useCountdownInteractions, type Countd
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import { annualOccurrenceDate } from "@/lib/tasks/countdown";
 import {
+  buildOverdueAgendaTasks,
+  buildRangeAgenda,
   calendarDateOnly as dateOnly,
   calendarDayDiff as dayDiff,
   calendarDayKey as keyFor,
@@ -75,6 +77,7 @@ import {
 } from "./calendar-shared";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { CalendarFilterEmptyHint } from "./calendar-filter-bar";
+import { DesktopAgendaView } from "./calendar-desktop-agenda";
 import { MobileMonthView } from "./calendar-mobile-month";
 import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
 import {
@@ -100,7 +103,10 @@ const LANE_HEIGHT_PX = 22;
 /** 单元格底部为倒数日徽章预留的条带高度 */
 const COUNTDOWN_STRIP_PX = 20;
 
-export type CalendarMode = "day" | "week" | "month" | "year";
+export type CalendarMode = "day" | "week" | "month" | "year" | "agenda";
+
+/** 日程视图每页天数：上一页/下一页按 30 天平移，「加载更多」每次再扩 30 天。 */
+export const AGENDA_PAGE_DAYS = 30;
 
 /** 空白创建回调；月格 / 全天行拖选传 `allDay=true`，避免快速新建把带 end 的区间当成定时。 */
 export type CalendarDateClickHandler = (date: Date, end?: Date, anchor?: CalendarCreateAnchor, allDay?: boolean) => void;
@@ -110,6 +116,7 @@ const CALENDAR_MODE_TITLE: Record<CalendarMode, string> = {
   week: "周视图（w）",
   month: "月视图（m）",
   year: "年视图（y）",
+  agenda: "日程视图（a）",
 };
 
 /** 指针横坐标相对当前周行映射为 0–cols-1，越过左右边缘时夹紧。 */
@@ -1857,6 +1864,9 @@ function TaskMonthViewContent({
   const suppressMonthCreateClickRef = useRef(false);
   const [monthCreate, setMonthCreate] = useState<MonthCreateDragState | null>(null);
   const monthCreateRange: DragCreateDayRange | null = monthCreate?.moved ? dragCreateDayRange(monthCreate.anchorDate, monthCreate.targetDate) : null;
+  // 日程视图「加载更多」页数：翻页 / 回今天 / 切模式时归零（见 step/goToday/switchMode）。
+  const [agendaExtraPages, setAgendaExtraPages] = useState(0);
+  const agendaRangeDays = AGENDA_PAGE_DAYS * (1 + agendaExtraPages);
   const cells = useMemo(() => monthCellsForView(cursor, weekStart, showWeekends), [cursor, weekStart, showWeekends]);
   const weekDays = useMemo(() => visibleWeekDays(weekDaysOf(cursor, weekStart), showWeekends), [cursor, weekStart, showWeekends]);
   const revealedCreateRef = useRef<string | null>(null);
@@ -1878,10 +1888,24 @@ function TaskMonthViewContent({
   const scheduledTasks = useMemo(() => tasks.filter((task) => getTaskDate(task)), [tasks]);
   const monthTasks = useMemo(() => {
     if (mode === "year") return scheduledTasks;
-    const from = mode === "week" ? weekDays[0] : mode === "day" ? selectedDate : cells[0].date;
-    const last = mode === "week" ? weekDays[weekDays.length - 1] : mode === "day" ? selectedDate : cells[cells.length - 1].date;
+    const from = mode === "week" ? weekDays[0] : mode === "day" ? selectedDate : mode === "agenda" ? cursor : cells[0].date;
+    const last = mode === "week" ? weekDays[weekDays.length - 1] : mode === "day" ? selectedDate : mode === "agenda" ? shiftCalendarDay(cursor, agendaRangeDays - 1) : cells[cells.length - 1].date;
     return projectRecurringTasks(scheduledTasks, from, shiftCalendarDay(last, 1));
-  }, [scheduledTasks, mode, weekDays, selectedDate, cells]);
+  }, [scheduledTasks, mode, weekDays, selectedDate, cells, cursor, agendaRangeDays]);
+  // 日程视图：按天分组（含重复投影与倒数日）+ 顶部「已逾期」组（范围外的逾期任务，不重复列）。
+  const agendaDaysList = useMemo(() => {
+    if (mode !== "agenda") return [];
+    return buildRangeAgenda(
+      monthTasks,
+      countdownsInRange(countdowns, cursor, shiftCalendarDay(cursor, agendaRangeDays - 1)),
+      cursor,
+      agendaRangeDays
+    );
+  }, [mode, monthTasks, countdowns, cursor, agendaRangeDays]);
+  const agendaOverdueTasks = useMemo(() => {
+    if (mode !== "agenda") return [];
+    return buildOverdueAgendaTasks(scheduledTasks, cursor, isTaskOverdue);
+  }, [mode, scheduledTasks, cursor]);
   const weeks = useMemo(() => {
     const result: Date[][] = [];
     for (let i = 0; i < cells.length; i += colCount) result.push(cells.slice(i, i + colCount).map((c) => c.date));
@@ -1969,6 +1993,7 @@ function TaskMonthViewContent({
   );
 
   const step = (direction: -1 | 1) => {
+    setAgendaExtraPages(0);
     const currentMode = modeRef.current;
     const currentCursor = cursorRef.current;
     const currentSelected = selectedRef.current;
@@ -1987,6 +2012,13 @@ function TaskMonthViewContent({
       selectedRef.current = nextSelected;
       setCursor(nextCursor);
       setSelectedDate(nextSelected);
+    } else if (currentMode === "agenda") {
+      // 日程视图按 30 天平移范围；selectedDate 跟随范围首日（切走时的对齐基准）。
+      const nextCursor = shiftCalendarDay(currentCursor, direction * AGENDA_PAGE_DAYS);
+      cursorRef.current = nextCursor;
+      selectedRef.current = nextCursor;
+      setCursor(nextCursor);
+      setSelectedDate(nextCursor);
     } else if (currentMode === "month") {
       const nextCursor = new Date(currentCursor.getFullYear(), currentCursor.getMonth() + direction, 1);
       const nextSelected = monthSelectionOnEntry(nextCursor, today, currentSelected);
@@ -2001,8 +2033,9 @@ function TaskMonthViewContent({
     }
   };
   const goToday = () => {
+    setAgendaExtraPages(0);
     const nextSelected = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const nextCursor = new Date(today.getFullYear(), today.getMonth(), modeRef.current === "week" ? today.getDate() : 1);
+    const nextCursor = new Date(today.getFullYear(), today.getMonth(), modeRef.current === "week" || modeRef.current === "agenda" ? today.getDate() : 1);
     selectedRef.current = nextSelected;
     cursorRef.current = nextCursor;
     setSelectedDate(nextSelected);
@@ -2023,12 +2056,20 @@ function TaskMonthViewContent({
   };
   const switchMode = (next: CalendarMode) => {
     if (next === modeRef.current) return;
+    setAgendaExtraPages(0);
     if (next === "day") {
       const aligned = dateForDayView(modeRef.current, cursorRef.current, selectedRef.current);
       selectedRef.current = aligned;
       setSelectedDate(aligned);
     } else if (next === "week") {
       const aligned = dateForDayView(modeRef.current, cursorRef.current, selectedRef.current);
+      cursorRef.current = aligned;
+      selectedRef.current = aligned;
+      setCursor(aligned);
+      setSelectedDate(aligned);
+    } else if (next === "agenda") {
+      // 日程范围从当前选中日开始（月/年视图下 selectedDate 已对齐到 cursor 所在月）。
+      const aligned = dateOnly(selectedRef.current);
       cursorRef.current = aligned;
       selectedRef.current = aligned;
       setCursor(aligned);
@@ -2128,7 +2169,7 @@ function TaskMonthViewContent({
       handler: (event) => {
         if (!onDateClick || hasOpenDialog() || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
         event.preventDefault();
-        const month = modeRef.current === "month" || modeRef.current === "year";
+        const month = modeRef.current === "month" || modeRef.current === "year" || modeRef.current === "agenda";
         const mobile = window.matchMedia?.("(max-width: 767px)").matches;
         const date = new Date(modeRef.current === "month" && !mobile ? activeRovingDate : selectedRef.current);
         date.setHours(month ? 0 : new Date().getHours() + 1, 0, 0, 0);
@@ -2154,6 +2195,7 @@ function TaskMonthViewContent({
     { key: "w", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "week") },
     { key: "m", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "month") },
     { key: "y", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "year") },
+    { key: "a", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "agenda") },
   ]);
 
   useEffect(() => {
@@ -2188,6 +2230,16 @@ function TaskMonthViewContent({
   const title =
     mode === "year" ? `${cursor.getFullYear()}年`
     : mode === "month" ? `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`
+    : mode === "agenda"
+      ? (() => {
+          const last = shiftCalendarDay(cursor, agendaRangeDays - 1);
+          const head = `${cursor.getMonth() + 1}月${cursor.getDate()}日`;
+          const tail =
+            cursor.getMonth() === last.getMonth()
+              ? `${last.getDate()}日`
+              : `${last.getMonth() + 1}月${last.getDate()}日`;
+          return `${head} - ${tail}`;
+        })()
     : mode === "week"
       ? (() => {
           const first = weekDays[0];
@@ -2380,7 +2432,7 @@ function TaskMonthViewContent({
         <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
         <h2 className="min-w-0 text-base font-semibold">{title}</h2>
         <div role="group" aria-label="日历视图" className="order-last flex basis-full rounded-lg bg-muted p-1 text-sm md:order-none md:ml-auto md:basis-auto">
-          {(["day", "week", "month", "year"] as CalendarMode[]).map((item) => (
+          {(["day", "week", "month", "year", "agenda"] as CalendarMode[]).map((item) => (
             <Button
               key={item}
               type="button"
@@ -2391,7 +2443,7 @@ function TaskMonthViewContent({
               title={CALENDAR_MODE_TITLE[item]}
               className={cn("flex-1 md:flex-none", mode === item ? "bg-background font-medium" : "text-muted-foreground")}
             >
-              {item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : "年"}
+              {item === "day" ? "日" : item === "week" ? "周" : item === "month" ? "月" : item === "year" ? "年" : "日程"}
             </Button>
           ))}
         </div>
@@ -2754,6 +2806,22 @@ function TaskMonthViewContent({
             }}
           />
         </CalendarSwipeSurface>
+      )}
+
+      {mode === "agenda" && (
+        <DesktopAgendaView
+          days={agendaDaysList}
+          overdueTasks={agendaOverdueTasks}
+          today={today}
+          rangeStart={cursor}
+          createdId={createdId}
+          onTaskClick={onTaskClick}
+          onToggleTaskDone={onToggleTaskDone}
+          onDateClick={onDateClick}
+          onUpdateTaskSchedule={onUpdateTaskSchedule}
+          onRescheduleTask={onRescheduleTask}
+          onLoadMore={() => setAgendaExtraPages((pages) => pages + 1)}
+        />
       )}
 
       {mode === "year" && (

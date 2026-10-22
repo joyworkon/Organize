@@ -1,7 +1,7 @@
 "use client";
 
 import { Repeat2 } from "@/components/icons";
-import { getTaskDate } from "@/lib/tasks/calendar-agenda";
+import { getTaskDate, type AgendaEntry } from "@/lib/tasks/calendar-agenda";
 import { isRecurringProjection, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { cn } from "@/lib/utils";
 import type { TaskWithTags } from "@organize/shared";
@@ -97,4 +97,18 @@ export function timeLabel(task: TaskWithTags): string {
   const date = getTaskDate(task);
   if (!date || task.all_day) return "";
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/**
+ * 议程条目 meta 文案（手机月议程与桌面日程视图共用）：
+ * 续日「跨天 · 第 n/N 天」；首日定时「HH:MM · 共 N 天」/ 全天「全天 · 共 N 天」，单日仅时刻或「全天」。
+ */
+export function agendaEntryMeta(entry: AgendaEntry): string {
+  const { task, spanIndex, spanDays } = entry;
+  if (spanIndex > 0) return `跨天 · 第 ${spanIndex + 1}/${spanDays} 天`;
+  const start = getTaskDate(task);
+  const clock = task.all_day
+    ? "全天"
+    : start?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) ?? "";
+  return spanDays > 1 ? `${clock} · 共 ${spanDays} 天` : clock;
 }

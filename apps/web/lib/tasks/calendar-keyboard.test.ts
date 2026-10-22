@@ -21,6 +21,8 @@ describe("matchCalendarNavKey", () => {
     expect(matchCalendarNavKey(key({ key: "M" }))).toBe("month");
     expect(matchCalendarNavKey(key({ key: "y" }))).toBe("year");
     expect(matchCalendarNavKey(key({ key: "Y" }))).toBe("year");
+    expect(matchCalendarNavKey(key({ key: "a" }))).toBe("agenda");
+    expect(matchCalendarNavKey(key({ key: "A", shiftKey: true }))).toBe("agenda");
   });
 
   it("⌘ / Ctrl / Alt 以及 Shift+方向键不触发", () => {
@@ -83,11 +85,12 @@ describe("dateForDayView", () => {
     expect(selected).toEqual(new Date(2026, 9, 31));
   });
 
-  it("日/周视图沿用 selectedDate，不跟 cursor 改月", () => {
+  it("日/周/日程视图沿用 selectedDate，不跟 cursor 改月", () => {
     const selected = new Date(2026, 9, 19);
     const cursor = new Date(2026, 8, 28);
     expect(dateForDayView("day", cursor, selected)).toEqual(new Date(2026, 9, 19));
     expect(dateForDayView("week", cursor, selected)).toEqual(new Date(2026, 9, 19));
+    expect(dateForDayView("agenda", new Date(2026, 9, 19), selected)).toEqual(new Date(2026, 9, 19));
     expect(cursor).toEqual(new Date(2026, 8, 28));
   });
 });

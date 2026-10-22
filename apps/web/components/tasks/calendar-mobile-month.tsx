@@ -7,7 +7,7 @@ import { CountdownChip } from "@/components/tasks/countdown-chip";
 import { TaskDatePopover } from "@/components/tasks/task-date-popover";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import { CalendarSwipeSurface } from "@/components/tasks/calendar-swipe-surface";
-import { CalendarTaskCheckbox, TaskRepeatIcon, WEEKDAYS_SHORT, recurringPresentation, weekdayLabel } from "@/components/tasks/calendar-shared";
+import { CalendarTaskCheckbox, TaskRepeatIcon, WEEKDAYS_SHORT, agendaEntryMeta, recurringPresentation, weekdayLabel } from "@/components/tasks/calendar-shared";
 import {
   agendaScrollTargetKey,
   buildMonthAgenda,
@@ -15,12 +15,10 @@ import {
   calendarDayMarkers,
   compactMonthRows,
   emptyMonthAddDate,
-  getTaskDate,
   isSameCalendarDay,
   isSameCalendarMonth,
   withSelectedAgendaDay,
   type AgendaDay,
-  type AgendaEntry,
 } from "@/lib/tasks/calendar-agenda";
 import { monthCellsForView, type CalendarWeekStart } from "@/lib/tasks/calendar-view-options";
 import { isRecurringProjection, recurringSource } from "@/lib/tasks/recurring-occurrences";
@@ -67,16 +65,6 @@ function scrollAgendaTo(list: HTMLElement, section: HTMLElement | null) {
   }
   const delta = section.getBoundingClientRect().top - list.getBoundingClientRect().top;
   list.scrollTop = Math.max(0, list.scrollTop + delta);
-}
-
-function entryMeta(entry: AgendaEntry): string {
-  const { task, spanIndex, spanDays } = entry;
-  if (spanIndex > 0) return `跨天 · 第 ${spanIndex + 1}/${spanDays} 天`;
-  const start = getTaskDate(task);
-  const clock = task.all_day
-    ? "全天"
-    : start?.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) ?? "";
-  return spanDays > 1 ? `${clock} · 共 ${spanDays} 天` : clock;
 }
 
 /**
@@ -313,7 +301,7 @@ function AgendaDaySection({
                 <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} className="h-5 w-5 text-xs" />
                 <button type="button" {...recurringPresentation(task)} onClick={() => onTaskClick?.(recurringSource(task))} className="min-w-0 flex-1 text-left">
                   <div className={cn("truncate text-sm font-medium", task.status === "done" && "text-muted-foreground line-through")}><TaskRepeatIcon task={task} />{task.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{entryMeta(entry)}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{agendaEntryMeta(entry)}</div>
                 </button>
                 {!projected && (onUpdateTaskSchedule || onRescheduleTask) && (
                   <TaskDatePopover
