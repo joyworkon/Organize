@@ -27,7 +27,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Copy, GripHorizontal, Plus, Trash2 } from "@/components/icons";
+import { Copy, Download, GripHorizontal, Plus, Trash2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { commitBoardDuplicate } from "./canvas-board-actions";
 import {
@@ -88,6 +88,10 @@ export interface CanvasBoardViewProps {
   sourceStatuses: SourceStatusMap;
   /** 图片替换（B2 统一上传入口）：块原位更新，失败保留旧图。 */
   onReplaceImage?: (blockId: string, file: File) => void;
+  /** 把手区「导出 PNG」入口（可选；导出为只读副作用）。 */
+  onExportBoard?: (boardId: string) => void;
+  /** 导出进行中：禁用把手导出按钮。 */
+  exportingBoard?: boolean;
 }
 
 type PlusPreview =
@@ -121,6 +125,8 @@ export const CanvasBoardView = memo(function CanvasBoardView({
   editingBlockId,
   sourceStatuses,
   onReplaceImage,
+  onExportBoard,
+  exportingBoard,
 }: CanvasBoardViewProps) {
   const [controlTarget, setControlTarget] = useState<ControlTarget>(null);
   const controls = useMemo(() => ({ target: controlTarget, setTarget: setControlTarget }), [controlTarget]);
@@ -352,6 +358,16 @@ export const CanvasBoardView = memo(function CanvasBoardView({
           >
             <GripHorizontal style={{ width: ui * 0.8, height: ui * 0.8 }} />
           </div>
+          {onExportBoard && (
+            <Button type="button" variant="ghost" size="icon"
+              className="canvas-board-copy h-6 w-6 border bg-background text-muted-foreground"
+              title={exportingBoard ? "正在导出…" : "导出页面为 PNG"} aria-label="导出页面为 PNG"
+              disabled={exportingBoard}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onExportBoard(board.id); }}>
+              <Download style={{ width: ui * 0.7, height: ui * 0.7 }} />
+            </Button>
+          )}
           <Button type="button" variant="ghost" size="icon"
             className="canvas-board-copy h-6 w-6 border bg-background text-muted-foreground"
             title="复制页面" aria-label="复制页面"

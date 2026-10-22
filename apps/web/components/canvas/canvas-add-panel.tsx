@@ -70,6 +70,10 @@ export interface CanvasAddPanelProps {
       | { kind: "board"; boardId: string }
       | { kind: "region"; boardId: string; regionId: string },
   ) => void;
+  /** 「导出 PNG」大纲入口（透传给结构树页面行）。 */
+  onExportBoard?: (boardId: string) => void;
+  /** 导出进行中。 */
+  exporting?: boolean;
 }
 
 /** 折叠分组（默认收起；窄屏下结构/模板也收起）。 */
@@ -114,6 +118,8 @@ export function CanvasAddPanel({
   material,
   onReveal,
   onFit,
+  onExportBoard,
+  exporting,
 }: CanvasAddPanelProps) {
   return (
     <div className="canvas-add-panel" role="toolbar" aria-label="画布添加面板" data-testid="canvas-add-panel">
@@ -223,7 +229,7 @@ export function CanvasAddPanel({
       )}
 
       <DetailsGroup title="结构">
-        <CanvasOutlineTree store={store} onReveal={onReveal} onFit={onFit} />
+        <CanvasOutlineTree store={store} onReveal={onReveal} onFit={onFit} onExportBoard={onExportBoard} exporting={exporting} />
       </DetailsGroup>
     </div>
   );

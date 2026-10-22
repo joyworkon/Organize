@@ -94,6 +94,10 @@ export interface CanvasViewportProps {
   onInsertEmbed?: (url: string, explicit: ExplicitInsertPosition | null) => void;
   /** 右键模块、自由元素、区块、版面或画布空白。文本编辑目标不调用。 */
   onOpenContextMenu?: (point: CanvasContextMenuPoint) => void;
+  /** 把手区「导出 PNG」入口（透传给版面）。 */
+  onExportBoard?: (boardId: string) => void;
+  /** 导出进行中。 */
+  exportingBoard?: boolean;
 }
 
 export function CanvasViewportView({
@@ -115,6 +119,8 @@ export function CanvasViewportView({
   onInsertFiles,
   onInsertEmbed,
   onOpenContextMenu,
+  onExportBoard,
+  exportingBoard,
 }: CanvasViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
@@ -490,6 +496,8 @@ export function CanvasViewportView({
               editingBlockId={editingBlockId}
               sourceStatuses={sourceStatuses}
               onReplaceImage={onReplaceImage}
+              onExportBoard={onExportBoard}
+              exportingBoard={exportingBoard}
             />
           );
         })}
