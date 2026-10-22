@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, Inbox, Loader2 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,16 @@ import {
   saveCalendarViewOptions,
   type CalendarViewOptions,
 } from "@/lib/tasks/calendar-view-options";
+import {
+  DEFAULT_CALENDAR_TASK_FILTER,
+  applyCalendarTaskFilter,
+  isCalendarFilterActive,
+  loadCalendarTaskFilter,
+  pruneCalendarTaskFilterTags,
+  saveCalendarTaskFilter,
+  type CalendarTaskFilter,
+} from "@/lib/tasks/calendar-filters";
+import { CalendarFilterButton, CalendarFilterChips } from "@/components/tasks/calendar-filter-bar";
 import { getTaskDependencyView } from "@/lib/tasks/dependencies";
 import { COUNTDOWN_LOAD_ERROR_MESSAGE, nextCountdownDaysAfterLoad, type CountdownFormValue } from "@/lib/tasks/countdown";
 import { isOnline } from "@/lib/offline/network";
@@ -59,7 +69,7 @@ function CalendarPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const clearTaskVersionsRef = useRef<() => void>(() => {});
-  const { tasks, lists, dependencies, loading, refetch, setTasks, supabase } = useTaskWorkspaceData({
+  const { tasks, lists, tags, dependencies, loading, refetch, setTasks, supabase } = useTaskWorkspaceData({
     onLoaded: () => clearTaskVersionsRef.current(),
   });
   const [countdowns, setCountdowns] = useState<CountdownDay[]>([]);
@@ -136,6 +146,30 @@ function CalendarPageInner() {
     saveCalendarViewOptions(window.localStorage, userId, next);
   }, [userId]);
 
+  // 日历筛选（标签/优先级/关键词）：默认不筛选；标签与优先级按用户持久化，关键词只留在本次会话。
+  const [calendarFilter, setCalendarFilter] = useState<CalendarTaskFilter>(DEFAULT_CALENDAR_TASK_FILTER);
+  useEffect(() => {
+    setCalendarFilter(loadCalendarTaskFilter(window.localStorage, userId));
+  }, [userId]);
+  // 标签列表加载完成后剔除已删除的标签 id（加载中 tags 为空，不能误清）。
+  useEffect(() => {
+    if (loading) return;
+    const validTagIds = new Set(tags.map((tag) => tag.id));
+    setCalendarFilter((current) => {
+      const next = pruneCalendarTaskFilterTags(current, validTagIds);
+      if (next !== current) saveCalendarTaskFilter(window.localStorage, userId, next);
+      return next;
+    });
+  }, [loading, tags, userId]);
+  const changeCalendarFilter = useCallback((next: CalendarTaskFilter) => {
+    setCalendarFilter(next);
+    saveCalendarTaskFilter(window.localStorage, userId, next);
+  }, [userId]);
+  const clearCalendarFilter = useCallback(
+    () => changeCalendarFilter({ ...DEFAULT_CALENDAR_TASK_FILTER }),
+    [changeCalendarFilter]
+  );
+
   // 未排期任务托盘：桌面开关按用户持久化（默认关）；手机（<768）走底部 sheet，不做拖拽。
   const narrowViewport = useIsNarrowViewport();
   const [trayOpen, setTrayOpen] = useState(false);
@@ -145,7 +179,9 @@ function CalendarPageInner() {
   }, [userId]);
   const [trayDrag, setTrayDrag] = useState<CalendarUnscheduledDragState | null>(null);
   const trayDropTargetRef = useRef<UnscheduledDropTarget | null>(null);
-  const unscheduledTasks = useMemo(() => filterUnscheduledTasks(tasks), [tasks]);
+  // 未排期托盘与日历同一筛选口径：标题计数与列表都随之变化。
+  const trayTasks = useMemo(() => applyCalendarTaskFilter(tasks, calendarFilter), [tasks, calendarFilter]);
+  const unscheduledTasks = useMemo(() => filterUnscheduledTasks(trayTasks), [trayTasks]);
 
   // 拖入排期 / 快捷排期共用：乐观更新 + 撤销 toast；失败回滚与错误提示仍由 useTaskMutations 负责。
   const scheduleUnscheduledTask = useCallback(
@@ -243,8 +279,19 @@ function CalendarPageInner() {
     </Button>
   );
 
+  // 工具栏插槽：未排期开关 + 日历筛选（「显示」菜单由视图自身渲染在最右）。
+  const toolbarActions = (
+    <>
+      {trayToggleButton}
+      <CalendarFilterButton filter={calendarFilter} tags={tags} onChange={changeCalendarFilter} />
+    </>
+  );
+
   // 显示选项过滤只作用于日历视图；详情面板与 URL 选择仍用全量 tasks。
-  const calendarTasks = useMemo(() => filterCalendarTasks(visibleTasks, viewOptions), [visibleTasks, viewOptions]);
+  const calendarTasks = useMemo(
+    () => applyCalendarTaskFilter(filterCalendarTasks(visibleTasks, viewOptions), calendarFilter),
+    [visibleTasks, viewOptions, calendarFilter]
+  );
   const calendarCountdowns = useMemo(
     () => (viewOptions.showCountdowns ? countdowns : []),
     [countdowns, viewOptions.showCountdowns]
@@ -521,7 +568,17 @@ function CalendarPageInner() {
           onDeleteTask={(taskId) => void deleteTask(taskId)}
           viewOptions={viewOptions}
           onViewOptionsChange={changeViewOptions}
-          toolbarAction={trayToggleButton}
+          toolbarAction={toolbarActions}
+          calendarFilterBar={
+            <CalendarFilterChips
+              filter={calendarFilter}
+              tags={tags}
+              onChange={changeCalendarFilter}
+              onClear={clearCalendarFilter}
+            />
+          }
+          calendarFilterActive={isCalendarFilterActive(calendarFilter)}
+          onClearCalendarFilter={clearCalendarFilter}
           unscheduledDrag={trayDrag}
           onUnscheduledDragTarget={handleTrayDragTarget}
           createPreview={createPreview}
@@ -543,6 +600,22 @@ function CalendarPageInner() {
           onTaskCreated={(task: TaskWithTags, more) => {
             setTasks((current) => [...current.filter((item) => item.id !== task.id), task]);
             setCreatedId(task.id);
+            // 新任务不满足当前筛选时不能"凭空消失"：提示并可一键清除筛选。
+            if (isCalendarFilterActive(calendarFilter) && !applyCalendarTaskFilter([task], calendarFilter).length) {
+              toast({
+                title: "已创建，但被当前筛选隐藏",
+                action: createElement(
+                  "button",
+                  {
+                    type: "button",
+                    className:
+                      "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                    onClick: clearCalendarFilter,
+                  },
+                  "清除筛选"
+                ),
+              });
+            }
             // A chosen list/date may fall outside the current sidebar scope.
             // Reveal the saved event in its destination instead of silently hiding it.
             const patch: Record<string, string | null> = more ? { task: task.id } : {};
@@ -566,7 +639,7 @@ function CalendarPageInner() {
       </div>
       {trayOpen && !narrowViewport && (
         <CalendarUnscheduledTray
-          tasks={tasks}
+          tasks={trayTasks}
           onOpenTask={(task) => updateUrl({ task: task.id })}
           onQuickSchedule={quickScheduleUnscheduledTask}
           dragCallbacks={{
@@ -593,7 +666,7 @@ function CalendarPageInner() {
       <CalendarUnscheduledSheet
         open={traySheetOpen}
         onOpenChange={setTraySheetOpen}
-        tasks={tasks}
+        tasks={trayTasks}
         onOpenTask={(task) => {
           setTraySheetOpen(false);
           updateUrl({ task: task.id });

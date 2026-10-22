@@ -49,6 +49,7 @@ vi.mock("@/lib/tasks/workspace", async (original) => ({
   useTaskWorkspaceData: () => ({
     tasks: mocks.tasks,
     lists: [],
+    tags: [],
     dependencies: [],
     loading: false,
     refetch: mocks.refetch,
