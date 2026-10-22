@@ -23,6 +23,8 @@ import {
   CanvasEmbedStatus,
   CanvasFocus,
   CanvasFreeItem,
+  CanvasInkBlock,
+  INK_MAX_SIZE,
   CanvasShapeBlock,
   SHAPE_MIN_HEIGHT,
   SHAPE_MAX_HEIGHT,
@@ -135,6 +137,7 @@ export interface CanvasViewportRect {
 const AUTO_PLACE_BOARD_HEIGHT = 240;
 
 function autoPlaceFreeItemHeight(item: CanvasFreeItem): number {
+  if (item.block.type === "ink") return item.block.height;
   const inner = Math.max(1, item.width - BLOCK_PADDING * 2);
   if (item.block.type === "image") {
     return imageNaturalHeight(item.block, inner) + BLOCK_CHROME;
@@ -1184,6 +1187,24 @@ export function createFreeShape(
   });
 }
 
+/** A finished stroke enters history as a single free-item command. */
+export function createFreeInk(
+  doc: CanvasDoc,
+  args: { x: number; y: number; width: number; height: number; points: number[]; strokeWidth?: CanvasInkBlock["strokeWidth"]; color?: string },
+  newId: CanvasIdGenerator = defaultIdGenerator,
+): CanvasCommandResult {
+  if (doc.freeItems.length >= CANVAS_LIMITS.maxFreeItems) return { doc };
+  return edit(doc, (draft) => {
+    const item: CanvasFreeItem = {
+      id: newId(), x: args.x, y: args.y, width: args.width, zIndex: nextZIndex(draft),
+      block: { id: newId(), type: "ink", height: args.height, baseWidth: args.width, baseHeight: args.height,
+        points: [...args.points], strokeWidth: args.strokeWidth ?? 4, color: args.color ?? "" },
+    };
+    draft.freeItems.push(item);
+    return { kind: "free", itemId: item.id, edit: false };
+  });
+}
+
 export function createFreeImage(
   doc: CanvasDoc,
   args: { x: number; y: number; width?: number; asset?: CanvasImageAsset | null },
@@ -1214,8 +1235,11 @@ export function updateFreeItem(
     if (item) {
       if (!item.locked && args.x !== undefined) item.x = args.x;
       if (!item.locked && args.y !== undefined) item.y = args.y;
-      if (!item.locked && args.width !== undefined) item.width = Math.min(item.block.type === "shape" ? 2000 : Infinity, Math.max(80, args.width));
-      // Geometry callers pass outer height; only shapes persist it (minus chrome).
+      if (!item.locked && args.width !== undefined) item.width = Math.min(item.block.type === "shape" || item.block.type === "ink" ? 2000 : Infinity, Math.max(item.block.type === "ink" ? 1 : 80, args.width));
+      if (!item.locked && args.height !== undefined && item.block.type === "ink") {
+        item.block.height = Math.min(INK_MAX_SIZE, Math.max(1, args.height));
+      }
+      // Geometry callers pass outer height; shapes subtract their container chrome.
       if (!item.locked && args.height !== undefined && item.block.type === "shape") {
         item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height - BLOCK_CHROME));
       }
@@ -1229,6 +1253,8 @@ export function updateFreeItemBlock(
   doc: CanvasDoc,
   args: {
     itemId: string;
+    strokeWidth?: CanvasInkBlock["strokeWidth"];
+    color?: string;
     kind?: CanvasShapeBlock["kind"];
     height?: number;
     text?: string;
@@ -1242,6 +1268,10 @@ export function updateFreeItemBlock(
   return edit(doc, (draft) => {
     const item = findFreeItem(draft, args.itemId);
     if (!item) return null;
+    if (item.block.type === "ink") {
+      if (args.strokeWidth !== undefined) item.block.strokeWidth = args.strokeWidth;
+      if (args.color !== undefined) item.block.color = args.color;
+    }
     if (item.block.type === "shape") {
       if (args.kind !== undefined) item.block.kind = args.kind;
       if (!item.locked && args.height !== undefined) item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height));
@@ -1318,7 +1348,7 @@ export function attachFreeItemToRegion(
     const item = findFreeItem(draft, args.freeItemId);
     const board = findBoard(draft, args.boardId);
     const region = board?.regions.find((r) => r.id === args.regionId);
-    if (!item || item.block.type === "shape" || !board || !region) return null;
+    if (!item || item.block.type === "shape" || item.block.type === "ink" || !board || !region) return null;
     // Validate the complete destination before removing the free source.
     if (args.sectionId) {
       const section = region.sections.find((s) => s.id === args.sectionId);

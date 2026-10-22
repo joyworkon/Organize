@@ -82,7 +82,7 @@ export function scaleFreeGroup(
   if (!bounds || bounds.width <= 0 || members.some((m) => m.width <= 0 || ![m.x, m.y, m.width, m.height].every(Number.isFinite)) || ![dx, dy].every(Number.isFinite)) {
     return { members: [], frame: null };
   }
-  const minScale = Math.max(opts.minScale ?? 0, ...members.map((m) => MIN_FREE_ITEM_WIDTH / m.width));
+  const minScale = Math.max(opts.minScale ?? 0, ...members.map((m) => (m.minWidth ?? MIN_FREE_ITEM_WIDTH) / m.width));
   const frame = resizeFreeItem(bounds, handle, dx, dy, {
     ...opts, minWidth: bounds.width * minScale, maxWidth: bounds.width * (opts.maxScale ?? Infinity), heightForWidth: (width) => bounds.height * width / bounds.width,
   });
@@ -93,7 +93,7 @@ export function scaleFreeGroup(
     frame,
     members: members.map((m) => ({
       ...m, x: frame.x + (m.x - bounds.x) * s, y: frame.y + (m.y - bounds.y) * s,
-      width: Math.max(MIN_FREE_ITEM_WIDTH, m.width * s), height: m.height * s,
+      width: Math.max(m.minWidth ?? MIN_FREE_ITEM_WIDTH, m.width * s), height: m.height * s,
     })),
   };
 }

@@ -334,6 +334,7 @@ export function freeItemHeight(
   item: CanvasDoc["freeItems"][number],
   measure: CanvasMeasure,
 ): number {
+  if (item.block.type === "ink") return item.block.height;
   const inner = Math.max(1, item.width - BLOCK_CHROME);
   if (item.block.type === "shape") {
     return Math.max(MIN_TEXT_CONTENT_HEIGHT, item.block.height) + BLOCK_CHROME;

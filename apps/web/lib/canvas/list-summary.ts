@@ -41,7 +41,7 @@ export function summarizeCanvas(content: unknown): CanvasListSummary | null {
   const kinds = new Map<string, CanvasSummaryShape["kind"]>();
   const visit = (block: CanvasBlock | CanvasFreeItemBlock) => {
     blocks += 1;
-    kinds.set(block.id, block.type === "image" ? "image" : block.type === "divider" || block.type === "button" || block.type === "shape" ? "block" : "text");
+    kinds.set(block.id, block.type === "image" ? "image" : block.type === "divider" || block.type === "button" || block.type === "shape" || block.type === "ink" ? "block" : "text");
     if (!excerpt) excerpt = Array.from(blockText(block).split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "").slice(0, 80).join("");
   };
   for (const board of doc.boards) for (const region of board.regions) {

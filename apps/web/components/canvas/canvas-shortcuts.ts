@@ -6,7 +6,7 @@ import { copyCanvasSelection, pasteCanvasClipboard } from "@/lib/canvas/clipboar
 import type { CanvasSelection, CanvasStore, CanvasViewport } from "./canvas-store";
 import { clampZoom } from "./canvas-viewport";
 
-export type CanvasShortcut = "find" | "select-all" | "copy" | "cut" | "paste" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "zoom-selection" | "help";
+export type CanvasShortcut = "pen" | "find" | "select-all" | "copy" | "cut" | "paste" | "duplicate" | "zoom-in" | "zoom-out" | "zoom-reset" | "zoom-fit" | "zoom-selection" | "help";
 
 /** Only match canvas keys outside native text editing; callers also guard modal/editor state. */
 export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
@@ -25,6 +25,7 @@ export function matchCanvasShortcut(e: KeyboardEvent): CanvasShortcut | null {
     if (key === "d") return "duplicate";
     return null;
   }
+  if (key === "p" && !e.shiftKey) return "pen";
   if (key === "?" || (e.shiftKey && (key === "/" || e.code === "Slash"))) return "help";
   if (e.shiftKey && (e.code === "Digit1" || key === "!" || key === "1")) return "zoom-fit";
   if (e.shiftKey && (e.code === "Digit2" || key === "@" || key === "2")) return "zoom-selection";

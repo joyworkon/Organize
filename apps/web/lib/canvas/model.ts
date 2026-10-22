@@ -295,7 +295,22 @@ export interface CanvasShapeBlock {
   style?: CanvasBlockStyle;
 }
 
-export type CanvasFreeItemBlock = CanvasTextBlock | CanvasImageBlock | CanvasShapeBlock;
+export const INK_MAX_POINTS = 1000;
+export const INK_MAX_SIZE = 2000;
+/** Ink has no container padding/chrome. Points are relative to its original bounding box. */
+export interface CanvasInkBlock {
+  id: string;
+  type: "ink";
+  height: number;
+  points: number[];
+  baseWidth: number;
+  baseHeight: number;
+  strokeWidth: 2 | 4 | 8;
+  color?: string;
+  style?: CanvasBlockStyle;
+}
+
+export type CanvasFreeItemBlock = CanvasTextBlock | CanvasImageBlock | CanvasShapeBlock | CanvasInkBlock;
 
 /** 自由容器：绝对定位，独立于自动版面。文本/图片高度由内容计算，形状保存内容高。 */
 export interface CanvasFreeItem {

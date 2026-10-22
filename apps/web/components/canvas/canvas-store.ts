@@ -54,6 +54,8 @@ export interface CanvasEditorState {
   editingBlockId: string | null;
   /** IME 组合计数：每次 composition 结束 +1，用于拆分撤销事务。 */
   compositionSeq: number;
+  tool: "select" | "pen";
+  setTool: (tool: "select" | "pen") => void;
   previewMode: boolean;
   readOnly: boolean;
   saveStatus: CanvasSaveStatus;
@@ -120,6 +122,12 @@ export function createCanvasStore(initial?: {
     focus: null,
     editingBlockId: null,
     compositionSeq: 0,
+    tool: "select",
+    setTool: (tool) => {
+      const state = get();
+      if (tool === "pen" && (state.readOnly || state.previewMode)) return;
+      set({ tool, editingBlockId: null, focus: null, selection: null });
+    },
     previewMode: false,
     readOnly: initial?.readOnly ?? false,
     saveStatus: "unknown",
@@ -136,6 +144,7 @@ export function createCanvasStore(initial?: {
         title,
         revision,
         localSeq: 0,
+        tool: "select",
         readOnly: readOnly ?? false,
         recoveredFromDraft: recoveredFromDraft ?? false,
         saveStatus: "saved",
@@ -279,6 +288,7 @@ export function createCanvasStore(initial?: {
     togglePreview: () =>
       set((state) => ({
         previewMode: !state.previewMode,
+        tool: "select",
         editingBlockId: null,
         selection: null,
       })),

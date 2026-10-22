@@ -18,6 +18,7 @@ import { CONNECTOR_SIDES } from "@/lib/canvas/connectors";
 import { LockKeyhole as Lock } from "@/components/icons";
 import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import { MIN_TEXT_CONTENT_HEIGHT, SHAPE_MIN_HEIGHT, SHAPE_MAX_HEIGHT, type CanvasFreeItem, type CanvasConnectorSide } from "@/lib/canvas/model";
+import { CanvasInk } from "./canvas-ink";
 import { BLOCK_CHROME } from "@/lib/canvas/layout";
 import { deleteFreeItem, updateFreeItem, updateFreeItemBlock } from "@/lib/canvas/commands";
 import {
@@ -240,7 +241,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       const snapped = drag.mode === "resize"
         ? resizeFreeItem(origin, drag.handle, dx, dy, {
             center: e.shiftKey, snapEnabled: !e.altKey, targets: snapTargets, threshold: 6 / zoom, heightForWidth,
-            independentHeight: item.block.type === "shape", minHeight: SHAPE_MIN_HEIGHT + BLOCK_CHROME, maxHeight: SHAPE_MAX_HEIGHT + BLOCK_CHROME,
+            independentHeight: item.block.type === "shape" || item.block.type === "ink", minWidth: item.block.type === "ink" ? 1 : undefined, minHeight: item.block.type === "ink" ? 1 : SHAPE_MIN_HEIGHT + BLOCK_CHROME, maxHeight: item.block.type === "ink" ? 2000 : SHAPE_MAX_HEIGHT + BLOCK_CHROME,
           })
         : e.altKey
           ? { ...origin, x: origin.x + dx, y: origin.y + dy, guides: [] as SnapGuide[] }
@@ -299,7 +300,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   const x = (groupResizeLive?.x ?? item.x) + (live?.dx ?? 0) + (groupLive?.dx ?? 0);
   const y = (groupResizeLive?.y ?? item.y) + (live?.dy ?? 0) + (groupLive?.dy ?? 0);
   const width = live?.w ?? groupResizeLive?.width ?? item.width;
-  const displayHeight = live?.h ?? (groupResizeLive ? item.block.type === "shape" ? groupResizeLive.height : heightForWidth?.(width) ?? height : height);
+  const displayHeight = live?.h ?? (groupResizeLive ? item.block.type === "shape" || item.block.type === "ink" ? groupResizeLive.height : heightForWidth?.(width) ?? height : height);
   useEffect(() => {
     onLiveGeometry?.(item.id, live ? { x, y, width, height: displayHeight } : null);
   }, [item.id, live, x, y, width, displayHeight, onLiveGeometry]);
@@ -311,6 +312,8 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   const isText = block.type === "text";
   const textBlock = isText ? block : null;
   const imageBlock = block.type === "image" ? block : null;
+  const inkBlock = block.type === "ink" ? block : null;
+  const independentSize = block.type === "shape" || block.type === "ink";
   const shapeBlock = block.type === "shape" ? block : null;
   const textStyle = textBlock ? resolveTextStyle(textBlock) : null;
   const asset = imageBlock?.asset ?? null;
@@ -374,15 +377,16 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
 
   return (
     <div
-      className={`canvas-free-item ${item.locked ? "is-locked" : ""} ${shapeBlock ? "is-shape" : ""} ${shapeBlock?.kind === "ellipse" ? "is-ellipse" : ""} ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
+      className={`canvas-free-item ${inkBlock ? "is-ink" : ""} ${item.locked ? "is-locked" : ""} ${shapeBlock ? "is-shape" : ""} ${shapeBlock?.kind === "ellipse" ? "is-ellipse" : ""} ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
       style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${displayHeight}px`, zIndex: item.zIndex,
         background: block.style?.background ? `var(--cv-bg-${block.style.background})` : undefined,
         borderRadius: shapeBlock?.kind === "ellipse" ? "50%" : block.style?.radius != null ? `${block.style.radius}px` : undefined }}
       data-free-item-id={item.id}
       data-shape-kind={shapeBlock?.kind}
+      data-ink={inkBlock ? "true" : undefined}
       role="button"
       tabIndex={(interactive || !!onConnect) && !editing ? 0 : -1}
-      aria-label={shapeBlock ? `自由${shapeBlock.kind === "rect" ? "矩形" : "椭圆"}` : isText ? "自由文本内容框" : "自由图片内容框"}
+      aria-label={inkBlock ? "笔迹" : shapeBlock ? `自由${shapeBlock.kind === "rect" ? "矩形" : "椭圆"}` : isText ? "自由文本内容框" : "自由图片内容框"}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || !interactive || editing || e.key !== "Enter" || !isText) return;
         e.preventDefault();
@@ -420,7 +424,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           data-connector-port={side} aria-label={`从${({ top: "上", right: "右", bottom: "下", left: "左" })[side]}边连接`}
           style={{ transform: `translate(-50%, -50%) scale(${1 / zoom})`,
             left: side === "left" ? -28 / zoom : side === "right" ? `calc(100% + ${28 / zoom}px)` : undefined,
-            top: shapeBlock ? side === "top" ? -28 / zoom : side === "bottom" ? `calc(100% + ${28 / zoom}px)` : undefined : undefined }}
+            top: independentSize ? side === "top" ? -28 / zoom : side === "bottom" ? `calc(100% + ${28 / zoom}px)` : undefined : undefined }}
           onClick={(e) => { e.stopPropagation(); if (e.detail === 0) onConnect(side); }} />
       ))}
       {selected && !grouped && onConnect && (
@@ -434,7 +438,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
         </span>
       )}
 
-      {shapeBlock ? null : textBlock ? (
+      {inkBlock ? <CanvasInk block={inkBlock} /> : shapeBlock ? null : textBlock ? (
         editing && interactive ? (
           <textarea
             ref={(el) => {
@@ -514,7 +518,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           {/* 移动手柄（方向键微调由工作区统一处理：1px / ⇧10px） */}
           <div
             className="canvas-free-move"
-            style={{ top: onConnect ? -16 - (shapeBlock ? 52 : 24) / zoom : undefined }}
+            style={{ top: onConnect ? -16 - (independentSize ? 52 : 24) / zoom : undefined }}
             title="拖动移动"
             aria-label="拖动移动自由容器"
             role="button"
@@ -525,7 +529,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           />
           <CanvasFreeResizeHandles
             zoom={zoom}
-            shape={!!shapeBlock}
+            shape={independentSize}
             active={live?.handle}
             size={item.block.type !== "text" ? `${Math.round(width)} × ${Math.round(displayHeight)}` : `${Math.round(width)} px`}
             onBegin={(e, handle) => beginDrag(e, "resize", handle)}
@@ -534,15 +538,15 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
             onCancel={() => { cancelDrag(); detachEsc(); }}
             onKeyDown={(e, handle) => {
               const horizontal = e.key === "ArrowLeft" || e.key === "ArrowRight";
-              const vertical = !!shapeBlock && (e.key === "ArrowUp" || e.key === "ArrowDown");
+              const vertical = independentSize && (e.key === "ArrowUp" || e.key === "ArrowDown");
               if (!horizontal && !vertical) return;
               e.preventDefault();
               e.stopPropagation();
               if (!canResize || store.getState().readOnly) return;
               const next = resizeFreeItem({ x: item.x, y: item.y, width: item.width, height }, handle,
                 horizontal ? e.key === "ArrowLeft" ? -10 : 10 : 0, vertical ? e.key === "ArrowUp" ? -10 : 10 : 0,
-                { center: e.shiftKey, snapEnabled: false, heightForWidth, independentHeight: !!shapeBlock,
-                  minHeight: SHAPE_MIN_HEIGHT + BLOCK_CHROME, maxHeight: SHAPE_MAX_HEIGHT + BLOCK_CHROME });
+                { center: e.shiftKey, snapEnabled: false, heightForWidth, independentHeight: independentSize, minWidth: inkBlock ? 1 : undefined,
+                  minHeight: inkBlock ? 1 : SHAPE_MIN_HEIGHT + BLOCK_CHROME, maxHeight: inkBlock ? 2000 : SHAPE_MAX_HEIGHT + BLOCK_CHROME });
               store.getState().apply("调整自由容器尺寸", (d) => updateFreeItem(d, { itemId: item.id, x: next.x, y: next.y, width: next.width, height: next.height }));
             }}
           />

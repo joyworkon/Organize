@@ -22,9 +22,10 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
 }) {
   const shapeLimits = (items: readonly FreeGroupMember[]) => {
     const shapes = items.filter((m) => store.getState().doc.freeItems.find((item) => item.id === m.id)?.block.type === "shape");
+    const inks = items.filter((m) => store.getState().doc.freeItems.find((item) => item.id === m.id)?.block.type === "ink");
     return {
-      minScale: Math.max(0, ...shapes.map((m) => (SHAPE_MIN_HEIGHT + BLOCK_CHROME) / m.height)),
-      maxScale: Math.min(Infinity, ...shapes.map((m) => Math.min(2000 / m.width, (SHAPE_MAX_HEIGHT + BLOCK_CHROME) / m.height))),
+      minScale: Math.max(0, ...inks.map((m) => 1 / m.height), ...shapes.map((m) => (SHAPE_MIN_HEIGHT + BLOCK_CHROME) / m.height)),
+      maxScale: Math.min(Infinity, ...inks.map((m) => Math.min(2000 / m.width, 2000 / m.height)), ...shapes.map((m) => Math.min(2000 / m.width, (SHAPE_MAX_HEIGHT + BLOCK_CHROME) / m.height))),
     };
   };
   const drag = useRef<{

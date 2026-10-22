@@ -6765,6 +6765,14 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
 }
+.canvas-viewport.is-drawing, .canvas-viewport.is-drawing * { cursor: crosshair; }
+.canvas-viewport.is-drawing.is-panning, .canvas-viewport.is-drawing.is-panning * { cursor: grab; }
+.canvas-free-item.is-ink { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.canvas-free-item.is-ink.is-selected { outline: 1px solid hsl(var(--primary)); }
+.canvas-free-item.is-ink.is-static { outline: none; }
+.canvas-ink-path { display: block; overflow: visible; pointer-events: none; }
+.canvas-ink-draft { position: absolute; inset: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 10001; }
+.canvas-pen-hint { position: absolute; top: 12px; left: 50%; translate: -50% 0; padding: 6px 12px; border-radius: var(--radius-md); background: hsl(var(--card)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); font-size: 12px; pointer-events: none; }
 .canvas-free-item.is-selected { border-color: hsl(var(--primary)); }
 .canvas-free-item.is-static { cursor: default; }
 .canvas-free-item.is-locked { cursor: default; border-style: dashed; }
