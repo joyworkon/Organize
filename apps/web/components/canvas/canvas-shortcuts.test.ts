@@ -8,7 +8,7 @@ import { allCanvasBlockIds, canvasShortcutLabels, commitCanvasDuplicate, duplica
 describe("canvas shortcut matching", () => {
   for (const mod of ["metaKey", "ctrlKey"]) {
     it.each([
-      ["a", "select-all"], ["A", "select-all"], ["c", "copy"], ["C", "copy"],
+      ["f", "find"], ["F", "find"], ["a", "select-all"], ["A", "select-all"], ["c", "copy"], ["C", "copy"],
       ["x", "cut"], ["X", "cut"], ["v", "paste"], ["V", "paste"], ["d", "duplicate"],
       ["=", "zoom-in"], ["+", "zoom-in"], ["-", "zoom-out"], ["0", "zoom-reset"],
     ])(`matches ${mod} + %s`, (key, action) => {
@@ -46,7 +46,7 @@ describe("canvas shortcut matching", () => {
   it.each(["input", "textarea", "select", "div"])("leaves %s editing native", (tag) => {
     const target = document.createElement(tag);
     if (tag === "div") Object.defineProperty(target, "isContentEditable", { value: true });
-    for (const key of ["a", "c", "x", "v", "d", "=", "-", "0", "?"]) {
+    for (const key of ["f", "a", "c", "x", "v", "d", "=", "-", "0", "?"]) {
       const event = new KeyboardEvent("keydown", { key, ctrlKey: key !== "?", bubbles: true });
       target.dispatchEvent(event);
       expect(matchCanvasShortcut(event)).toBeNull();

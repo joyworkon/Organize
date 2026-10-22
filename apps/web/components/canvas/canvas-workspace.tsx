@@ -17,6 +17,8 @@ import {
 } from "react";
 import Link from "next/link";
 import { Keyboard } from "lucide-react";
+import { findCanvasContent } from "@/lib/canvas/board-find";
+import { CanvasFindBar } from "./canvas-find-bar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { selectionForFocus, withoutCanvasFocus } from "@/lib/canvas/focus-link";
 import { MATERIAL_ADD_ERROR, MATERIAL_ADD_SUCCESS } from "@/lib/canvas/material-feedback";
@@ -34,6 +36,7 @@ import {
   PanelLeftOpen,
   Plus,
   Redo2,
+  Search,
   Undo2,
 } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -202,6 +205,25 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   const [remoteRow, setRemoteRow] = useState<CanvasRow | null>(null);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
+  const [findFocusNonce, setFindFocusNonce] = useState(0);
+  const [findActivationNonce, setFindActivationNonce] = useState(0);
+  const findButtonRef = useRef<HTMLButtonElement>(null);
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    setFindFocusNonce((nonce) => nonce + 1);
+  }, []);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    findButtonRef.current?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindIndex(0);
+  }, [documentId]);
   /** 预览演示的当前页（进入预览与翻页时更新；指示条与翻页键的数据源）。 */
   const [previewBoardId, setPreviewBoardId] = useState<string | null>(null);
   /** PNG 导出：目标页面 id（非 null 时挂载离屏静态层并执行一次导出）。 */
@@ -499,6 +521,40 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     );
   }, [scene, store, visibleViewportNow]);
 
+  // ---------------- 画布内查找（只读 UI） ----------------
+
+  const findHits = useMemo(() => findCanvasContent(doc, findQuery), [doc, findQuery]);
+  const activeFindIndex = findHits.length ? Math.min(findIndex, findHits.length - 1) : 0;
+  const activeFindHit = findOpen ? findHits[activeFindIndex] : undefined;
+  const stepFind = useCallback((step: 1 | -1) => {
+    if (!findHits.length) return;
+    setFindActivationNonce((nonce) => nonce + 1);
+    setFindIndex((index) => (Math.min(index, findHits.length - 1) + step + findHits.length) % findHits.length);
+  }, [findHits.length]);
+
+  useEffect(() => {
+    if (!activeFindHit) return;
+    const state = store.getState();
+    state.stopEdit();
+    state.select(activeFindHit.target);
+    // 等待属性栏随选区完成渲染，再测量实际可用视口。
+    const frame = requestAnimationFrame(() => fitSelection(activeFindHit.target));
+    if (state.previewMode && "boardId" in activeFindHit.target) setPreviewBoardId(activeFindHit.target.boardId);
+    return () => cancelAnimationFrame(frame);
+  }, [activeFindHit, store, fitSelection, findActivationNonce]);
+
+  useEffect(() => {
+    if (!activeFindHit) return;
+    const attr = { board: "board", region: "region", block: "block", free: "free-item", connector: "connector" }[activeFindHit.kind];
+    const element = shellRef.current?.querySelector(`[data-${attr}-id="${CSS.escape(activeFindHit.id)}"]`);
+    element?.classList.add("canvas-find-hit");
+    const timer = setTimeout(() => element?.classList.remove("canvas-find-hit"), 2000);
+    return () => {
+      clearTimeout(timer);
+      element?.classList.remove("canvas-find-hit");
+    };
+  }, [activeFindHit, selection, findActivationNonce]);
+
   // ---------------- 预览按页演示 ----------------
 
   /** 预览翻页：按 doc.boards 顺序循环选页并适合该页（与「适合选区」同一路径）。 */
@@ -675,6 +731,21 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     const onKeyDown = (e: KeyboardEvent) => {
       if (load.phase !== "ready" || e.defaultPrevented || e.isComposing || e.keyCode === 229 || hasOpenDialog()) return;
       const s = store.getState();
+      const inFindBar = (e.target as HTMLElement | null)?.closest(".canvas-find-bar");
+      // 查找框自身允许重复 Mod+F，其余输入控件保留原生文字查找。
+      if (matchCanvasShortcut(e) === "find" || (inFindBar && !e.altKey && !e.shiftKey &&
+        (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f")) {
+        e.preventDefault();
+        e.stopPropagation();
+        openFind();
+        return;
+      }
+      if (findOpen && e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeFind();
+        return;
+      }
       if (s.previewMode && e.key === "Escape") {
         s.togglePreview();
         return;
@@ -804,7 +875,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection, gotoPreviewPage, connectionsOnly]);
+  }, [store, load.phase, changeCanvasZoom, fitAll, fitSelection, gotoPreviewPage, connectionsOnly, findOpen, openFind, closeFind]);
 
   const worldCenterNow = useCallback(() => {
     const rect = visibleViewportNow();
@@ -1331,7 +1402,7 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   })();
 
   return (
-    <div className="canvas-page" data-canvas-editor={documentId}>
+    <div className="canvas-page" data-canvas-editor={documentId} data-find-open={findOpen || undefined}>
       {/* 顶栏 */}
       <header className="canvas-header">
         <Link href="/canvas" className="canvas-header-back" aria-label="返回画布列表" title="返回画布列表">
@@ -1353,6 +1424,10 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
         >
           {saveLabel}
         </span>
+        <Button ref={findButtonRef} type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground"
+          aria-label="查找画布内容" title={`查找（${shortcutLabels.mod}F）`} onClick={openFind}>
+          <Search className="h-4 w-4" />
+        </Button>
         {readOnly && (
           <div className="canvas-header-actions">
             <Button
@@ -1417,6 +1492,10 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
           </div>
         )}
       </header>
+      {findOpen && <CanvasFindBar query={findQuery} onQueryChange={(query) => {
+        setFindQuery(query);
+        setFindIndex(0);
+      }} hits={findHits} index={activeFindIndex} onStep={stepFind} onClose={closeFind} focusNonce={findFocusNonce} />}
 
       {/* 状态横幅独立堆叠，避免恢复草稿与冲突提示相互覆盖。 */}
       <div className="canvas-feedback">
