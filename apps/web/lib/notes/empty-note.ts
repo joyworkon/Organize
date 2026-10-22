@@ -8,6 +8,9 @@ export function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
   if (!doc) return true;
   const walk = (node: JSONContent): boolean => {
     if (node.type === "text") return !(node.text ?? "").trim();
+    // 待办项是用户有意选择的结构（斜杠菜单 / 起步模板），即使文本为空也算内容；
+    // 否则「待办清单」模板会被误判为空文档（面板不消失、离开被当空笔记丢弃）。
+    if (node.type === "taskItem") return false;
     // 非文本叶子节点（图片、分割线、附件、数据库块等）都算内容
     if (!node.content || node.content.length === 0) {
       return ["doc", "paragraph", "heading"].includes(node.type ?? "");
