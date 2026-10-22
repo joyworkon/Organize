@@ -882,7 +882,8 @@ const createSyncedBlock: MockHandler = ({ body }) => {
   }
   const input = validateCreateBody(body);
   if (!input.ok) return { status: input.rejection.status, body: { error: input.rejection.error } };
-  const id = input.id ?? genId("synced_blocks");
+  // Match the real UUID primary key so references can use the same validation in mock mode.
+  const id = input.id ?? crypto.randomUUID();
   // 与真实 route 一致：主键冲突走 serverError 23505 → 409「数据已存在」
   if (mockDb.synced_blocks.some((r) => r.id === id)) {
     return { status: 409, body: { error: "数据已存在", code: "DUPLICATE" } };

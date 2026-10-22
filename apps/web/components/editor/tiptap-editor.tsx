@@ -78,6 +78,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
+import { pasteSyncedReference } from "./extensions/synced-block-actions";
 import { showPrompt } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
 import { buildEditorExtensions } from "./editor-extensions";
@@ -454,6 +455,10 @@ export function TipTapEditor({
           return true;
         }
         const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
+        if (pasteSyncedReference(current, clipboardText)) {
+          event.preventDefault();
+          return true;
+        }
         if (!shouldPasteUrlAsEmbed({ clipboardText, selection: view.state.selection, storedMarks: view.state.storedMarks, isEditable: current.isEditable })) return false;
         event.preventDefault();
         replaceBlock(current, view.state.selection.$from.before(), { type: "embed", attrs: { url: isBareHttpUrl(clipboardText) } });

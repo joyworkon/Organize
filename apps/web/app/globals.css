@@ -4462,6 +4462,7 @@
 .organize-synced-block.ProseMirror-selectednode { box-shadow: 0 0 0 2px hsl(var(--ring) / .3); }
 .organize-synced-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 5px 12px;
@@ -4469,6 +4470,12 @@
   color: hsl(var(--muted-foreground));
   font-size: 12px;
   border-bottom: 1px solid hsl(var(--border));
+}
+.organize-synced-toolbar > span:first-child { display: inline-flex; align-items: center; gap: 4px; }
+.organize-synced-actions { display: flex; flex-wrap: wrap; margin-left: auto; gap: 4px; color: hsl(var(--foreground)); }
+.organize-synced-actions > button { font-size: 12px; }
+@media (max-width: 767px), (pointer: coarse) {
+  .organize-synced-actions > button { min-height: 44px; }
 }
 .organize-synced-status {
   display: inline-flex;

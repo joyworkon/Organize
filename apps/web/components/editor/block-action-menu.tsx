@@ -27,6 +27,7 @@ import { createPortal } from "react-dom";
 import { TEXT_COLORS, BACKGROUNDS, TEXT_TRANSFORMABLE_TYPES } from "./block-action-options";
 import { BLOCK_COMMANDS, commandMatches } from "./block-commands";
 import { copyBlockDeepLink, duplicateBlockAtPosition } from "./block-shortcuts";
+import { unlinkSyncedBlock } from "./extensions/synced-block-actions";
 import { focusAndHighlightBlock } from "./extensions/block-selection";
 import {
   findListParent,
@@ -418,7 +419,12 @@ export function BlockActionMenu({
         )}
         <div className="editor-menu-separator" />
         <Action icon={Link2} label="拷贝区块链接" shortcut="⌘⌥L" onMouseEnter={closeSubView} onClick={() => finish(() => { void copyBlockDeepLink(noteId, target.id); })} query={query} />
-        <Action icon={Copy} label="创建副本" shortcut="⌘D" onMouseEnter={closeSubView} onClick={() => finish(() => { duplicateBlockAtPosition(editor, target.pos); })} query={query} />
+        <Action icon={Copy} label={target.type === "syncedBlock" ? "插入引用副本" : "创建副本"} shortcut="⌘D" onMouseEnter={closeSubView} onClick={() => finish(() => { duplicateBlockAtPosition(editor, target.pos); })} query={query} />
+        {target.type === "syncedBlock" && editor.isEditable && (
+          <Action icon={FileInput} label="解除同步" onMouseEnter={closeSubView} onClick={() => finish(() => {
+            unlinkSyncedBlock(editor, target.pos, String(target.json.attrs?.syncedId || ""));
+          })} query={query} />
+        )}
         <Action icon={ArrowUp} label="上移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, -1))} query={query} />
         <Action icon={ArrowDown} label="下移" onMouseEnter={closeSubView} onClick={() => finish(() => moveBlock(editor, target, 1))} query={query} />
         <Action icon={FileInput} label="移动到" onMouseEnter={closeSubView} onClick={() => finish(() => dispatchDialog(editor, "move", target))} query={query} />

@@ -77,8 +77,9 @@ export function replaceSyncedBlockContent(
   content: JSONContent[],
   syncedId: string
 ): boolean {
+  if (editor.isDestroyed) return false;
   const node = editor.state.doc.nodeAt(pos);
-  if (!node) return false;
+  if (node?.type.name !== "syncedBlock" || node.attrs.syncedId !== syncedId) return false;
   const safeContent = content.length > 0 ? content : [{ type: "paragraph" }];
   const start = pos + 1;
   const end = pos + node.nodeSize - 1;
