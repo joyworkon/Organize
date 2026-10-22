@@ -36,10 +36,10 @@ import {
 import {
   MAX_SPAN_LANES,
   allDayRowTasksOnDay,
-  isSingleDayTimedSpan as isSingleDayTimed,
   layoutSpanSegments,
   type SpanSegment,
 } from "@/lib/tasks/calendar-allday-layout";
+import { layoutDayTimedEventsWithOverflow, type WeekTimedEvent } from "@/lib/tasks/calendar-timed-layout";
 import { isRecurringProjection, projectRecurringTasks, recurringSource } from "@/lib/tasks/recurring-occurrences";
 import { isTaskOverdue } from "@/lib/tasks/workspace";
 import { nudgeRange, resizeRangeFromPointer } from "@/lib/tasks/time-grid-resize";
@@ -83,6 +83,7 @@ import {
 
 // 纯日期函数已迁到 lib/tasks/calendar-agenda；这里保留导出给既有测试与调用方。
 export { getMonthCells, getTaskDate };
+export { layoutDayTimedEvents } from "@/lib/tasks/calendar-timed-layout";
 
 const MONTH_NAMES = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
 /** 每周最多可见泳道数，超出的折叠为 +N（与全天行共用，见 lib/tasks/calendar-allday-layout） */
@@ -188,56 +189,6 @@ export function timeGridRangeFromOffsets(startOffsetY: number, currentOffsetY: n
   const b = snap(currentOffsetY);
   const startMin = Math.min(1440 - CREATE_SNAP_MIN, a, b);
   return { startMin, endMin: Math.max(startMin + CREATE_SNAP_MIN, a, b) };
-}
-
-interface WeekTimedEvent {
-  task: TaskWithTags;
-  startMin: number;
-  endMin: number;
-  lane: number;
-  lanes: number;
-}
-
-/** 单日定时事件布局：包含当天 24:00 右开边界，重叠的贪心分列。 */
-export function layoutDayTimedEvents(
-  tasks: TaskWithTags[],
-  day: Date
-): WeekTimedEvent[] {
-  const dayTime = dateOnly(day).getTime();
-  const plain: Array<Omit<WeekTimedEvent, "lane" | "lanes">> = [];
-  for (const task of tasks) {
-    const start = getTaskDate(task);
-    if (!start || task.all_day) continue;
-    const end = taskEnd(task);
-    if (!end) continue;
-    if (dateOnly(start).getTime() !== dayTime || !isSingleDayTimed(start, end)) {
-      continue; // 跨天任务走全天条
-    }
-    const startMin = start.getHours() * 60 + start.getMinutes();
-    const rawEndMin = isSameDay(start, end) ? minutesSinceMidnight(end) : 1440;
-    const endMin = Math.max(startMin + CREATE_SNAP_MIN, rawEndMin === startMin ? startMin + 60 : rawEndMin);
-    plain.push({ task, startMin, endMin });
-  }
-  plain.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
-
-  const result: WeekTimedEvent[] = [];
-  let cluster: Array<Omit<WeekTimedEvent, "lanes"> & { _end: number }> = [];
-  let clusterEnd = -1;
-  const flush = () => {
-    const lanes = cluster.reduce((max, e) => Math.max(max, e.lane + 1), 0);
-    for (const e of cluster) result.push({ ...e, lanes });
-    cluster = [];
-    clusterEnd = -1;
-  };
-  for (const ev of plain) {
-    if (cluster.length > 0 && ev.startMin >= clusterEnd) flush();
-    let lane = 0;
-    while (cluster.some((e) => e.lane === lane && e._end > ev.startMin)) lane += 1;
-    cluster.push({ ...ev, lane, _end: ev.endMin });
-    clusterEnd = Math.max(clusterEnd, ev.endMin);
-  }
-  flush();
-  return result;
 }
 
 interface TimeGridSelection {
@@ -538,8 +489,8 @@ export function TimeGridView({
   );
 
   const dayEvents = useMemo(
-    () => days.map((day) => layoutDayTimedEvents(tasks, day)),
-    [days, tasks]
+    () => days.map((day) => layoutDayTimedEventsWithOverflow(tasks, day, { createdId })),
+    [days, tasks, createdId]
   );
 
   // 全天行：全天任务 + 跨天任务画成跨列连续条（与月视图同一切段/泳道算法），
@@ -1208,7 +1159,7 @@ export function TimeGridView({
                       <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-destructive" />
                     </div>
                   )}
-                  {dayEvents[di].map((ev) => {
+                  {dayEvents[di].visible.map((ev) => {
                     const isDragged =
                       drag?.taskId === ev.task.id && !drag.allDayChip;
                     const isResizing = resize?.taskId === ev.task.id;
@@ -1281,6 +1232,26 @@ export function TimeGridView({
                       </button>
                     );
                   })}
+                  {dayEvents[di].overflowClusters.map((cluster) => (
+                    <div
+                      key={`${cluster.dayKey}-${cluster.startMin}`}
+                      className="absolute right-0.5 z-20"
+                      style={{ top: (cluster.startMin / 60) * HOUR_HEIGHT + 8 }}
+                    >
+                      <MonthDayPopover
+                        date={day}
+                        tasks={cluster.tasks}
+                        countdowns={[]}
+                        moreCount={cluster.hiddenCount}
+                        timedRange={cluster}
+                        tabIndex={0}
+                        onOpenDay={() => onOpenDay?.(day)}
+                        onTaskClick={onTaskClick}
+                        onToggleTaskDone={onToggleTaskDone}
+                        onTaskContextMenu={onTaskContextMenu}
+                      />
+                    </div>
+                  ))}
                   {draft && (
                     <div role="status" data-calendar-create-preview="timed" className="pointer-events-none absolute inset-x-0.5 z-30 rounded-md border border-dashed border-primary bg-background px-1 text-xs tabular-nums"
                       style={{ top: draftStart / 60 * HOUR_HEIGHT, height: Math.max(14, (draftEnd - draftStart) / 60 * HOUR_HEIGHT) }}>
@@ -1492,6 +1463,7 @@ function MonthDayPopover({
   tasks,
   countdowns,
   moreCount,
+  timedRange,
   tabIndex,
   onOpenDay,
   onTaskClick,
@@ -1503,6 +1475,7 @@ function MonthDayPopover({
   tasks: TaskWithTags[];
   countdowns: CountdownDay[];
   moreCount: number;
+  timedRange?: { startMin: number; endMin: number };
   tabIndex: number;
   onOpenDay: () => void;
   onTaskClick?: (task: TaskWithTags) => void;
@@ -1517,6 +1490,7 @@ function MonthDayPopover({
   const label = `${date.getMonth() + 1}月${date.getDate()}日`;
   const weekday = WEEKDAYS[(date.getDay() + 6) % 7];
   const total = tasks.length + countdowns.length;
+  const rangeLabel = timedRange ? `${minutesLabel(timedRange.startMin)} – ${minutesLabel(timedRange.endMin)}` : null;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -1526,8 +1500,9 @@ function MonthDayPopover({
           variant="ghost"
           size="sm"
           tabIndex={tabIndex}
-          aria-label={`查看 ${label} 全部 ${total} 项`}
-          className="ml-auto h-5 min-h-0 shrink-0 px-1 text-xs font-normal text-muted-foreground md:h-5 md:min-h-0"
+          data-timed-overlap-more={timedRange ? "" : undefined}
+          aria-label={`查看 ${label}${rangeLabel ? ` ${rangeLabel} 重叠任务` : ""} 全部 ${total} 项`}
+          className={cn("ml-auto h-5 min-h-0 shrink-0 px-1 text-xs font-normal text-muted-foreground md:h-5 md:min-h-0", timedRange && "border bg-background text-foreground hover:bg-accent")}
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
@@ -1551,7 +1526,10 @@ function MonthDayPopover({
         }}
       >
         <div className="flex items-center gap-2 border-b px-3 py-2">
-          <h3 id={titleId} className="min-w-0 flex-1 text-sm font-semibold">{label} {weekday}</h3>
+          <h3 id={titleId} className="min-w-0 flex-1 text-sm font-semibold">
+            {label} {weekday}
+            {rangeLabel && <span className="block text-xs font-normal tabular-nums text-muted-foreground">{rangeLabel}</span>}
+          </h3>
           <Button
             type="button"
             variant="ghost"
@@ -1581,7 +1559,7 @@ function MonthDayPopover({
             >
               <CalendarTaskCheckbox task={task} onToggle={onToggleTaskDone} />
               <span className="min-w-0 flex-1 truncate"><TaskRepeatIcon task={task} />{task.title}</span>
-              {timeLabel(task) ? <span className="shrink-0 text-[10px] opacity-70">{timeLabel(task)}</span> : null}
+              {timeLabel(task) ? <span className={cn("shrink-0 text-[10px]", timedRange ? "tabular-nums text-muted-foreground" : "opacity-70")}>{timeLabel(task)}</span> : null}
             </button>
           ))}
           {countdowns.map((item) => (
