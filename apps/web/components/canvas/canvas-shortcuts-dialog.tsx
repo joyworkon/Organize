@@ -14,6 +14,7 @@ export function CanvasShortcutsDialog({ open, onOpenChange, labels }: {
   const shortcuts = [
     ["撤销", `${mod}Z`],
     ["重做", `${shift}${mod}Z`],
+    ["查找画布内容", `${mod}F`],
     ["全选画布模块", `${mod}A`],
     ["复制", `${mod}C`],
     ["剪切", `${mod}X`],

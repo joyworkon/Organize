@@ -7505,3 +7505,38 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: 8px;
 }
 .file-attachment [aria-label="附件块"] > .file-attachment-name { display: block; margin-bottom: 4px; }
+
+/* 画布内查找在正常流中占位，缩放/适合选区始终使用剩余的真实视口。 */
+.canvas-find-bar {
+  flex-shrink: 0;
+  align-self: flex-end;
+  width: min(440px, calc(100% - 16px));
+  height: 72px;
+  margin: 8px;
+  padding: 4px 8px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-lg);
+  background: hsl(var(--background) / 0.95);
+  color: hsl(var(--foreground));
+}
+.canvas-page[data-find-open] { --canvas-find-offset: 88px; }
+.canvas-page[data-find-open] :is(.canvas-add-panel-wrap, .canvas-add-panel-expand, .canvas-property-bar) {
+  top: calc(64px + var(--canvas-find-offset));
+  max-height: calc(100% - 148px - var(--canvas-find-offset));
+}
+.canvas-page[data-find-open] .canvas-preview-hint { top: calc(56px + var(--canvas-find-offset)); }
+.canvas-find-snippet { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 4px 4px; }
+.canvas-find-hit { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+/* SVG 连接线沿用选中光晕，避免对 g 元素画矩形外框。 */
+g.canvas-find-hit { outline: none; }
+g.canvas-find-hit .canvas-connector-line { stroke: hsl(var(--ring)); }
+@media (max-width: 767px), (pointer: coarse) {
+  .canvas-page[data-find-open] { --canvas-find-offset: 96px; }
+  .canvas-find-bar { height: 80px; }
+  .canvas-find-bar button { min-width: 44px; min-height: 44px; }
+}
+
+/* 手机说明是工作区的相邻浮层；查找展开时下移，避免挡住输入和导航。 */
+.canvas-mobile-notice:has(+ .canvas-page[data-find-open]) {
+  top: calc(env(safe-area-inset-top, 0px) + 152px);
+}
