@@ -74,6 +74,7 @@ import {
   weekdayLabel,
 } from "./calendar-shared";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
+import { CalendarFilterEmptyHint } from "./calendar-filter-bar";
 import { MobileMonthView } from "./calendar-mobile-month";
 import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
 import {
@@ -1542,6 +1543,12 @@ interface TaskMonthViewProps extends CountdownActions {
   onViewOptionsChange?: (next: CalendarViewOptions) => void;
   /** 工具栏插槽（如未排期任务开关按钮）；渲染在导航与「显示」菜单之间。 */
   toolbarAction?: React.ReactNode;
+  /** 日历筛选生效时的条件 chip 行（页面组装）；渲染在工具栏正下方。 */
+  calendarFilterBar?: React.ReactNode;
+  /** 筛选生效标记：可见范围内无任务时显示「当前筛选下没有任务」轻提示。 */
+  calendarFilterActive?: boolean;
+  /** 轻提示的「清除筛选」动作。 */
+  onClearCalendarFilter?: () => void;
   /** 未排期托盘拖入排期的会话；视图内计算落点并渲染预览。 */
   unscheduledDrag?: CalendarUnscheduledDragState | null;
   /** 落点上报（null = 日历外 / 未开始）；页面在松手时取最后一次上报应用排期。 */
@@ -1811,6 +1818,9 @@ function TaskMonthViewContent({
   viewOptions,
   onViewOptionsChange,
   toolbarAction,
+  calendarFilterBar,
+  calendarFilterActive,
+  onClearCalendarFilter,
   unscheduledDrag,
   onUnscheduledDragTarget,
 }: TaskMonthViewProps) {
@@ -1877,6 +1887,17 @@ function TaskMonthViewContent({
     for (let i = 0; i < cells.length; i += colCount) result.push(cells.slice(i, i + colCount).map((c) => c.date));
     return result;
   }, [cells, colCount]);
+  // 可见范围内是否还有任务：筛选生效但本范围为空时给出轻提示（年视图按任务起止与年份相交判断）。
+  const visibleRangeHasTasks = useMemo(() => {
+    if (mode !== "year") return monthTasks.length > 0;
+    const year = cursor.getFullYear();
+    return monthTasks.some((task) => {
+      const start = getTaskDate(task);
+      if (!start) return false;
+      const end = task.schedule_end_at ? new Date(task.schedule_end_at) : start;
+      return start.getFullYear() <= year && end.getFullYear() >= year;
+    });
+  }, [mode, monthTasks, cursor]);
   const weekLayouts = useMemo(
     () => weeks.map((week) => layoutWeekSegments(monthTasks, week, createdId)),
     [weeks, monthTasks, createdId]
@@ -2384,6 +2405,11 @@ function TaskMonthViewContent({
           )}
         </div>
       </header>
+
+      {calendarFilterBar}
+      {calendarFilterActive && !visibleRangeHasTasks && (
+        <CalendarFilterEmptyHint onClear={onClearCalendarFilter} />
+      )}
 
       {mode === "week" && (
         <>
