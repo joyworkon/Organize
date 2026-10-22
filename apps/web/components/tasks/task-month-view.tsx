@@ -57,6 +57,12 @@ import {
   computeTimeGridDrop,
   type TimeGridZone,
 } from "@/lib/tasks/allday-timed-convert";
+import {
+  resolveMonthDropTarget,
+  resolveTimeGridDropTarget,
+  type CalendarUnscheduledDragState,
+  type UnscheduledDropTarget,
+} from "@/lib/tasks/calendar-unscheduled";
 import type { TaskSchedule } from "@/components/tasks/task-date-picker";
 import {
   CalendarTaskCheckbox,
@@ -274,6 +280,10 @@ interface TimeGridViewProps {
   onOpenDay?: (date: Date) => void;
   /** +N 弹层经 portal 渲染，根容器事件委托接不到，右键由这里显式上报。 */
   onTaskContextMenu?: (task: TaskWithTags, event: React.MouseEvent) => void;
+  /** 未排期托盘拖入排期的会话（任务 + 指针位置）；moved 后计算落点并画预览。 */
+  unscheduledDrag?: CalendarUnscheduledDragState | null;
+  /** 落点上报（null = 网格外 / 未开始）；松手时页面取最后一次上报应用排期。 */
+  onUnscheduledDragTarget?: (target: UnscheduledDropTarget | null) => void;
 }
 
 /** 时间网格列数 → grid-cols 类（隐藏周末时 5 列）。 */
@@ -283,6 +293,14 @@ const TIME_GRID_COLS: Record<number, string> = { 1: "grid-cols-1", 5: "grid-cols
 const ALLDAY_BAR_PX = 24;
 const ALLDAY_LANE_PX = 28;
 const ALLDAY_CHIP_ROW_PX = 16;
+
+/** 列上第一条空闲泳道（0 起）；满员时叠放第一行（仅拖拽瞬态）。月格与全天行共用。 */
+function firstFreeLaneForSegments(segments: SpanSegment[], col: number): number {
+  for (let lane = 0; lane < MAX_LANES; lane += 1) {
+    if (!segments.some((seg) => seg.lane === lane && seg.startCol <= col && col <= seg.endCol)) return lane;
+  }
+  return 0;
+}
 
 /** 跨天条的 aria 文案：`标题，10月20日–10月22日`；单日任务返回 undefined（按钮内容即名称）。 */
 function allDaySpanLabel(task: TaskWithTags): string | undefined {
@@ -307,8 +325,12 @@ export function TimeGridView({
   createdId,
   onOpenDay,
   onTaskContextMenu,
+  unscheduledDrag,
+  onUnscheduledDragTarget,
 }: TimeGridViewProps) {
   const { dragDate: countdownDragDate } = useCountdownInteractions();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const allDayRowRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const movedRef = useRef(false);
   const grabRef = useRef({ offsetMin: 24, origDayIdx: 0, origSlotMin: 0, startClientY: 0 });
@@ -469,6 +491,30 @@ export function TimeGridView({
     : null;
 
   const dragTask = (drag && tasks.find((t) => t.id === drag.taskId)) || null;
+
+  /* ---- 未排期托盘拖入：全天行 / 时间格槽位落点（容器外为 null）与上报 ---- */
+  const unscheduledTarget = useMemo(() => {
+    if (!unscheduledDrag?.moved) return null;
+    return resolveTimeGridDropTarget({
+      surfaceRect: rootRef.current?.getBoundingClientRect() ?? null,
+      allDayRect: allDayRowRef.current?.getBoundingClientRect() ?? null,
+      gridRect: gridRef.current?.getBoundingClientRect() ?? null,
+      gridScrollTop: gridRef.current?.scrollTop ?? 0,
+      gutterWidth: GUTTER_W,
+      hourHeight: HOUR_HEIGHT,
+      days,
+      clientX: unscheduledDrag.clientX,
+      clientY: unscheduledDrag.clientY,
+    });
+  }, [unscheduledDrag, days]);
+
+  useEffect(() => {
+    onUnscheduledDragTarget?.(unscheduledTarget);
+  }, [unscheduledTarget, onUnscheduledDragTarget]);
+
+  const unscheduledAllDayKey =
+    unscheduledTarget?.zone === "all-day" ? keyFor(unscheduledTarget.date) : null;
+  const unscheduledTimed = unscheduledTarget?.zone === "timed" ? unscheduledTarget : null;
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -892,15 +938,10 @@ export function TimeGridView({
   const rowLanes = Math.max(usedLanes, hasOverflow ? MAX_LANES + 1 : 0);
   const hasCreatePreview = createPreview?.allDay && days.some((day) => calendarCreatePreviewOnDay(createPreview, day));
   const rowMinHeight = Math.max(38, stripTop + 8 + (rowLanes + (hasCreatePreview || allDayCreateCols ? 1 : 0)) * ALLDAY_LANE_PX - 4);
-  const firstFreeLane = (di: number) => {
-    for (let lane = 0; lane < MAX_LANES; lane += 1) {
-      if (!allDaySegments.some((seg) => seg.lane === lane && seg.startCol <= di && di <= seg.endCol)) return lane;
-    }
-    return 0; // 满员时叠放第一行（仅拖拽瞬态）
-  };
+  const firstFreeLane = (di: number) => firstFreeLaneForSegments(allDaySegments, di);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* 星期表头 */}
       <div className="flex shrink-0 border-b bg-background">
         <div className="w-12 shrink-0" />
@@ -926,7 +967,7 @@ export function TimeGridView({
       </div>
 
       {/* 全天 / 跨天 / 倒数日 条：倒数日按日 chip 留在列内，任务画成跨列连续条 */}
-      <div data-countdown-surface="all-day" className="flex shrink-0 border-b bg-muted/20">
+      <div ref={allDayRowRef} data-countdown-surface="all-day" className="flex shrink-0 border-b bg-muted/20">
         <div className="grid w-12 shrink-0 place-items-center text-[10px] text-muted-foreground">
           全天
         </div>
@@ -934,6 +975,7 @@ export function TimeGridView({
           {days.map((day, di) => {
             const chips_countdown = visibleCountdowns.get(keyFor(day)) || [];
             const allDayTarget = !!drag && drag.zone === "all-day" && drag.moved && drag.dayIdx === di;
+            const externalAllDay = unscheduledAllDayKey === keyFor(day);
             const hiddenCount = hiddenByCol[di];
             const inAllDayCreate = !!allDayCreateCols && allDayCreateCols.lo <= di && di <= allDayCreateCols.hi;
             return (
@@ -947,7 +989,7 @@ export function TimeGridView({
                   onDateClick && "select-none",
                   countdownDragDate === countdownDateKey(day) && "bg-primary/10 ring-2 ring-inset ring-primary",
                   isSameDay(day, now) && "bg-accent/60",
-                  allDayTarget && "bg-primary/5",
+                  (allDayTarget || externalAllDay) && "bg-primary/5",
                   inAllDayCreate && "bg-primary/10"
                 )}
                 style={{ minHeight: rowMinHeight }}
@@ -987,6 +1029,17 @@ export function TimeGridView({
                     style={{ top: laneTop(firstFreeLane(di)), height: ALLDAY_BAR_PX }}
                   >
                     <span className="truncate">{dragTask.title}</span>
+                  </div>
+                )}
+                {/* 未排期托盘拖入全天行的落点占位（同风格独立泳道） */}
+                {externalAllDay && unscheduledDrag && (
+                  <div
+                    data-drop-placeholder="all-day"
+                    data-drop-placeholder-source="tray"
+                    className="absolute inset-x-1 z-20 flex items-center overflow-hidden rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-muted-foreground"
+                    style={{ top: laneTop(firstFreeLane(di)), height: ALLDAY_BAR_PX }}
+                  >
+                    <span className="truncate">{unscheduledDrag.task.title}</span>
                   </div>
                 )}
                 {hiddenCount > 0 && (
@@ -1328,6 +1381,39 @@ export function TimeGridView({
                       </div>
                     </div>
                   )}
+                  {/* 未排期托盘拖入定时槽位：占位框 + 幽灵卡（默认时长与全天⇄定时互转一致） */}
+                  {unscheduledDrag && unscheduledTimed && keyFor(unscheduledTimed.date) === keyFor(day) && (
+                    <>
+                      <div
+                        aria-hidden="true"
+                        data-drop-placeholder-source="tray"
+                        className="pointer-events-none absolute inset-x-0.5 z-20 rounded-[--radius-md] border-2 border-dashed border-primary/40 bg-primary/5"
+                        style={{
+                          top: (unscheduledTimed.slotMin / 60) * HOUR_HEIGHT + 1,
+                          height: Math.max((ALLDAY_TO_TIMED_DEFAULT_MIN / 60) * HOUR_HEIGHT - 2, 26),
+                        }}
+                      />
+                      <div
+                        role="status"
+                        className="pointer-events-none absolute inset-x-0.5 z-30"
+                        style={{
+                          top: (unscheduledTimed.slotMin / 60) * HOUR_HEIGHT + 1,
+                          height: Math.max((ALLDAY_TO_TIMED_DEFAULT_MIN / 60) * HOUR_HEIGHT - 2, 26),
+                        }}
+                      >
+                        <div
+                          className={cn(
+                            "flex h-full w-full -rotate-2 items-center justify-center overflow-hidden rounded-[--radius-md] px-1.5 opacity-80 shadow-lg",
+                            categoryClass(unscheduledDrag.task)
+                          )}
+                        >
+                          <span className="truncate text-sm font-semibold">
+                            {WEEK_DAY_LABELS[(day.getDay() + 6) % 7]} {minutesLabel(unscheduledTimed.slotMin)} – {minutesLabel(Math.min(1440, unscheduledTimed.slotMin + ALLDAY_TO_TIMED_DEFAULT_MIN))}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -1454,6 +1540,12 @@ interface TaskMonthViewProps extends CountdownActions {
   viewOptions?: CalendarViewOptions;
   /** 显示选项变更（工具栏「显示」菜单）。 */
   onViewOptionsChange?: (next: CalendarViewOptions) => void;
+  /** 工具栏插槽（如未排期任务开关按钮）；渲染在导航与「显示」菜单之间。 */
+  toolbarAction?: React.ReactNode;
+  /** 未排期托盘拖入排期的会话；视图内计算落点并渲染预览。 */
+  unscheduledDrag?: CalendarUnscheduledDragState | null;
+  /** 落点上报（null = 日历外 / 未开始）；页面在松手时取最后一次上报应用排期。 */
+  onUnscheduledDragTarget?: (target: UnscheduledDropTarget | null) => void;
 }
 
 const MONTH_CELL_FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[3px] focus-visible:ring-offset-background";
@@ -1718,6 +1810,9 @@ function TaskMonthViewContent({
   createdId,
   viewOptions,
   onViewOptionsChange,
+  toolbarAction,
+  unscheduledDrag,
+  onUnscheduledDragTarget,
 }: TaskMonthViewProps) {
   const { dragDate: countdownDragDate } = useCountdownInteractions();
   const today = new Date();
@@ -2231,6 +2326,26 @@ function TaskMonthViewContent({
 
   const monthCreateFirstRow = monthCreateRange ? weeks.findIndex((week) => dragCreateWeekColumns(week, monthCreateRange)) : -1;
 
+  /* ---- 未排期托盘拖入月格：落点（网格外为 null）、上报与预览 ---- */
+  const unscheduledMonthDate = useMemo(() => {
+    if (mode !== "month" || !unscheduledDrag?.moved) return null;
+    return resolveMonthDropTarget({
+      gridRect: monthGridRef.current?.getBoundingClientRect() ?? null,
+      rowRects: weeks.map((_, index) => monthRowsRef.current[index]?.getBoundingClientRect() ?? null),
+      weeks,
+      colCount,
+      clientX: unscheduledDrag.clientX,
+      clientY: unscheduledDrag.clientY,
+    });
+  }, [mode, unscheduledDrag, weeks, colCount]);
+  const unscheduledMonthKey = unscheduledMonthDate ? keyFor(unscheduledMonthDate) : null;
+
+  useEffect(() => {
+    if (mode !== "month") return;
+    onUnscheduledDragTarget?.(unscheduledMonthDate ? { zone: "all-day", date: unscheduledMonthDate } : null);
+  }, [mode, unscheduledMonthDate, onUnscheduledDragTarget]);
+
+
   return (
     <div
       className="organize-task-month-view flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
@@ -2263,6 +2378,7 @@ function TaskMonthViewContent({
           <Button type="button" variant="outline" size="icon" aria-label="上一页" title="上一页（←）" onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" /></Button>
           <Button type="button" variant="outline" size="sm" title="今天（t）" onClick={goToday} className="shrink-0">今天</Button>
           <Button type="button" variant="outline" size="icon" aria-label="下一页" title="下一页（→）" onClick={() => step(1)}><ChevronRight className="h-5 w-5" /></Button>
+          {toolbarAction}
           {onViewOptionsChange && (
             <CalendarViewOptionsMenu options={viewOptions ?? DEFAULT_CALENDAR_VIEW_OPTIONS} onChange={onViewOptionsChange} />
           )}
@@ -2335,6 +2451,8 @@ function TaskMonthViewContent({
               createPreview={createPreview}
               createdId={createdId}
               onOpenDay={openDayView}
+              unscheduledDrag={unscheduledDrag}
+              onUnscheduledDragTarget={onUnscheduledDragTarget}
               onTaskContextMenu={(task, event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -2413,6 +2531,7 @@ function TaskMonthViewContent({
                           !inMonth && "bg-muted/20 text-muted-foreground",
                           isToday && "bg-accent/70",
                           (dragOverDate === cellKey || countdownDragDate === countdownDateKey(date)) && "bg-primary/10 ring-2 ring-inset ring-primary",
+                          unscheduledMonthKey === cellKey && "bg-primary/10 ring-2 ring-inset ring-primary",
                           inCreateRange && "bg-primary/10",
                         )}
                       >
@@ -2523,6 +2642,27 @@ function TaskMonthViewContent({
                       {monthDrag.task.title}
                     </div>
                   ))}
+                  {/* 未排期托盘拖入月格的落点幽灵条：目标列第一条空闲泳道 */}
+                  {unscheduledMonthKey && unscheduledDrag && (() => {
+                    const col = week.findIndex((date) => keyFor(date) === unscheduledMonthKey);
+                    if (col < 0) return null;
+                    const lane = firstFreeLaneForSegments(segments, col);
+                    return (
+                      <div
+                        aria-hidden="true"
+                        data-drop-placeholder-source="tray"
+                        className="pointer-events-none absolute z-20 truncate rounded border-2 border-dashed border-primary/40 bg-primary/5 px-1.5 text-xs text-foreground"
+                        style={{
+                          top: DAY_HEADER_PX + lane * LANE_HEIGHT_PX + 2,
+                          height: LANE_HEIGHT_PX - 4,
+                          left: `calc(${(col / colCount) * 100}% + 2px)`,
+                          width: `calc(${100 / colCount}% - 4px)`,
+                        }}
+                      >
+                        {unscheduledDrag.task.title}
+                      </div>
+                    );
+                  })()}
                   {/* 拖选新建的即时区间条：每周行一段，跨周行时只有首段向读屏播报 */}
                   {createCols && monthCreateRange && (
                     <div
@@ -2579,6 +2719,8 @@ function TaskMonthViewContent({
             createPreview={createPreview}
             createdId={createdId}
             onOpenDay={openDayView}
+            unscheduledDrag={unscheduledDrag}
+            onUnscheduledDragTarget={onUnscheduledDragTarget}
             onTaskContextMenu={(task, event) => {
               event.preventDefault();
               event.stopPropagation();

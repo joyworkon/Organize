@@ -6,7 +6,7 @@
  * 调用方只提供任务数组和刷新入口。
  */
 
-import { createElement, useCallback, useRef, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import { toast } from "@/hooks/use-toast";
 import { isOnline } from "@/lib/offline/network";
 import { isNetworkSaveError } from "@/lib/offline/note-sync";
@@ -14,6 +14,7 @@ import { enqueueTaskOp, makeTaskUpdateOp, taskOpsCount, type PendingTaskOp } fro
 import { appEvents } from "@/lib/plugin/events";
 import { applyTaskUpdate } from "@/lib/tasks/atomic-update";
 import { requestNextRecurringTask } from "@/lib/tasks/recurring";
+import { undoToastAction } from "@/lib/tasks/undo-toast";
 import type { Task, TaskWithTags } from "@organize/shared";
 
 type TaskMutationClient = Parameters<typeof applyTaskUpdate>[0];
@@ -184,29 +185,21 @@ export function useTaskMutations({
     window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
     const createdToast = toast({
       title: "任务已移入垃圾箱",
-      action: createElement(
-        "button",
-        {
-          type: "button",
-          className: "rounded-md border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent",
-          onClick: async () => {
-            createdToast.dismiss();
-            const { error: restoreError } = await supabase.rpc("mutate_trash", {
-              p_action: "restore",
-              p_resource_type: "task",
-              p_ids: [taskId],
-            });
-            if (restoreError) {
-              toast({ title: "恢复失败，请在垃圾箱中重试", variant: "destructive" });
-              return;
-            }
-            await refreshTasks({ silent: true });
-            window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
-            toast({ title: "已恢复任务" });
-          },
-        },
-        "撤销",
-      ),
+      action: undoToastAction(async () => {
+        createdToast.dismiss();
+        const { error: restoreError } = await supabase.rpc("mutate_trash", {
+          p_action: "restore",
+          p_resource_type: "task",
+          p_ids: [taskId],
+        });
+        if (restoreError) {
+          toast({ title: "恢复失败，请在垃圾箱中重试", variant: "destructive" });
+          return;
+        }
+        await refreshTasks({ silent: true });
+        window.dispatchEvent(new CustomEvent("organize:tasks-changed"));
+        toast({ title: "已恢复任务" });
+      }),
     });
   }, [onDeleted, refreshTasks, setPendingOps, setTasks, supabase, tasks, userId]);
 
