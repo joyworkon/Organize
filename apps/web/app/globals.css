@@ -7500,3 +7500,8 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   color: hsl(var(--foreground));
 }
 .canvas-export-shift { position: absolute; left: 0; top: 0; }
+
+.file-attachment [aria-label="附件块"]:focus-visible {
+  outline: 2px solid hsl(var(--ring)); outline-offset: 3px; border-radius: 8px;
+}
+.file-attachment [aria-label="附件块"] > .file-attachment-name { display: block; margin-bottom: 4px; }

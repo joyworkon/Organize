@@ -739,6 +739,9 @@ export function TipTapEditor({
         else if (detail.type === "image") {
           uploadImage(detail.pos, detail.nested, detail.range);
         }
+        else if (detail.type === "file") {
+          uploadAttachment(detail.pos, detail.nested, detail.range);
+        }
         else if (detail.type === "math") {
           const pos = detail.pos;
           const nestedRange = detail.nested && detail.range ? detail.range : null;
@@ -810,7 +813,7 @@ export function TipTapEditor({
     };
     root?.addEventListener("organize-editor-action", handler);
     return () => root?.removeEventListener("organize-editor-action", handler);
-  }, [addReadingReference, convertBlockToPage, editor, noteId, router, uploadImage]);
+  }, [addReadingReference, convertBlockToPage, editor, noteId, router, uploadImage, uploadAttachment]);
 
   useEffect(() => {
     if (!editor || !tableFullscreen) return;
@@ -1498,7 +1501,7 @@ export function TipTapEditor({
         shouldShow={shouldShowTextToolbar}
         tippyOptions={{ duration: 150, maxWidth: "none", zIndex: 50 }}
       >
-        <BubbleToolbar onEditLink={() => setLinkEditRequest((value) => value + 1)} editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onUploadAttachment={uploadAttachment} onAddTable={addTable} onAddReference={() => addReadingReference()} />
+        <BubbleToolbar onEditLink={() => setLinkEditRequest((value) => value + 1)} editor={editor} onUploadImage={() => uploadImage()} onAddImageUrl={addImageUrl} onUploadAttachment={() => uploadAttachment()} onAddTable={addTable} onAddReference={() => addReadingReference()} />
       </BubbleMenu>
       <BubbleMenu
         editor={editor}

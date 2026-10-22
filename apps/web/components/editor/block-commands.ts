@@ -10,6 +10,7 @@ import {
   Columns3,
   Columns4,
   FileText,
+  Paperclip,
   Heading1,
   Heading2,
   Heading3,
@@ -53,7 +54,7 @@ const TOP_ONLY_CONTEXTS: readonly BlockCommandContext[] = ["top"];
 export const ALL_CONTEXTS: readonly BlockCommandContext[] = ["top", "nested"];
 
 /** 嵌套上下文走 emit 事件路径的命令（由 tiptap-editor 的 organize-editor-action 处理器负责删除触发文本并插入） */
-export const NESTED_EMIT_COMMANDS = ["image", "html", "math", "reference"] as const;
+export const NESTED_EMIT_COMMANDS = ["image", "file", "html", "math", "reference"] as const;
 
 export function isCommandAvailableInContext(
   command: Pick<BlockCommandDefinition, "supportedContexts">,
@@ -469,6 +470,14 @@ export const BLOCK_COMMANDS: BlockCommandDefinition[] = [
     icon: ImageIcon,
     keywords: ["image", "upload", "图片", "上传"],
     run: (editor, pos) => emit(editor, "image", pos),
+  },
+  {
+    id: "file",
+    label: "附件",
+    category: "媒体",
+    icon: Paperclip,
+    keywords: ["附件", "文件", "file", "upload", "pdf"],
+    run: (editor, pos) => emit(editor, "file", pos),
   },
   {
     id: "table",
