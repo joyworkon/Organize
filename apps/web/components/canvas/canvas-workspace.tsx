@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Download,
   Eye,
   Loader2,
   Maximize2,
@@ -84,6 +85,8 @@ import { deleteDraft, loadDraft, saveDraft } from "@/lib/canvas/draft";
 import { AutosaveController, type AutosaveSnapshot } from "@/lib/canvas/autosave";
 import { isMockBackend, resolveAssetUrl, uploadCanvasImage } from "@/lib/canvas/assets";
 import { validateCanvasContent } from "@/lib/canvas/validation";
+import { membersForBoardExport } from "@/lib/canvas/board-export";
+import { CanvasBoardExportSurface, runBoardExport } from "./canvas-board-export";
 import { createCanvasStore, type CanvasSelection } from "./canvas-store";
 import { boundsForSelection } from "@/lib/canvas/selection-bounds";
 import { BLOCK_CHROME, computeScene } from "@/lib/canvas/layout";
@@ -201,6 +204,10 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   const [showShortcuts, setShowShortcuts] = useState(false);
   /** 预览演示的当前页（进入预览与翻页时更新；指示条与翻页键的数据源）。 */
   const [previewBoardId, setPreviewBoardId] = useState<string | null>(null);
+  /** PNG 导出：目标页面 id（非 null 时挂载离屏静态层并执行一次导出）。 */
+  const [exportJob, setExportJob] = useState<string | null>(null);
+  const exportStageRef = useRef<HTMLDivElement | null>(null);
+  const exportingRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuRequest | null>(null);
   const contextMenuRef = useRef<CanvasContextMenuRequest | null>(null);
   const contextNonce = useRef(0);
@@ -533,6 +540,63 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     ? doc.boards.findIndex((b) => b.id === previewBoardId)
     : -1;
   const pagerBoard = previewMode ? (pagerIndex >= 0 ? doc.boards[pagerIndex] : doc.boards[0] ?? null) : null;
+
+  // ---------------- 导出页面为 PNG ----------------
+
+  const exportingBoard = exportJob !== null;
+
+  /** 导出入口（属性栏/大纲/把手/预览指示条共用）：只读副作用，不写文档。 */
+  const startBoardExport = useCallback(
+    (boardId: string) => {
+      if (exportingRef.current) return;
+      if (!membersForBoardExport(store.getState().doc, scene, boardId)) {
+        toast({ title: "无法导出", description: "页面不存在或画布为空", variant: "destructive" });
+        return;
+      }
+      exportingRef.current = true;
+      setExportJob(boardId);
+    },
+    [scene, store],
+  );
+
+  /** 导出编排：等离屏静态层挂载后光栅化并下载；成功轻提示、失败 destructive toast。 */
+  useEffect(() => {
+    if (exportJob === null) return;
+    let cancelled = false;
+    const raf = requestAnimationFrame(() => {
+      void (async () => {
+        const state = store.getState();
+        try {
+          await runBoardExport({
+            stage: exportStageRef.current,
+            boardId: exportJob,
+            doc: state.doc,
+            scene,
+            canvasTitle: state.title,
+            fontsReady,
+          });
+          if (!cancelled) toast({ title: "已导出 PNG" });
+        } catch (error) {
+          if (!cancelled) {
+            toast({
+              title: "导出失败",
+              description: error instanceof Error ? error.message : "光栅化失败，请重试",
+              variant: "destructive",
+            });
+          }
+        } finally {
+          exportingRef.current = false;
+          if (!cancelled) setExportJob(null);
+        }
+      })();
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+    // scene/fontsReady 取点击时刻的闭包值；只在任务变化时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportJob, store]);
 
   // A link from the library is a one-shot selection, after document/font geometry is ready.
   useEffect(() => {
@@ -1289,6 +1353,29 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
         >
           {saveLabel}
         </span>
+        {readOnly && (
+          <div className="canvas-header-actions">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              aria-label="导出页面为 PNG"
+              title={doc.boards.length > 0 ? "导出第一页为 PNG" : "画布为空，无法导出"}
+              disabled={exportingBoard || doc.boards.length === 0}
+              onClick={() => {
+                const first = doc.boards[0];
+                if (!first) {
+                  toast({ title: "无法导出", description: "画布为空，没有可导出的页面", variant: "destructive" });
+                  return;
+                }
+                startBoardExport(first.id);
+              }}
+            >
+              <Download className="h-4 w-4" /> {exportingBoard ? "正在导出…" : "导出 PNG"}
+            </Button>
+          </div>
+        )}
         {!readOnly && (
           <div className="canvas-header-actions">
             <Button
@@ -1434,6 +1521,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
                 freeImageInputRef.current?.click();
               }}
               onApplyTemplate={applyTemplate}
+              onExportBoard={startBoardExport}
+              exporting={exportingBoard}
               material={
                 <CanvasMaterialPanel
                   onInsertCard={insertMaterialCard}
@@ -1504,6 +1593,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
           onInsertFiles={onInsertFiles}
           onInsertEmbed={(url, explicit) => void runEmbedInsert(url, explicit)}
           onOpenContextMenu={openContextMenu}
+          onExportBoard={startBoardExport}
+          exportingBoard={exportingBoard}
         />
       </div>
 
@@ -1517,6 +1608,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
           onRefreshSource={(blockId) => void refreshMaterialSnapshot(blockId)}
           freeBoxes={scene.freeItems}
           scene={scene}
+          onExportBoard={startBoardExport}
+          exporting={exportingBoard}
         />
       )}
 
@@ -1668,6 +1761,17 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="导出页面为 PNG"
+              title={exportingBoard ? "正在导出…" : "导出当前页为 PNG"}
+              disabled={exportingBoard}
+              onClick={() => startBoardExport(pagerBoard.id)}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
             <span className="canvas-preview-pager-exit">Esc 退出</span>
           </div>
         ) : (
@@ -1675,6 +1779,20 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
             预览模式 · 按 Esc 退出
           </div>
         )
+      )}
+
+      {/* PNG 导出离屏静态层：负偏移隐藏，导出完成后卸载（只读，不写文档） */}
+      {exportJob !== null && (
+        <div className="canvas-export-stage" ref={exportStageRef} aria-hidden="true">
+          <CanvasBoardExportSurface
+            doc={doc}
+            scene={scene}
+            store={store}
+            assetUrls={assetUrls}
+            sourceStatuses={sourceStatuses}
+            boardId={exportJob}
+          />
+        </div>
       )}
     </div>
   );

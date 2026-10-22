@@ -15,7 +15,7 @@ import { canDetachSelection, commitDetachSelection } from "./canvas-detach-actio
 import type { Scene } from "@/lib/canvas/layout";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Copy, Trash2 } from "@/components/icons";
+import { Copy, Download, Trash2 } from "@/components/icons";
 import {
   attachFreeItemToRegion,
   deleteBlock,
@@ -100,6 +100,8 @@ export function CanvasPropertyBar({
   onRefreshSource,
   freeBoxes = [],
   scene,
+  onExportBoard,
+  exporting = false,
 }: {
   store: CanvasStore;
   measurer: MeasurerLike;
@@ -112,6 +114,10 @@ export function CanvasPropertyBar({
   /** 场景里已测的自由元素高度。对齐/分布用它，不用固定高。 */
   freeBoxes?: readonly FreeArrangeBox[];
   scene?: Scene;
+  /** 「导出 PNG」（页面属性栏主入口）：导出该页面为 PNG（只读副作用）。 */
+  onExportBoard?: (boardId: string) => void;
+  /** 导出进行中：按钮禁用并显示「正在导出…」。 */
+  exporting?: boolean;
 }) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
@@ -283,6 +289,15 @@ export function CanvasPropertyBar({
             }
           />
         </label>
+        {onExportBoard && (
+          <Button type="button" variant="outline" size="sm" className="gap-1 text-xs"
+            aria-label="导出页面为 PNG"
+            title={exporting ? "正在导出…" : "导出页面为 PNG（含压在页面上的自由元素）"}
+            disabled={exporting}
+            onClick={() => onExportBoard(board.id)}>
+            <Download className="h-3.5 w-3.5" /> {exporting ? "正在导出…" : "导出 PNG"}
+          </Button>
+        )}
         <Button type="button" variant="outline" size="sm" className="gap-1 text-xs"
           aria-label="复制页面" title="复制页面" onClick={() => commitBoardDuplicate(store, board.id)}>
           <Copy className="h-3.5 w-3.5" /> 复制页面

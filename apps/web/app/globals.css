@@ -7489,3 +7489,14 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   .organize-mermaid-selection-toolbar > button { min-height: 44px; min-width: 44px; }
   .organize-math-source { font-size: 16px; }
 }
+
+/* ========================= 构思画布：导出页面为 PNG（离屏层） ========================= */
+/* 离屏导出层：负偏移隐藏、不参与交互；字体栈与 .canvas-page 一致（lib/canvas/board-export.ts 的 EXPORT_FONT_STACK 同源维护） */
+.canvas-export-stage { position: fixed; left: -10000px; top: 0; pointer-events: none; z-index: -1; }
+.canvas-export-root {
+  position: relative;
+  overflow: hidden;
+  font-family: "MiSans VF", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: hsl(var(--foreground));
+}
+.canvas-export-shift { position: absolute; left: 0; top: 0; }

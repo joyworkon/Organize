@@ -15,6 +15,7 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  Download,
   FilePlus,
   Image as ImageIcon,
   LayoutTemplate,
@@ -45,6 +46,10 @@ export interface CanvasOutlineTreeProps {
   onReveal: (target:
     | { kind: "board"; boardId: string }
     | { kind: "region"; boardId: string; regionId: string }) => void;
+  /** 「导出 PNG」大纲入口：导出该页面（只读副作用，只读/预览同样可用）。 */
+  onExportBoard?: (boardId: string) => void;
+  /** 导出进行中：禁用各页导出按钮。 */
+  exporting?: boolean;
 }
 
 const TEMPLATES: Array<{ kind: CanvasTemplateKind; label: string; hint: string; icon: typeof LayoutTemplate }> = [
@@ -55,7 +60,7 @@ const TEMPLATES: Array<{ kind: CanvasTemplateKind; label: string; hint: string; 
 ];
 
 /** 结构分组（B2 抽出：大纲树本体，供添加面板折叠区复用）。 */
-export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeProps) {
+export function CanvasOutlineTree({ store, onReveal, onFit, onExportBoard, exporting }: CanvasOutlineTreeProps) {
   const doc = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.doc, []));
   const selection = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.selection, []));
 
@@ -72,7 +77,7 @@ export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeP
             label={board.name || `页面 ${bi + 1}`} writable={writable}
             index={bi} total={doc.boards.length}
             selected={selection?.kind === "board" && selection.boardId === board.id}
-            onReveal={onReveal} onFit={onFit} />
+            onReveal={onReveal} onFit={onFit} onExportBoard={onExportBoard} exporting={exporting} />
           {board.regions.map((region, ri) => (
             <RegionRow
               key={region.id}
@@ -94,10 +99,11 @@ export function CanvasOutlineTree({ store, onReveal, onFit }: CanvasOutlineTreeP
   );
 }
 
-function BoardRow({ store, boardId, name, label, writable, selected, index, total, onReveal, onFit }: {
+function BoardRow({ store, boardId, name, label, writable, selected, index, total, onReveal, onFit, onExportBoard, exporting }: {
   store: CanvasStore; boardId: string; name: string; label: string; writable: boolean; selected: boolean;
   index: number; total: number;
   onReveal: CanvasOutlineTreeProps["onReveal"]; onFit: CanvasOutlineTreeProps["onFit"];
+  onExportBoard: CanvasOutlineTreeProps["onExportBoard"]; exporting: boolean | undefined;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
@@ -138,6 +144,9 @@ function BoardRow({ store, boardId, name, label, writable, selected, index, tota
       <span className="canvas-outline-actions">
         {onFit && <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
           title="适合此页面" aria-label={`适合页面 ${label}`} onClick={fit}><Maximize2 className="h-3 w-3" /></Button>}
+        {onExportBoard && <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
+          title="导出页面为 PNG" aria-label={`导出页面 ${label} 为 PNG`} disabled={exporting}
+          onClick={() => onExportBoard(boardId)}><Download className="h-3 w-3" /></Button>}
         {writable && <>
           <Button type="button" variant="ghost" size="icon" className="canvas-outline-action"
             title="重命名页面" aria-label={`重命名页面 ${label}`} onClick={startRename}><Pencil className="h-3 w-3" /></Button>
