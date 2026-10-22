@@ -15,6 +15,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { CONNECTOR_SIDES } from "@/lib/canvas/connectors";
+import { LockKeyhole as Lock } from "@/components/icons";
+import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import { MIN_TEXT_CONTENT_HEIGHT, SHAPE_MIN_HEIGHT, SHAPE_MAX_HEIGHT, type CanvasFreeItem, type CanvasConnectorSide } from "@/lib/canvas/model";
 import { BLOCK_CHROME } from "@/lib/canvas/layout";
 import { deleteFreeItem, updateFreeItem, updateFreeItemBlock } from "@/lib/canvas/commands";
@@ -170,8 +172,8 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
   }, [detachEsc, onGroupLive, onSnapGuides]);
 
   useEffect(() => {
-    if (!interactive || store.getState().readOnly) cancelDrag();
-  }, [cancelDrag, interactive, store]);
+    if (!interactive || store.getState().readOnly || item.locked) cancelDrag();
+  }, [cancelDrag, interactive, item.locked, store]);
 
   useEffect(() => {
     if (!editing || item.block.type !== "text") return;
@@ -184,9 +186,12 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       e.stopPropagation();
       e.preventDefault();
       const el = e.currentTarget as HTMLElement;
-      el.setPointerCapture(e.pointerId);
       // preventDefault cancels native focus; move it out of the property form so ⌘Z undoes this gesture.
       el.focus({ preventScroll: true });
+      const state = store.getState();
+      const ids = mode === "move" ? freeIdsFromSelection(state.selection) : [item.id];
+      if (hasLockedFreeItems(state.doc, ids)) return;
+      el.setPointerCapture(e.pointerId);
       dragRef.current = {
         mode,
         handle,
@@ -206,7 +211,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
       freeDragActive = true;
       attachEsc();
     },
-    [attachEsc, getGroupMembers, height, interactive, item.width, item.x, item.y, store],
+    [attachEsc, getGroupMembers, height, interactive, item.id, item.width, item.x, item.y, store],
   );
 
   const onDragMove = useCallback(
@@ -299,7 +304,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
     onLiveGeometry?.(item.id, live ? { x, y, width, height: displayHeight } : null);
   }, [item.id, live, x, y, width, displayHeight, onLiveGeometry]);
   useEffect(() => () => onLiveGeometry?.(item.id, null), [item.id, onLiveGeometry]);
-  const canResize = interactive && !store.getState().readOnly;
+  const canResize = interactive && !store.getState().readOnly && item.locked !== true;
 
   // 局部窄化：三元分支内 TS 无法凭 isText 收窄 item.block
   const block = item.block;
@@ -369,7 +374,7 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
 
   return (
     <div
-      className={`canvas-free-item ${shapeBlock ? "is-shape" : ""} ${shapeBlock?.kind === "ellipse" ? "is-ellipse" : ""} ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
+      className={`canvas-free-item ${item.locked ? "is-locked" : ""} ${shapeBlock ? "is-shape" : ""} ${shapeBlock?.kind === "ellipse" ? "is-ellipse" : ""} ${selected ? "is-selected" : ""} ${interactive ? "" : "is-static"}`}
       style={{ left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${displayHeight}px`, zIndex: item.zIndex,
         background: block.style?.background ? `var(--cv-bg-${block.style.background})` : undefined,
         borderRadius: shapeBlock?.kind === "ellipse" ? "50%" : block.style?.radius != null ? `${block.style.radius}px` : undefined }}
@@ -423,9 +428,9 @@ export const CanvasFreeItemView = memo(function CanvasFreeItemView({
           style={{ transform: `scale(${1 / zoom})`, transformOrigin: "top left" }}
           data-connect-start="true" onClick={(e) => { e.stopPropagation(); onConnect(); }}>连接</button>
       )}
-      {selected && canResize && !grouped && (
+      {selected && interactive && !grouped && (
         <span className="canvas-free-badge" aria-label="自由定位元素">
-          自由定位
+          {item.locked ? <><Lock className="inline h-3 w-3" aria-hidden="true" /> 已锁定</> : "自由定位"}
         </span>
       )}
 

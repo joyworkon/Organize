@@ -205,6 +205,17 @@ describe("context target resolution", () => {
 });
 
 describe("canvas context menu", () => {
+  it("锁定入口遵循混合/全锁/只读状态，锁定只禁几何操作", () => {
+    const input = { scope: "element" as const, selection: { kind: "frees" as const, itemIds: ["a", "b", "c"] }, readOnly: false, hasClipboard: false, labels, freeLocked: true };
+    const entries = canvasContextMenuModel(input);
+    expect(entries.find((entry) => entry.id === "toggle-lock")?.label).toBe("锁定所选");
+    for (const id of ["align-left", "distribute-x"]) {
+      expect(entries.find((entry) => entry.id === id)).toMatchObject({ disabled: true, title: "先解锁再对齐或分布" });
+    }
+    for (const id of ["copy", "duplicate", "delete", "layer-front"]) expect(entries.find((entry) => entry.id === id)?.disabled).toBe(false);
+    expect(canvasContextMenuModel({ ...input, allFreeLocked: true }).find((entry) => entry.id === "toggle-lock")?.label).toBe("解锁所选");
+    expect(canvasContextMenuModel({ ...input, readOnly: true }).find((entry) => entry.id === "toggle-lock")).toBeUndefined();
+  });
   let container: HTMLDivElement;
   let root: Root;
 

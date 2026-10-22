@@ -9,6 +9,7 @@ import {
 import { freeIdsFromSelection } from "@/lib/canvas/free-selection";
 import { reorderFreeZIndexes, type FreeLayerAction } from "@/lib/canvas/free-layers";
 import type { CanvasDoc } from "@/lib/canvas/model";
+import { allFreeItemsLocked, hasLockedFreeItems, setFreeItemsLocked } from "@/lib/canvas/free-lock";
 import type { CanvasStore } from "./canvas-store";
 
 export const FREE_ARRANGE_ACTION_IDS = [
@@ -43,7 +44,7 @@ export function applyMoveFreeItems(
   moves: readonly { itemId: string; x: number; y: number }[],
   opts?: { coalesceKey?: string },
 ): void {
-  if (moves.length === 0) return;
+  if (moves.length === 0 || hasLockedFreeItems(store.getState().doc, moves.map((move) => move.itemId))) return;
   store.getState().apply("移动自由容器", (doc) => {
     let next = doc;
     for (const move of moves) {
@@ -59,6 +60,7 @@ export function applyMoveFreeItems(
  */
 export function nudgeFreeItems(store: CanvasStore, itemIds: readonly string[], dx: number, dy: number): void {
   const state = store.getState();
+  if (hasLockedFreeItems(state.doc, itemIds)) return;
   const moves = itemIds.flatMap((itemId) => {
     const item = state.doc.freeItems.find((entry) => entry.id === itemId);
     return item ? [{ itemId, x: item.x + dx, y: item.y + dy }] : [];
@@ -148,7 +150,7 @@ export function applyAlignFreeItems(
   boxes: readonly FreeArrangeBox[],
   mode: FreeAlignMode,
 ): void {
-  if (ids.length < 2) return;
+  if (ids.length < 2 || hasLockedFreeItems(store.getState().doc, ids)) return;
   const members = freeArrangeMembers(store.getState().doc, ids, boxes);
   if (!members) return;
   applyFreePatches(store, ALIGN_LABEL[mode], alignFreeItems(members, mode));
@@ -160,7 +162,7 @@ export function applyDistributeFreeItems(
   boxes: readonly FreeArrangeBox[],
   axis: FreeDistributeAxis,
 ): void {
-  if (ids.length < 3) return;
+  if (ids.length < 3 || hasLockedFreeItems(store.getState().doc, ids)) return;
   const members = freeArrangeMembers(store.getState().doc, ids, boxes);
   if (!members) return;
   const label = axis === "x" ? "水平分布自由元素" : "垂直分布自由元素";
@@ -176,6 +178,15 @@ export function applyReorderFreeItems(store: CanvasStore, ids: readonly string[]
     action,
   );
   applyFreePatches(store, LAYER_LABEL[action], patches);
+}
+
+/** All locked → unlock; otherwise lock the whole selection. Read-only/preview never mutate. */
+export function toggleSelectedFreeItemsLocked(store: CanvasStore): void {
+  const state = store.getState();
+  if (state.readOnly || state.previewMode) return;
+  const itemIds = freeIdsFromSelection(state.selection);
+  const locked = !allFreeItemsLocked(state.doc, itemIds);
+  state.apply(locked ? "锁定自由元素" : "解锁自由元素", (doc) => setFreeItemsLocked(doc, { itemIds, locked }));
 }
 
 /** 属性栏、右键和角标共用。不带回 free 焦点，多选不会塌成单选。一次调用一条撤销。 */

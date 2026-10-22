@@ -128,4 +128,36 @@ describe("自由元素对齐分布图层", () => {
     expect(button("左对齐")).toBeUndefined();
     expect(button("置于顶层")).toBeUndefined();
   });
+
+  it("混合锁定选区禁用对齐分布，全锁后可批量解锁，保留选区", () => {
+    const { store, a, b, c, boxes } = threeFree();
+    store.getState().doc.freeItems[0].locked = true;
+    store.getState().select({ kind: "frees", itemIds: [a.id, b.id, c.id] });
+    mountBar(store, boxes);
+    expect(button("左对齐")?.disabled).toBe(true);
+    expect(button("水平分布")?.disabled).toBe(true);
+    expect(button("左对齐")?.title).toBe("先解锁再对齐或分布");
+    expect(button("置于顶层")?.title).toBe("已经在最上层");
+    expect(button("锁定自由元素")?.textContent).toContain("锁定所选");
+    click("锁定自由元素");
+    expect(button("解锁自由元素")?.textContent).toContain("解锁所选");
+    expect(store.getState().selection).toEqual({ kind: "frees", itemIds: [a.id, b.id, c.id] });
+    click("解锁自由元素");
+    expect(button("左对齐")?.disabled).toBe(false);
+    expect(button("水平分布")?.disabled).toBe(false);
+  });
+
+  it("单选锁定后移入区块禁用，预览和只读不出现锁定入口", () => {
+    const { store, a, boxes } = threeFree();
+    store.getState().select({ kind: "free", itemId: a.id });
+    mountBar(store, boxes);
+    click("锁定自由元素");
+    const move = [...container.querySelectorAll("button")].find((node) => node.textContent?.includes("移入区块…"));
+    expect(move?.disabled).toBe(true);
+    expect(move?.title).toBe("先解锁再移入区块");
+    act(() => store.setState({ readOnly: true }));
+    expect(button("解锁自由元素")).toBeUndefined();
+    act(() => store.setState({ readOnly: false, previewMode: true }));
+    expect(button("解锁自由元素")).toBeUndefined();
+  });
 });

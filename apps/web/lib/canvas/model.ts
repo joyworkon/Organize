@@ -304,6 +304,8 @@ export interface CanvasFreeItem {
   y: number;
   width: number;
   zIndex: number;
+  /** Only prevents geometric edits; absent/false means unlocked. */
+  locked?: boolean;
   block: CanvasFreeItemBlock;
 }
 

@@ -38,6 +38,7 @@ import { useCanvasTouch } from "./use-canvas-touch";
 import type { CanvasTextMeasurer } from "./text-measurer";
 import { createCanvasMeasure } from "./use-canvas-scene";
 import { CanvasFreeGroupResize } from "./canvas-free-group-resize";
+import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import { CanvasConnectorLayer, CanvasConnectorToolbar, useCanvasConnectors } from "./canvas-connectors";
 import { CanvasFreeItemView } from "./canvas-free-item";
 
@@ -551,8 +552,11 @@ export function CanvasViewportView({
               className="canvas-selection-marquee canvas-free-group"
               style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
             >
-              <span className="canvas-free-badge" aria-label="自由定位元素">自由定位</span>
-              {interactive && !store.getState().readOnly && members && members.length === selectedFreeIds.length && (
+              <span className="canvas-free-badge" aria-label="自由定位元素"
+                title={hasLockedFreeItems(doc, selectedFreeIds) ? "先解锁再整组移动或缩放" : undefined}>
+                {hasLockedFreeItems(doc, selectedFreeIds) ? "含锁定元素" : "自由定位"}
+              </span>
+              {interactive && !store.getState().readOnly && !hasLockedFreeItems(doc, selectedFreeIds) && members && members.length === selectedFreeIds.length && (
                 <CanvasFreeGroupResize store={store} members={members} zoom={vp.zoom}
                   targets={snapTargetsFor(selectedFreeIds)} onLive={onGroupResizeLive} onGuides={onSnapGuides} />
               )}

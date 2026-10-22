@@ -6767,6 +6767,7 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
 }
 .canvas-free-item.is-selected { border-color: hsl(var(--primary)); }
 .canvas-free-item.is-static { cursor: default; }
+.canvas-free-item.is-locked { cursor: default; border-style: dashed; }
 /* Ellipses use round corners even when the shared surface treatment is squircle. */
 .canvas-free-item.is-ellipse { corner-shape: round; }
 .canvas-free-item.is-shape.is-selected::before {
