@@ -4,6 +4,8 @@ import { isRecurringProjection, projectRecurringTasks } from "./recurring-occurr
 import {
   agendaScrollTargetKey,
   buildMonthAgenda,
+  buildOverdueAgendaTasks,
+  buildRangeAgenda,
   calendarAddDate,
   monthSelectionOnEntry,
   calendarDayKey,
@@ -128,6 +130,75 @@ describe("buildMonthAgenda", () => {
     expect(tasks.map((task) => task.id)).toEqual(["b", "a"]);
   });
 });
+
+describe("buildRangeAgenda", () => {
+  it("任意范围 [start, start+days)：跨月滚动、范围外任务与倒数日剔除", () => {
+    const tasks = [
+      mkTask("before", L(2026, 9, 28), L(2026, 10, 1)),   // 范围前延续进来
+      mkTask("in", L(2026, 10, 1, 9)),
+      mkTask("after", L(2026, 10, 4)),                     // 范围外（不含第 5 天）
+      mkTask("far", L(2026, 11, 1)),
+    ];
+    const countdowns = byDay(
+      [new Date(2026, 9, 31), [countdown("c-in", "2026-10-31")]],
+      [new Date(2026, 10, 4), [countdown("c-out", "2026-11-04")]],
+    );
+    // 范围 10/30 起 5 天：10/30 – 11/3
+    const days = buildRangeAgenda(tasks, countdowns, new Date(2026, 9, 30), 5);
+    expect(days.map((day) => `${day.date.getMonth() + 1}/${day.date.getDate()}`)).toEqual(["10/30", "10/31", "11/1"]);
+    expect(days[0].entries[0]).toMatchObject({ task: { id: "before" }, spanIndex: 2, spanDays: 5 });
+    expect(days[1].countdowns.map((item) => item.id)).toEqual(["c-in"]);
+    expect(days[2].entries.map((entry) => entry.task.id)).toEqual(["before", "in"]);
+  });
+
+  it("days 不足 1 时按 1 天处理；范围内无内容返回空数组", () => {
+    expect(buildRangeAgenda([mkTask("a", L(2026, 7, 1, 9))], new Map(), AUG, 0).map((day) => day.date.getDate())).toEqual([1]);
+    expect(buildRangeAgenda([mkTask("a", L(2026, 7, 5))], new Map(), new Date(2026, 7, 10), 3)).toEqual([]);
+  });
+
+  it("buildMonthAgenda 等价于当月 1 日起整月天数的 buildRangeAgenda", () => {
+    const tasks = [mkTask("span", L(2026, 6, 30), L(2026, 7, 2)), mkTask("a", L(2026, 7, 15, 9))];
+    const countdowns = byDay([new Date(2026, 7, 10), [countdown("c", "2026-08-10")]]);
+    const viaMonth = buildMonthAgenda(tasks, countdowns, AUG);
+    const viaRange = buildRangeAgenda(tasks, countdowns, new Date(2026, 7, 1), 31);
+    expect(viaMonth).toEqual(viaRange);
+  });
+});
+
+describe("buildOverdueAgendaTasks", () => {
+  const now = new Date(2026, 9, 21, 12);
+  const overdue = (task: TaskWithTags) => task.status !== "done" && task.status !== "cancelled";
+
+  it("只列逾期且最后一天在范围起点之前的任务，按开始时刻升序", () => {
+    const tasks = [
+      mkTask("in-range", L(2026, 9, 19), L(2026, 9, 22)),   // 延续进范围 → 不按逾期重复列
+      mkTask("late", L(2026, 9, 18, 9)),
+      mkTask("early", L(2026, 9, 15, 9)),
+      mkTask("done-old", L(2026, 9, 10), null, { status: "done" }),
+      mkTask("starts-today", L(2026, 9, 21, 8)),
+    ];
+    const result = buildOverdueAgendaTasks(tasks, new Date(2026, 9, 21), overdue, now);
+    expect(result.map((task) => task.id)).toEqual(["early", "late"]);
+  });
+
+  it("isOverdue 回调判定为否时不列（如未逾期/已取消）", () => {
+    const tasks = [mkTask("old", L(2026, 9, 10))];
+    expect(buildOverdueAgendaTasks(tasks, new Date(2026, 9, 21), () => false, now)).toEqual([]);
+  });
+
+  it("无日期的任务不列入", () => {
+    expect(buildOverdueAgendaTasks([mkTask("none", null)], new Date(2026, 9, 21), overdue, now)).toEqual([]);
+  });
+});
+
+describe("calendarAddDate · agenda", () => {
+  const today = new Date(2026, 9, 21, 12);
+  it("今天不早于范围首日时用今天，翻到未来范围时用范围首日", () => {
+    expect(calendarAddDate("agenda", new Date(2026, 9, 20), today, null, [])).toEqual(new Date(2026, 9, 21));
+    expect(calendarAddDate("agenda", new Date(2026, 10, 20), today, null, [])).toEqual(new Date(2026, 10, 20));
+  });
+});
+
 
 describe("withSelectedAgendaDay", () => {
   const agenda = buildMonthAgenda([mkTask("a", L(2026, 7, 5)), mkTask("b", L(2026, 7, 20))], new Map(), AUG);
