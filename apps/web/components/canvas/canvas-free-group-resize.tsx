@@ -10,6 +10,7 @@ import { BLOCK_CHROME } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { setFreeItemDragging } from "./canvas-free-item";
 import { CanvasFreeResizeHandles } from "./canvas-free-resize-handles";
+import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 
 export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, onGuides }: {
   store: CanvasStore;
@@ -43,7 +44,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
     onLive(null);
     onGuides(null);
     setLabel(null);
-    if (!commit || !current.last || store.getState().readOnly) return;
+    if (!commit || !current.last || store.getState().readOnly || hasLockedFreeItems(store.getState().doc, current.members.map((m) => m.id))) return;
     const patches = current.last.filter((m, i) => m.x !== current.members[i].x || m.y !== current.members[i].y || m.width !== current.members[i].width);
     if (!patches.length) return;
     store.getState().apply("缩放整组自由容器", (doc) => {
@@ -76,7 +77,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
     active={label?.handle}
     size={label?.size}
     onBegin={(e, handle) => {
-      if (e.button !== 0 || drag.current || store.getState().readOnly) return;
+      if (e.button !== 0 || drag.current || store.getState().readOnly || hasLockedFreeItems(store.getState().doc, members.map((m) => m.id))) return;
       e.preventDefault();
       e.stopPropagation();
       const el = e.currentTarget as HTMLElement;
@@ -103,7 +104,7 @@ export function CanvasFreeGroupResize({ store, members, zoom, targets, onLive, o
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       e.stopPropagation();
-      if (store.getState().readOnly) return;
+      if (store.getState().readOnly || hasLockedFreeItems(store.getState().doc, members.map((m) => m.id))) return;
       const result = scaleFreeGroup(members, handle, e.key === "ArrowLeft" ? -10 : 10, 0, { center: e.shiftKey, snapEnabled: false, ...shapeLimits(members) });
       store.getState().apply("缩放整组自由容器", (doc) => {
         let next = doc;

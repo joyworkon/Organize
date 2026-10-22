@@ -478,6 +478,9 @@ export function validateCanvasContent(
     if (!Number.isInteger(item.zIndex) || item.zIndex < 0 || item.zIndex > 10000) {
       errors.push(`${path}.zIndex 非法`);
     }
+    if (item.locked !== undefined && typeof item.locked !== "boolean") {
+      errors.push(`${path}.locked 必须是 boolean`);
+    }
     validateBlock(item.block, errors, unknownBlockIds, options, `${path}.block`, true);
     if (
       typeof item.block === "object" &&

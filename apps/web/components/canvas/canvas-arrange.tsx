@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { reorderFreeZIndexes, type FreeLayerAction } from "@/lib/canvas/free-layers";
 import type { CanvasDoc } from "@/lib/canvas/model";
+import { hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import {
   applyArrangeAction,
   type FreeArrangeActionId,
@@ -91,6 +92,7 @@ export function FreeArrangeToolbar({
   showAlign: boolean;
 }) {
   const count = itemIds.length;
+  const locked = hasLockedFreeItems(doc, itemIds);
   const groups = GROUPS.filter((group) => showAlign || group.id === "layer");
   return (
     <>
@@ -103,8 +105,9 @@ export function FreeArrangeToolbar({
               {controls.map((control) => {
                 const countBlocked = count < group.min;
                 const layerStill = control.layer ? layerBlocked(doc, itemIds, control.layer) : false;
-                const disabled = countBlocked || layerStill;
-                const title = blockedTitle(control, countBlocked, layerStill, group.need);
+                const lockBlocked = locked && group.id !== "layer";
+                const disabled = lockBlocked || countBlocked || layerStill;
+                const title = lockBlocked ? "先解锁再对齐或分布" : blockedTitle(control, countBlocked, layerStill, group.need);
                 const Icon = control.Icon;
                 return (
                   <span key={control.id} title={title} className="inline-flex">

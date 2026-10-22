@@ -107,7 +107,9 @@ import type { LibraryItem } from "@organize/shared";
 import { CanvasViewportView, clampZoom, zoomToFit, zoomToFitBounds } from "./canvas-viewport";
 import { CanvasMinimap, CanvasMinimapToggle, useMinimapOpen } from "./canvas-minimap";
 import { isFreeItemDragging } from "./canvas-free-item";
-import { applyArrangeAction, isFreeArrangeAction, nudgeFreeItems } from "./free-item-actions";
+import { applyArrangeAction, isFreeArrangeAction, nudgeFreeItems, toggleSelectedFreeItemsLocked } from "./free-item-actions";
+import { allFreeItemsLocked, hasLockedFreeItems } from "@/lib/canvas/free-lock";
+import { freeIdsFromSelection } from "@/lib/canvas/free-selection";
 import { CanvasPropertyBar, recomputeSmartSection } from "./canvas-property-bar";
 import { canDetachSelection, commitDetachSelection } from "./canvas-detach-actions";
 import { CanvasAddPanel, type AddBlockKind } from "./canvas-add-panel";
@@ -681,6 +683,10 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   }, []);
 
   const onContextAction = useCallback((action: CanvasContextMenuAction) => {
+    if (action === "toggle-lock") {
+      toggleSelectedFreeItemsLocked(store);
+      return;
+    }
     if (action === "detach-to-free") {
       commitDetachSelection(store, scene);
       return;
@@ -1772,6 +1778,8 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
             readOnly: readOnly || previewMode || connectionsOnly,
             hasClipboard: hasCanvasClipboard(),
             canDetach: canDetachSelection(doc, selection),
+            freeLocked: hasLockedFreeItems(doc, freeIdsFromSelection(selection)),
+            allFreeLocked: allFreeItemsLocked(doc, freeIdsFromSelection(selection)),
             labels: shortcutLabels,
           })}
           onSelect={onContextAction}

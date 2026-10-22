@@ -15,7 +15,8 @@ import { canDetachSelection, commitDetachSelection } from "./canvas-detach-actio
 import type { Scene } from "@/lib/canvas/layout";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Copy, Download, Trash2 } from "@/components/icons";
+import { Copy, Download, LockKeyhole as Lock, Trash2 } from "@/components/icons";
+import { allFreeItemsLocked, hasLockedFreeItems } from "@/lib/canvas/free-lock";
 import {
   attachFreeItemToRegion,
   deleteBlock,
@@ -70,7 +71,7 @@ import { canSmartRecompute } from "@/lib/canvas/layout";
 import type { CanvasStore } from "./canvas-store";
 import { FreeArrangeToolbar } from "./canvas-arrange";
 import { commitCanvasDuplicate } from "./canvas-shortcuts";
-import { applyDeleteFreeItems, type FreeArrangeBox } from "./free-item-actions";
+import { applyDeleteFreeItems, toggleSelectedFreeItemsLocked, type FreeArrangeBox } from "./free-item-actions";
 import { useCanvasSelector } from "./use-canvas-selector";
 import type { SourceStatusMap } from "./use-source-status";
 import { statusOf } from "./use-source-status";
@@ -174,7 +175,10 @@ export function CanvasPropertyBar({
     return (
       <div className="canvas-property-bar" aria-label="多个自由元素属性">
         <h3 className="canvas-prop-title">已选 {count} 个自由元素</h3>
-        <p className="text-xs text-muted-foreground">拖动任一选中元素可一起移动；Shift 点击可增减选区。样式请单独选中后调整。</p>
+        <p className="text-xs text-muted-foreground">{hasLockedFreeItems(doc, selection.itemIds)
+          ? "选区含锁定元素，先解锁再整组移动或缩放。"
+          : "拖动任一选中元素可一起移动；Shift 点击可增减选区。样式请单独选中后调整。"}</p>
+        <FreeLockButton store={store} doc={doc} itemIds={selection.itemIds} multiple />
         <FreeArrangeToolbar
           store={store}
           doc={doc}
@@ -419,6 +423,8 @@ export function CanvasPropertyBar({
       <div className="canvas-property-bar" aria-label="自由容器属性">
         <h3 className="canvas-prop-title">{shape ? "自由形状" : freeText ? "自由文本" : "自由图片"}</h3>
         <p className="text-xs text-muted-foreground">自由定位，不参与自动排版。</p>
+        <FreeLockButton store={store} doc={doc} itemIds={[item.id]} />
+        {item.locked && <p className="text-xs text-muted-foreground">已锁定位置和尺寸，仍可编辑内容、样式、图层或删除。</p>}
         {shape && <>
           <ModeRow value={shape.kind} options={[{ value: "rect", label: "矩形" }, { value: "ellipse", label: "椭圆" }]}
             onChange={(kind) => store.getState().apply("切换形状", (d) =>
@@ -544,6 +550,8 @@ export function CanvasPropertyBar({
               variant="outline"
               size="sm"
               className="min-w-0 flex-1 px-1 text-xs"
+              disabled={item.locked === true}
+              title={item.locked ? "先解锁再移入区块" : "移入区块"}
               onClick={() => setMoveTargetOpen(true)}
             >
               移入区块…
@@ -1225,6 +1233,20 @@ function ReplaceImageRow({
 }
 
 // ---------- 小部件 ----------
+
+function FreeLockButton({ store, doc, itemIds, multiple = false }: {
+  store: CanvasStore; doc: CanvasDoc; itemIds: readonly string[]; multiple?: boolean;
+}) {
+  const hidden = useCanvasSelector(store, useCallback((s: ReturnType<CanvasStore["getState"]>) => s.readOnly || s.previewMode, []));
+  if (hidden) return null;
+  const locked = allFreeItemsLocked(doc, itemIds);
+  const action = locked ? "解锁" : "锁定";
+  return <Button type="button" variant="outline" size="sm" className="gap-1 text-xs"
+    aria-label={`${action}自由元素`} title={locked ? "恢复移动和缩放" : "固定位置和尺寸，防止误拖或误缩放"}
+    onClick={() => toggleSelectedFreeItemsLocked(store)}>
+    <Lock className="h-3.5 w-3.5" aria-hidden="true" /> {action}{multiple ? "所选" : ""}
+  </Button>;
+}
 
 function ModeRow({
   value,

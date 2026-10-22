@@ -1207,14 +1207,16 @@ export function updateFreeItem(
   doc: CanvasDoc,
   args: { itemId: string; x?: number; y?: number; width?: number; height?: number; zIndex?: number },
 ): CanvasCommandResult {
+  const current = findFreeItem(doc, args.itemId);
+  if (current?.locked === true && (args.zIndex === undefined || args.zIndex === current.zIndex)) return { doc };
   return edit(doc, (draft) => {
     const item = findFreeItem(draft, args.itemId);
     if (item) {
-      if (args.x !== undefined) item.x = args.x;
-      if (args.y !== undefined) item.y = args.y;
-      if (args.width !== undefined) item.width = Math.min(item.block.type === "shape" ? 2000 : Infinity, Math.max(80, args.width));
+      if (!item.locked && args.x !== undefined) item.x = args.x;
+      if (!item.locked && args.y !== undefined) item.y = args.y;
+      if (!item.locked && args.width !== undefined) item.width = Math.min(item.block.type === "shape" ? 2000 : Infinity, Math.max(80, args.width));
       // Geometry callers pass outer height; only shapes persist it (minus chrome).
-      if (args.height !== undefined && item.block.type === "shape") {
+      if (!item.locked && args.height !== undefined && item.block.type === "shape") {
         item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height - BLOCK_CHROME));
       }
       if (args.zIndex !== undefined) item.zIndex = args.zIndex;
@@ -1242,7 +1244,7 @@ export function updateFreeItemBlock(
     if (!item) return null;
     if (item.block.type === "shape") {
       if (args.kind !== undefined) item.block.kind = args.kind;
-      if (args.height !== undefined) item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height));
+      if (!item.locked && args.height !== undefined) item.block.height = Math.min(SHAPE_MAX_HEIGHT, Math.max(SHAPE_MIN_HEIGHT, args.height));
     }
     if (args.text !== undefined && item.block.type === "text") item.block.text = args.text;
     if (args.asset !== undefined && item.block.type === "image") item.block.asset = args.asset;
@@ -1311,6 +1313,7 @@ export function attachFreeItemToRegion(
   },
   newId: CanvasIdGenerator = defaultIdGenerator,
 ): CanvasCommandResult {
+  if (findFreeItem(doc, args.freeItemId)?.locked === true) return { doc };
   return edit(doc, (draft) => {
     const item = findFreeItem(draft, args.freeItemId);
     const board = findBoard(draft, args.boardId);

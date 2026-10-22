@@ -6,6 +6,7 @@ import {
   ClipboardPaste,
   Copy,
   CopyPlus,
+  LockKeyhole as Lock,
   Maximize2,
   Trash2,
 } from "@/components/icons";
@@ -36,6 +37,7 @@ export type CanvasContextMenuAction =
   | "paste"
   | "duplicate"
   | "detach-to-free"
+  | "toggle-lock"
   | "delete"
   | "select-all"
   | "zoom-fit"
@@ -59,6 +61,7 @@ function isMenuCommand(id: string): id is CanvasContextMenuAction {
     || id === "paste"
     || id === "duplicate"
     || id === "detach-to-free"
+    || id === "toggle-lock"
     || id === "delete"
     || id === "select-all"
     || id === "zoom-fit"
@@ -173,6 +176,8 @@ export function canvasContextMenuModel(input: {
   readOnly: boolean;
   hasClipboard: boolean;
   canDetach?: boolean;
+  freeLocked?: boolean;
+  allFreeLocked?: boolean;
   labels: { mod: string; shift: string };
 }): CanvasContextMenuEntry[] {
   const { scope, selection, readOnly, hasClipboard, labels } = input;
@@ -194,10 +199,13 @@ export function canvasContextMenuModel(input: {
     { id: "cut", label: "剪切", shortcut: `${labels.mod}X`, disabled: readOnly || !canCopy },
     { id: "paste", label: "粘贴", shortcut: `${labels.mod}V`, disabled: readOnly || !hasClipboard },
     { id: "duplicate", label: "创建副本", shortcut: `${labels.mod}D`, disabled: readOnly || !canCopy },
+    ...(freeCount > 0 && !readOnly
+      ? [{ id: "toggle-lock", label: `${input.allFreeLocked ? "解锁" : "锁定"}${freeCount > 1 ? "所选" : ""}`, shortcut: "", disabled: false }]
+      : []),
     ...(input.canDetach && (selection?.kind === "block" || selection?.kind === "blocks")
       ? [{ id: "detach-to-free", label: "转为自由定位", shortcut: "", disabled: readOnly }]
       : []),
-    ...freeArrangeMenuEntries(freeCount, readOnly),
+    ...freeArrangeMenuEntries(freeCount, readOnly, input.freeLocked === true),
     {
       id: "delete",
       label: "删除",
@@ -209,7 +217,7 @@ export function canvasContextMenuModel(input: {
   ];
 }
 
-function freeArrangeMenuEntries(count: number, readOnly: boolean): CanvasContextMenuEntry[] {
+function freeArrangeMenuEntries(count: number, readOnly: boolean, locked: boolean): CanvasContextMenuEntry[] {
   if (count < 1) return [];
   const groups = [
     { id: "heading-align", group: "align" as const, label: "对齐", min: 2, need: "至少选择 2 个自由元素" },
@@ -228,13 +236,14 @@ function freeArrangeMenuEntries(count: number, readOnly: boolean): CanvasContext
     });
     for (const control of FREE_ARRANGE_CONTROLS) {
       if (control.group !== group.group) continue;
-      const blocked = readOnly || count < group.min;
+      const lockBlocked = locked && group.group !== "layer";
+      const blocked = readOnly || lockBlocked || count < group.min;
       rows.push({
         id: control.id,
         label: control.label,
         shortcut: "",
         disabled: blocked,
-        title: blocked ? (readOnly ? "只读时不能调整自由元素" : group.need) : control.title,
+        title: blocked ? (readOnly ? "只读时不能调整自由元素" : lockBlocked ? "先解锁再对齐或分布" : group.need) : control.title,
       });
     }
   }
@@ -248,6 +257,7 @@ function MenuIcon({ id }: { id: string }) {
   if (id === "cut") return <span aria-hidden="true" className="text-sm leading-none">✂</span>;
   if (id === "paste") return <ClipboardPaste className={className} />;
   if (id === "duplicate") return <CopyPlus className={className} />;
+  if (id === "toggle-lock") return <Lock className={className} />;
   if (id === "delete") return <Trash2 className={className} />;
   if (id === "select-all") return <CheckSquare className={className} />;
   return <Maximize2 className={className} />;
