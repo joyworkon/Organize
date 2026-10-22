@@ -300,6 +300,31 @@ const notes = [
     reading_item: null,
     tags: [],
   },
+  {
+    // 「与我共享（只读）」演示行：属主是别人，resource_acl 给 MOCK_USER viewer 角色；
+    // mock-client 的 resource_role 按属主 + resource_acl 如实返回 viewer。
+    // 各列表查询都带 .eq("user_id", user.id)，本行不会混入「我的笔记」。
+    id: "note-shared-viewer",
+    user_id: "mock-user-other",
+    title: "共享给我的空笔记",
+    content: { type: "doc", content: [{ type: "paragraph" }] },
+    reading_item_id: null,
+    icon: null,
+    cover_url: null,
+    cover_position: 50,
+    parent_note_id: null,
+    full_width: false,
+    font_family: "default" as const,
+    small_font: false,
+    content_revision: 0,
+    last_edit_by: "mock-user-other",
+    is_pinned: false,
+    deleted_at: null,
+    created_at: iso(0.2),
+    updated_at: iso(0.2),
+    reading_item: null,
+    tags: [],
+  },
 ];
 
 const noteTags = notes.flatMap((n) =>
@@ -734,6 +759,10 @@ export const mockDb: Record<string, any[]> = {
     },
   ],
   shares: [],
+  // 063 协作 ACL（resource_role mock 判定依据）：他人资源的逐条授权
+  resource_acl: [
+    { resource_type: "note", resource_id: "note-shared-viewer", access_role: "viewer" },
+  ],
   note_versions: noteVersions,
   note_comment_threads: noteCommentThreadSeeds,
   note_comments: noteCommentSeeds,

@@ -26,6 +26,11 @@ import {
 import { enqueueNoteDelete } from "@/lib/offline/note-delete-queue";
 import type { NoteTemplate } from "@organize/shared";
 import { NotePageMenu } from "@/components/notes/note-page-menu";
+import { NoteStarterTemplates, type StarterOptionId } from "@/components/notes/note-starter-templates";
+import {
+  buildStarterTemplateContent,
+  starterTemplateDefaultTitle,
+} from "@/lib/notes/starter-templates";
 import type { NoteFont, Tag } from "@organize/shared";
 import { Backlinks } from "@/components/notes/backlinks";
 import { NotePageVisuals } from "@/components/notes/note-page-visuals";
@@ -235,6 +240,8 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   const [tocOpen, setTocOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [recoveryDraft, setRecoveryDraft] = useState<StoredNoteDraft | null>(null);
+  // 空白页「快速开始」面板：Esc/空白页选项关闭后本次打开会话不再显示（组件 key 含 noteId，切笔记自动重置）
+  const [starterDismissed, setStarterDismissed] = useState(false);
   // 协作角色（P5-02 卡 4）：null=未判定；viewer 只读，editor 走 v2 保存，owner 走 v1 主链。
   // ref 供 flushSave 等闭包读取，避免角色变化重建保存回调打断在途保存。
   const [noteRole, setNoteRole] = useState<CollabRole | null>(null);
@@ -965,6 +972,35 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     queueSave();
   };
 
+  // 空白页「快速开始」：选模板后一次性 setContent 插入结构（普通用户事务，
+  // Cmd/Ctrl+Z 一步撤回回空页 → isEmptyDoc 变回 true → 面板重现），光标落到第一个空段落；
+  // 标题为空时顺带填入模板默认标题（如「会议纪要 10月22日」），已有标题不覆盖。
+  const applyStarterTemplate = (id: StarterOptionId) => {
+    const editor = editorRef.current;
+    if (id === "blank") {
+      setStarterDismissed(true);
+      if (editor && !editor.isDestroyed) editor.commands.focus("start");
+      return;
+    }
+    if (!editor || editor.isDestroyed || !editor.isEditable) return;
+    const doc = buildStarterTemplateContent(id, new Date());
+    if (!doc) return;
+    editor.chain().setContent(doc, true).run();
+    let cursorPos: number | null = null;
+    editor.state.doc.descendants((node, nodePos) => {
+      if (cursorPos !== null) return false;
+      if (node.type.name === "paragraph" && node.content.size === 0) {
+        cursorPos = nodePos + 1;
+        return false;
+      }
+      return true;
+    });
+    editor.commands.focus(cursorPos ?? "start");
+    if (!title.trim()) {
+      handleTitleChange(starterTemplateDefaultTitle(id, new Date()));
+    }
+  };
+
   // 标题自动增高：支持超长标题换行、随内容增高（T3）。
   const autoGrowTitle = useCallback(() => {
     const el = titleRef.current;
@@ -1643,6 +1679,16 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     ? "mx-auto w-full max-w-none px-4 md:px-10"
     : "mx-auto w-full max-w-[760px] px-4 md:px-6";
 
+  // 快速开始面板：仅正文为空 + 可编辑 + 协作已定形 + 非历史预览/恢复草稿时显示；
+  // 打字/粘贴/插入后 content 非空自动消失，全部删除后重现（不影响空笔记离开丢弃逻辑）
+  const showStarterPanel =
+    !starterDismissed &&
+    !previewVersion &&
+    !recoveryDraft &&
+    capabilities.canEdit &&
+    collabResolved &&
+    isEmptyDoc(content);
+
   return (
       <div
         className={cn(
@@ -1948,7 +1994,14 @@ function NoteEditorContent({ noteId, invalidateRef }: {
             />
           </div>
         ) : (
-          <TipTapEditor
+          <>
+            {showStarterPanel && (
+              <NoteStarterTemplates
+                onSelect={applyStarterTemplate}
+                onDismiss={() => setStarterDismissed(true)}
+              />
+            )}
+            <TipTapEditor
             key={noteId}
             noteId={noteId}
             noteTitle={title}
@@ -1970,6 +2023,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
               setEditorInstance(editor);
             }}
           />
+          </>
         )}
 
         {/* 反向链接 & 关联阅读 */}

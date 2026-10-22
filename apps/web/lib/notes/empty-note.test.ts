@@ -22,6 +22,21 @@ describe("isEmptyDoc", () => {
     expect(isEmptyDoc({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] })).toBe(false);
     expect(isEmptyDoc({ type: "doc", content: [{ type: "horizontalRule" }] })).toBe(false);
   });
+  it("空文本的待办项视为有内容（用户有意插入的结构）", () => {
+    expect(
+      isEmptyDoc({
+        type: "doc",
+        content: [
+          {
+            type: "taskList",
+            content: [
+              { type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] },
+            ],
+          },
+        ],
+      })
+    ).toBe(false);
+  });
 });
 
 describe("shouldDiscardEmptyNote", () => {

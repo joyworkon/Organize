@@ -909,8 +909,20 @@ export function createMockClient(): any {
       if (name === "get_note_content_link_states") return getNoteContentLinkStates(args);
       // P5-02 卡 4：mock 单用户世界里调用者确实拥有一切，resource_role 如实返回 owner，
       // 保存管线因此永远走 v1 主链，单用户行为不变。
+      // 例外：属主不是 MOCK_USER 的资源（他人共享进来的笔记）按 resource_acl 如实返回
+      // 授权角色，让「只读查看者」路径在 mock 下也可验证（如 note-shared-viewer）。
       if (name === "resource_role") {
-        return { data: args?.p_resource_type === "note" ? "owner" : null, error: null };
+        if (args?.p_resource_type === "note") {
+          const note = (mockDb.notes as any[]).find((row) => row.id === args.p_resource_id);
+          if (note && note.user_id !== MOCK_USER.id) {
+            const acl = (mockDb.resource_acl as any[]).find(
+              (row) => row.resource_type === "note" && row.resource_id === note.id
+            );
+            return { data: acl?.access_role ?? null, error: null };
+          }
+          return { data: "owner", error: null };
+        }
+        return { data: null, error: null };
       }
       // 协作管理面（空间 / 授权 / 查人）mock 一概不支持：显式报错而不是静默假成功，
       // 分享面板负责把这个错误如实展示给用户。
