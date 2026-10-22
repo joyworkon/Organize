@@ -218,7 +218,7 @@ export function activeTableReferenceRect(editor: Editor) {
 }
 
 /** 自带选中态块工具栏的节点：整块 NodeSelection 时不显示文字气泡 */
-const BLOCK_TOOLBAR_NODE_TYPES: ReadonlySet<string> = new Set(["image", "codeBlock", "inlineMath", "mathBlock", "mermaid"]);
+const BLOCK_TOOLBAR_NODE_TYPES: ReadonlySet<string> = new Set(["image", "fileAttachment", "codeBlock", "inlineMath", "mathBlock", "mermaid"]);
 
 export function shouldShowTextToolbar({
   editor,
