@@ -44,6 +44,8 @@ import { useCanvasInk } from "./use-canvas-ink";
 import { useCanvasSelector } from "./use-canvas-selector";
 import { inkPath } from "@/lib/canvas/ink";
 import { CanvasFreeItemView } from "./canvas-free-item";
+import { CanvasStarterTemplates } from "./canvas-starter-templates";
+import { isCanvasDocEmpty, type CanvasStarterTemplateId } from "@/lib/canvas/starter-templates";
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 4;
@@ -77,9 +79,15 @@ export interface CanvasViewportProps {
   assetUrls: Record<string, string>;
   /** 资料来源可达性（E）。 */
   sourceStatuses: SourceStatusMap;
-  /** B1 空态明确入口：新建空白页面 / 宣传落地页骨架。 */
-  onCreateBlank?: () => void;
-  onCreateLanding?: () => void;
+  /**
+   * 空白画布「快速开始」起步模板面板：open 为本次打开会话未关闭；
+   * 只在可编辑（interactive）且文档完全空白时渲染，选模板一次事务插入，Esc / 空白画布关闭。
+   */
+  starter?: {
+    open: boolean;
+    onSelect: (template: CanvasStarterTemplateId) => void;
+    onDismiss: () => void;
+  };
   /** 图片替换（B2 统一上传入口）。 */
   onReplaceImage?: (blockId: string, file: File) => void;
   /**
@@ -117,8 +125,7 @@ export function CanvasViewportView({
   editingBlockId,
   assetUrls,
   sourceStatuses,
-  onCreateBlank,
-  onCreateLanding,
+  starter,
   onReplaceImage,
   onInsertFiles,
   onInsertEmbed,
@@ -611,40 +618,16 @@ export function CanvasViewportView({
       {pen && <div className="canvas-pen-hint" role="status">画笔模式 · Esc 退出</div>}
       {connections.draft && <div className="canvas-connect-hint" role="status">点选另一个元素建立连接<button type="button" aria-label="取消连接" onClick={connections.cancel}>取消</button></div>}
       {pointer.visual?.hint && <div className="canvas-drag-hint" role="status">{pointer.visual.hint}</div>}
-      {interactive && !pen && doc.boards.length === 0 && doc.freeItems.length === 0 && (
-        <div className="canvas-empty-hint">
-          <p>双击画布任意位置，开始你的第一张构思稿</p>
-          {(onCreateBlank || onCreateLanding) && (
-            <div className="canvas-empty-actions">
-              {onCreateBlank && (
-                <button
-                  type="button"
-                  className="canvas-empty-action"
-                  title="新建空白页面：一个默认区块 + 标题块"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateBlank();
-                  }}
-                >
-                  空白页面
-                </button>
-              )}
-              {onCreateLanding && (
-                <button
-                  type="button"
-                  className="canvas-empty-action"
-                  title="新建宣传落地页骨架：头部 / 中部 / 底部三个区块"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateLanding();
-                  }}
-                >
-                  宣传落地页骨架
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+      {/* 空白画布：可编辑 + 完全空白时显示「快速开始」面板（预览 / 只读 / 手机由 interactive 屏蔽）；
+          本次会话已关闭面板则退回一句双击提示。 */}
+      {interactive && !pen && isCanvasDocEmpty(doc) && (
+        starter?.open ? (
+          <CanvasStarterTemplates onSelect={starter.onSelect} onDismiss={starter.onDismiss} />
+        ) : (
+          <div className="canvas-empty-hint">
+            <p>双击画布任意位置，开始你的第一张构思稿</p>
+          </div>
+        )
       )}
       {!interactive && doc.boards.length === 0 && doc.freeItems.length === 0 && (
         <div className="canvas-empty-hint" aria-hidden="true">

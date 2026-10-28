@@ -69,6 +69,12 @@ import {
 } from "@/lib/canvas/commands";
 import { hasCanvasClipboard } from "@/lib/canvas/clipboard";
 import {
+  applyCanvasStarterTemplate,
+  canvasStarterTemplateName,
+  isCanvasDocEmpty,
+  type CanvasStarterTemplateId,
+} from "@/lib/canvas/starter-templates";
+import {
   describeInsertTarget,
   resolveInsertTarget,
   type ExplicitInsertPosition,
@@ -228,6 +234,11 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
   }, [documentId]);
   /** 预览演示的当前页（进入预览与翻页时更新；指示条与翻页键的数据源）。 */
   const [previewBoardId, setPreviewBoardId] = useState<string | null>(null);
+  /** 「快速开始」面板本次打开会话是否已关闭（Esc / 空白画布）；换文档重新显示。 */
+  const [starterDismissed, setStarterDismissed] = useState(false);
+  useEffect(() => {
+    setStarterDismissed(false);
+  }, [documentId]);
   /** PNG 导出：目标页面 id（非 null 时挂载离屏静态层并执行一次导出）。 */
   const [exportJob, setExportJob] = useState<string | null>(null);
   const exportStageRef = useRef<HTMLDivElement | null>(null);
@@ -1038,6 +1049,29 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
     [store, resolveInsertTargetNow, revealTarget],
   );
 
+  /**
+   * 空白画布「快速开始」：以可用视口中心为锚点，一次事务插入整套结构（⌘Z 一步回到空白），
+   * 然后按最新文档现场计算场景并适合视口（React 尚未提交新 scene，不能用闭包里的旧值）。
+   */
+  const applyStarterTemplate = useCallback(
+    (template: CanvasStarterTemplateId) => {
+      const state = store.getState();
+      if (state.readOnly || state.previewMode || !isCanvasDocEmpty(state.doc)) return;
+      const center = worldCenterNow();
+      state.apply(`快速开始：${canvasStarterTemplateName(template)}`, (d) =>
+        applyCanvasStarterTemplate(d, { template, center }),
+      );
+      const rect = visibleViewportNow();
+      const liveScene = computeScene(store.getState().doc, createCanvasMeasure(measurer));
+      zoomToFit(
+        liveScene,
+        (vp) => store.getState().setViewport({ ...vp, x: (vp.x ?? 0) + (rect?.x ?? 0), y: (vp.y ?? 0) + (rect?.y ?? 0) }),
+        rect ? { width: rect.width, height: rect.height } : { width: 1200, height: 800 },
+      );
+    },
+    [store, measurer, worldCenterNow, visibleViewportNow],
+  );
+
   /** 链接 / 视频插入编排（添加面板 prompt 与粘贴 URL 两入口共用）。 */
   const runEmbedInsert = useCallback(
     async (url: string, explicit?: ExplicitInsertPosition | null) => {
@@ -1675,8 +1709,11 @@ export function CanvasWorkspace({ documentId, readOnly = false, connectionsOnly 
           editingBlockId={editingBlockId}
           assetUrls={assetUrls}
           sourceStatuses={sourceStatuses}
-          onCreateBlank={addBlankBoard}
-          onCreateLanding={addLandingBoard}
+          starter={{
+            open: !starterDismissed,
+            onSelect: applyStarterTemplate,
+            onDismiss: () => setStarterDismissed(true),
+          }}
           onReplaceImage={onReplaceImage}
           onInsertFiles={onInsertFiles}
           onInsertEmbed={(url, explicit) => void runEmbedInsert(url, explicit)}
