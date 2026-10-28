@@ -75,6 +75,7 @@ export const PAGE_SHORTCUTS = [
       { keys: "← / →", desc: "上一页 / 下一页" },
       { keys: "t", desc: "回到今天" },
       { keys: "d / w / m / y", desc: "日 / 周 / 月 / 年视图" },
+      { keys: "g", desc: "跳转到日期" },
     ],
   },
   {

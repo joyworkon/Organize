@@ -7352,6 +7352,9 @@ button.canvas-add-group-title:hover { color: hsl(var(--foreground)); }
   /* 两行顶栏（标题 + 导航组 / 全宽模式分段）的排布由 task-month-view.tsx 的 flex order 负责；横向留白由外壳 16px 承担 */
   .task-calendar-header { gap: 8px 12px; padding: 12px 0; }
   .task-calendar-header button { min-height: 44px; }
+  /* 标题「跳转到日期」触发器豁免：保持纯标题的 24px 行高，不把手机首行顶栏撑到 44px
+     （月议程列表行位置对顶栏高度敏感）；触区由整块标题宽度承担 */
+  .task-calendar-header [data-calendar-jump-trigger] { min-height: 0; }
 }
 
 /* Formal adoption: chrome dimensions are independent from canvas world geometry. */

@@ -35,6 +35,7 @@ import {
   type CalendarViewOptions,
   type CalendarWeekStart,
 } from "@/lib/tasks/calendar-view-options";
+import { jumpTargetForDate } from "@/lib/tasks/calendar-jump-date";
 import {
   MAX_SPAN_LANES,
   allDayRowTasksOnDay,
@@ -77,6 +78,7 @@ import {
 } from "./calendar-shared";
 import { CalendarSwipeSurface } from "./calendar-swipe-surface";
 import { CalendarFilterEmptyHint } from "./calendar-filter-bar";
+import { CalendarJumpDate } from "./calendar-jump-date";
 import { DesktopAgendaView } from "./calendar-desktop-agenda";
 import { MobileMonthView } from "./calendar-mobile-month";
 import { calendarCreateAnchor, calendarCreatePreviewOnDay, type CalendarCreateAnchor, type CalendarCreatePreview } from "./calendar-quick-create";
@@ -1977,6 +1979,27 @@ function TaskMonthViewContent({
   // 手机月视图「今天」/ 再次点同一天时递增，让议程重新滚到目标分组。
   const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
 
+  // 标题跳转面板（点标题 / g）开合。
+  const [jumpOpen, setJumpOpen] = useState(false);
+  // 日程视图跳转后滚到目标日分组：目标日无分组时回退到其后最近的分组，再没有就滚到底（加载更多）。
+  const [agendaJump, setAgendaJump] = useState<{ key: string; time: number } | null>(null);
+  const agendaDaysRef = useRef(agendaDaysList);
+  agendaDaysRef.current = agendaDaysList;
+  useEffect(() => {
+    if (mode !== "agenda" || !agendaJump) return;
+    const surface = document.querySelector<HTMLElement>('[data-calendar-surface="agenda"]');
+    if (!surface) return;
+    const days = agendaDaysRef.current;
+    const fallback = days.find((day) => day.date.getTime() >= agendaJump.time) ?? null;
+    const section = surface.querySelector<HTMLElement>(`[data-agenda-day="${agendaJump.key}"]`)
+      ?? (fallback ? surface.querySelector<HTMLElement>(`[data-agenda-day="${fallback.key}"]`) : null);
+    if (section) {
+      surface.scrollTop += section.getBoundingClientRect().top - surface.getBoundingClientRect().top;
+    } else {
+      surface.scrollTop = surface.scrollHeight;
+    }
+  }, [mode, agendaJump]);
+
   const monthCountdowns = useMemo(() => {
     const first = cells[0]?.date ?? cursor;
     const last = cells[cells.length - 1]?.date ?? cursor;
@@ -2107,6 +2130,36 @@ function TaskMonthViewContent({
     setCursor(nextCursor);
     setMode("day");
   };
+  /** 标题跳转面板选日：按当前模式落点（年视图 → 该日的日视图），日程视图额外滚到目标日分组。 */
+  const jumpToDate = (date: Date) => {
+    const target = jumpTargetForDate(modeRef.current, date, weekStart);
+    if (target.mode === "agenda") {
+      setAgendaExtraPages(0);
+      setAgendaJump({ key: keyFor(target.selected), time: target.selected.getTime() });
+    }
+    selectedRef.current = target.selected;
+    cursorRef.current = target.cursor;
+    if (target.mode === "month") {
+      // 与点月格同一口径：selectedDate + roving，桌面 `n` / 方向键从这一天继续。
+      rovingRef.current = target.selected;
+      setRovingDate(target.selected);
+      const focusKey = keyFor(target.selected);
+      pendingMonthFocusKey.current = focusKey;
+      // 弹层回焦是 setTimeout(0)。晚 1ms 再聚焦选中日，避免标题按钮把焦点抢回去。
+      window.setTimeout(() => {
+        const node = monthCellRefs.current.get(focusKey);
+        if (node?.isConnected) node.focus();
+      }, 1);
+    } else {
+      pendingMonthFocusKey.current = null;
+    }
+    setSelectedDate(target.selected);
+    setCursor(target.cursor);
+    if (target.mode !== modeRef.current) {
+      modeRef.current = target.mode;
+      setMode(target.mode);
+    }
+  };
   const moveMonthGridFocus = (next: Date) => {
     const day = new Date(next.getFullYear(), next.getMonth(), next.getDate());
     rovingRef.current = day;
@@ -2196,6 +2249,15 @@ function TaskMonthViewContent({
     { key: "m", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "month") },
     { key: "y", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "year") },
     { key: "a", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false, handler: (event) => runCalendarNav(event, "agenda") },
+    {
+      // 打开标题「跳转到日期」面板；与 n 同一套 IME / 弹层 / 连发防护。
+      key: "g", ctrlKey: false, metaKey: false, altKey: false, preventDefault: false,
+      handler: (event) => {
+        if (hasOpenDialog() || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+        event.preventDefault();
+        setJumpOpen(true);
+      },
+    },
   ]);
 
   useEffect(() => {
@@ -2430,7 +2492,24 @@ function TaskMonthViewContent({
           桌面仍是一行，模式分段靠 md:ml-auto 贴到导航组左侧，间距由 header gap-3 提供（= 原 mr-2 + gap-1） */}
       <header className="task-calendar-header flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3 md:px-6">
         <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <h2 className="min-w-0 text-base font-semibold">{title}</h2>
+        {/* flex 让标题按钮高度即行高，不改变顶栏几何（手机月议程行位置对顶栏高度敏感） */}
+        <h2 className="flex min-w-0 items-center text-base font-semibold">
+          <CalendarJumpDate
+            open={jumpOpen}
+            onOpenChange={setJumpOpen}
+            mode={mode}
+            cursor={cursor}
+            today={today}
+            selectedDate={selectedDate}
+            weekStart={weekStart}
+            showWeekends={showWeekends}
+            tasks={scheduledTasks}
+            countdowns={countdowns}
+            onSelectDate={jumpToDate}
+          >
+            {title}
+          </CalendarJumpDate>
+        </h2>
         <div role="group" aria-label="日历视图" className="order-last flex basis-full rounded-lg bg-muted p-1 text-sm md:order-none md:ml-auto md:basis-auto">
           {(["day", "week", "month", "year", "agenda"] as CalendarMode[]).map((item) => (
             <Button
