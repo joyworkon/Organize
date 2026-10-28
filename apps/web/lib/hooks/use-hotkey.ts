@@ -138,36 +138,51 @@ export function useHotkeySequence(
       if (e.key.length !== 1 && e.key !== "Escape") return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+      // 弹层（Dialog/Menu/Popover）打开时序列让位并清空缓冲：
+      // 例如日历页单键 g 会弹出「跳转到日期」面板，随后 1.5s 内的字母
+      // 不应再补全 g x 序列把用户带离当前页面（与单键快捷键的 hasOpenDialog 口径一致）。
+      if (hasOpenDialog()) {
+        reset();
+        return;
+      }
+
       if (e.key === "Escape") {
         reset();
         return;
       }
 
       const key = e.key.toLowerCase();
-      bufferRef.current = [...bufferRef.current, key];
-      // 只保留最后 N 位（最长序列的长度）
-      const maxLen = Math.max(...seqsRef.current.map((s) => s.sequence.length), 1);
-      if (bufferRef.current.length > maxLen) {
-        bufferRef.current = bufferRef.current.slice(-maxLen);
-      }
-      notifyBufferChange();
-
-      // 检查是否有匹配的完整序列
-      const buf = bufferRef.current;
-      for (const s of seqsRef.current) {
-        if (buf.length < s.sequence.length) continue;
-        const tail = buf.slice(-s.sequence.length);
-        if (tail.join("") === s.sequence.join("")) {
-          e.preventDefault();
-          s.handler();
-          reset();
+      // 页面快捷键（日历上的 g）可能注册得更晚，要等本事件的其它监听器跑完
+      // 再决定要不要入缓冲。已被 preventDefault 认领的键不能再拼成 g x 把人带走。
+      queueMicrotask(() => {
+        if (e.defaultPrevented || hasOpenDialog()) {
+          if (hasOpenDialog()) reset();
           return;
         }
-      }
+        bufferRef.current = [...bufferRef.current, key];
+        // 只保留最后 N 位（最长序列的长度）
+        const maxLen = Math.max(...seqsRef.current.map((s) => s.sequence.length), 1);
+        if (bufferRef.current.length > maxLen) {
+          bufferRef.current = bufferRef.current.slice(-maxLen);
+        }
+        notifyBufferChange();
 
-      // 1.5 秒内没继续按就清空
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(reset, 1500);
+        const buf = bufferRef.current;
+        for (const s of seqsRef.current) {
+          if (buf.length < s.sequence.length) continue;
+          const tail = buf.slice(-s.sequence.length);
+          if (tail.join("") === s.sequence.join("")) {
+            e.preventDefault();
+            s.handler();
+            reset();
+            return;
+          }
+        }
+
+        // 1.5 秒内没继续按就清空
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(reset, 1500);
+      });
     };
 
     window.addEventListener("keydown", onKeyDown);
