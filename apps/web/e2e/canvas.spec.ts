@@ -31,7 +31,16 @@ async function openNewCanvas(page: Page) {
   await expect(page.getByTestId("canvas-viewport")).toBeVisible();
 }
 
+/**
+ * 空白画布会在视口中央显示「快速开始」面板（模板按钮可点）；本文件的双击建版面用例
+ * 验证的是世界坐标换算，先点「空白画布」关掉面板，避免双击的第一下落在模板按钮上。
+ */
 async function dblClickViewport(page: Page, x: number, y: number) {
+  const starter = page.getByTestId("canvas-starter-panel");
+  if (await starter.count()) {
+    await starter.getByRole("button", { name: /空白画布/ }).click();
+    await expect(starter).toHaveCount(0);
+  }
   await page.getByTestId("canvas-viewport").dblclick({ position: { x, y } });
 }
 
