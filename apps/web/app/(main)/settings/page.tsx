@@ -9,7 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { showConfirm } from "@/components/ui/prompt-dialog";
 import { resetOnboarding } from "@/components/onboarding";
 import { tiptapJsonToMarkdown } from "@/lib/export/tiptap-to-md";
-import { createBackupV2 } from "@/lib/backup/schema";
+import { BACKUP_TABLES, BACKUP_VERSION, createBackupV2 } from "@/lib/backup/schema";
 import { fetchBackupData, pruneExportData } from "@/lib/backup/export-data";
 import {
   AttachmentPackageCancelledError,
@@ -356,13 +356,13 @@ export default function SettingsPage() {
           {/* P0-04：包含/排除清单——不打包的东西必须明说，禁止「成功但丢数据」 */}
           <details className="mb-4 rounded-md border bg-muted/30 text-sm">
             <summary className="cursor-pointer select-none px-3 py-2 text-muted-foreground">
-              备份包含什么？（v5 格式清单）
+              备份包含什么？（v{BACKUP_VERSION} 格式清单）
             </summary>
             <div className="px-3 pb-3 space-y-2 text-xs leading-relaxed">
               <div>
-                <span className="font-medium text-foreground">包含（28 张表）：</span>
+                <span className="font-medium text-foreground">包含（{BACKUP_TABLES.length} 张表）：</span>
                 <span className="text-muted-foreground">
-                  阅读条目、笔记（含层级/页面设置/版本历史/评论/建议）、任务（清单/依赖/提醒/附件元数据/动态/模板）、速记、任务↔笔记双链、标签、高亮、收藏、同步块、数据库块、倒数日、复盘
+                  阅读条目与整理稿（含来源溯源）、笔记（含层级/页面设置/版本历史/评论/建议）、任务（清单/依赖/提醒/附件元数据/动态/模板/日程时间与重复规则）、速记（含转笔记关联）、任务↔笔记双链、标签、高亮、收藏、同步块、数据库块、倒数日、复盘（经验）、集合、构思画布、文件导入记录
                 </span>
               </div>
               <div>
@@ -375,7 +375,7 @@ export default function SettingsPage() {
               <div>
                 <span className="font-medium text-destructive">不包含：</span>
                 <span className="text-muted-foreground">
-                  登录凭据（auth）、插件配置、公开分享链接、AI 服务配置（含密钥，永不导出）；纯 JSON 导出不含附件文件本体
+                  登录凭据（auth）、插件配置、公开分享链接、AI 服务配置（含密钥，永不导出）、回收站中的软删除行、笔记分组（暂未包含，恢复后笔记回到「未分组」）；纯 JSON 导出不含附件文件本体
                 </span>
               </div>
               <div className="text-muted-foreground">
