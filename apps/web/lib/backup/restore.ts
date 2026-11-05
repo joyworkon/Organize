@@ -286,9 +286,12 @@ export function prepareRestorePayload(
     note_id: remap(row.note_id, maps.notes),
   }));
 
-  // 085（idea-canvas）：画布文档仅重映射自身 ID（content 无跨表引用）
+  // 085（idea-canvas）：画布文档除自身 ID 外，content 内资料引用 sourceRef.id
+  // 也按 kind 指向 reading_items / memos（materialCard 必有，text/image 资料摘录
+  // 可带），随恢复重映射——否则换新 ID 后「打开来源 / 更新快照 / 来源状态」全失联
   data.canvas_documents = (backup.data.canvas_documents || []).map((row) => ({
     ...withId(row, maps.canvas_documents),
+    content: rewriteCanvasSourceRefs(row.content, maps.reading_items, maps.memos),
   }));
 
   // 091（备份 v7）：导入任务与逐文件记录。
@@ -442,4 +445,42 @@ function rewriteInternalLinks(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 画布 content（CanvasDoc JSON）内 sourceRef.id 重映射：kind=reading →
+ * reading_items、kind=memo → memos（kind 集合即 lib/canvas/model.ts 的
+ * CanvasSourceRef）。其余字段（块 ID、快照 title/text、外链 url 等）不含跨表
+ * 引用，原样保留；缺映射（来源不在本次备份）同 rewriteInternalLinks 的悬空
+ * 内链语义原样保留——来源探测对查不到的 id 按不可达展示，快照不依赖来源存活。
+ */
+function rewriteCanvasSourceRefs(
+  value: unknown,
+  readingIds: Map<string, string>,
+  memoIds: Map<string, string>
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => rewriteCanvasSourceRefs(entry, readingIds, memoIds));
+  }
+  if (!isRecord(value)) return value;
+
+  const rewritten: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "sourceRef" && isRecord(entry)) {
+      const map =
+        entry.kind === "reading"
+          ? readingIds
+          : entry.kind === "memo"
+            ? memoIds
+            : undefined;
+      const id = entry.id;
+      rewritten[key] =
+        typeof id === "string" && map
+          ? { ...entry, id: map.get(id) ?? id }
+          : entry;
+    } else {
+      rewritten[key] = rewriteCanvasSourceRefs(entry, readingIds, memoIds);
+    }
+  }
+  return rewritten;
 }

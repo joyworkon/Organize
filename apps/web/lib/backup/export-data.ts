@@ -199,7 +199,8 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
     order: ["id"],
   },
   {
-    // 085（idea-canvas）：构思画布文档（content 为结构 JSON，无跨表引用）
+    // 085（idea-canvas）：构思画布文档（content 为结构 JSON；sourceRef.id
+    // 指向 reading_items/memos，恢复侧随 ID 重映射）
     table: "canvas_documents",
     columns: "id, title, content, deleted_at, created_at, updated_at",
     userOwned: true,
