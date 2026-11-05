@@ -142,6 +142,9 @@ export function Sidebar() {
   const { tags: sidebarTags, loadError: sidebarTagsLoadError, refresh: refreshSidebarTags } =
     useAllTags();
   const supabase = useMemo(() => createClient(), []);
+  // 待办仓库懒加载：tasks/lists 只服务展开后的 TaskSidebar 与建清单（见下方 tasksExpanded 块），
+  // 未展开且不在待办路由时不拉全量任务；从 localStorage 恢复展开态后门开，再拉取
+  const tasksFetchEnabled = tasksExpanded || isTaskWorkspace;
   const {
     tasks,
     lists,
@@ -150,7 +153,7 @@ export function Sidebar() {
     updateList,
     deleteList,
     refetch: refetchTasks,
-  } = useTaskRepository();
+  } = useTaskRepository({ enabled: tasksFetchEnabled });
   const recentNotes = useOpenTabsStore((state) => state.recents);
   const {
     has: hasSharedNotes,

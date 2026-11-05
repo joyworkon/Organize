@@ -35,11 +35,17 @@ export interface TaskFilters {
   search: string;
 }
 
-export function useTaskRepository() {
+export interface UseTaskRepositoryOptions {
+  /** false 时不自动拉取（侧栏未展开待办时的懒加载门），refetch 同样 no-op；默认 true */
+  enabled?: boolean;
+}
+
+export function useTaskRepository(options?: UseTaskRepositoryOptions) {
+  const enabled = options?.enabled ?? true;
   const supabase = useMemo(() => createClient(), []);
   const [tasks, setTasks] = useState<TaskWithTags[]>([]);
   const [lists, setLists] = useState<TaskList[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 快照缓存（乐观回滚用）
   const snapshotRef = useRef<TaskWithTags[]>([]);
@@ -50,6 +56,7 @@ export function useTaskRepository() {
   }, [tasks, lists]);
 
   const fetchAll = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -112,9 +119,12 @@ export function useTaskRepository() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, enabled]);
 
-  useEffect(() => { void fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    if (!enabled) return;
+    void fetchAll();
+  }, [enabled, fetchAll]);
 
   /** 共用原子协议的字段更新；冲突/网络失败均有可见处理，返回是否真实落库（false = 乐观态已回滚） */
   const applyAtomicUpdate = useCallback(
