@@ -29,14 +29,28 @@ export type SourceStatus = "loading" | "ok" | "missing" | "error";
 export type SourceStatusMap = Map<string, SourceStatus>;
 
 export function useSourceStatus(doc: CanvasDoc): SourceStatusMap {
-  const refs = useMemo(() => collectSourceRefs(doc), [doc]);
   const [statuses, setStatuses] = useState<SourceStatusMap>(new Map());
   /** 网络错误的探测批次号：递增触发重试 */
   const [retryTick, setRetryTick] = useState(0);
 
+  /**
+   * 稳定探测键：文档内来源引用按 kind+id 去重排序后的 JSON 串。
+   * 打字/拖动等引用集合不变的文档变化 → 键不变 → 下方探测 effect 不重跑；
+   * 只有引用集合变化（增删换来源）才重新探测。
+   */
+  const probeKey = useMemo(() => {
+    const refs = collectSourceRefs(doc);
+    return JSON.stringify([...new Set(refs.map((r) => sourceRefKey(r.kind, r.id)))].sort());
+  }, [doc]);
+
   useEffect(() => {
-    const readingIds = refs.filter((r) => r.kind === "reading").map((r) => r.id);
-    const memoIds = refs.filter((r) => r.kind === "memo").map((r) => r.id);
+    const keys = JSON.parse(probeKey) as string[];
+    const readingIds = keys
+      .filter((key) => key.startsWith("reading:"))
+      .map((key) => key.slice("reading:".length));
+    const memoIds = keys
+      .filter((key) => key.startsWith("memo:"))
+      .map((key) => key.slice("memo:".length));
     if (readingIds.length === 0 && memoIds.length === 0) {
       setStatuses(new Map());
       return;
@@ -81,10 +95,10 @@ export function useSourceStatus(doc: CanvasDoc): SourceStatusMap {
     return () => {
       cancelled = true;
     };
-    // refs 由 useMemo 按文档稳定；retryTick 供 error 态自动重探
-  }, [refs, retryTick]);
+    // probeKey 为稳定键：引用集合不变时不重跑；retryTick 供 error 态自动重探
+  }, [probeKey, retryTick]);
 
-  /** 网络错误时用户可重试探测（依赖 refs 稳定引用，仅 error 才提供重试入口） */
+  /** 网络错误时用户可重试探测（仅 error 才提供重试入口） */
   const hasError = useMemo(
     () => [...statuses.values()].some((status) => status === "error"),
     [statuses],
