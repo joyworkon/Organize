@@ -5,6 +5,12 @@ import {
   nextCommandPaletteSearchAfterLoad,
   type CommandPaletteSearchCounts,
 } from "@/lib/search/command-palette-search-load";
+import {
+  clearRecentSearches,
+  getRecentSearches,
+  isSearchableQuery,
+  saveRecentSearch,
+} from "@/lib/search/recent-searches";
 
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -72,8 +78,6 @@ type SearchResult = {
 
 type SearchCounts = CommandPaletteSearchCounts;
 
-const RECENT_SEARCHES_KEY = "organize:recent-searches";
-const MAX_RECENT_SEARCHES = 5;
 const SEARCH_LIMIT = 8;
 
 const NAV_ITEMS = [
@@ -241,41 +245,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
-function isSearchableQuery(query: string): boolean {
-  const trimmed = query.trim();
-  if (!trimmed) return false;
-  if (trimmed.length >= 2) return true;
-  return /[\u3400-\u9fff]/.test(trimmed);
-}
-
-function getRecentSearches(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentSearch(query: string) {
-  if (typeof window === "undefined") return;
-  const normalized = query.trim();
-  if (!isSearchableQuery(normalized)) return;
-  try {
-    const recent = getRecentSearches().filter((s) => s !== normalized);
-    recent.unshift(normalized);
-    const trimmed = recent.slice(0, MAX_RECENT_SEARCHES);
-    localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(trimmed));
-  } catch {
-    // ignore
-  }
-}
-
-function clearRecentSearches() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(RECENT_SEARCHES_KEY);
-}
+// 最近搜索的读写、属主绑定与可搜索判定在 lib/search/recent-searches.ts（按账号隔离）
 
 export function CommandPalette() {
   const router = useRouter();
