@@ -108,6 +108,7 @@ const isNumber: Validator = (value) =>
   typeof value === "number" && Number.isFinite(value);
 const isInteger: Validator = (value) => Number.isInteger(value);
 const isNullableInteger: Validator = (value) => value === null || isInteger(value);
+const isNullableBoolean: Validator = (value) => value === null || isBoolean(value);
 const isTimestamp: Validator = (value) =>
   typeof value === "string" && !Number.isNaN(Date.parse(value));
 const isNullableTimestamp: Validator = (value) =>
@@ -130,6 +131,14 @@ const oneOf =
   (...values: string[]): Validator =>
   (value) =>
     typeof value === "string" && values.includes(value);
+// 与 033 的 tasks_recurrence_rule_check 同形：对象、frequency 四选一、
+// interval 固定 1（缺省按 1）——不合形的行恢复会撞 DB check 整链回滚，
+// 在校验层提前拒绝
+const isRecurrenceRule: Validator = (value) =>
+  value === null ||
+  (isRecord(value) &&
+    oneOf("daily", "weekly", "monthly", "yearly")(value.frequency) &&
+    (value.interval === undefined || value.interval === null || value.interval === 1));
 
 const rowSchemas: Record<BackupTable, RowSchema> = {
   reading_items: {
@@ -218,6 +227,16 @@ const rowSchemas: Record<BackupTable, RowSchema> = {
       parent_task_id: optional(isNullableUuid),
       // 033 任务工作台：任务所属列表（v4 及更早备份无此字段，optional 兼容）
       list_id: optional(isNullableUuid),
+      // 033 日程七列：此前从未进备份（导出不选列、恢复不落库）。旧备份文件
+      // 没有这些键，optional 兼容；series/source 为同表引用，关系校验见
+      // validateRelationships，悬空由导出剪枝置空
+      schedule_start_at: optional(isNullableTimestamp),
+      schedule_end_at: optional(isNullableTimestamp),
+      all_day: optional(isNullableBoolean),
+      timezone: optional(isNullableString),
+      recurrence_rule: optional(isRecurrenceRule),
+      series_id: optional(isNullableUuid),
+      source_id: optional(isNullableUuid),
       is_pinned: isBoolean,
       sort_order: isInteger,
       completed_at: isNullableTimestamp,
@@ -860,6 +879,9 @@ function validateRelationships(data: BackupData, issues: BackupIssue[]) {
   checkOptionalRefs(data.tasks, "reading_item_id", ids.reading, "tasks", issues);
   checkOptionalRefs(data.tasks, "note_id", ids.notes, "tasks", issues);
   checkOptionalRefs(data.tasks, "parent_task_id", ids.tasks, "tasks", issues);
+  // 033 系列/来源同为 tasks 同表引用，悬空同样会撞恢复重映射
+  checkOptionalRefs(data.tasks, "series_id", ids.tasks, "tasks", issues);
+  checkOptionalRefs(data.tasks, "source_id", ids.tasks, "tasks", issues);
   validateTaskHierarchy(data.tasks, issues);
   checkRefs(data.task_dependencies, "task_id", ids.tasks, "task_dependencies", issues);
   checkRefs(

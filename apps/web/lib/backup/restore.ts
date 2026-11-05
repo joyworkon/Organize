@@ -138,6 +138,15 @@ export function prepareRestorePayload(
     reading_item_id: remapOptional(row.reading_item_id, maps.reading_items),
     note_id: remapOptional(row.note_id, maps.notes),
     parent_task_id: remapOptional(row.parent_task_id, maps.tasks),
+    // 033 日程七列：旧备份无键时归一 null（DB 列可空），新备份原样跟走；
+    // series/source 同表引用随 ID 重映射（悬空已被导出剪枝置空）
+    schedule_start_at: row.schedule_start_at ?? null,
+    schedule_end_at: row.schedule_end_at ?? null,
+    all_day: row.all_day ?? null,
+    timezone: row.timezone ?? null,
+    recurrence_rule: row.recurrence_rule ?? null,
+    series_id: remapOptional(row.series_id, maps.tasks),
+    source_id: remapOptional(row.source_id, maps.tasks),
   }));
   data.task_dependencies = (backup.data.task_dependencies || []).map((row) => ({
     task_id: remap(row.task_id, maps.tasks),
