@@ -27,7 +27,7 @@ interface OpenTabsState {
   /** 从标签页与最近列表中彻底移除（笔记被删除/移入垃圾箱时） */
   forgetNote: (id: string) => void;
   /**
-   * 账号绑定（note-tabs-owner-bridge 在会话就绪/变更时调用）：
+   * 账号绑定（session-owner-bridge 在会话就绪/变更时调用）：
    * 同一用户幂等；不同用户（含持久化里旧账号的无属主数据）清空 tabs/recents
    */
   rebindOwner: (userId: string) => void;
