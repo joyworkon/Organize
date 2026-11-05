@@ -55,8 +55,9 @@ export const BACKUP_TABLE_QUERIES: readonly TableQueryConfig[] = [
   },
   {
     table: "tasks",
+    // 033 日程七列（schedule/recurrence/series）此前从未进备份，恢复后日程全丢
     columns:
-      "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, parent_task_id, list_id, is_pinned, sort_order, completed_at, created_at, updated_at",
+      "id, title, description, status, priority, category, due_date, estimated_minutes, actual_minutes, reading_item_id, note_id, parent_task_id, list_id, schedule_start_at, schedule_end_at, all_day, timezone, recurrence_rule, series_id, source_id, is_pinned, sort_order, completed_at, created_at, updated_at",
     userOwned: true,
     order: ["id"],
   },
@@ -354,6 +355,16 @@ export function pruneExportData(data: BackupData): BackupData {
         : null,
     list_id:
       row.list_id == null || listIds.has(String(row.list_id)) ? row.list_id : null,
+    // 系列头/来源同表引用：指向被排除的回收站任务时置空（丢引用不丢行，
+    // 恢复后该任务自成系列起点，033 complete_recurring_task 会重建 series）
+    series_id:
+      row.series_id == null || taskIds.has(String(row.series_id))
+        ? row.series_id
+        : null,
+    source_id:
+      row.source_id == null || taskIds.has(String(row.source_id))
+        ? row.source_id
+        : null,
   }));
   kept.lessons = data.lessons.map((row) => ({
     ...row,
