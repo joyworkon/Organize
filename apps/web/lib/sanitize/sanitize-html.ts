@@ -6,6 +6,8 @@ import sanitizeHtml from "sanitize-html";
  * 用途：
  * 1. 抓取入库时清洗 reading_items.content（防止存储型 XSS）
  * 2. 公开分享页渲染前再清洗一道（双保险）
+ * 3. 稍后读详情页渲染前清洗（见 lib/reading-images.ts）——入库内容不保证经过第 1 步：
+ *    备份恢复、登录用户直插都能写入未清洗的 HTML，渲染这一道才是真正的边界
  */
 export function sanitizeContent(html: string): string {
   if (!html) return "";
