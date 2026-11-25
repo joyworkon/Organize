@@ -27,6 +27,9 @@ export function isAuthExemptPath(pathname: string): boolean {
     pathname === "/sw.js" ||
     pathname === "/offline.html" ||
     pathname === "/api/health" ||
+    // CSP 违规上报（仅上报模式下发，见 next.config.mjs）：浏览器在登录页、公开分享页
+    // 同样会上报，307 到 /login 会让这些报告全部丢失
+    pathname === "/api/csp-report" ||
     pathname.startsWith("/api/cron/")
   );
 }
