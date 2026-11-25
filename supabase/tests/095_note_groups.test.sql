@@ -1,13 +1,15 @@
 -- 095 笔记分组（094 的 note_groups / note_group_members）pgTAP
 --
 -- 094 自身没有任何 pgTAP。这里按 AGENTS.md「新增鉴权 / RLS 必须有双用户越权 pgTAP」补齐：
---   1. GRANT：authenticated 两张表读写齐备（分组是硬删除，客户端 lib/notes/groups.ts
+--   1. 表级权限：authenticated 两张表读写齐备（分组是硬删除，客户端 lib/notes/groups.ts
 --      会直接 delete），anon 一项权限都没有；RLS 已开启
 --   2. anon 直读被拒（fail-closed）
 --   3. A 的全流程：建组 → 归入 → 读取 → 改名 → 移出 → 删组（即客户端的读写路径）
 --   4. B 越权：看不到、改不动、删不掉；知道 A 的组 / 笔记 id 也挂不进（两个复合外键）；
 --      以 A 的身份写入被策略拒绝
 --   5. 删除语义：删组 cascade 清成员行，笔记本身保留
+--
+-- CI 跑的 pgTAP 没有 rls_enabled()，结构断言直接查系统目录。
 
 BEGIN;
 SELECT plan(42);
@@ -26,7 +28,7 @@ INSERT INTO public.notes (id, user_id, title, content) VALUES
   ('95000000-0000-0000-0000-0000000000a2', '95000002-0000-0000-0000-000000000002',
    'B的笔记', '{"type":"doc","content":[{"type":"paragraph"}]}');
 
--- ========== 1. GRANT ==========
+-- ========== 1. 表级权限 ==========
 SELECT is(has_table_privilege('authenticated', 'public.note_groups', 'SELECT'), true,
   '095: authenticated 可读 note_groups');
 SELECT is(has_table_privilege('authenticated', 'public.note_groups', 'INSERT'), true,
@@ -61,8 +63,12 @@ SELECT is(has_table_privilege('anon', 'public.note_group_members', 'UPDATE'), fa
 SELECT is(has_table_privilege('anon', 'public.note_group_members', 'DELETE'), false,
   '095: anon 不可删 note_group_members');
 
-SELECT is(rls_enabled('public', 'note_groups'), true, '095: note_groups 开启 RLS');
-SELECT is(rls_enabled('public', 'note_group_members'), true, '095: note_group_members 开启 RLS');
+SELECT is((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relname = 'note_groups'), true,
+  '095: note_groups 开启 RLS');
+SELECT is((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relname = 'note_group_members'), true,
+  '095: note_group_members 开启 RLS');
 
 -- ========== 2. anon 直读被拒 ==========
 SET ROLE anon;
