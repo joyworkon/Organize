@@ -73,9 +73,9 @@ SELECT is((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid 
 -- ========== 2. anon 直读被拒 ==========
 SET ROLE anon;
 SELECT throws_ok($$SELECT count(*) FROM public.note_groups$$,
-  '42501', '095: anon 直读 note_groups 被拒');
+  '42501', 'permission denied for table note_groups', '095: anon 直读 note_groups 被拒');
 SELECT throws_ok($$SELECT count(*) FROM public.note_group_members$$,
-  '42501', '095: anon 直读 note_group_members 被拒');
+  '42501', 'permission denied for table note_group_members', '095: anon 直读 note_group_members 被拒');
 RESET ROLE;
 
 -- ========== 3. A 的全流程（客户端的读写路径）==========
@@ -136,20 +136,24 @@ SELECT results_eq(
 SELECT throws_ok($$INSERT INTO public.note_group_members (note_id, group_id, user_id) VALUES
   ('95000000-0000-0000-0000-0000000000a2', '95000000-0000-0000-0000-0000000000c1',
    '95000002-0000-0000-0000-000000000002')$$,
-  '23503', '095: B 知道 A 的组 id 也挂不进');
+  '23503', 'insert or update on table "note_group_members" violates foreign key constraint "note_group_members_group_fkey"',
+  '095: B 知道 A 的组 id 也挂不进');
 -- 复合外键 (note_id, user_id) → notes(id, user_id)：B 知道 A 的笔记 id 也归不进自己的组
 SELECT throws_ok($$INSERT INTO public.note_group_members (note_id, group_id, user_id) VALUES
   ('95000000-0000-0000-0000-0000000000a1', '95000000-0000-0000-0000-0000000000c2',
    '95000002-0000-0000-0000-000000000002')$$,
-  '23503', '095: B 知道 A 的笔记 id 也归不进自己的组');
+  '23503', 'insert or update on table "note_group_members" violates foreign key constraint "note_group_members_note_fkey"',
+  '095: B 知道 A 的笔记 id 也归不进自己的组');
 -- 以 A 的身份写入：插入策略 with check (auth.uid() = user_id) 拒绝
 SELECT throws_ok($$INSERT INTO public.note_groups (id, user_id, name) VALUES
   ('95000000-0000-0000-0000-0000000000c8', '95000001-0000-0000-0000-000000000001', '冒名')$$,
-  '42501', '095: B 不能以 A 的身份建组');
+  '42501', 'new row violates row-level security policy for table "note_groups"',
+  '095: B 不能以 A 的身份建组');
 SELECT throws_ok($$INSERT INTO public.note_group_members (note_id, group_id, user_id) VALUES
   ('95000000-0000-0000-0000-0000000000a2', '95000000-0000-0000-0000-0000000000c2',
    '95000001-0000-0000-0000-000000000001')$$,
-  '42501', '095: B 不能以 A 的身份写成员关系');
+  '42501', 'new row violates row-level security policy for table "note_group_members"',
+  '095: B 不能以 A 的身份写成员关系');
 RESET ROLE;
 
 -- 越权实验之后 A 的数据原样
