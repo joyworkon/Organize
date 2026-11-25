@@ -21,12 +21,16 @@ DO $$ BEGIN
   ON CONFLICT (id) DO NOTHING;
 END $$;
 
--- A、B 各一篇笔记：成员行的复合外键 (note_id, user_id) 指向 notes(id, user_id)
+-- A 两篇、B 一篇笔记：成员行的复合外键 (note_id, user_id) 指向 notes(id, user_id)。
+-- note_id 是成员表的主键（每篇笔记至多属于一个组），跨用户实验要用尚未入组的笔记，
+-- 否则先撞主键、测不到外键
 INSERT INTO public.notes (id, user_id, title, content) VALUES
   ('95000000-0000-0000-0000-0000000000a1', '95000001-0000-0000-0000-000000000001',
    'A的笔记', '{"type":"doc","content":[{"type":"paragraph"}]}'),
   ('95000000-0000-0000-0000-0000000000a2', '95000002-0000-0000-0000-000000000002',
-   'B的笔记', '{"type":"doc","content":[{"type":"paragraph"}]}');
+   'B的笔记', '{"type":"doc","content":[{"type":"paragraph"}]}'),
+  ('95000000-0000-0000-0000-0000000000a3', '95000001-0000-0000-0000-000000000001',
+   'A的第二篇笔记', '{"type":"doc","content":[{"type":"paragraph"}]}');
 
 -- ========== 1. 表级权限 ==========
 SELECT is(has_table_privilege('authenticated', 'public.note_groups', 'SELECT'), true,
@@ -140,7 +144,7 @@ SELECT throws_ok($$INSERT INTO public.note_group_members (note_id, group_id, use
   '095: B 知道 A 的组 id 也挂不进');
 -- 复合外键 (note_id, user_id) → notes(id, user_id)：B 知道 A 的笔记 id 也归不进自己的组
 SELECT throws_ok($$INSERT INTO public.note_group_members (note_id, group_id, user_id) VALUES
-  ('95000000-0000-0000-0000-0000000000a1', '95000000-0000-0000-0000-0000000000c2',
+  ('95000000-0000-0000-0000-0000000000a3', '95000000-0000-0000-0000-0000000000c2',
    '95000002-0000-0000-0000-000000000002')$$,
   '23503', 'insert or update on table "note_group_members" violates foreign key constraint "note_group_members_note_fkey"',
   '095: B 知道 A 的笔记 id 也归不进自己的组');
