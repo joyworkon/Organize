@@ -6,16 +6,28 @@
  * RLS 拒绝（更新后的行必须仍满足 SELECT 可见性），RPC 是 security definer。
  * RPC 天然幂等：目标已删或不存在时更新 0 行、返回 0，不报错。
  *
+ * 按 user_id 隔离存储 key（与创建队列、任务 / 速记队列同一约定）。这一点对删除队列
+ * 尤其要紧：回放按当前账号执行，别人的删除请求更新 0 行且不报错，会被当成「已应用」
+ * 出队——上一位离线删掉的笔记就再也删不掉了。
+ *
  * 「建后删」不入本队列：仍在离线创建队列里的笔记（服务端还没有）删除时直接
  * 丢弃草稿载荷（removeNoteCreate），由调用方在入队前判定。
  *
  * 失败分类复用 note-sync：网络错误中止回放等下次 online；带 code 的服务端错误
  * 丢弃该条（rejected）并继续后续操作。
+ *
+ * 存量数据：旧版本用不分账号的全局 key，首个读取的账号整体接手（见 migrateLegacyNoteDeletes）。
  */
 
 import { isNetworkSaveError } from "./note-sync";
 
-const STORAGE_KEY = "organize:offline:note-deletes:v1";
+const STORAGE_KEY_PREFIX = "organize:offline:note-deletes:v1:";
+/** 旧版全局 key（不分账号）。存量迁走后写回空数组，之后不再进入迁移。 */
+const LEGACY_STORAGE_KEY = "organize:offline:note-deletes:v1";
+
+export function noteDeletesStorageKey(userId: string): string {
+  return `${STORAGE_KEY_PREFIX}${userId}`;
+}
 
 export interface PendingNoteDelete {
   op_id: string;
@@ -26,10 +38,17 @@ export interface PendingNoteDelete {
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
-export function readNoteDeletes(storage: StorageLike): PendingNoteDelete[] {
+function safeGet(storage: StorageLike, key: string): string | null {
   try {
-    const raw = storage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function parseOps(raw: string | null): PendingNoteDelete[] {
+  if (!raw) return [];
+  try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as PendingNoteDelete[]) : [];
   } catch {
@@ -37,23 +56,54 @@ export function readNoteDeletes(storage: StorageLike): PendingNoteDelete[] {
   }
 }
 
-export function writeNoteDeletes(storage: StorageLike, ops: PendingNoteDelete[]): void {
+/**
+ * 旧版全局 key 的存量迁移。删除操作不记属主，无法判断属于谁：整体迁给首个读取的
+ * 账号——单人设备上就是原属主；多人共用设备时最坏情况与修复前一致。当前账号的
+ * 新 key 已存在即视为迁移完成。写盘失败时旧数据原样保留，下次读取再试。
+ */
+function migrateLegacyNoteDeletes(storage: StorageLike, userId: string): void {
+  const legacyRaw = safeGet(storage, LEGACY_STORAGE_KEY);
+  if (legacyRaw === null) return;
+  if (safeGet(storage, noteDeletesStorageKey(userId)) !== null) return;
+
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(ops));
+    storage.setItem(noteDeletesStorageKey(userId), JSON.stringify(parseOps(legacyRaw)));
+    storage.setItem(LEGACY_STORAGE_KEY, JSON.stringify([]));
+  } catch {
+    // 存储不可用：旧数据原样保留
+  }
+}
+
+export function readNoteDeletes(storage: StorageLike, userId: string): PendingNoteDelete[] {
+  migrateLegacyNoteDeletes(storage, userId);
+  return parseOps(safeGet(storage, noteDeletesStorageKey(userId)));
+}
+
+export function writeNoteDeletes(
+  storage: StorageLike,
+  userId: string,
+  ops: PendingNoteDelete[]
+): void {
+  try {
+    storage.setItem(noteDeletesStorageKey(userId), JSON.stringify(ops));
   } catch { /* 存储满/不可用：放弃持久化，内存流程继续 */ }
 }
 
 /** 入队并按 note id 去重（同一篇笔记只保留一条待删记录） */
-export function enqueueNoteDelete(storage: StorageLike, id: string): PendingNoteDelete[] {
-  const ops = readNoteDeletes(storage);
+export function enqueueNoteDelete(
+  storage: StorageLike,
+  userId: string,
+  id: string
+): PendingNoteDelete[] {
+  const ops = readNoteDeletes(storage, userId);
   if (ops.some((item) => item.id === id)) return ops;
   ops.push(makeNoteDeleteOp(id));
-  writeNoteDeletes(storage, ops);
+  writeNoteDeletes(storage, userId, ops);
   return ops;
 }
 
-export function noteDeletesCount(storage: StorageLike): number {
-  return readNoteDeletes(storage).length;
+export function noteDeletesCount(storage: StorageLike, userId: string): number {
+  return readNoteDeletes(storage, userId).length;
 }
 
 export function makeNoteDeleteOp(id: string): PendingNoteDelete {

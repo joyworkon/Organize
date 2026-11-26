@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createNewNote } from "./create-note";
+import { noteCreatesStorageKey, readNoteCreates } from "@/lib/offline/note-queue";
 
 /**
  * N02 回归：统一笔记创建服务的四态合同
@@ -57,9 +58,20 @@ describe("createNewNote 四态合同（N02）", () => {
     expect(result.status).toBe("queued");
     if (result.status === "queued") {
       expect(result.noteId).toMatch(/^[0-9a-f-]{36}$/);
-      const raw = localStorage.getItem("organize:offline:note-creates:v1");
-      expect(raw).toContain(result.noteId);
+      // 入的是会话用户自己的队列（key 按 user_id 隔离），不再是全局 key
+      expect(readNoteCreates(localStorage, "u1").map((op) => op.note.id)).toEqual([result.noteId]);
+      expect(localStorage.getItem("organize:offline:note-creates:v1")).toBeNull();
+      expect(noteCreatesStorageKey("u1")).toBe("organize:offline:note-creates:v1:u1");
     }
+  });
+
+  it("换号后各自入队：上一位的离线笔记不会被新账号读到", async () => {
+    const first = await createNewNote(fakeClient({ user: { id: "u1" }, insertError: new TypeError("Failed to fetch") }));
+    const second = await createNewNote(fakeClient({ user: { id: "u2" }, insertError: new TypeError("Failed to fetch") }));
+    if (first.status !== "queued" || second.status !== "queued") throw new Error("expected queued");
+
+    expect(readNoteCreates(localStorage, "u1").map((op) => op.note.id)).toEqual([first.noteId]);
+    expect(readNoteCreates(localStorage, "u2").map((op) => op.note.id)).toEqual([second.noteId]);
   });
 
   it("断网（isOnline=false）→ queued", async () => {

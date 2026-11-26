@@ -47,6 +47,7 @@ import { moveNoteToTrash } from "@/lib/notes/delete-note";
 import { createNewNote, describeCreateNoteResult } from "@/lib/notes/create-note";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useSessionUserId } from "@/hooks/use-session-user-id";
 
 /** 侧栏笔记列表默认只显示的顶层笔记数 */
 const SIDEBAR_NOTES_LIMIT = 5;
@@ -90,6 +91,8 @@ export function SidebarNoteTree({
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  // 删除要动离线队列（丢弃未同步草稿 / 入删除队列），队列按这个 id 隔离存储 key
+  const sessionUserId = useSessionUserId(supabase);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState(false);
   // 正在拖动的笔记 id：dragover 阶段读不到 dataTransfer.getData，只有 types；
@@ -282,10 +285,15 @@ export function SidebarNoteTree({
 
   const deleteNote = async (note: NoteTreeNode) => {
     if (deletingIds.has(note.id)) return;
+    // 离线队列按账号隔离存储 key：没有当前账号就无从判断该动谁的队列
+    if (!sessionUserId) {
+      toast({ title: "删除失败", description: "请先登录", variant: "destructive" });
+      return;
+    }
     if (!confirm("将这篇笔记移入垃圾箱？之后可以恢复。")) return;
     setDeletingIds((prev) => new Set(prev).add(note.id));
     try {
-      const result = await moveNoteToTrash(note.id);
+      const result = await moveNoteToTrash(sessionUserId, note.id);
       setLocallyDeletedIds((prev) => new Set(prev).add(note.id));
       toast({
         title: result === "queued" ? "已离线删除，联网后自动同步" : "笔记已移入垃圾箱",

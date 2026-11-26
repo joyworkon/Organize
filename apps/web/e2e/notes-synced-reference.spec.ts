@@ -22,7 +22,7 @@ async function seed(page: Page) {
         content: { type: "doc", content: [{ type: "paragraph", attrs: { id: `blank-${key}` } }, { type: "paragraph", attrs: { id: "paste-destination" } }] },
       },
     }));
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify(notes));
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify(notes));
   });
   await page.goto("/notes/e2e-synced-reference-source");
   await expect(page.locator('.tiptap.organize-editor')).toBeEditable();

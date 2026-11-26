@@ -4,7 +4,7 @@ async function seed(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("organize:onboarded", "1");
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "multi-block-actions", created_at: Date.now(), note: {
         id: "e2e-multi-block-actions", user_id: "mock-user-0001", title: "多选块工具栏",
         content: { type: "doc", content: ["第一块", "第二块", "第三块", "第四块"].map((text, index) => ({ type: "paragraph", attrs: { id: `multi-${index}` }, content: [{ type: "text", text }] })) },
