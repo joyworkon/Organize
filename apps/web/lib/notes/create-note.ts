@@ -61,7 +61,7 @@ export async function createNewNote(
   };
 
   const queue = (): CreateNoteResult => {
-    const { persisted } = enqueueNoteCreate(localStorage, makeNoteCreateOp(payload));
+    const { persisted } = enqueueNoteCreate(localStorage, user.id, makeNoteCreateOp(payload));
     return { status: "queued", noteId, persisted };
   };
 

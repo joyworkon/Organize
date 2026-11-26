@@ -622,10 +622,12 @@ type SupabaseBrowserClient = ReturnType<typeof import("@/lib/supabase/client").c
 /**
  * 页面用 supabase 适配：把既有 RPC 参数形状 / 冲突拉取 / 离线创建队列
  * 映射成会话的 transport 接口。每个会话（noteId 换代）一个实例。
+ * 离线创建队列按 accountId 隔离存储 key：只认、只动会话属主自己的待同步创建。
  */
 export function createSupabaseNoteSaveTransport(
   supabase: SupabaseBrowserClient,
-  noteId: string
+  noteId: string,
+  accountId: string
 ): NoteSaveTransport {
   // 延迟引入避免 lib 循环依赖（note-queue 只依赖 localStorage 形状）
   return {
@@ -689,10 +691,10 @@ export function createSupabaseNoteSaveTransport(
       return profile?.display_name ?? null;
     },
     findPendingCreate() {
-      return findNoteCreate(localStorage, noteId);
+      return findNoteCreate(localStorage, accountId, noteId);
     },
     removePendingCreate() {
-      removeNoteCreate(localStorage, noteId);
+      removeNoteCreate(localStorage, accountId, noteId);
     },
     async insertPendingCreate(note) {
       const { error } = await supabase.from("notes").insert(note);

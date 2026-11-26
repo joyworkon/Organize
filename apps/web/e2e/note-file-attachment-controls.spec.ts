@@ -6,7 +6,7 @@ async function seed(page: Page) {
     localStorage.setItem("organize:onboarded", "1");
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { (window as unknown as { copiedFile: string }).copiedFile = value; } } });
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "file-controls", created_at: Date.now(), note: {
         id: "e2e-file-controls", user_id: "mock-user-0001", title: "附件工具栏验证",
         content: { type: "doc", content: [{ type: "paragraph", attrs: { id: "file-insert" } }, { type: "paragraph", content: [{ type: "text", text: "附件后的正文" }] }] },

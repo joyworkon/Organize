@@ -8,7 +8,7 @@ async function seed(page: Page) {
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
     if (localStorage.getItem("image-controls-seeded")) return;
     localStorage.setItem("image-controls-seeded", "1");
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "image-controls", created_at: Date.now(), note: {
         id: "e2e-image-controls", user_id: "mock-user-0001", title: "图片工具栏验证",
         content: { type: "doc", content: [{ type: "image", attrs: { src, alt: "示例说明", width: 320 } }, { type: "paragraph", content: [{ type: "text", text: "图片后的正文保持可编辑" }] }] },

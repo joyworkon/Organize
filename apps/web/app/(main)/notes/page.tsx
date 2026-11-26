@@ -20,6 +20,7 @@ import { NoteGroupsBar } from "@/components/notes/note-groups-bar";
 import { MoveToGroupDialog } from "@/components/notes/move-to-group-dialog";
 import { AutoGroupDialog } from "@/components/notes/auto-group-dialog";
 import { useNoteGroups } from "@/hooks/use-note-groups";
+import { useSessionUserId } from "@/hooks/use-session-user-id";
 import { showConfirm, showPrompt } from "@/components/ui/prompt-dialog";
 import type { NoteGroup } from "@organize/shared";
 import {
@@ -117,6 +118,8 @@ export default function NotesPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = useMemo(() => createClient(), []);
+  // 离线队列按账号隔离存储 key：读、回放、入队都只针对当前登录的用户
+  const sessionUserId = useSessionUserId(supabase);
   const { tags: allTags, loading: allTagsLoading, loadError: allTagsLoadError, refresh: refreshTags } =
     useAllTags();
 
@@ -124,21 +127,25 @@ export default function NotesPage() {
   const showCheckbox = selectionMode || isSelectMode;
 
   // X1 离线同步：网络状态 + 待回放操作数（离线创建 + 离线删除）
+  // 会话未就绪（userId 为 null）时不读不写任何人的队列
   const online = useOnlineStatus();
   const [pendingOps, setPendingOps] = useState(0);
   const refreshPendingOps = useCallback(() => {
-    const count = noteCreatesCount(localStorage) + noteDeletesCount(localStorage);
+    const count = sessionUserId
+      ? noteCreatesCount(localStorage, sessionUserId) + noteDeletesCount(localStorage, sessionUserId)
+      : 0;
     setPendingOps(count);
     return count;
-  }, []);
+  }, [sessionUserId]);
   useEffect(() => {
     refreshPendingOps();
   }, [refreshPendingOps]);
 
   /** 待同步创建转为列表乐观条目（仅保留列表渲染所需字段） */
   const pendingCreatesAsNotes = useCallback((): NoteWithTags[] => {
+    if (!sessionUserId) return [];
     const keyword = search.trim().toLowerCase();
-    return readNoteCreates(localStorage)
+    return readNoteCreates(localStorage, sessionUserId)
       .filter((op) => {
         if (selectedTagIds.length > 0) return false; // 待同步笔记无标签，不进入标签筛选
         if (!keyword) return true;
@@ -155,7 +162,7 @@ export default function NotesPage() {
         updated_at: new Date(op.created_at).toISOString(),
         tags: [],
       }));
-  }, [search, selectedTagIds]);
+  }, [search, selectedTagIds, sessionUserId]);
 
   // N04：列表层一次查询全部收藏状态，卡片经 Context 共享（不再逐卡查询）
   const [favoritedIds, setFavoritedIds] = useState<Set<string>>(new Set());
@@ -277,8 +284,10 @@ export default function NotesPage() {
 
   /** 回放离线队列（创建 + 删除）：联网后按序推送，应用成功的触发一次列表刷新 */
   const replayPendingOps = useCallback(async () => {
-    const createOps = readNoteCreates(localStorage);
-    const deleteOps = readNoteDeletes(localStorage);
+    // 会话未就绪：不读、不回放任何人的队列（会话就绪后触发条件会再跑一次）
+    if (!sessionUserId) return;
+    const createOps = readNoteCreates(localStorage, sessionUserId);
+    const deleteOps = readNoteDeletes(localStorage, sessionUserId);
     if (createOps.length === 0 && deleteOps.length === 0) {
       setPendingOps(0);
       return;
@@ -289,8 +298,8 @@ export default function NotesPage() {
         return { error };
       },
     };
-    const createResult = await replayNoteCreates(createWriter, createOps);
-    writeNoteCreates(localStorage, createResult.remaining);
+    const createResult = await replayNoteCreates(createWriter, createOps, sessionUserId);
+    writeNoteCreates(localStorage, sessionUserId, createResult.remaining);
     // 软删除必须走 mutate_trash RPC：直写 deleted_at 被 RLS 拒绝；
     // RPC 幂等（目标已删/不存在时更新 0 行，不报错）
     const deleteWriter: NoteDeleteWriter = {
@@ -304,7 +313,7 @@ export default function NotesPage() {
       },
     };
     const deleteResult = await replayNoteDeletes(deleteWriter, deleteOps);
-    writeNoteDeletes(localStorage, deleteResult.remaining);
+    writeNoteDeletes(localStorage, sessionUserId, deleteResult.remaining);
     setPendingOps(createResult.remaining.length + deleteResult.remaining.length);
     const applied = createResult.applied + deleteResult.applied;
     if (applied > 0) {
@@ -312,18 +321,20 @@ export default function NotesPage() {
       window.dispatchEvent(new CustomEvent("organize:notes-changed"));
       toast({ title: `已同步 ${applied} 项离线更改` });
     }
-  }, [fetchNotes, supabase]);
+  }, [fetchNotes, sessionUserId, supabase]);
 
   // 联网即回放（含首次挂载时队列有积压的场景）。
   // replayPendingOps 的引用随搜索/排序变化——直接放进依赖会变成
-  // 每次搜索按键都全量重放一遍队列，这里只跟随联网状态这一稳定触发源。
+  // 每次搜索按键都全量重放一遍队列，所以只跟随两个稳定触发源：联网状态，
+  // 以及会话用户就绪/换号——队列按账号隔离，会话 id 是异步读出来的，
+  // 挂载那一刻可能还没有；不跟随它的话积压的离线操作要等到下一次断网重连才回放。
   const replayRef = useRef(replayPendingOps);
   useEffect(() => {
     replayRef.current = replayPendingOps;
   });
   useEffect(() => {
     if (online) void replayRef.current();
-  }, [online]);
+  }, [online, sessionUserId]);
 
   useEffect(() => {
     const timer = setTimeout(fetchNotes, 300);
@@ -395,7 +406,7 @@ export default function NotesPage() {
         content: { type: "doc", content: [{ type: "paragraph" }] },
       };
       const applyOfflineCreate = () => {
-        enqueueNoteCreate(localStorage, makeNoteCreateOp(insertPayload));
+        enqueueNoteCreate(localStorage, user.id, makeNoteCreateOp(insertPayload));
         refreshPendingOps();
         // 离线时客户端路由跳转不可靠（RSC 请求会失败）：就地插入列表顶部，
         // 联网回放后经 fetchNotes 去重收敛（serverIds 判定）
@@ -470,6 +481,11 @@ export default function NotesPage() {
   ]);
 
   const deleteNote = async (id: string) => {
+    // 离线队列按账号隔离存储 key：没有当前账号就无从判断该动谁的队列
+    if (!sessionUserId) {
+      toast({ title: "删除失败", description: "请先登录", variant: "destructive" });
+      return;
+    }
     const ok = await showConfirm({
       title: "将这篇笔记移入垃圾箱？",
       description: "之后可以恢复。",
@@ -480,7 +496,7 @@ export default function NotesPage() {
     // X1：在线 mutate_trash / 离线入队回放（含丢弃未同步草稿）收敛于 moveNoteToTrash，
     // 侧栏笔记树的删除走同一入口
     try {
-      const result = await moveNoteToTrash(id);
+      const result = await moveNoteToTrash(sessionUserId, id);
       refreshPendingOps();
       setNotes((prev) => removeNotes(prev, new Set([id])));
       toast({
@@ -517,6 +533,12 @@ export default function NotesPage() {
 
   const batchDelete = async () => {
     if (selectedIds.size === 0) return;
+    // 离线队列按账号隔离存储 key：没有当前账号就无从判断哪些是未同步的草稿、该动谁的队列
+    if (!sessionUserId) {
+      toast({ title: "批量删除失败", description: "请先登录", variant: "destructive" });
+      return;
+    }
+    const userId = sessionUserId;
     const ids = Array.from(selectedIds);
     const idSet = new Set(ids);
     const ok = await showConfirm({
@@ -527,13 +549,13 @@ export default function NotesPage() {
     if (!ok) return;
     // 离线队列里尚未落库的条目只在本地存在：不进服务端垃圾桶 RPC，
     // 单独按"丢弃离线草稿"如实计数
-    const offlineIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
+    const offlineIds = new Set(readNoteCreates(localStorage, userId).map((op) => op.note.id));
     const serverIds = ids.filter((id) => !offlineIds.has(id));
     const offlineCount = ids.length - serverIds.length;
     // X1：离线删除——草稿直接丢弃，服务端已有笔记入删除队列，联网回放
     const offlineBatchDelete = () => {
-      if (offlineCount > 0) ids.forEach((id) => removeNoteCreate(localStorage, id));
-      serverIds.forEach((id) => enqueueNoteDelete(localStorage, id));
+      if (offlineCount > 0) ids.forEach((id) => removeNoteCreate(localStorage, userId, id));
+      serverIds.forEach((id) => enqueueNoteDelete(localStorage, userId, id));
       refreshPendingOps();
       setNotes((prev) => removeNotes(prev, idSet));
       exitSelection();
@@ -555,7 +577,7 @@ export default function NotesPage() {
       if (offlineCount > 0) {
         // 丢弃离线草稿要真实生效：同步移出队列并刷新计数，
         // 否则 pendingCreatesAsNotes 会把它们重新合并回列表、联网后被回放插入
-        ids.forEach((id) => removeNoteCreate(localStorage, id));
+        ids.forEach((id) => removeNoteCreate(localStorage, userId, id));
         refreshPendingOps();
       }
       setNotes((prev) => removeNotes(prev, idSet));
@@ -600,7 +622,9 @@ export default function NotesPage() {
   const handleSelectAllVisible = () => {
     // 排除仍在离线队列、尚未落库的条目：全选后批量删除/置顶对它们必然无效，
     // 却会提示"成功处理 N 篇"，制造假成功
-    const pendingIds = new Set(readNoteCreates(localStorage).map((op) => op.note.id));
+    const pendingIds = new Set(
+      sessionUserId ? readNoteCreates(localStorage, sessionUserId).map((op) => op.note.id) : []
+    );
     selectAll(notes.filter((n) => !pendingIds.has(n.id)).map((n) => n.id));
   };
 

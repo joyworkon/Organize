@@ -10,7 +10,7 @@ async function seed(page: Page, merged: boolean) {
       type: "tableCell", attrs: { colspan },
       content: [{ type: "paragraph", content: [{ type: "text", text }] }],
     });
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "column-resize", created_at: Date.now(), note: {
         id: "e2e-column-resize", user_id: "mock-user-0001", title: "表格列宽调整",
         content: { type: "doc", content: [{

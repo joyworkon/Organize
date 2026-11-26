@@ -4,7 +4,7 @@ async function seed(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("organize:onboarded", "1");
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "paste-embed", created_at: Date.now(), note: {
         id: "e2e-paste-embed", user_id: "mock-user-0001", title: "粘贴链接预览",
         content: { type: "doc", content: [

@@ -13,17 +13,30 @@ if (typeof globalThis.PointerEvent === "undefined") {
   (globalThis as { PointerEvent: typeof MouseEvent }).PointerEvent = MouseEvent;
 }
 
+const SESSION_USER_ID = "user-1";
+
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn() },
-  supabase: { __fake: true },
+  supabase: {
+    __fake: true,
+    // 删除要动按账号隔离的离线队列：组件经 useSessionUserId 读本地会话拿当前用户
+    auth: {
+      getSession: vi.fn<() => Promise<{ data: { session: { user: { id: string } } | null } }>>(
+        async () => ({ data: { session: { user: { id: SESSION_USER_ID } } } })
+      ),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
   createNewNote: vi.fn(),
   persistNoteMove: vi.fn(),
   persistNoteRename: vi.fn(),
   moveNoteToTrash: vi.fn(),
+  toast: vi.fn(),
   scrollIntoView: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => mocks.router }));
+vi.mock("@/hooks/use-toast", () => ({ toast: (...args: unknown[]) => mocks.toast(...args) }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: () => mocks.supabase }));
 vi.mock("@/lib/notes/create-note", () => ({
   createNewNote: (...args: unknown[]) => mocks.createNewNote(...args),
@@ -248,7 +261,7 @@ describe("SidebarNoteTree", () => {
     await act(async () => {
       menuItems().find((el) => el.textContent === "删除")!.click();
     });
-    expect(mocks.moveNoteToTrash).toHaveBeenCalledWith("other");
+    expect(mocks.moveNoteToTrash).toHaveBeenCalledWith(SESSION_USER_ID, "other");
     expect(container.querySelector('[data-sidebar-note-id="other"]')).toBeNull();
     expect(mocks.router.push).toHaveBeenCalledWith("/notes");
     confirmSpy.mockRestore();
@@ -262,6 +275,24 @@ describe("SidebarNoteTree", () => {
       menuItems().find((el) => el.textContent === "删除")!.click();
     });
     expect(mocks.moveNoteToTrash).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("删除：没有当前会话时不动任何人的离线队列，提示先登录", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.supabase.auth.getSession.mockResolvedValueOnce({ data: { session: null } });
+    await render();
+    openContextMenu(rowOf(container, "other"));
+    await act(async () => {
+      menuItems().find((el) => el.textContent === "删除")!.click();
+    });
+    // 离线队列按账号隔离：不知道是谁在删，就不能猜测该动谁的队列
+    expect(mocks.moveNoteToTrash).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-sidebar-note-id="other"]')).not.toBeNull();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "删除失败", description: "请先登录" })
+    );
     confirmSpy.mockRestore();
   });
 

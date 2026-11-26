@@ -7,7 +7,7 @@ async function seed(page: Page) {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { (window as unknown as { copiedMath: string }).copiedMath = value; } } });
     if (localStorage.getItem("math-controls-seeded")) return;
     localStorage.setItem("math-controls-seeded", "1");
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "math-controls", created_at: Date.now(), note: {
         id: "e2e-math-controls", user_id: "mock-user-0001", title: "公式编辑验证",
         content: { type: "doc", content: [

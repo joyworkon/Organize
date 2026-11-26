@@ -351,7 +351,11 @@ function NoteEditorContent({ noteId, invalidateRef }: {
     isCollabActive: () => collabConnectedRef.current,
     isOnline: () => isOnline(),
     isTaskNoteLinkEnabled,
-    createTransport: () => createSupabaseNoteSaveTransport(supabase, noteId),
+    createTransport: () => {
+      // hook 只在 accountId 就绪后才会调用；这里的空值分支只为收窄类型
+      if (!accountId) throw new Error("accountId 未就绪，不应创建保存会话");
+      return createSupabaseNoteSaveTransport(supabase, noteId, accountId);
+    },
     consumeSkipFlush: () => {
       try {
         const key = `organize:skip-flush:${noteId}`;
@@ -570,7 +574,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       } else {
         // X1-2B：服务端查不到（尚未回放的离线创建，或离线打开）→ 用队列载荷初始化编辑器；
         // 联网后 flushSave 的「先落创建再走乐观锁保存」管线负责落库。
-        const pending = findNoteCreate(localStorage, noteId);
+        const pending = findNoteCreate(localStorage, user.id, noteId);
         if (pending?.note.user_id === user.id) {
           noteRoleRef.current = "owner";
           setNoteRole("owner");
@@ -806,7 +810,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       saveSession.queueSave();
     }
     // 离线创建滞留队列：在线→立即补交创建；离线→如实点亮“待同步”（不制造 dirty）
-    if (findNoteCreate(localStorage, noteId) && !recoveryDraft) {
+    if (findNoteCreate(localStorage, saveSession.accountId, noteId) && !recoveryDraft) {
       if (isOnline()) saveSession.queueSave();
       else saveSession.markOfflinePending();
     }
@@ -816,7 +820,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
   useEffect(() => {
     if (!saveSession || recoveryDraft) return;
     if (online) {
-      if (saveSession.isDirty() || findNoteCreate(localStorage, noteId)) void saveSession.flush();
+      if (saveSession.isDirty() || findNoteCreate(localStorage, saveSession.accountId, noteId)) void saveSession.flush();
     } else if (saveSession.isDirty()) {
       saveSession.markOfflinePending();
     }
@@ -1394,6 +1398,11 @@ function NoteEditorContent({ noteId, invalidateRef }: {
 
   /** 删除当前页（移入垃圾箱，可恢复） */
   const deleteNote = useCallback(async () => {
+    // 离线队列按账号隔离存储 key：没有当前账号就无从判断该动谁的队列
+    if (!accountId) {
+      showToast("请先登录");
+      return;
+    }
     const confirmed = await showConfirm({
       title: "将这篇笔记移入垃圾箱？",
       confirmText: "移入垃圾箱",
@@ -1410,10 +1419,10 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       window.dispatchEvent(
         new CustomEvent("organize:note-tab-remove", { detail: { id: noteId } })
       );
-      if (findNoteCreate(localStorage, noteId)) {
-        removeNoteCreate(localStorage, noteId);
+      if (findNoteCreate(localStorage, accountId, noteId)) {
+        removeNoteCreate(localStorage, accountId, noteId);
       } else {
-        enqueueNoteDelete(localStorage, noteId);
+        enqueueNoteDelete(localStorage, accountId, noteId);
       }
       showToast("已离线删除，联网后自动同步");
       router.push("/notes");
@@ -1430,7 +1439,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       );
       // 仍在离线创建队列里的笔记（服务端还没有）：必须同步移出队列，
       // 否则联网回放会把这篇已删除的笔记重新插进服务端（列表页也会一直显示它）
-      removeNoteCreate(localStorage, noteId);
+      removeNoteCreate(localStorage, accountId, noteId);
       router.push("/notes");
     } catch (error) {
       // X1：网络错误按离线删除处理——入队待回放
@@ -1440,7 +1449,7 @@ function NoteEditorContent({ noteId, invalidateRef }: {
       }
       showToast("删除失败");
     }
-  }, [noteId, router, saveSession, showToast]);
+  }, [accountId, noteId, router, saveSession, showToast]);
 
   /** 移动笔记：先更新本地状态，再交给统一 revision 保存处理。 */
   const handleMove = useCallback(

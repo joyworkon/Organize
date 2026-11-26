@@ -10,7 +10,7 @@ async function seed(page: Page) {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { (window as unknown as { copiedMermaid: string }).copiedMermaid = value; } } });
     if (localStorage.getItem("mermaid-controls-seeded")) return;
     localStorage.setItem("mermaid-controls-seeded", "1");
-    localStorage.setItem("organize:offline:note-creates:v1", JSON.stringify([{
+    localStorage.setItem("organize:offline:note-creates:v1:mock-user-0001", JSON.stringify([{
       op_id: "mermaid-controls", created_at: Date.now(), note: {
         id: "e2e-mermaid-controls", user_id: "mock-user-0001", title: "Mermaid 图表编辑验证",
         content: { type: "doc", content: [
